@@ -141,7 +141,7 @@
   },
   "reportSlots": [
     {
-      "time": "08:00",
+      "time": "08:30",
       "role": "Daily goal opening",
       "expectedInterventions": ["CHANGE_PROJECT", "SET_PROJECT_GOAL", "SET_TASK_GOAL", "REQUEST_OWNER_GOAL_STATEMENT"]
     },
