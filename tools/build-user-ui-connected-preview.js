@@ -15,6 +15,8 @@ const notionToken = process.env.NOTION_TOKEN;
 if (!notionToken) {
   throw new Error('NOTION_TOKEN is required in the project .env to build a connected User UI preview.');
 }
+const lineChannelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN || projectEnv('LINE_CHANNEL_ACCESS_TOKEN') || '';
+const userUiMediaDir = path.join(path.dirname(outputPath), 'user-ui-media');
 
 const dataSources = {
   projectMaster: projectEnv('PROJECTS_DATA_SOURCE_ID') || args.projectDataSourceId || '',
@@ -63,7 +65,7 @@ for (const [key, id] of Object.entries(dataSources)) {
 }
 
 const conversations = mapConversations(data.conversations);
-const messages = mapMessages(data.messages);
+const messages = await mapMessages(data.messages);
 const conversationById = new Map(conversations.map((item) => [item.id, item]));
 const messageById = new Map(messages.map((item) => [item.id, item]));
 
@@ -219,6 +221,15 @@ async function pageContentPreview(pageId) {
   }
 }
 
+async function pageMediaFiles(pageId) {
+  try {
+    const blocks = await listBlocks(pageId, 80);
+    return blocks.map(blockToMedia).filter(Boolean).slice(0, 8);
+  } catch {
+    return [];
+  }
+}
+
 async function listBlocks(blockId, limit) {
   const blocks = [];
   let cursor = null;
@@ -232,6 +243,20 @@ async function listBlocks(blockId, limit) {
   return blocks;
 }
 
+function blockToMedia(block) {
+  const data = block?.[block.type];
+  if (!data) return null;
+  if (!['image', 'file', 'pdf', 'video'].includes(block.type)) return null;
+  const url = data.file?.url || data.external?.url || '';
+  if (!url) return null;
+  const caption = plain(data.caption || []);
+  return {
+    type: block.type,
+    name: data.name || caption || block.type,
+    url,
+  };
+}
+
 function blockToLine(block) {
   const data = block?.[block.type];
   const text = plain(data?.rich_text || data?.caption || []);
@@ -241,6 +266,72 @@ function blockToLine(block) {
   if (block.type === 'numbered_list_item') return `1. ${text}`;
   if (block.type === 'to_do') return `${data.checked ? '[x]' : '[ ]'} ${text}`;
   return text;
+}
+
+function shouldLoadPageMedia(type, content) {
+  const text = `${type || ''} ${content || ''}`.toLowerCase();
+  return /\b(image|file|pdf|video)\b|\"type\"\s*:\s*\"(image|file|video)\"/.test(text);
+}
+
+function extractLineMessageId(content) {
+  const text = String(content || '');
+  try {
+    const parsed = JSON.parse(text);
+    const id = parsed?.message?.id || parsed?.id || '';
+    if (id) return String(id);
+  } catch {
+    // Fall through to lightweight extraction for truncated or embedded payloads.
+  }
+  return text.match(/"message"\s*:\s*\{[^}]*"id"\s*:\s*"([^"]+)"/)?.[1]
+    || text.match(/"LINE 訊息 ID"\s*:\s*"([^"]+)"/)?.[1]
+    || text.match(/\[(?:image|file|video|audio)\]\s*([0-9]{10,})/i)?.[1]
+    || extractLikelyLineMessageId(text)
+    || '';
+}
+
+function extractLikelyLineMessageId(value) {
+  return String(value || '').trim().match(/^[0-9]{10,}$/)?.[0] || '';
+}
+
+async function downloadLineMessageMedia(lineMessageId, type, nameHint = '') {
+  if (!lineChannelAccessToken || !lineMessageId) return [];
+  if (!/^(image|file|video|audio)$/i.test(String(type || ''))) return [];
+  try {
+    mkdirSync(userUiMediaDir, { recursive: true });
+    const response = await fetch(`https://api-data.line.me/v2/bot/message/${encodeURIComponent(lineMessageId)}/content`, {
+      headers: { Authorization: `Bearer ${lineChannelAccessToken}` },
+    });
+    if (!response.ok) return [];
+    const contentType = response.headers.get('content-type') || '';
+    const extension = mediaExtension(contentType, nameHint, type);
+    const fileName = `${safeFileName(lineMessageId)}${extension}`;
+    const absolutePath = path.join(userUiMediaDir, fileName);
+    writeFileSync(absolutePath, Buffer.from(await response.arrayBuffer()));
+    return [{
+      type: contentType.startsWith('image/') ? 'image' : String(type || 'file'),
+      name: nameHint || fileName,
+      url: `user-ui-media/${fileName}`,
+    }];
+  } catch {
+    return [];
+  }
+}
+
+function mediaExtension(contentType, nameHint, type) {
+  const fromName = String(nameHint || '').match(/\.(png|jpe?g|gif|webp|bmp|heic|pdf|xlsx?|docx?|pptx?|txt)(?:$|\s|\?)/i)?.[0]?.trim();
+  if (fromName) return fromName.startsWith('.') ? fromName : `.${fromName}`;
+  const lowerType = String(contentType || '').toLowerCase();
+  if (lowerType.includes('jpeg')) return '.jpg';
+  if (lowerType.includes('png')) return '.png';
+  if (lowerType.includes('gif')) return '.gif';
+  if (lowerType.includes('webp')) return '.webp';
+  if (lowerType.includes('pdf')) return '.pdf';
+  if (String(type || '').toLowerCase() === 'image') return '.jpg';
+  return '.bin';
+}
+
+function safeFileName(value) {
+  return String(value || 'media').replace(/[^a-zA-Z0-9._-]/g, '_');
 }
 
 function plain(items) {
@@ -392,18 +483,33 @@ function mapConversations(pages) {
   }));
 }
 
-function mapMessages(pages) {
-  return pages.map((page) => ({
-    id: page.id,
-    conversationIds: relationIds(page, '對話主檔'),
-    speaker: pageText(page, '發話者名稱') || pageText(page, '發話者類型') || '',
-    type: pageText(page, '訊息類型') || '',
-    source: pageText(page, '訊息來源') || '',
-    content: pageText(page, '原始內容') || pageText(page, '原始 payload') || pageTitle(page),
-    judged: pageText(page, '已進入判斷層') || '',
-    related: pageText(page, '關聯總控事件') || '',
-    url: pageUrl(page),
-  }));
+async function mapMessages(pages) {
+  const mapped = [];
+  for (const page of pages) {
+    const type = pageText(page, '訊息類型') || '';
+    const rawPayload = pageText(page, '原始 payload') || '';
+    const content = pageText(page, '原始內容') || rawPayload || pageText(page, '文字內容') || pageTitle(page);
+    const lineMessageId = pageText(page, 'LINE 訊息 ID')
+      || extractLineMessageId(rawPayload)
+      || extractLineMessageId(content)
+      || extractLikelyLineMessageId(pageTitle(page));
+    const pageMedia = shouldLoadPageMedia(type, content) ? await pageMediaFiles(page.id) : [];
+    const lineMedia = pageMedia.length ? [] : await downloadLineMessageMedia(lineMessageId, type, pageText(page, '文字內容') || pageTitle(page));
+    mapped.push({
+      id: page.id,
+      lineMessageId,
+      conversationIds: relationIds(page, '對話主檔'),
+      speaker: pageText(page, '發話者名稱') || pageText(page, '發話者類型') || '',
+      type,
+      source: pageText(page, '訊息來源') || '',
+      content,
+      media: [...pageMedia, ...lineMedia],
+      judged: pageText(page, '已進入判斷層') || '',
+      related: pageText(page, '關聯總控事件') || '',
+      url: pageUrl(page),
+    });
+  }
+  return mapped;
 }
 
 function mapAttachments(pages, context = {}) {
@@ -419,6 +525,7 @@ function mapAttachments(pages, context = {}) {
     project: pageText(page, '關聯專案') || '',
     conversionUrl: pageText(page, '關聯轉檔頁') || '',
     url: pageUrl(page),
+    lineMessageId: pageText(page, 'LINE 訊息 ID') || '',
     messageIds: relationIds(page, '訊息紀錄'),
     conversationIds: relationIds(page, '對話主檔'),
   })).map((item) => {
@@ -538,6 +645,23 @@ function cards(items, renderer) {
   return items.map(renderer).join('');
 }
 
+function renderSideNav(basePath = '') {
+  const base = String(basePath || '');
+  return `<nav class="nav">
+        <a href="${base}#overview" data-view="overview">檔案總覽</a>
+        <a href="${base}#projects" data-view="projects">所有專案</a>
+        <a href="${base}#tasks" data-view="tasks">所有任務</a>
+        <a href="${base}#line" data-view="line">LINE 群組與訊息</a>
+        <a href="${base}#attachments" data-view="attachments">附件與檔案</a>
+        <a href="${base}#meetings" data-view="meetings">會議紀錄</a>
+        <a href="${base}#reports" data-view="reports">每日/進度報告</a>
+        <a href="${base}#rules" data-view="rules">判斷規則</a>
+        <a href="${base}#calibration" data-view="calibration">任務校準案例</a>
+        <a href="${base}#env" data-view="env">Environment data</a>
+        <a href="${base}#databases" data-view="databases">Database map</a>
+      </nav>`;
+}
+
 function renderHtml(model) {
   return `<!doctype html>
 <html lang="zh-Hant">
@@ -616,19 +740,7 @@ function renderHtml(model) {
   <div class="shell">
     <aside>
       <div class="brand">AM User UI<br><span class="muted">${escapeHtml(model.projectName)}</span></div>
-      <nav class="nav">
-        <a href="#overview" data-view="overview">檔案總覽</a>
-        <a href="#projects" data-view="projects">所有專案</a>
-        <a href="#tasks" data-view="tasks">所有任務</a>
-        <a href="#line" data-view="line">LINE 群組與訊息</a>
-        <a href="#attachments" data-view="attachments">附件與檔案</a>
-        <a href="#meetings" data-view="meetings">會議紀錄</a>
-        <a href="#reports" data-view="reports">每日/進度報告</a>
-        <a href="#rules" data-view="rules">判斷規則</a>
-        <a href="#calibration" data-view="calibration">任務校準案例</a>
-        <a href="#env" data-view="env">Environment data</a>
-        <a href="#databases" data-view="databases">Database map</a>
-      </nav>
+      ${renderSideNav('')}
     </aside>
     <main>
       <div class="top">
@@ -1051,6 +1163,10 @@ function renderProjectOnlyHtml(model, project, index) {
     button.secondary { background:#fff; color:#1d4ed8; }
     button:disabled { opacity:.55; cursor:not-allowed; }
     .save-status { color:var(--muted); font-size:13px; }
+    .project-task-toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:center; padding:12px; border:1px solid var(--line); border-radius:8px; background:#fbfcfe; margin:12px 0 14px; }
+    .filter-label { color:var(--muted); font-size:13px; font-weight:850; margin-right:2px; }
+    .status-check { display:inline-flex; gap:6px; align-items:center; min-height:32px; cursor:pointer; user-select:none; }
+    .status-check input { width:16px; min-height:16px; accent-color:#2563eb; cursor:pointer; }
     table { width:100%; border-collapse:collapse; background:#fff; }
     th,td { padding:10px 9px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; font-size:14px; }
     th { background:#f9fbfd; color:#344253; font-size:13px; font-weight:850; width:140px; }
@@ -1063,15 +1179,10 @@ function renderProjectOnlyHtml(model, project, index) {
   <div class="shell">
     <aside>
       <div class="brand">AM User UI<br><span class="muted">${escapeHtml(model.projectName)}</span></div>
-      <nav class="nav">
-        <a href="user-ui-connected-preview.html#projects">← 回到所有專案</a>
-        <a href="user-ui-connected-preview.html#tasks">所有任務</a>
-        <a href="user-ui-connected-preview.html#line">LINE 群組與訊息</a>
-        <a href="user-ui-connected-preview.html#meetings">會議紀錄</a>
-      </nav>
+      ${renderSideNav('user-ui-connected-preview.html')}
     </aside>
     <main>
-      <p><a href="user-ui-connected-preview.html#projects">← 回到所有專案</a></p>
+      <p><a href="user-ui-connected-preview.html#projects" data-back-link>← 回到上一頁</a></p>
       <h1>${escapeHtml(project.name)}</h1>
       <p>
         <span class="badge ${statusClass(project.status)}">${escapeHtml(project.status || 'No status')}</span>
@@ -1098,18 +1209,41 @@ function renderProjectOnlyHtml(model, project, index) {
       <section class="section">
         <h2>這個專案下面的任務</h2>
         <p class="muted">${escapeHtml(projectTasks.length ? `共 ${projectTasks.length} 筆任務。` : '目前沒有找到直接歸屬於這個專案的任務。')}</p>
+        <div class="project-task-toolbar" id="projectTaskStatusFilters">
+          <span class="filter-label">Status</span>
+          ${projectTaskStatusCheckboxes(projectTasks)}
+        </div>
+        <p id="projectTaskFilterSummary" class="muted"></p>
         <table>
           <thead><tr><th>Task</th><th>Status</th><th>Owner</th><th>Next step</th></tr></thead>
-          <tbody>${rows(projectTasks, [
-            { value: (item) => link(item.uiUrl, item.name), html: true },
-            { value: (item) => `<span class="badge ${statusClass(item.status)}">${escapeHtml(item.status)}</span>`, html: true },
-            { value: 'owner' },
-            { value: (item) => short(item.next, 150) },
-          ])}</tbody>
+          <tbody>${projectTaskRows(projectTasks)}</tbody>
         </table>
       </section>
     </main>
   </div>
+  <script>
+    function updateProjectTaskFilters() {
+      const checkedStatuses = new Set(Array.from(document.querySelectorAll('[data-project-status-checkbox]:checked')).map((input) => input.dataset.projectStatusCheckbox));
+      let visibleCount = 0;
+      document.querySelectorAll('[data-project-task-row]').forEach((row) => {
+        const visible = checkedStatuses.has(row.dataset.status);
+        row.style.display = visible ? '' : 'none';
+        if (visible) visibleCount += 1;
+      });
+      const summary = document.getElementById('projectTaskFilterSummary');
+      if (summary) summary.textContent = '目前顯示 ' + visibleCount + ' / ' + document.querySelectorAll('[data-project-task-row]').length + ' 筆任務。';
+    }
+    document.querySelectorAll('[data-project-status-checkbox]').forEach((input) => {
+      input.addEventListener('change', updateProjectTaskFilters);
+    });
+    updateProjectTaskFilters();
+    document.querySelector('[data-back-link]')?.addEventListener('click', (event) => {
+      if (window.history.length > 1) {
+        event.preventDefault();
+        window.history.back();
+      }
+    });
+  </script>
 </body>
 </html>`;
 }
@@ -1159,16 +1293,10 @@ function renderTaskOnlyHtml(model, task) {
   <div class="shell">
     <aside>
       <div class="brand">AM User UI<br><span class="muted">${escapeHtml(model.projectName)}</span></div>
-      <nav class="nav">
-        <a href="user-ui-connected-preview.html#tasks">← 回到所有任務</a>
-        <a href="user-ui-connected-preview.html#projects">所有專案</a>
-        ${project ? `<a href="${escapeHtml(project.uiUrl)}">所屬專案</a>` : ''}
-        <a href="user-ui-connected-preview.html#line">LINE 群組與訊息</a>
-        <a href="user-ui-connected-preview.html#meetings">會議紀錄</a>
-      </nav>
+      ${renderSideNav('user-ui-connected-preview.html')}
     </aside>
     <main>
-      <p><a href="user-ui-connected-preview.html#tasks">← 回到所有任務</a></p>
+      <p><a href="${project ? escapeHtml(project.uiUrl) : 'user-ui-connected-preview.html#tasks'}" data-back-link>← 回到上一頁</a></p>
       <h1>${escapeHtml(task.name)}</h1>
       <p>
         <span class="badge ${statusClass(task.status)}">${escapeHtml(task.status || 'No status')}</span>
@@ -1266,6 +1394,7 @@ function renderTaskOnlyHtml(model, task) {
   </div>
   <script>
     const taskPageId = ${jsString(task.id)};
+    const backLink = document.querySelector('[data-back-link]');
     const storagePrefix = 'sevenam-user-ui:';
     const apiInput = document.getElementById('apiBaseUrl');
     const editorInput = document.getElementById('editedBy');
@@ -1278,6 +1407,12 @@ function renderTaskOnlyHtml(model, task) {
     }
     if (savedApiBase) apiInput.value = savedApiBase;
     if (savedEditor) editorInput.value = savedEditor;
+    backLink?.addEventListener('click', (event) => {
+      if (window.history.length > 1) {
+        event.preventDefault();
+        window.history.back();
+      }
+    });
     document.getElementById('rememberApiButton').addEventListener('click', () => {
       localStorage.setItem(storagePrefix + 'apiBaseUrl', apiInput.value.trim());
       localStorage.setItem(storagePrefix + 'editedBy', editorInput.value.trim());
@@ -1357,6 +1492,10 @@ function renderConversationOnlyHtml(model, conversation) {
     th,td { padding:10px 9px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; font-size:14px; }
     th { background:#f9fbfd; color:#344253; font-size:13px; font-weight:850; }
     .preline { white-space:pre-wrap; }
+    .message-media { display:flex; flex-wrap:wrap; gap:10px; margin-bottom:8px; }
+    .message-media a { display:inline-flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; background:#f8fafc; }
+    .message-media img { display:block; width:180px; max-width:100%; max-height:180px; object-fit:cover; }
+    .message-file { padding:8px 10px; font-weight:800; }
     @media (max-width:980px) { .shell { grid-template-columns:1fr; } aside { position:static; height:auto; } }
   </style>
 </head>
@@ -1364,15 +1503,10 @@ function renderConversationOnlyHtml(model, conversation) {
   <div class="shell">
     <aside>
       <div class="brand">AM User UI<br><span class="muted">${escapeHtml(model.projectName)}</span></div>
-      <nav class="nav">
-        <a href="user-ui-connected-preview.html#line">← 回到 LINE 群組與訊息</a>
-        <a href="user-ui-connected-preview.html#projects">所有專案</a>
-        <a href="user-ui-connected-preview.html#tasks">所有任務</a>
-        <a href="user-ui-connected-preview.html#attachments">附件與檔案</a>
-      </nav>
+      ${renderSideNav('user-ui-connected-preview.html')}
     </aside>
     <main>
-      <p><a href="user-ui-connected-preview.html#line">← 回到 LINE 群組與訊息</a></p>
+      <p><a href="user-ui-connected-preview.html#line" data-back-link>← 回到上一頁</a></p>
       <h1>${escapeHtml(conversation.name || '(unnamed conversation)')}</h1>
       <p>
         ${(conversation.project || '未綁定專案').split(',').map((projectName) => `<span class="badge ${conversation.project ? 'ok' : 'wait'}">Project: ${escapeHtml(projectName.trim())}</span>`).join(' ')}
@@ -1398,7 +1532,7 @@ function renderConversationOnlyHtml(model, conversation) {
           <tbody>${rows(conversationMessages, [
             { value: 'speaker' },
             { value: 'type' },
-            { value: (item) => `<div class="preline">${escapeHtml(item.content || '')}</div>`, html: true },
+            { value: (item) => renderMessageContent(item, attachmentsForMessage(item, conversationAttachments)), html: true },
             { value: (item) => `<span class="badge ${item.judged === 'Yes' ? 'ok' : 'wait'}">${escapeHtml(item.judged || 'No')}</span>`, html: true },
           ])}</tbody>
         </table>
@@ -1418,6 +1552,14 @@ function renderConversationOnlyHtml(model, conversation) {
       </section>
     </main>
   </div>
+  <script>
+    document.querySelector('[data-back-link]')?.addEventListener('click', (event) => {
+      if (window.history.length > 1) {
+        event.preventDefault();
+        window.history.back();
+      }
+    });
+  </script>
 </body>
 </html>`;
 }
@@ -1461,6 +1603,45 @@ function taskTableRows(tasks) {
       <td>${escapeHtml(short(item.next, 140))}</td>
     </tr>
   `).join('');
+}
+
+function projectTaskStatusCheckboxes(tasks) {
+  if (!tasks.length) return '<span class="muted">No status.</span>';
+  const statuses = sortStatuses(uniqueValues(tasks.map((task) => task.status || 'No status')));
+  return statuses.map((status) => {
+    const count = tasks.filter((task) => (task.status || 'No status') === status).length;
+    return `<label class="status-check">
+      <input type="checkbox" checked data-project-status-checkbox="${escapeHtml(status)}">
+      <span class="badge ${statusClass(status)}">${escapeHtml(statusLabel(status))} (${count})</span>
+    </label>`;
+  }).join('');
+}
+
+function projectTaskRows(tasks) {
+  if (!tasks.length) return '<tr><td colspan="4" class="muted">No records.</td></tr>';
+  return sortTasksByStatus(tasks).map((item) => `
+    <tr data-project-task-row data-status="${escapeHtml(item.status || 'No status')}">
+      <td>${link(item.uiUrl, item.name)}</td>
+      <td><span class="badge ${statusClass(item.status)}">${escapeHtml(item.status || 'No status')}</span></td>
+      <td>${escapeHtml(item.owner || '')}</td>
+      <td>${escapeHtml(short(item.next, 150))}</td>
+    </tr>
+  `).join('');
+}
+
+function sortTasksByStatus(tasks) {
+  return [...tasks].sort((a, b) => {
+    const statusDiff = statusSortIndex(a.status) - statusSortIndex(b.status);
+    if (statusDiff !== 0) return statusDiff;
+    return String(a.name || '').localeCompare(String(b.name || ''), 'zh-Hant');
+  });
+}
+
+function statusSortIndex(status) {
+  const normalized = statusLabel(String(status || 'No status'));
+  const order = ['未開始', '待確認', '待回覆', '等待回覆', '進行中', '待確認完成', '已完成', '封存'];
+  const index = order.indexOf(normalized);
+  return index >= 0 ? index : 999;
 }
 
 function attachmentTableRows(attachments) {
@@ -1622,6 +1803,61 @@ function attachmentsForConversation(conversation, attachmentItems) {
     if (attachment.conversationIds?.some((id) => normalizeId(id) === conversationId)) return true;
     return normalizeName(attachment.conversationName) === normalizeName(conversation.name);
   });
+}
+
+function attachmentsForMessage(message, attachmentItems) {
+  return attachmentItems.filter((attachment) => {
+    if (attachment.messageIds?.some((id) => normalizeId(id) === normalizeId(message.id))) return true;
+    if (attachment.lineMessageId && message.lineMessageId && attachment.lineMessageId === message.lineMessageId) return true;
+    if (attachment.messageUrl && message.url && attachment.messageUrl === message.url) return true;
+    return false;
+  });
+}
+
+function renderMessageContent(message, attachments = []) {
+  const mediaItems = [
+    ...(message.media || []),
+    ...attachments.flatMap((attachment) => attachment.fileLinks || []).map((file) => ({
+      type: inferMediaType(file.name, file.url),
+      name: file.name,
+      url: file.url,
+    })),
+    ...attachments.filter((attachment) => attachment.source).map((attachment) => ({
+      type: inferMediaType(attachment.name, attachment.source),
+      name: attachment.name || '附件',
+      url: attachment.source,
+    })),
+  ].filter((item, index, list) => item.url && list.findIndex((other) => other.url === item.url) === index);
+  const mediaHtml = mediaItems.length ? `<div class="message-media">${mediaItems.map(renderMessageMedia).join('')}</div>` : '';
+  const fallback = isRawMediaPayload(message.content, mediaItems)
+    ? `[${message.type || 'media'}] ${message.lineMessageId || ''}`.trim()
+    : (message.content || '');
+  return `${mediaHtml}<div class="preline">${escapeHtml(fallback)}</div>`;
+}
+
+function renderMessageMedia(item) {
+  const label = item.name || 'Open media';
+  if (isImageMedia(item)) {
+    return `<a href="${escapeHtml(item.url)}" target="_blank" rel="noopener" title="${escapeHtml(label)}"><img src="${escapeHtml(item.url)}" alt="${escapeHtml(label)}"></a>`;
+  }
+  return `<a class="message-file" href="${escapeHtml(item.url)}" target="_blank" rel="noopener">${escapeHtml(label)}</a>`;
+}
+
+function inferMediaType(name, url) {
+  const value = `${name || ''} ${url || ''}`.toLowerCase();
+  if (/\.(png|jpe?g|gif|webp|bmp|heic)(\?|#|$)/.test(value)) return 'image';
+  if (/image\//.test(value)) return 'image';
+  if (/\.pdf(\?|#|$)/.test(value)) return 'pdf';
+  return 'file';
+}
+
+function isImageMedia(item) {
+  return item.type === 'image' || inferMediaType(item.name, item.url) === 'image';
+}
+
+function isRawMediaPayload(content, mediaItems) {
+  const text = String(content || '').trim();
+  return Boolean(mediaItems.length && /^\{[\s\S]*"message"\s*:\s*\{[\s\S]*"type"\s*:\s*"(image|file|video)"/.test(text));
 }
 
 function renderProjectConversationLinks(project, conversationItems) {

@@ -1,0 +1,42 @@
+{
+  "id": "AM-IMP-2026.0609.02",
+  "name": "Thread-first hourly task judgment",
+  "type": "Governance / LINE task judgment runtime",
+  "portable": true,
+  "requiresDatabases": [
+    "PROJECT_LINE_MESSAGES_DATA_SOURCE_ID",
+    "PROJECT_LINE_CONVERSATIONS_DATA_SOURCE_ID",
+    "PROJECT_TOTAL_CONTROL_TASK_DATA_SOURCE_ID",
+    "PROJECT_PROGRESS_REPORTS_DATA_SOURCE_ID"
+  ],
+  "requiresEnv": [
+    "NOTION_TOKEN"
+  ],
+  "requiresScripts": [
+    "scripts/verify-thread-first-task-judgement.js"
+  ],
+  "installTargets": [
+    "HOZO_AM",
+    "SEVEN_HOZO_AM",
+    "SEVEN_AM"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyRules": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Hourly LINE task judgment loads same-conversation context before judging messages",
+    "Conversation master project assignment or context-derived project inference is used before generic text guessing",
+    "Assistant operation commands and setup/background messages do not create total-control tasks",
+    "Active related tasks are searched before task creation",
+    "Archived, completed, cancelled, or deprecated tasks are not selected as active matches",
+    "Project-specific topic patterns can require contextual matching and bypass generic keyword matching",
+    "Duplicate candidates created in the same run are merged into one task",
+    "Evidence is recorded when an existing task is updated",
+    "Dry-run verification demonstrates update-vs-create behavior for at least one project-local conversation thread"
+  ]
+}
+
