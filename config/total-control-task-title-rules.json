@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "registryName": "AM total-control task title writing rules",
+  "updatedAt": "2026-06-08",
+  "purpose": "Define human-readable title rules for tasks created in project-local total-control task databases.",
+  "rules": [
+    {
+      "key": "NO_TECHNICAL_IDS_IN_TITLE",
+      "label": "Do not put technical IDs in task titles",
+      "required": true,
+      "description": "Notion page IDs, LINE group IDs, LINE room IDs, LINE user IDs, message IDs, and sync IDs must stay in source/debug fields, not in the human-readable task title."
+    },
+    {
+      "key": "USE_HUMAN_CONVERSATION_LABEL",
+      "label": "Use human conversation labels",
+      "required": true,
+      "description": "When a task comes from LINE, use the conversation display name, custom name, or speaker name in the task title when it helps context."
+    },
+    {
+      "key": "USE_ACTIONABLE_SUBJECT",
+      "label": "Use an actionable subject",
+      "required": true,
+      "description": "The title should summarize what the controller needs to decide or do, such as confirming site visit time, requesting missing case data, or assigning a responsible owner."
+    },
+    {
+      "key": "KEEP_TRACEABILITY_IN_SOURCE_FIELDS",
+      "label": "Keep traceability outside the title",
+      "required": true,
+      "description": "Source Notion URLs, LINE message URLs, conversation page IDs, and sync IDs should remain in source text, relation, URL, or debug fields so the system can trace them without confusing the operator."
+    }
+  ],
+  "blockedTitlePatterns": [
+    "\\\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\\\b",
+    "\\\\b[0-9a-f]{32}\\\\b",
+    "\\\\b[CUR][0-9a-f]{32}\\\\b",
+    "\\\\bline:[^\\\\s，。,.：:]+"
+  ],
+  "examples": [
+    {
+      "bad": "未分類：判斷 <source-page-id> 4. 餐廳 這些資訊可不可以提供給我？",
+      "good": "未分類：Andy & Seven：西頭案件：補充資料評估"
+    },
+    {
+      "bad": "營運：判斷 Ca831a60c5cb2fd673ac65855e8c638f9 安排現場查看",
+      "good": "營運：Andy & Seven：安排現場查看時間"
+    }
+  ]
+}

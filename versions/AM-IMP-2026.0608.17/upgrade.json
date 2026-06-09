@@ -1,0 +1,28 @@
+{
+  "id": "AM-IMP-2026.0608.17",
+  "name": "Task dossier and subtask hierarchy architecture",
+  "type": "Governance / Task control",
+  "portable": true,
+  "requiresDatabases": [
+    "PROJECT_TOTAL_CONTROL_TASK_DATA_SOURCE_ID"
+  ],
+  "requiresEnv": [
+    "NOTION_TOKEN"
+  ],
+  "requiresScripts": [],
+  "installTargets": ["HOZO_AM", "SEVEN_AM"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "AMCore defines total-control tasks as execution dossiers, not flat to-do rows",
+    "The task database has a self-relation field named 母任務",
+    "The task database exposes the reciprocal self-relation field named 子任務",
+    "Parent task completion is gated by child task closure or explicit cancellation/transfer",
+    "Task pages preserve conversation, file, meeting, and report evidence in the body",
+    "Project manifests and upgrade records are updated without copying project data into AMCore"
+  ]
+}

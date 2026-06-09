@@ -1,0 +1,23 @@
+{
+  "id": "AM-IMP-2026.0608.03",
+  "name": "LINE task-query reply command",
+  "type": "LINE command",
+  "portable": true,
+  "requiresDatabases": ["PROJECT_TASKS_DATA_SOURCE_ID"],
+  "requiresEnv": ["PROJECT_TASKS_DATA_SOURCE_ID", "PROJECT_COMMAND_TRIGGERS"],
+  "requiresScripts": [],
+  "installTargets": ["HOZO_AM", "SEVEN_AM"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Task query command is recognized",
+    "Open tasks are queried from the project-local task database",
+    "Reply text is sent to the same LINE conversation",
+    "Project manifest is updated"
+  ]
+}
+

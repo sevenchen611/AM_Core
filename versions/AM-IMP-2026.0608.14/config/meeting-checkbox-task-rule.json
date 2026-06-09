@@ -1,0 +1,16 @@
+{
+  "ruleId": "meeting-checkbox-is-confirmed-task",
+  "source": "meeting-record",
+  "trigger": "checkbox",
+  "taskText": "text immediately after the checkbox",
+  "requiresExtraConfirmation": false,
+  "defaultSource": "會議",
+  "confirmationStatus": "已確認",
+  "duplicateKey": ["meetingReference", "taskText"],
+  "acceptedMarkers": ["[ ]", "[x]", "[X]", "□", "☐", "☑", "✅"],
+  "dataBoundary": {
+    "storeLiveMeetingDataInAMCore": false,
+    "storeLiveTaskDataInAMCore": false,
+    "copyProjectDataBetweenProjects": false
+  }
+}

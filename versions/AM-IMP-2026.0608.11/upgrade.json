@@ -1,0 +1,30 @@
+{
+  "id": "AM-IMP-2026.0608.11",
+  "name": "Report intervention action standard",
+  "type": "Reporting",
+  "portable": true,
+  "requiresDatabases": [
+    "PROJECT_REPORT_SNAPSHOT_DATA_SOURCE_ID",
+    "PROJECT_TOTAL_CONTROL_TASK_DATA_SOURCE_ID",
+    "PROJECT_PROGRESS_REPORT_DATA_SOURCE_ID"
+  ],
+  "requiresEnv": [
+    "NOTION_TOKEN"
+  ],
+  "requiresScripts": [],
+  "installTargets": ["HOZO_AM", "SEVEN_AM"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "The report intervention action registry is installed in the target project",
+    "Report candidate items expose the six standard controller actions",
+    "Controller decisions are recorded using stable action keys, not display text",
+    "Project-local Notion fields exist for decision status, action, overrides, notes, and resulting task links",
+    "Each scheduled report slot can act as a controller intervention window",
+    "Project manifest and upgrade record are updated after local verification"
+  ]
+}

@@ -1,0 +1,1440 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AM User UI</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --panel: #ffffff;
+      --ink: #17202a;
+      --muted: #5c6876;
+      --line: #d8dee8;
+      --line-strong: #b8c2d2;
+      --blue: #2563eb;
+      --blue-soft: #e8f0ff;
+      --green: #12805c;
+      --green-soft: #e8f6ef;
+      --amber: #a15c00;
+      --amber-soft: #fff2d8;
+      --red: #b42318;
+      --red-soft: #fff0ee;
+      --shadow: 0 12px 32px rgba(26, 40, 62, .08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background: var(--bg);
+      font-family: "Segoe UI", "Noto Sans TC", Arial, sans-serif;
+      letter-spacing: 0;
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .login-screen {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: minmax(320px, 440px) 1fr;
+      background:
+        linear-gradient(90deg, rgba(255, 255, 255, .92), rgba(255, 255, 255, .78)),
+        url("https://images.unsplash.com/photo-1497366754035-f200968a6e72?auto=format&fit=crop&w=1800&q=80") center / cover;
+    }
+
+    .login-panel {
+      background: rgba(255, 255, 255, .96);
+      border-right: 1px solid rgba(216, 222, 232, .88);
+      padding: 44px 36px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    .brand {
+      margin-bottom: 28px;
+    }
+
+    .brand-mark {
+      width: 42px;
+      height: 42px;
+      display: inline-grid;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--blue);
+      font-weight: 800;
+      margin-bottom: 14px;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      margin-bottom: 8px;
+      font-size: 29px;
+      line-height: 1.18;
+    }
+
+    h2 {
+      margin-bottom: 12px;
+      font-size: 22px;
+      line-height: 1.25;
+    }
+
+    h3 {
+      margin-bottom: 8px;
+      font-size: 16px;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .field {
+      margin-bottom: 16px;
+    }
+
+    .field label {
+      display: block;
+      margin-bottom: 7px;
+      color: #2c3745;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .input,
+    .select,
+    textarea {
+      width: 100%;
+      min-height: 42px;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--ink);
+      padding: 10px 12px;
+      outline: none;
+    }
+
+    textarea {
+      min-height: 88px;
+      resize: vertical;
+    }
+
+    .input:focus,
+    .select:focus,
+    textarea:focus {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, .16);
+    }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .btn {
+      min-height: 40px;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      background: var(--panel);
+      color: var(--ink);
+      padding: 9px 13px;
+      font-weight: 700;
+    }
+
+    .btn.primary {
+      border-color: var(--blue);
+      background: var(--blue);
+      color: #fff;
+    }
+
+    .btn.ghost {
+      border-color: transparent;
+      background: transparent;
+      color: var(--blue);
+    }
+
+    .btn.small {
+      min-height: 32px;
+      padding: 6px 10px;
+      font-size: 13px;
+    }
+
+    .login-aside {
+      padding: 44px;
+      display: flex;
+      align-items: flex-end;
+    }
+
+    .aside-copy {
+      max-width: 580px;
+      background: rgba(255, 255, 255, .84);
+      border: 1px solid rgba(216, 222, 232, .82);
+      border-radius: 8px;
+      padding: 22px;
+      box-shadow: var(--shadow);
+    }
+
+    .shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 260px 1fr;
+    }
+
+    .sidebar {
+      background: #ffffff;
+      border-right: 1px solid var(--line);
+      padding: 22px 18px;
+    }
+
+    .sidebar-top {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 16px;
+    }
+
+    .sidebar-title {
+      font-size: 15px;
+      font-weight: 800;
+    }
+
+    .nav-button {
+      width: 100%;
+      min-height: 40px;
+      text-align: left;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: transparent;
+      color: #2f3a48;
+      padding: 9px 10px;
+      margin-bottom: 6px;
+    }
+
+    .nav-button.active {
+      border-color: #c9d7f5;
+      background: var(--blue-soft);
+      color: #123e9c;
+      font-weight: 800;
+    }
+
+    .project-list {
+      margin-top: 18px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+
+    .content {
+      min-width: 0;
+      padding: 26px 28px 42px;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: flex-start;
+      margin-bottom: 22px;
+    }
+
+    .topbar h1 {
+      margin-bottom: 5px;
+    }
+
+    .user-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      padding: 6px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      white-space: nowrap;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 18px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(140px, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .metric {
+      min-height: 86px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .metric-value {
+      font-size: 22px;
+      font-weight: 850;
+      line-height: 1.2;
+    }
+
+    .section {
+      margin-top: 18px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: 0 6px 16px rgba(21, 35, 54, .04);
+    }
+
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .env-table,
+    .version-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th,
+    td {
+      padding: 11px 10px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      font-size: 14px;
+    }
+
+    th {
+      color: #344253;
+      background: #f9fbfd;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .mono {
+      font-family: Consolas, "SFMono-Regular", Menlo, monospace;
+      font-size: 13px;
+      word-break: break-all;
+    }
+
+    .tag {
+      display: inline-flex;
+      min-height: 24px;
+      align-items: center;
+      padding: 3px 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: #fff;
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .tag.ready {
+      border-color: #b9d5c4;
+      background: var(--green-soft);
+      color: var(--green);
+    }
+
+    .tag.installed {
+      border-color: #b8cdfa;
+      background: var(--blue-soft);
+      color: #1e4fb4;
+    }
+
+    .tag.blocked {
+      border-color: #f0c5bd;
+      background: var(--red-soft);
+      color: var(--red);
+    }
+
+    .tag.review {
+      border-color: #f4d49d;
+      background: var(--amber-soft);
+      color: var(--amber);
+    }
+
+    .doc-link {
+      color: #174ea6;
+      text-decoration: none;
+      font-weight: 800;
+    }
+
+    .doc-link:hover,
+    .doc-link:focus {
+      text-decoration: underline;
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: minmax(280px, 420px) 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+
+    .work-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(220px, 1fr));
+      gap: 14px;
+    }
+
+    .item-card {
+      min-height: 138px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .item-card h3 {
+      margin-bottom: 6px;
+      line-height: 1.35;
+    }
+
+    .card-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 10px 0;
+    }
+
+    .timeline {
+      display: grid;
+      gap: 10px;
+    }
+
+    .timeline-item {
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-left: 5px solid var(--blue);
+      border-radius: 6px;
+      background: #fff;
+    }
+
+    .message-bubble {
+      margin-top: 8px;
+      padding: 10px 12px;
+      border: 1px solid #e2e7ef;
+      border-radius: 8px;
+      background: #f9fbfd;
+    }
+
+    .rule-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(260px, 1fr));
+      gap: 12px;
+    }
+
+    .database-map {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(260px, 1fr));
+      gap: 12px;
+    }
+
+    .empty-state {
+      padding: 24px;
+      border: 1px dashed var(--line-strong);
+      border-radius: 8px;
+      color: var(--muted);
+      text-align: center;
+      background: #fbfcfe;
+    }
+
+    .admin-form {
+      display: grid;
+      gap: 12px;
+    }
+
+    .notice {
+      margin: 12px 0;
+      padding: 12px 14px;
+      border: 1px solid #bdd4ff;
+      border-left: 5px solid var(--blue);
+      border-radius: 6px;
+      background: #f1f6ff;
+      color: #173d7a;
+      font-size: 14px;
+    }
+
+    .warning {
+      border-color: #f1ca89;
+      border-left-color: var(--amber);
+      background: #fff8ec;
+      color: #6f4300;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    @media (max-width: 980px) {
+      .login-screen,
+      .shell,
+      .split,
+      .work-grid,
+      .rule-grid,
+      .database-map {
+        grid-template-columns: 1fr;
+      }
+
+      .login-aside {
+        display: none;
+      }
+
+      .sidebar {
+        position: static;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .status-grid {
+        grid-template-columns: repeat(2, minmax(140px, 1fr));
+      }
+    }
+
+    @media (max-width: 620px) {
+      .content,
+      .login-panel {
+        padding: 22px 16px;
+      }
+
+      .topbar,
+      .section-header {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .status-grid {
+        grid-template-columns: 1fr;
+      }
+
+      th:nth-child(4),
+      td:nth-child(4) {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main id="loginScreen" class="login-screen">
+    <section class="login-panel">
+      <div class="brand">
+        <div class="brand-mark">AM</div>
+        <h1>AM User UI</h1>
+        <p class="muted">登入後依權限查看專案環境設定、可安裝版本與開發者設定。</p>
+      </div>
+
+      <form id="loginForm">
+        <div class="field">
+          <label for="username">Username</label>
+          <input id="username" class="input" autocomplete="username" value="admin">
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" class="input" type="password" autocomplete="current-password" value="admin-demo">
+        </div>
+        <div class="button-row">
+          <button class="btn primary" type="submit">登入</button>
+          <button class="btn ghost" type="button" data-fill-login="seven">SevenAM</button>
+          <button class="btn ghost" type="button" data-fill-login="hozo">HOZO</button>
+        </div>
+      </form>
+
+      <div class="notice warning">
+        Prototype 帳號：admin / admin-demo、seven / seven-demo、hozo / hozo-demo。正式版本應改用後端驗證、Session 與權限表。
+      </div>
+    </section>
+
+    <section class="login-aside">
+      <div class="aside-copy">
+        <h2>AMCore 管理每個子專案的安裝脈絡</h2>
+        <p class="muted">子專案使用者只看自己的環境資料與可安裝版本。開發者可以查看全部專案、調整設定、確認版本是否開放安裝。</p>
+      </div>
+    </section>
+  </main>
+
+  <main id="appShell" class="shell hidden">
+    <aside class="sidebar">
+      <div class="sidebar-top">
+        <div class="brand-mark">AM</div>
+        <div>
+          <div class="sidebar-title">AM User UI</div>
+          <div id="roleLabel" class="muted"></div>
+        </div>
+      </div>
+
+      <nav>
+        <button class="nav-button active" data-view="overview">專案總覽</button>
+        <button class="nav-button" data-view="projects">專案與任務</button>
+        <button class="nav-button" data-view="tasks">所有任務</button>
+        <button class="nav-button" data-view="line">LINE 群組</button>
+        <button class="nav-button" data-view="meetings">會議紀錄</button>
+        <button class="nav-button" data-view="rules">判斷規則</button>
+        <button class="nav-button" data-view="databases">資料庫地圖</button>
+        <button class="nav-button" data-view="env">Environment data</button>
+        <button class="nav-button" data-view="versions">版本安裝</button>
+        <button id="adminNav" class="nav-button" data-view="admin">Developer settings</button>
+      </nav>
+
+      <div class="project-list">
+        <h3>目前專案</h3>
+        <div id="projectButtons"></div>
+      </div>
+    </aside>
+
+    <section class="content">
+      <div class="topbar">
+        <div>
+          <h1 id="pageTitle">專案總覽</h1>
+          <p id="pageSubtitle" class="muted"></p>
+        </div>
+        <div class="button-row">
+          <span id="userChip" class="user-chip"></span>
+          <button id="logoutBtn" class="btn small">登出</button>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <div class="button-row">
+          <label for="projectSelect" class="muted">Project</label>
+          <select id="projectSelect" class="select"></select>
+        </div>
+        <div class="button-row">
+          <button id="toggleSecrets" class="btn small">顯示遮罩值</button>
+          <button id="refreshMock" class="btn small">重新載入設定</button>
+        </div>
+      </div>
+
+      <section id="overviewView">
+        <div class="status-grid">
+          <div class="metric">
+            <div class="metric-label">Project</div>
+            <div id="metricProject" class="metric-value"></div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Environment keys</div>
+            <div id="metricEnv" class="metric-value"></div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Available versions</div>
+            <div id="metricVersions" class="metric-value"></div>
+          </div>
+          <div class="metric">
+            <div class="metric-label">Access scope</div>
+            <div id="metricScope" class="metric-value"></div>
+          </div>
+        </div>
+
+        <div class="section">
+          <div class="section-header">
+            <div>
+              <h2>專案設定摘要</h2>
+              <p id="boundaryText" class="muted"></p>
+            </div>
+            <span id="projectStatus" class="tag ready"></span>
+          </div>
+          <table class="env-table">
+            <tbody id="summaryRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="envView" class="hidden">
+        <div class="section">
+          <div class="section-header">
+            <div>
+              <h2>Environment data</h2>
+              <p class="muted">Secret 類欄位預設遮罩；正式系統應只允許 Admin 解鎖，並留下稽核紀錄。</p>
+            </div>
+            <span id="envCountTag" class="tag"></span>
+          </div>
+          <table class="env-table">
+            <thead>
+              <tr>
+                <th>Key</th>
+                <th>Value</th>
+                <th>Type</th>
+                <th>Owner</th>
+                <th>Last checked</th>
+              </tr>
+            </thead>
+            <tbody id="envRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="projectsView" class="hidden">
+        <div class="section">
+          <div class="section-header">
+            <div>
+              <h2>所有專案與底下任務</h2>
+              <p class="muted">子專案使用者只會看到自己專案內的專案卷宗與支撐任務；Admin 可切換全部專案。</p>
+            </div>
+            <span id="projectDossierCount" class="tag"></span>
+          </div>
+          <div id="projectDossierRows" class="work-grid"></div>
+        </div>
+      </section>
+
+      <section id="tasksView" class="hidden">
+        <div class="section">
+          <div class="section-header">
+            <div>
+              <h2>所有任務清單</h2>
+              <p class="muted">這是給使用者日常掃描的工作清單，預設排除封存，可依專案、狀態與負責人整理。</p>
+            </div>
+            <span id="taskListCount" class="tag"></span>
+          </div>
+          <table class="version-table">
+            <thead>
+              <tr>
+                <th>Task</th>
+                <th>Project</th>
+                <th>Status</th>
+                <th>Owner</th>
+                <th>Next step</th>
+              </tr>
+            </thead>
+            <tbody id="taskRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="lineView" class="hidden">
+        <div class="section">
+          <div class="section-header">
+            <div>
+              <h2>LINE 對話群組與附件</h2>
+              <p class="muted">LINE 群組是議題串的入口；訊息、附件、檔案解析與任務判斷都應能從這裡回查。</p>
+            </div>
+            <span id="lineGroupCount" class="tag"></span>
+          </div>
+          <div id="lineGroupRows" class="timeline"></div>
+        </div>
+      </section>
+
+      <section id="meetingsView" class="hidden">
+        <div class="section">
+          <div class="section-header">
+            <div>
+              <h2>會議紀錄</h2>
+              <p class="muted">會議紀錄同時是任務來源與執行知識；checkbox 項目會直接成為確認任務。</p>
+            </div>
+            <span id="meetingCount" class="tag"></span>
+          </div>
+          <div id="meetingRows" class="work-grid"></div>
+        </div>
+      </section>
+
+      <section id="rulesView" class="hidden">
+        <div class="section">
+          <div class="section-header">
+            <div>
+              <h2>任務判斷規則</h2>
+              <p class="muted">AM Core 判斷規則是共用基礎；專案判斷規則是各子專案依任務校準累積的補充。</p>
+            </div>
+            <span id="ruleCount" class="tag"></span>
+          </div>
+          <div id="ruleRows" class="rule-grid"></div>
+        </div>
+      </section>
+
+      <section id="databasesView" class="hidden">
+        <div class="section">
+          <div class="section-header">
+            <div>
+              <h2>適合放進使用者入口的 Database</h2>
+              <p class="muted">Notion 繼續當資料來源，HTML 入口負責把日常工作需要的資料整理成可讀工作台。</p>
+            </div>
+            <span id="databaseCount" class="tag"></span>
+          </div>
+          <div id="databaseRows" class="database-map"></div>
+        </div>
+      </section>
+
+      <section id="versionsView" class="hidden">
+        <div class="section">
+          <div class="section-header">
+            <div>
+              <h2>可安裝版本</h2>
+              <p class="muted">版本由 AMCore 發布，再分別安裝到 HOZO_AM 或 SevenAM，不共用專案資料。</p>
+            </div>
+            <button class="btn small" id="selectReadyVersions">只看 Ready</button>
+          </div>
+          <table class="version-table">
+            <thead>
+              <tr>
+                <th>Version</th>
+                <th>Purpose</th>
+                <th>Status</th>
+                <th>Target</th>
+                <th>Install action</th>
+              </tr>
+            </thead>
+            <tbody id="versionRows"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="adminView" class="hidden">
+        <div class="split">
+          <div class="section">
+            <div class="section-header">
+              <div>
+                <h2>Developer settings</h2>
+                <p class="muted">Admin 可設定子專案頁面會看到的環境欄位與版本開放狀態。</p>
+              </div>
+            </div>
+            <form id="adminForm" class="admin-form">
+              <div class="field">
+                <label for="editProjectName">Project display name</label>
+                <input id="editProjectName" class="input">
+              </div>
+              <div class="field">
+                <label for="editLocalPath">Local path</label>
+                <input id="editLocalPath" class="input">
+              </div>
+              <div class="field">
+                <label for="editDataBoundary">Data boundary</label>
+                <textarea id="editDataBoundary"></textarea>
+              </div>
+              <button class="btn primary" type="submit">套用到目前畫面</button>
+            </form>
+          </div>
+
+          <div class="section">
+            <div class="section-header">
+              <div>
+                <h2>版本開放設定</h2>
+                <p class="muted">正式版可改成寫入 AMCore registry 或專案 manifest。</p>
+              </div>
+            </div>
+            <div id="adminVersionList"></div>
+          </div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const projects = {
+      HOZO_AM: {
+        key: "HOZO_AM",
+        displayName: "HOZO AM",
+        status: "Production project",
+        localPath: "D:\\\\Codex_project\\\\HOZO_AM\\\\line-oa-webhook",
+        manifestPath: "D:\\\\Codex_project\\\\HOZO_AM\\\\line-oa-webhook\\\\docs\\\\project-improvement-manifest.md",
+        boundary: "HOZO AM owns its own LINE, Notion, Render, GitHub, and environment values.",
+        env: [
+          ["LINE_CHANNEL_ACCESS_TOKEN", "secret", "Project secret", "HOZO"],
+          ["LINE_CHANNEL_SECRET", "secret", "Project secret", "HOZO"],
+          ["NOTION_TOKEN", "secret", "Project secret", "HOZO"],
+          ["HOZO_TASKS_DATA_SOURCE_ID", "data-source-id", "Notion", "HOZO"],
+          ["HOZO_MESSAGES_DATA_SOURCE_ID", "data-source-id", "Notion", "HOZO"],
+          ["HOZO_PUBLIC_BASE_URL", "https://hozo-line.example/render", "Render", "Developer"],
+          ["MORNING_BRIEF_URL", "https://hozo.example/morning", "Report", "Developer"]
+        ],
+        allowedVersions: ["AM-IMP-2026.0608.08", "AM-IMP-2026.0608.14", "AM-IMP-2026.0608.18", "AM-IMP-2026.0608.20"],
+        installedVersions: ["AM-IMP-2026.0608.08"]
+      },
+      SEVEN_AM: {
+        key: "SEVEN_AM",
+        displayName: "SevenAM",
+        status: "Production project",
+        localPath: "D:\\\\Codex_project\\\\SevenAM\\\\line-oa-webhook",
+        manifestPath: "D:\\\\Codex_project\\\\SevenAM\\\\line-oa-webhook\\\\docs\\\\project-improvement-manifest.md",
+        boundary: "SevenAM owns its own LINE, Notion, Render, GitHub, and environment values.",
+        env: [
+          ["LINE_CHANNEL_ACCESS_TOKEN", "secret", "Project secret", "SevenAM"],
+          ["LINE_CHANNEL_SECRET", "secret", "Project secret", "SevenAM"],
+          ["NOTION_TOKEN", "secret", "Project secret", "SevenAM"],
+          ["SEVEN_TASKS_DATA_SOURCE_ID", "(project-local value)", "Notion", "SevenAM"],
+          ["SEVEN_JUDGMENT_RULES_DATA_SOURCE_ID", "project-specific", "Notion", "SevenAM"],
+          ["SEVEN_PUBLIC_BASE_URL", "https://seven-line.example/render", "Render", "Developer"],
+          ["DAILY_REPORT_URL", "https://seven.example/daily", "Report", "Developer"]
+        ],
+        allowedVersions: ["AM-IMP-2026.0608.06", "AM-IMP-2026.0608.13", "AM-IMP-2026.0608.14", "AM-IMP-2026.0608.18", "AM-IMP-2026.0608.20"],
+        installedVersions: ["AM-IMP-2026.0608.06", "AM-IMP-2026.0608.13"]
+      }
+    };
+
+    const versions = [
+      ["AM-IMP-2026.0608.06", "LINE message judgment sync", ["SEVEN_AM"]],
+      ["AM-IMP-2026.0608.08", "Responsibility owner narrowing", ["HOZO_AM", "SEVEN_AM"]],
+      ["AM-IMP-2026.0608.13", "Judgment calibration database", ["SEVEN_AM"]],
+      ["AM-IMP-2026.0608.14", "Meeting checkbox task rule", ["HOZO_AM", "SEVEN_AM"]],
+      ["AM-IMP-2026.0608.18", "Hourly LINE task reconciliation", ["HOZO_AM", "SEVEN_AM"]],
+      ["AM-IMP-2026.0608.20", "Subproject portal access model", ["HOZO_AM", "SEVEN_AM"]]
+    ];
+
+    const projectDossiers = {
+      HOZO_AM: [
+        {
+          name: "HOZO 後臺資料控制面",
+          status: "進行中",
+          owner: "Developer",
+          goal: "建立 Local / Staging / Production 隔離與資料安全規則。",
+          tasks: ["建立環境矩陣", "確認 Render service 對應", "整理部署驗證清單"]
+        },
+        {
+          name: "HOZO 會議與任務萃取",
+          status: "待確認",
+          owner: "HOZO AM",
+          goal: "把會議 checkbox 與 LINE 對話轉成可追蹤任務。",
+          tasks: ["同步會議 action items", "比對 LINE 後續狀態", "更新任務證據欄位"]
+        }
+      ],
+      SEVEN_AM: [
+        {
+          name: "溪頭 / 南投鹿谷旅館投資評估案",
+          status: "等待回覆",
+          owner: "Seven",
+          goal: "補齊物件資料並判斷是否需要安排現場看件。",
+          tasks: ["補齊物件評估資料", "保存並關聯 PDF 附件", "OCR / 文件解析測試"]
+        },
+        {
+          name: "茲心園工程",
+          status: "進行中",
+          owner: "茲心園幹部群",
+          goal: "追蹤 H 倉施工、營業報表與工程估價議題。",
+          tasks: ["H 倉層架施工與清潔口處理", "追蹤台翰營造初步答案", "青山苑 4-5 月營業報表填報確認"]
+        },
+        {
+          name: "包租代管客人問題回報體系",
+          status: "待確認",
+          owner: "Seven / 昱晴",
+          goal: "建立房客問題回報與處理 SOP。",
+          tasks: ["完成客人問題處理 SOP", "確認房客燈光與浴室發黴處理口徑", "建置客人問題回報體系"]
+        }
+      ]
+    };
+
+    const taskRecords = {
+      HOZO_AM: [
+        ["HOZO 後臺：建立 Local / Staging / Production 隔離確認表", "HOZO 後臺資料控制面", "進行中", "Developer", "列出環境矩陣與禁止規則。"],
+        ["HOZO：同步會議 checkbox 待辦", "HOZO 會議與任務萃取", "未開始", "HOZO AM", "從會議資料庫擷取 checkbox 任務。"],
+        ["HOZO：每日報告狀態回填", "HOZO 會議與任務萃取", "待確認", "HOZO AM", "用每日報告判斷任務狀態是否變更。"]
+      ],
+      SEVEN_AM: [
+        ["溪頭案：補齊物件評估資料", "溪頭 / 南投鹿谷旅館投資評估案", "等待回覆", "Andy", "等待 Andy 補齊房型、樓層平面圖與 66/50 間差異。"],
+        ["溪頭案：保存並關聯 PDF 附件", "溪頭 / 南投鹿谷旅館投資評估案", "未開始", "Seven Jr.", "將 PDF 附件連回專案記錄。"],
+        ["茲心園工程：H 倉層架施工與地板清潔口處理", "茲心園工程", "進行中", "工務", "確認大桌、地板補強與清潔口活動蓋板做法。"],
+        ["營運：青山苑 4-5 月營業報表填報確認", "茲心園工程", "進行中", "逸凡 / 財務", "週三登入或轉財務確認填報方式。"],
+        ["包租代管：完成客人問題處理 SOP", "包租代管客人問題回報體系", "待確認", "Seven / 昱晴", "產出燈光與浴室發霉處理 SOP。"]
+      ]
+    };
+
+    const lineGroups = {
+      HOZO_AM: [
+        {
+          name: "HOZO 後臺討論群",
+          topics: 3,
+          messages: 42,
+          attachments: ["部署截圖.png", "環境矩陣.xlsx"],
+          latest: "確認 staging 與 production 不可共用 token。"
+        },
+        {
+          name: "HOZO 會議紀錄群",
+          topics: 2,
+          messages: 18,
+          attachments: ["週會逐字稿.docx"],
+          latest: "會議 checkbox 需直接進任務庫。"
+        }
+      ],
+      SEVEN_AM: [
+        {
+          name: "Andy & Seven",
+          topics: 1,
+          messages: 16,
+          attachments: ["南投縣鹿谷鄉物件 PDF"],
+          latest: "溪頭案仍等待 Andy 補齊物件資料。"
+        },
+        {
+          name: "茲心園幹部群",
+          topics: 3,
+          messages: 33,
+          attachments: [],
+          latest: "H 倉施工、一泊二食價格、青山苑營業報表分成三個議題串。"
+        },
+        {
+          name: "薪資/獎金放行群",
+          topics: 1,
+          messages: 9,
+          attachments: ["請款單.pdf"],
+          latest: "Bonnie 審核後通知 Seven 網銀放行。"
+        }
+      ]
+    };
+
+    const meetingRecords = {
+      HOZO_AM: [
+        ["HOZO 後臺同步會", "2026-06-08", "2 checkbox tasks", "環境隔離與部署驗證。"],
+        ["HOZO 任務萃取校準", "2026-06-08", "3 checkbox tasks", "修正會議任務與 LINE 任務合併方式。"]
+      ],
+      SEVEN_AM: [
+        ["財務部周會", "2026-06-01", "4 checkbox tasks", "財務放行、回覆進度與報稅事項。"],
+        ["SevenAM 任務校準討論", "2026-06-08", "6 checkbox tasks", "專案化、議題串與封存規則。"],
+        ["包租代管 SOP 討論", "2026-06-08", "2 checkbox tasks", "客人問題回報體系與回覆口徑。"]
+      ]
+    };
+
+    const databaseModules = [
+      ["總控專案庫", "所有專案、目標、成功條件、風險、關聯任務", "核心入口", "projects"],
+      ["總控任務庫", "所有待辦、狀態、負責人、下一步、來源證據", "核心入口", "tasks"],
+      ["LINE 對話群組庫", "群組名稱、成員、議題串、最新狀態", "使用者入口", "line"],
+      ["LINE 訊息庫", "原始對話、判斷摘要、關聯任務、狀態線索", "使用者入口", "line"],
+      ["附件庫 / 檔案庫", "PDF、圖片、轉檔狀態、OCR 結果、關聯專案", "使用者入口", "line"],
+      ["會議紀錄庫", "會議決議、checkbox 任務、背景知識、參考文件", "使用者入口", "meetings"],
+      ["每日報告庫", "早報、追蹤報告、每日總控、狀態變更線索", "控制入口", "databases"],
+      ["責任人 / 權責庫", "群組成員、角色、誰能處理哪些任務", "控制入口", "databases"],
+      ["AM Core 判斷規則庫", "所有 AM 共用的任務萃取與狀態判斷規則", "判斷入口", "rules"],
+      ["專案判斷規則庫", "各子專案任務校準後的專屬規則", "判斷入口", "rules"],
+      ["任務校準案例庫", "每次校準的任務、修正方向、形成的新規則", "判斷入口", "rules"],
+      ["版本安裝紀錄庫", "可安裝版本、安裝狀態、驗證與 rollback", "開發入口", "versions"],
+      ["Codex 指令佇列", "不能即時處理的使用者指令與處理狀態", "開發入口", "databases"]
+    ];
+
+    const judgmentRules = {
+      HOZO_AM: [
+        ["AM Core", "會議 checkbox 一律視為確認任務", "所有會議紀錄中 checkbox 後方文字直接進任務庫，並保存周邊討論。"],
+        ["AM Core", "任務必須連到專案目標", "若沒有專案目標，標為候選任務並補問目標。"],
+        ["HOZO 專案規則", "後臺環境任務需標明環境層級", "Local、Staging、Production 不能混在同一任務中追蹤。"]
+      ],
+      SEVEN_AM: [
+        ["AM Core", "以議題串判斷任務，不以單句判斷", "同一 LINE 群組可同時有多個議題串，後續回覆優先更新主任務。"],
+        ["AM Core", "會議 checkbox 一律視為確認任務", "checkbox-derived meeting task 不需要額外確認。"],
+        ["SevenAM 專案規則", "重大投資案件需專案化", "溪頭旅館投資評估案需有專案卷宗、附件、補資料與看件判斷。"],
+        ["SevenAM 專案規則", "讀書會純知識討論不列入總控任務", "除非出現參加、安排、交付或外部承諾，否則封存或不建任務。"]
+      ]
+    };
+
+    const accounts = {
+      admin: { password: "admin-demo", role: "Admin", projects: ["HOZO_AM", "SEVEN_AM"] },
+      seven: { password: "seven-demo", role: "Project user", projects: ["SEVEN_AM"] },
+      hozo: { password: "hozo-demo", role: "Project user", projects: ["HOZO_AM"] }
+    };
+
+    let state = {
+      user: null,
+      activeProject: "SEVEN_AM",
+      activeView: "overview",
+      revealSecrets: false,
+      readyOnly: false
+    };
+
+    const loginScreen = document.getElementById("loginScreen");
+    const appShell = document.getElementById("appShell");
+    const username = document.getElementById("username");
+    const password = document.getElementById("password");
+
+    document.getElementById("loginForm").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const account = accounts[username.value.trim()];
+      if (!account || account.password !== password.value) {
+        alert("Username 或 Password 不正確。");
+        return;
+      }
+      state.user = { name: username.value.trim(), ...account };
+      state.activeProject = account.projects[0];
+      loginScreen.classList.add("hidden");
+      appShell.classList.remove("hidden");
+      render();
+    });
+
+    document.querySelectorAll("[data-fill-login]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const type = button.dataset.fillLogin;
+        username.value = type;
+        password.value = `${type}-demo`;
+      });
+    });
+
+    document.getElementById("logoutBtn").addEventListener("click", () => {
+      state.user = null;
+      appShell.classList.add("hidden");
+      loginScreen.classList.remove("hidden");
+    });
+
+    document.querySelectorAll(".nav-button").forEach((button) => {
+      button.addEventListener("click", () => {
+        state.activeView = button.dataset.view;
+        render();
+      });
+    });
+
+    document.getElementById("projectSelect").addEventListener("change", (event) => {
+      state.activeProject = event.target.value;
+      render();
+    });
+
+    document.getElementById("toggleSecrets").addEventListener("click", () => {
+      state.revealSecrets = !state.revealSecrets;
+      render();
+    });
+
+    document.getElementById("refreshMock").addEventListener("click", () => {
+      render();
+    });
+
+    document.getElementById("selectReadyVersions").addEventListener("click", () => {
+      state.readyOnly = !state.readyOnly;
+      render();
+    });
+
+    document.getElementById("adminForm").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const project = projects[state.activeProject];
+      project.displayName = document.getElementById("editProjectName").value.trim() || project.displayName;
+      project.localPath = document.getElementById("editLocalPath").value.trim() || project.localPath;
+      project.boundary = document.getElementById("editDataBoundary").value.trim() || project.boundary;
+      render();
+    });
+
+    function render() {
+      if (!state.user) return;
+      const allowed = state.user.projects;
+      if (!allowed.includes(state.activeProject)) state.activeProject = allowed[0];
+      const project = projects[state.activeProject];
+
+      document.getElementById("roleLabel").textContent = state.user.role;
+      document.getElementById("userChip").textContent = `${state.user.name} · ${state.user.role}`;
+      document.getElementById("adminNav").classList.toggle("hidden", state.user.role !== "Admin");
+      if (state.user.role !== "Admin" && state.activeView === "admin") state.activeView = "overview";
+
+      document.querySelectorAll(".nav-button").forEach((button) => {
+        button.classList.toggle("active", button.dataset.view === state.activeView);
+      });
+
+      ["overview", "projects", "tasks", "line", "meetings", "rules", "databases", "env", "versions", "admin"].forEach((name) => {
+        document.getElementById(`${name}View`).classList.toggle("hidden", state.activeView !== name);
+      });
+
+      const titles = {
+        overview: "專案總覽",
+        projects: "專案與任務",
+        tasks: "所有任務",
+        line: "LINE 群組",
+        meetings: "會議紀錄",
+        rules: "判斷規則",
+        databases: "資料庫地圖",
+        env: "Environment data",
+        versions: "版本安裝",
+        admin: "Developer settings"
+      };
+      document.getElementById("pageTitle").textContent = titles[state.activeView];
+      document.getElementById("pageSubtitle").textContent = `${project.displayName} · ${project.key}`;
+
+      renderProjectControls(allowed);
+      renderOverview(project);
+      renderProjectDossiers(project);
+      renderTasks(project);
+      renderLineGroups(project);
+      renderMeetings(project);
+      renderRules(project);
+      renderDatabases(project);
+      renderEnvironment(project);
+      renderVersions(project);
+      renderAdmin(project);
+    }
+
+    function renderProjectControls(allowed) {
+      const select = document.getElementById("projectSelect");
+      select.innerHTML = allowed.map((key) => `<option value="${key}">${projects[key].displayName}</option>`).join("");
+      select.value = state.activeProject;
+      select.disabled = allowed.length === 1;
+
+      document.getElementById("projectButtons").innerHTML = allowed.map((key) => {
+        const active = key === state.activeProject ? " active" : "";
+        return `<button class="nav-button${active}" data-project="${key}">${projects[key].displayName}</button>`;
+      }).join("");
+
+      document.querySelectorAll("[data-project]").forEach((button) => {
+        button.addEventListener("click", () => {
+          state.activeProject = button.dataset.project;
+          render();
+        });
+      });
+    }
+
+    function renderOverview(project) {
+      const available = versions.filter((version) => project.allowedVersions.includes(version[0]));
+      document.getElementById("metricProject").textContent = project.displayName;
+      document.getElementById("metricEnv").textContent = project.env.length;
+      document.getElementById("metricVersions").textContent = available.length;
+      document.getElementById("metricScope").textContent = state.user.role === "Admin" ? "All projects" : "Own project";
+      document.getElementById("boundaryText").textContent = project.boundary;
+      document.getElementById("projectStatus").textContent = project.status;
+      document.getElementById("summaryRows").innerHTML = [
+        ["Project key", project.key],
+        ["Local path", project.localPath],
+        ["Manifest", project.manifestPath],
+        ["Visible versions", available.map((item) => item[0]).join(", ")]
+      ].map(([key, value]) => `<tr><th>${key}</th><td class="mono">${value}</td></tr>`).join("");
+    }
+
+    function renderEnvironment(project) {
+      document.getElementById("envCountTag").textContent = `${project.env.length} keys`;
+      document.getElementById("toggleSecrets").textContent = state.revealSecrets ? "隱藏遮罩值" : "顯示遮罩值";
+      document.getElementById("envRows").innerHTML = project.env.map(([key, value, type, owner]) => {
+        const secret = /TOKEN|SECRET|PASSWORD|KEY/i.test(key) || value === "secret";
+        const visibleValue = secret && !state.revealSecrets ? maskValue(key) : value;
+        return `
+          <tr>
+            <td class="mono">${key}</td>
+            <td class="mono">${visibleValue}</td>
+            <td><span class="tag ${secret ? "review" : "ready"}">${secret ? "Secret" : type}</span></td>
+            <td>${owner}</td>
+            <td>2026-06-09</td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    function renderProjectDossiers(project) {
+      const rows = projectDossiers[project.key] || [];
+      document.getElementById("projectDossierCount").textContent = `${rows.length} projects`;
+      document.getElementById("projectDossierRows").innerHTML = rows.length ? rows.map((item) => `
+        <article class="item-card">
+          <h3>${item.name}</h3>
+          <p class="muted">${item.goal}</p>
+          <div class="card-meta">
+            <span class="tag ${statusTagClass(item.status)}">${item.status}</span>
+            <span class="tag">${item.owner}</span>
+          </div>
+          <table class="env-table">
+            <tbody>
+              ${item.tasks.map((task) => `<tr><td>${task}</td></tr>`).join("")}
+            </tbody>
+          </table>
+        </article>
+      `).join("") : `<div class="empty-state">目前沒有可顯示的專案卷宗。</div>`;
+    }
+
+    function renderTasks(project) {
+      const rows = taskRecords[project.key] || [];
+      document.getElementById("taskListCount").textContent = `${rows.length} tasks`;
+      document.getElementById("taskRows").innerHTML = rows.map(([name, projectName, status, owner, next]) => `
+        <tr>
+          <td>${name}</td>
+          <td>${projectName}</td>
+          <td><span class="tag ${statusTagClass(status)}">${status}</span></td>
+          <td>${owner}</td>
+          <td>${next}</td>
+        </tr>
+      `).join("");
+    }
+
+    function renderLineGroups(project) {
+      const rows = lineGroups[project.key] || [];
+      document.getElementById("lineGroupCount").textContent = `${rows.length} groups`;
+      document.getElementById("lineGroupRows").innerHTML = rows.map((group) => `
+        <article class="timeline-item">
+          <div class="section-header">
+            <div>
+              <h3>${group.name}</h3>
+              <p class="muted">${group.latest}</p>
+            </div>
+            <div class="card-meta">
+              <span class="tag">${group.topics} topics</span>
+              <span class="tag">${group.messages} messages</span>
+            </div>
+          </div>
+          <div class="message-bubble">
+            <strong>附件</strong>
+            <div class="card-meta">
+              ${group.attachments.length ? group.attachments.map((file) => `<span class="tag ready">${file}</span>`).join("") : `<span class="tag">No attachment</span>`}
+            </div>
+          </div>
+        </article>
+      `).join("");
+    }
+
+    function renderMeetings(project) {
+      const rows = meetingRecords[project.key] || [];
+      document.getElementById("meetingCount").textContent = `${rows.length} meetings`;
+      document.getElementById("meetingRows").innerHTML = rows.map(([title, date, actions, summary]) => `
+        <article class="item-card">
+          <h3>${title}</h3>
+          <p class="muted">${summary}</p>
+          <div class="card-meta">
+            <span class="tag">${date}</span>
+            <span class="tag ready">${actions}</span>
+          </div>
+        </article>
+      `).join("");
+    }
+
+    function renderRules(project) {
+      const rows = judgmentRules[project.key] || [];
+      document.getElementById("ruleCount").textContent = `${rows.length} rules`;
+      document.getElementById("ruleRows").innerHTML = rows.map(([scope, title, body]) => `
+        <article class="item-card">
+          <div class="card-meta">
+            <span class="tag ${scope === "AM Core" ? "installed" : "review"}">${scope}</span>
+          </div>
+          <h3>${title}</h3>
+          <p class="muted">${body}</p>
+        </article>
+      `).join("");
+    }
+
+    function renderDatabases(project) {
+      document.getElementById("databaseCount").textContent = `${databaseModules.length} databases`;
+      document.getElementById("databaseRows").innerHTML = databaseModules.map(([name, purpose, role, view]) => `
+        <article class="item-card">
+          <div class="card-meta">
+            <span class="tag ${role.includes("核心") ? "installed" : role.includes("判斷") ? "review" : "ready"}">${role}</span>
+          </div>
+          <h3>${name}</h3>
+          <p class="muted">${purpose}</p>
+          <button class="btn small" data-jump-view="${view}">打開相關頁面</button>
+        </article>
+      `).join("");
+
+      document.querySelectorAll("[data-jump-view]").forEach((button) => {
+        button.addEventListener("click", () => {
+          state.activeView = button.dataset.jumpView;
+          render();
+        });
+      });
+    }
+
+    function renderVersions(project) {
+      const rows = versions
+        .filter((version) => project.allowedVersions.includes(version[0]))
+        .filter((version) => !state.readyOnly || !project.installedVersions.includes(version[0]));
+      document.getElementById("selectReadyVersions").textContent = state.readyOnly ? "顯示全部" : "只看 Ready";
+      document.getElementById("versionRows").innerHTML = rows.map(([id, purpose, targets]) => {
+        const status = project.installedVersions.includes(id) ? "Installed" : "Ready";
+        const statusClass = status === "Installed" ? "installed" : status === "Blocked" ? "blocked" : "ready";
+        const readmeUrl = versionReadmeUrl(id);
+        const action = status === "Installed"
+          ? `<button class="btn small" data-open-readme="${id}">查看說明書</button>`
+          : `<button class="btn small primary" data-install-version="${id}">安裝</button>`;
+        return `
+          <tr>
+            <td class="mono"><a class="doc-link" href="${readmeUrl}" target="_blank" rel="noopener">${id}</a></td>
+            <td><a class="doc-link" href="${readmeUrl}" target="_blank" rel="noopener">${purpose}</a></td>
+            <td><span class="tag ${statusClass}">${status}</span></td>
+            <td>${targets.map((target) => `<span class="tag">${target}</span>`).join(" ")}</td>
+            <td>${action}</td>
+          </tr>
+        `;
+      }).join("");
+
+      document.querySelectorAll("[data-install-version]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const id = button.dataset.installVersion;
+          if (!project.installedVersions.includes(id)) {
+            project.installedVersions.push(id);
+          }
+          alert(`${id} 已加入 ${project.displayName} 的安裝流程。正式版會在這裡呼叫後端安裝工作。`);
+          render();
+        });
+      });
+
+      document.querySelectorAll("[data-open-readme]").forEach((button) => {
+        button.addEventListener("click", () => {
+          window.open(versionReadmeUrl(button.dataset.openReadme), "_blank", "noopener");
+        });
+      });
+    }
+
+    function renderAdmin(project) {
+      document.getElementById("editProjectName").value = project.displayName;
+      document.getElementById("editLocalPath").value = project.localPath;
+      document.getElementById("editDataBoundary").value = project.boundary;
+      document.getElementById("adminVersionList").innerHTML = versions.map(([id, purpose]) => {
+        const checked = project.allowedVersions.includes(id) ? "checked" : "";
+        const status = project.installedVersions.includes(id) ? "Installed" : "Ready";
+        return `
+          <label class="button-row" style="justify-content:space-between;border-bottom:1px solid var(--line);padding:10px 0;">
+            <span><a class="doc-link mono" href="${versionReadmeUrl(id)}" target="_blank" rel="noopener">${id}</a><br><span class="muted">${purpose}</span></span>
+            <span class="button-row">
+              <span class="tag ${status === "Installed" ? "installed" : "ready"}">${status}</span>
+              <input type="checkbox" ${checked} data-version-toggle="${id}">
+            </span>
+          </label>
+        `;
+      }).join("");
+
+      document.querySelectorAll("[data-version-toggle]").forEach((input) => {
+        input.addEventListener("change", () => {
+          const id = input.dataset.versionToggle;
+          if (input.checked && !project.allowedVersions.includes(id)) project.allowedVersions.push(id);
+          if (!input.checked) project.allowedVersions = project.allowedVersions.filter((item) => item !== id);
+          render();
+        });
+      });
+    }
+
+    function maskValue(key) {
+      if (/TOKEN|SECRET|PASSWORD|KEY/i.test(key)) return "••••••••••••••••";
+      return "••••••";
+    }
+
+    function statusTagClass(status) {
+      if (/進行中|Installed/.test(status)) return "installed";
+      if (/等待|待確認|Ready|未開始/.test(status)) return "ready";
+      if (/封存|Blocked/.test(status)) return "blocked";
+      return "review";
+    }
+
+    function versionReadmeUrl(id) {
+      return `../versions/${id}/README.md`;
+    }
+  </script>
+</body>
+</html>

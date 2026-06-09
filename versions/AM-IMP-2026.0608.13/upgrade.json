@@ -1,0 +1,35 @@
+{
+  "id": "AM-IMP-2026.0608.13",
+  "name": "Judgment calibration knowledge base",
+  "type": "Governance",
+  "portable": true,
+  "requiresDatabases": [
+    "Judgment calibration cases",
+    "Judgment rules"
+  ],
+  "requiresEnv": [
+    "CONTROL_LINE_PUSH_URL",
+    "PROJECT_CONTROL_API_KEY",
+    "PROJECT_JUDGMENT_CALIBRATION_CASES_DATA_SOURCE_ID",
+    "PROJECT_JUDGMENT_RULES_DATA_SOURCE_ID"
+  ],
+  "requiresScripts": [
+    "scripts/line-push.js"
+  ],
+  "installTargets": ["HOZO_AM", "SEVEN_AM"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Project-local calibration case database exists",
+    "Project-local judgment rules database exists",
+    "Uncertain task review message can be sent to the controller's project-local LINE target",
+    "Controller reply can be summarized into a calibration case",
+    "Source task can be updated without copying project data into AMCore",
+    "At least one reusable judgment rule can be extracted as Draft or Needs review",
+    "Project manifest and upgrade record are updated after local verification"
+  ]
+}

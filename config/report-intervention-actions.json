@@ -1,0 +1,169 @@
+{
+  "schemaVersion": 1,
+  "registryName": "AM report intervention action standard",
+  "updatedAt": "2026-06-08",
+  "purpose": "Define the standard controller actions that must appear on every report candidate item before it can become a confirmed total-control task, dismissed signal, reassigned project item, or owner goal request.",
+  "candidateTypes": [
+    "LINE_MESSAGE_SIGNAL",
+    "MEETING_ACTION_SIGNAL",
+    "REPORT_FOLLOWUP_SIGNAL",
+    "GOAL_RECOGNITION_SIGNAL",
+    "RISK_OR_DECISION_SIGNAL"
+  ],
+  "decisionStatuses": [
+    {
+      "key": "PENDING_CONTROLLER",
+      "label": "待控制者確認",
+      "meaning": "The system found a candidate but it has not been accepted, dismissed, or corrected."
+    },
+    {
+      "key": "TASK_CREATED",
+      "label": "已建立任務",
+      "meaning": "The controller accepted the candidate and a total-control task was created or linked."
+    },
+    {
+      "key": "NOT_A_TASK",
+      "label": "不是任務",
+      "meaning": "The controller dismissed the candidate as context, chat, or no-action information."
+    },
+    {
+      "key": "PROJECT_REASSIGNED",
+      "label": "已改專案",
+      "meaning": "The candidate project was corrected and should be re-evaluated under the new project."
+    },
+    {
+      "key": "PROJECT_GOAL_ASSIGNED",
+      "label": "已指定專案目標",
+      "meaning": "The candidate is attached to a project-level goal."
+    },
+    {
+      "key": "TASK_GOAL_ASSIGNED",
+      "label": "已指定任務目標",
+      "meaning": "The candidate has a concrete task-level goal."
+    },
+    {
+      "key": "WAITING_OWNER_GOAL_STATEMENT",
+      "label": "待負責人口述目標",
+      "meaning": "The candidate needs the responsible owner to state the target or completion condition before final task creation or tracking."
+    }
+  ],
+  "actions": [
+    {
+      "key": "CREATE_TASK",
+      "label": "建立任務",
+      "buttonText": "建立任務",
+      "intent": "Confirm that the candidate is a real total-control task.",
+      "requiredInputs": ["targetProject", "taskGoal"],
+      "optionalInputs": ["projectGoal", "owner", "dueDate", "priority", "controllerNote"],
+      "writes": ["totalControlTask", "candidateDecisionLog"],
+      "nextStatus": "TASK_CREATED"
+    },
+    {
+      "key": "DISMISS_NOT_TASK",
+      "label": "不是任務",
+      "buttonText": "不是任務",
+      "intent": "Mark the candidate as non-task context so it will not keep resurfacing.",
+      "requiredInputs": [],
+      "optionalInputs": ["controllerNote", "dismissReason"],
+      "writes": ["candidateDecisionLog"],
+      "nextStatus": "NOT_A_TASK"
+    },
+    {
+      "key": "CHANGE_PROJECT",
+      "label": "改專案",
+      "buttonText": "改專案",
+      "intent": "Correct which total-control project owns the candidate.",
+      "requiredInputs": ["targetProject"],
+      "optionalInputs": ["controllerNote"],
+      "writes": ["candidateDecisionLog", "candidateProjectOverride"],
+      "nextStatus": "PROJECT_REASSIGNED"
+    },
+    {
+      "key": "SET_PROJECT_GOAL",
+      "label": "指定專案目標",
+      "buttonText": "指定專案目標",
+      "intent": "Attach the candidate to a project-level target before task tracking.",
+      "requiredInputs": ["targetProject", "projectGoal"],
+      "optionalInputs": ["controllerNote"],
+      "writes": ["candidateDecisionLog", "candidateGoalOverride"],
+      "nextStatus": "PROJECT_GOAL_ASSIGNED"
+    },
+    {
+      "key": "SET_TASK_GOAL",
+      "label": "指定任務目標",
+      "buttonText": "指定任務目標",
+      "intent": "Define the concrete outcome expected from this candidate.",
+      "requiredInputs": ["taskGoal"],
+      "optionalInputs": ["targetProject", "projectGoal", "owner", "dueDate", "controllerNote"],
+      "writes": ["candidateDecisionLog", "candidateGoalOverride"],
+      "nextStatus": "TASK_GOAL_ASSIGNED"
+    },
+    {
+      "key": "REQUEST_OWNER_GOAL_STATEMENT",
+      "label": "要求負責人口述目標",
+      "buttonText": "要求口述目標",
+      "intent": "Ask the responsible owner to state the target, completion condition, or next commitment in LINE.",
+      "requiredInputs": ["ownerOrOwnerGroup"],
+      "optionalInputs": ["targetProject", "projectGoal", "candidateQuestion", "controllerNote"],
+      "writes": ["candidateDecisionLog", "ownerGoalRequest"],
+      "nextStatus": "WAITING_OWNER_GOAL_STATEMENT"
+    }
+  ],
+  "candidateRecordContract": {
+    "requiredFields": [
+      "candidateId",
+      "sourceType",
+      "sourcePageId",
+      "sourceText",
+      "candidateSummary",
+      "suggestedProject",
+      "suggestedTaskGoal",
+      "decisionStatus",
+      "allowedActions"
+    ],
+    "optionalFields": [
+      "sourceUrl",
+      "conversationId",
+      "messageIds",
+      "suggestedProjectGoal",
+      "suggestedOwner",
+      "confidence",
+      "controllerAction",
+      "targetProject",
+      "projectGoal",
+      "taskGoal",
+      "ownerOrOwnerGroup",
+      "controllerNote",
+      "decidedAt",
+      "resultTaskPageId",
+      "resultProgressPageId"
+    ]
+  },
+  "reportSlots": [
+    {
+      "time": "08:00",
+      "role": "Daily goal opening",
+      "expectedInterventions": ["CHANGE_PROJECT", "SET_PROJECT_GOAL", "SET_TASK_GOAL", "REQUEST_OWNER_GOAL_STATEMENT"]
+    },
+    {
+      "time": "10:00",
+      "role": "Morning follow-up",
+      "expectedInterventions": ["CREATE_TASK", "DISMISS_NOT_TASK", "CHANGE_PROJECT", "SET_TASK_GOAL", "REQUEST_OWNER_GOAL_STATEMENT"]
+    },
+    {
+      "time": "13:00",
+      "role": "Midday follow-up",
+      "expectedInterventions": ["CREATE_TASK", "DISMISS_NOT_TASK", "CHANGE_PROJECT", "SET_TASK_GOAL", "REQUEST_OWNER_GOAL_STATEMENT"]
+    },
+    {
+      "time": "17:00",
+      "role": "Evening follow-up",
+      "expectedInterventions": ["CREATE_TASK", "DISMISS_NOT_TASK", "CHANGE_PROJECT", "SET_PROJECT_GOAL", "SET_TASK_GOAL", "REQUEST_OWNER_GOAL_STATEMENT"]
+    },
+    {
+      "time": "20:30",
+      "role": "Daily conclusion",
+      "expectedInterventions": ["CREATE_TASK", "DISMISS_NOT_TASK", "CHANGE_PROJECT", "SET_PROJECT_GOAL", "SET_TASK_GOAL", "REQUEST_OWNER_GOAL_STATEMENT"]
+    }
+  ]
+}

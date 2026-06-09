@@ -1,0 +1,23 @@
+{
+  "projects": [
+    {
+      "projectKey": "HOZO_AM",
+      "displayName": "HOZO AM",
+      "localPath": "D:\\Codex_project\\HOZO_AM\\line-oa-webhook",
+      "manifestPath": "D:\\Codex_project\\HOZO_AM\\line-oa-webhook\\docs\\project-improvement-manifest.md",
+      "upgradeRecordsPath": "D:\\Codex_project\\HOZO_AM\\line-oa-webhook\\docs\\upgrades",
+      "dataBoundary": "HOZO AM owns its own LINE, Notion, Render, GitHub, and environment values."
+    },
+    {
+      "projectKey": "SEVEN_AM",
+      "displayName": "7AM",
+      "localPath": "D:\\Codex_project\\SevenAM\\line-oa-webhook",
+      "manifestPath": "D:\\Codex_project\\SevenAM\\line-oa-webhook\\docs\\project-improvement-manifest.md",
+      "upgradeRecordsPath": "D:\\Codex_project\\SevenAM\\line-oa-webhook\\docs\\upgrades",
+      "dataBoundary": "7AM owns its own LINE, Notion, Render, GitHub, and environment values."
+    }
+  ],
+  "sharedRegistryPath": "D:\\Codex_project\\AM_SHARED_VERSION_UPGRADES\\SHARED_IMPROVEMENT_REGISTRY.md",
+  "sharedUpgradePackageRoot": "D:\\Codex_project\\AM_Core\\versions"
+}
+

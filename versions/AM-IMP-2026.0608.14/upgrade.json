@@ -1,0 +1,32 @@
+{
+  "id": "AM-IMP-2026.0608.14",
+  "name": "Meeting checkbox task standard",
+  "type": "Task control",
+  "portable": true,
+  "requiresDatabases": [
+    "Project-local meetings data source",
+    "Project-local total-control tasks data source"
+  ],
+  "requiresEnv": [
+    "PROJECT_MEETINGS_DATA_SOURCE_ID",
+    "PROJECT_TASKS_DATA_SOURCE_ID"
+  ],
+  "requiresScripts": [
+    "scripts/sync-meeting-actions.js"
+  ],
+  "installTargets": ["HOZO_AM", "SEVEN_AM"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Meeting sync reads Notion to-do blocks with checkbox markers preserved",
+    "Markdown checkbox lines are recognized as meeting tasks",
+    "Checkbox meeting tasks bypass keyword-based uncertainty filtering",
+    "Checkbox meeting tasks are written with confirmation status already confirmed when the project supports that field",
+    "Duplicate prevention uses meeting reference plus task text",
+    "Project manifest and upgrade record are updated after local verification"
+  ]
+}

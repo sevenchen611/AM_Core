@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "architecture": "project-dossier-task-relation",
+  "databases": {
+    "PROJECT_TOTAL_CONTROL_PROJECT_DATA_SOURCE_ID": {
+      "role": "Top-level project and case dossier database",
+      "requiredFields": [
+        {
+          "name": "專案名稱",
+          "type": "title"
+        },
+        {
+          "name": "關聯任務",
+          "type": "relation",
+          "source": "PROJECT_TOTAL_CONTROL_TASK_DATA_SOURCE_ID",
+          "note": "Reciprocal relation from task field 總控專案."
+        }
+      ],
+      "recommendedFields": [
+        "目標",
+        "成功條件",
+        "目前進度摘要",
+        "下一步",
+        "主要風險",
+        "狀態",
+        "負責人",
+        "關聯 LINE 對話",
+        "關聯既有 Notion 頁面"
+      ]
+    },
+    "PROJECT_TOTAL_CONTROL_TASK_DATA_SOURCE_ID": {
+      "role": "Supporting execution task database",
+      "requiredFields": [
+        {
+          "name": "任務名稱",
+          "type": "title"
+        },
+        {
+          "name": "總控專案",
+          "type": "relation",
+          "target": "PROJECT_TOTAL_CONTROL_PROJECT_DATA_SOURCE_ID",
+          "reciprocalName": "關聯任務"
+        }
+      ],
+      "recommendedFields": [
+        "狀態",
+        "確認狀態",
+        "下一步",
+        "負責人",
+        "來源",
+        "來源原文",
+        "Codex 判斷摘要",
+        "關聯 Notion 頁面"
+      ],
+      "compatibilityFields": [
+        "專案",
+        "第一層：總控專案",
+        "對應總控專案"
+      ]
+    }
+  },
+  "rules": [
+    "Use 總控專案 relation as the source of truth for task-to-project linkage.",
+    "Keep legacy project select fields only while scripts and views migrate.",
+    "Project body content must preserve process evidence, not only conclusions.",
+    "Do not copy records, messages, attachments, or secrets between HOZO AM and 7AM."
+  ]
+}

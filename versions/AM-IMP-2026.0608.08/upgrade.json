@@ -1,0 +1,35 @@
+{
+  "id": "AM-IMP-2026.0608.08",
+  "name": "Hierarchical responsibility owner narrowing workflow",
+  "type": "Responsibility governance",
+  "portable": true,
+  "requiresDatabases": [
+    "PROJECT_RESPONSIBILITY_DATA_SOURCE_ID",
+    "PROJECT_LINE_GROUP_OPTIONS_DATA_SOURCE_ID",
+    "PROJECT_LINE_GROUP_MEMBERS_DATA_SOURCE_ID"
+  ],
+  "requiresEnv": [
+    "NOTION_TOKEN",
+    "PROJECT_RESPONSIBILITY_DATA_SOURCE_ID",
+    "PROJECT_LINE_GROUP_OPTIONS_DATA_SOURCE_ID",
+    "PROJECT_LINE_GROUP_MEMBERS_DATA_SOURCE_ID"
+  ],
+  "requiresScripts": [
+    "scripts/setup-responsibility-owner-narrowing.js",
+    "scripts/sync-responsibility-candidates.js"
+  ],
+  "installTargets": ["HOZO_AM", "SEVEN_AM"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Three project-local Notion databases exist",
+    "Project-local env variables are documented",
+    "Responsibility sync dry-run passes",
+    "Project manifest is updated"
+  ]
+}
+

@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "id": "daily-intake-reconciliation-runtime",
+  "name": "Context-first daily intake reconciliation runtime",
+  "appliesTo": ["08:00 daily intake", "08:00-22:00 hourly LINE checks", "meeting action sync"],
+  "lineFlow": [
+    {
+      "step": "load_new_messages",
+      "required": true,
+      "description": "Load new project-local LINE messages in chronological order."
+    },
+    {
+      "step": "group_by_conversation",
+      "required": true,
+      "description": "Group messages by LINE group, room, or user conversation key before judging task creation."
+    },
+    {
+      "step": "load_same_conversation_context",
+      "required": true,
+      "description": "Load earlier and nearby messages from the same conversation so each new message is judged inside its topic thread."
+    },
+    {
+      "step": "build_topic_thread",
+      "required": true,
+      "description": "Combine related messages into a topic thread using subject, participants, time continuity, replies, and explicit topic changes."
+    },
+    {
+      "step": "search_active_tasks",
+      "required": true,
+      "description": "Search active total-control tasks by project, conversation, source evidence, people, dates, subject keywords, and status."
+    },
+    {
+      "step": "decide_existing_or_new",
+      "required": true,
+      "description": "Decide whether the thread updates an existing task, creates a new event task, needs confirmation, or creates no task."
+    },
+    {
+      "step": "write_evidence",
+      "required": true,
+      "description": "Write source evidence for every task update or new event task."
+    }
+  ],
+  "allowedLineOutcomes": [
+    "update_existing_task",
+    "create_new_event_task",
+    "request_confirmation",
+    "mark_judged_no_task"
+  ],
+  "mustNotDo": [
+    "create one task per message",
+    "create one task per sentence fragment",
+    "create tasks before searching active tasks",
+    "turn assistant commands into total-control tasks",
+    "turn pure knowledge explanations into multiple active tasks",
+    "mark sensitive financial, legal, HR, tax, medical, contractual, or external commitment items complete without owner confirmation"
+  ],
+  "meetingFlow": [
+    {
+      "step": "extract_checkbox_tasks",
+      "required": true,
+      "description": "Checkbox items in meeting records are confirmed meeting tasks."
+    },
+    {
+      "step": "dedupe_by_meeting_and_text",
+      "required": true,
+      "description": "Avoid duplicates by matching meeting reference plus normalized task text."
+    },
+    {
+      "step": "preserve_surrounding_discussion",
+      "required": true,
+      "description": "Keep or link meeting discussion, decisions, blockers, and conclusions as execution knowledge."
+    },
+    {
+      "step": "apply_project_exclusion_rules",
+      "required": true,
+      "description": "Apply project-local exclusion rules such as internal reading-club no-task rules unless explicit deliverables or external commitments exist."
+    }
+  ],
+  "postRunAudit": {
+    "requiredCounters": [
+      "scannedMessages",
+      "updatedExistingTasks",
+      "createdNewEventTasks",
+      "requestedConfirmations",
+      "judgedNoTask",
+      "duplicateSkipped"
+    ],
+    "requiredWarnings": [
+      "possibleDuplicateTopicCluster",
+      "messageFragmentTaskCreated",
+      "missingConversationContext",
+      "missingActiveTaskSearch"
+    ]
+  }
+}
+

@@ -1,0 +1,20 @@
+{
+  "name": "hozo-am-line-oa-webhook",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --import ./src/control-api.js src/server.js",
+    "dev": "node --import ./src/control-api.js --watch src/server.js",
+    "cron:report": "node scripts/render-cron-report.js",
+    "line:judgements": "node scripts/sync-line-message-judgements.js",
+    "meetings:sync": "node scripts/sync-meeting-actions.js",
+    "assistant:hourly": "node scripts/sync-meeting-actions.js --limit 50 && node scripts/sync-line-message-judgements.js --limit 50 && node scripts/sync-responsibility-candidates.js",
+    "responsibility:sync": "node scripts/sync-responsibility-candidates.js",
+    "codex:commands": "node scripts/codex-command-queue.js",
+    "line:push": "node scripts/line-push.js",
+    "setup:codex-commands": "node scripts/setup-codex-command-queue.js",
+    "setup:daily-snapshots": "node scripts/setup-daily-report-snapshots.js",
+    "setup:responsibility": "node scripts/setup-responsibility-owner-narrowing.js"
+  }
+}

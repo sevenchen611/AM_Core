@@ -1,0 +1,23 @@
+{
+  "id": "AM-IMP-2026.0608.01",
+  "name": "Project data isolation guard",
+  "type": "Safety",
+  "portable": true,
+  "requiresDatabases": ["PROJECT_NOTION_DATABASE_AREA"],
+  "requiresEnv": ["PROJECT_DATA_SOURCE_PARENT_BLOCK_ID"],
+  "requiresScripts": [],
+  "installTargets": ["HOZO_AM", "SEVEN_AM"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Notion write guard exists",
+    "Guard rejects non-project data source names",
+    "Guard rejects databases outside the project data area",
+    "Project manifest is updated"
+  ]
+}
+

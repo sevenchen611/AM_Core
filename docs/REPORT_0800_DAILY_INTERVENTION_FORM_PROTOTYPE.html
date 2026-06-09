@@ -1,0 +1,873 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>08:00 日報介入表單原型</title>
+  <style>
+    :root {
+      --bg: #f6f5ef;
+      --ink: #20242a;
+      --muted: #66707c;
+      --line: #d9d7cc;
+      --surface: #fffdf7;
+      --band: #27313a;
+      --band-soft: #394550;
+      --green: #2f6f5e;
+      --blue: #315f8c;
+      --red: #a2453f;
+      --yellow: #936b26;
+      --violet: #6a527d;
+      --shadow: 0 12px 30px rgba(40, 42, 35, .08);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Microsoft JhengHei", "PingFang TC", system-ui, sans-serif;
+      line-height: 1.5;
+    }
+    button, input, select, textarea { font: inherit; }
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 236px minmax(0, 1fr);
+    }
+    aside {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      background: var(--band);
+      color: #f7f4e9;
+      padding: 22px 18px;
+      border-right: 1px solid rgba(255,255,255,.1);
+    }
+    .brand {
+      display: grid;
+      gap: 12px;
+    }
+    .clock {
+      width: 76px;
+      height: 76px;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at center, #fffdf7 0 45%, transparent 47%),
+        conic-gradient(#d7a94f 0deg 96deg, #879cad 96deg 215deg, #6f837a 215deg 360deg);
+      border: 3px solid rgba(255,255,255,.72);
+      position: relative;
+      box-shadow: 0 8px 18px rgba(0,0,0,.18);
+    }
+    .clock:before, .clock:after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      background: #27313a;
+      transform-origin: left center;
+      border-radius: 2px;
+    }
+    .clock:before { width: 22px; height: 3px; transform: rotate(0deg); }
+    .clock:after { width: 19px; height: 3px; transform: rotate(270deg); }
+    .brand strong {
+      display: block;
+      font-size: 24px;
+      line-height: 1.2;
+    }
+    .brand span {
+      color: #d7dfd9;
+      font-size: 13px;
+    }
+    nav {
+      display: grid;
+      gap: 8px;
+      margin-top: 28px;
+    }
+    nav a {
+      color: #edf0eb;
+      text-decoration: none;
+      padding: 9px 10px;
+      border-radius: 6px;
+    }
+    nav a:hover { background: rgba(255,255,255,.08); }
+    main {
+      padding: 24px;
+      min-width: 0;
+    }
+    .top {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: flex-start;
+      margin-bottom: 18px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 28px;
+      line-height: 1.22;
+      letter-spacing: 0;
+    }
+    .sub {
+      color: var(--muted);
+      margin-top: 5px;
+      font-size: 14px;
+    }
+    .status-line {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: #ece9df;
+      color: #3f4852;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .pill.green { background: #e2efe9; color: var(--green); }
+    .pill.blue { background: #e4edf6; color: var(--blue); }
+    .pill.red { background: #f3e1df; color: var(--red); }
+    .pill.yellow { background: #f5ead6; color: var(--yellow); }
+    .pill.violet { background: #ebe3ef; color: var(--violet); }
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .metric {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px 13px;
+      box-shadow: var(--shadow);
+      min-height: 82px;
+    }
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .metric strong {
+      display: block;
+      font-size: 27px;
+      margin-top: 5px;
+    }
+    section {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      align-items: center;
+      padding: 13px 15px;
+      background: #fbfaf4;
+      border-bottom: 1px solid var(--line);
+    }
+    .section-head h2 {
+      margin: 0;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+    .section-head span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .goal-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      padding: 14px;
+    }
+    .goal-tile {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 150px;
+      background: #fffef9;
+    }
+    .goal-tile h3 {
+      margin: 0 0 8px;
+      font-size: 15px;
+    }
+    .goal-tile textarea {
+      min-height: 72px;
+    }
+    .candidate-list {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
+    }
+    .candidate {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 13px;
+      background: #fffef9;
+    }
+    .candidate.active {
+      border-color: #7fa996;
+      box-shadow: 0 0 0 2px rgba(47,111,94,.14);
+    }
+    .candidate.saved {
+      border-color: #9aaea5;
+      background: #fbfdf9;
+    }
+    .candidate-main {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 340px;
+      gap: 12px;
+    }
+    .candidate h3 {
+      margin: 0;
+      font-size: 17px;
+      letter-spacing: 0;
+    }
+    .candidate p {
+      margin: 8px 0 0;
+      color: #3c4248;
+    }
+    .meta {
+      display: flex;
+      gap: 7px;
+      flex-wrap: wrap;
+      margin-top: 9px;
+    }
+    .actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      align-content: start;
+    }
+    .action-btn, .main-btn, .ghost-btn {
+      min-height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fffdf7;
+      color: var(--ink);
+      cursor: pointer;
+      padding: 8px 10px;
+      text-align: center;
+    }
+    .action-btn:hover, .ghost-btn:hover { background: #f2f0e7; }
+    .action-btn.selected {
+      border-color: var(--green);
+      background: #e8f3ee;
+      color: #1f5145;
+      font-weight: 700;
+    }
+    .action-btn.danger.selected {
+      border-color: var(--red);
+      background: #f6e6e4;
+      color: #8c342e;
+    }
+    .form-block {
+      display: grid;
+      gap: 12px;
+      margin-top: 13px;
+    }
+    .inline-editor {
+      border-top: 1px solid var(--line);
+      background: #fbfaf4;
+      margin-top: 2px;
+      padding: 13px;
+      border-radius: 0 0 8px 8px;
+    }
+    .inline-editor-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      margin-bottom: 10px;
+    }
+    .inline-editor-head strong {
+      display: block;
+      font-size: 15px;
+    }
+    .inline-editor-head span {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    label {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--ink);
+      padding: 9px 10px;
+      min-height: 38px;
+    }
+    textarea {
+      min-height: 90px;
+      resize: vertical;
+      line-height: 1.55;
+    }
+    .panel-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 14px;
+    }
+    .main-btn {
+      background: var(--green);
+      color: #fff;
+      border-color: var(--green);
+      font-weight: 700;
+    }
+    .summary-box {
+      border: 1px solid var(--line);
+      background: #fbfaf4;
+      border-radius: 8px;
+      padding: 11px;
+      color: #48505a;
+      font-size: 13px;
+      margin-top: 14px;
+      min-height: 64px;
+    }
+    .decision-summary {
+      border: 1px solid #c9dbd1;
+      background: #eef6f1;
+      border-radius: 8px;
+      padding: 10px 11px;
+      color: #284c42;
+      font-size: 13px;
+      margin-top: 11px;
+    }
+    .history {
+      padding: 14px;
+      display: grid;
+      gap: 8px;
+    }
+    .history-row {
+      display: grid;
+      grid-template-columns: 130px minmax(0, 1fr) 110px;
+      gap: 10px;
+      border-bottom: 1px solid var(--line);
+      padding: 8px 0;
+      font-size: 14px;
+    }
+    .history-row:last-child { border-bottom: 0; }
+    .submit-section {
+      padding: 14px;
+      display: grid;
+      gap: 12px;
+    }
+    .submit-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 220px;
+      gap: 14px;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fffef9;
+      padding: 14px;
+    }
+    .submit-card strong {
+      display: block;
+      font-size: 18px;
+      margin-bottom: 4px;
+    }
+    .submit-card p {
+      margin: 0;
+      color: var(--muted);
+    }
+    .submit-card .main-btn {
+      min-height: 44px;
+      width: 100%;
+    }
+    .main-btn:disabled {
+      cursor: not-allowed;
+      opacity: .56;
+      background: #7d8f88;
+      border-color: #7d8f88;
+    }
+    .submit-result {
+      display: none;
+      border: 1px solid #b8d2c6;
+      background: #edf6f1;
+      color: #234d42;
+      border-radius: 8px;
+      padding: 12px 13px;
+      font-size: 14px;
+    }
+    .submit-result.show { display: block; }
+    .mobile-panel-link { display: none; }
+    @media (max-width: 1180px) {
+      .app { grid-template-columns: 210px minmax(0, 1fr); }
+      aside { height: auto; }
+    }
+    @media (max-width: 860px) {
+      .app { display: block; }
+      aside { position: static; height: auto; }
+      main { padding: 16px; }
+      .top { display: block; }
+      .status-line { justify-content: flex-start; margin-top: 12px; }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .goal-grid { grid-template-columns: 1fr; }
+      .candidate-main { grid-template-columns: 1fr; }
+      .history-row { grid-template-columns: 1fr; }
+      .submit-card { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 520px) {
+      .metrics { grid-template-columns: 1fr; }
+      .actions { grid-template-columns: 1fr; }
+      .panel-actions { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside>
+      <div class="brand">
+        <div class="clock" aria-hidden="true"></div>
+        <div>
+          <strong>08:00<br>日報介入表單</strong>
+          <span>AMCore prototype / Draft</span>
+        </div>
+      </div>
+      <nav>
+        <a href="#goals">今日目標</a>
+        <a href="#candidates">候選項目</a>
+        <a href="#history">本次決策</a>
+        <a href="#submitReport">送出日報</a>
+      </nav>
+    </aside>
+
+    <main>
+      <div class="top">
+        <div>
+          <h1>早上 8 點總控日報</h1>
+          <div class="sub">先定今日方向，再處理候選任務、專案歸屬與負責人口述目標。</div>
+        </div>
+        <div class="status-line">
+          <span class="pill green">今日開局</span>
+          <span class="pill blue">08:00</span>
+          <span class="pill yellow">待確認 5</span>
+          <span class="pill red">高風險 1</span>
+        </div>
+      </div>
+
+      <div class="metrics">
+        <div class="metric"><span>今日專案目標</span><strong>3</strong></div>
+        <div class="metric"><span>候選任務</span><strong>5</strong></div>
+        <div class="metric"><span>待口述目標</span><strong>2</strong></div>
+        <div class="metric"><span>需改專案</span><strong>1</strong></div>
+      </div>
+
+      <section id="goals">
+        <div class="section-head">
+          <h2>今日目標開局</h2>
+          <span>08:00 先決定今天追什麼、不追什麼</span>
+        </div>
+        <div class="goal-grid">
+          <article class="goal-tile">
+            <h3>今日總控重點</h3>
+            <textarea>確認昨天留下的候選任務，先排出今日必追項目。</textarea>
+          </article>
+          <article class="goal-tile">
+            <h3>需要負責人補口述</h3>
+            <textarea>把缺少完成條件的項目，先發給負責人確認目標。</textarea>
+          </article>
+          <article class="goal-tile">
+            <h3>今日不處理</h3>
+            <textarea>沒有明確動作、只是聊天背景或資料待查的項目先不建立任務。</textarea>
+          </article>
+        </div>
+      </section>
+
+      <section id="candidates">
+        <div class="section-head">
+          <h2>候選項目介入</h2>
+          <span>每一筆都可決定建立、排除、改專案或補目標</span>
+        </div>
+        <div class="candidate-list" id="candidateList"></div>
+      </section>
+
+      <section id="history">
+        <div class="section-head">
+          <h2>本次決策紀錄</h2>
+          <span>預覽會寫回的決策，不含真實資料</span>
+        </div>
+        <div class="history" id="decisionHistory">
+          <div class="history-row">
+            <strong>尚未決策</strong>
+            <span>請在候選項目中點選一個介入動作。</span>
+            <span class="pill">Draft</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="submitReport">
+        <div class="section-head">
+          <h2>送出日報決策</h2>
+          <span>完成暫存後，送出整份 08:00 日報</span>
+        </div>
+        <div class="submit-section">
+          <div class="submit-card">
+            <div>
+              <strong id="submitStatusTitle">尚未有可送出的決策</strong>
+              <p id="submitStatusText">請先在候選項目中完成至少一筆決策，再送出本次日報。</p>
+              <div class="meta" id="submitMeta">
+                <span class="pill">已決策 0</span>
+                <span class="pill yellow">未決策 5</span>
+              </div>
+            </div>
+            <button class="main-btn" id="submitReportButton" type="button" onclick="submitDailyReport()" disabled>送出本次日報決策</button>
+          </div>
+          <div class="submit-result" id="submitResult"></div>
+        </div>
+      </section>
+    </main>
+
+  </div>
+
+  <script>
+    const actions = [
+      { key: "CREATE_TASK", label: "建立任務", status: "已建立任務" },
+      { key: "DISMISS_NOT_TASK", label: "不是任務", status: "不是任務", danger: true },
+      { key: "CHANGE_PROJECT", label: "改專案", status: "已改專案" },
+      { key: "SET_PROJECT_GOAL", label: "指定專案目標", status: "已指定專案目標" },
+      { key: "SET_TASK_GOAL", label: "指定任務目標", status: "已指定任務目標" },
+      { key: "REQUEST_OWNER_GOAL_STATEMENT", label: "要求口述目標", status: "待負責人口述目標" }
+    ];
+    const candidates = [
+      {
+        id: "C-0800-001",
+        title: "範例專案 A：今日需確認下一步",
+        source: "LINE_MESSAGE_SIGNAL",
+        project: "範例專案 A",
+        risk: "一般",
+        confidence: "中",
+        summary: "訊息看起來像交辦，但還缺少明確完成條件，適合早上先要求負責人口述目標。",
+        suggestedGoal: "今日 12:00 前確認下一步與完成條件。"
+      },
+      {
+        id: "C-0800-002",
+        title: "範例專案 B：昨天進度需要改歸屬",
+        source: "REPORT_FOLLOWUP_SIGNAL",
+        project: "待判斷",
+        risk: "一般",
+        confidence: "低",
+        summary: "系統判斷可能放錯專案，早上應先由控制者指定正確總控專案。",
+        suggestedGoal: "改到正確專案後再判斷是否建立任務。"
+      },
+      {
+        id: "C-0800-003",
+        title: "範例行政事項：不是總控任務",
+        source: "LINE_MESSAGE_SIGNAL",
+        project: "行政背景",
+        risk: "低",
+        confidence: "高",
+        summary: "內容偏向聊天背景或資訊備註，建議標記不是任務，避免日報反覆出現。",
+        suggestedGoal: "不建立任務，只保留來源訊息。"
+      },
+      {
+        id: "C-0800-004",
+        title: "範例風險項：需要今天建立任務",
+        source: "RISK_OR_DECISION_SIGNAL",
+        project: "範例專案 C",
+        risk: "高",
+        confidence: "中",
+        summary: "涉及時效或風險，需要今天進入總控任務並指定負責人。",
+        suggestedGoal: "今天完成風險確認，並回報可執行方案。"
+      },
+      {
+        id: "C-0800-005",
+        title: "範例目標：需要指定專案目標",
+        source: "GOAL_RECOGNITION_SIGNAL",
+        project: "範例專案 D",
+        risk: "一般",
+        confidence: "中",
+        summary: "這筆不像單一任務，比較像專案層級目標，需要先掛到專案目標再拆任務。",
+        suggestedGoal: "本週完成專案目標拆解。"
+      }
+    ];
+    let selected = null;
+    const decisions = new Map();
+
+    renderCandidates();
+    updateSubmitState();
+
+    function renderCandidates() {
+      const list = document.getElementById("candidateList");
+      list.innerHTML = candidates.map(item => `
+        <article class="candidate ${selected && selected.id === item.id ? "active" : ""} ${decisions.has(item.id) ? "saved" : ""}" id="${item.id}">
+          <div class="candidate-main">
+            <div>
+              <h3>${escapeHtml(item.title)}</h3>
+              <p>${escapeHtml(item.summary)}</p>
+              <div class="meta">
+                <span class="pill blue">${escapeHtml(item.source)}</span>
+                <span class="pill green">${escapeHtml(getDecisionField(item.id, "targetProject") || item.project)}</span>
+                <span class="pill ${item.risk === "高" ? "red" : "yellow"}">${escapeHtml(item.risk)}風險</span>
+                <span class="pill violet">信心 ${escapeHtml(item.confidence)}</span>
+                ${decisionStatusChip(item.id)}
+              </div>
+              ${decisionSummary(item.id)}
+            </div>
+            <div class="actions">
+              ${actions.map(action => `
+                <button class="action-btn ${action.danger ? "danger" : ""} ${selected && selected.id === item.id && selected.action === action.key ? "selected" : ""}"
+                  type="button"
+                  onclick="chooseAction('${item.id}', '${action.key}')">${action.label}</button>
+              `).join("")}
+            </div>
+          </div>
+          ${selected && selected.id === item.id ? inlineEditor() : ""}
+        </article>
+      `).join("");
+      if (selected) bindInlinePreview();
+    }
+
+    function chooseAction(candidateId, actionKey) {
+      const candidate = candidates.find(item => item.id === candidateId);
+      const action = actions.find(item => item.key === actionKey);
+      selected = { ...candidate, action: action.key, actionLabel: action.label, status: action.status };
+      renderCandidates();
+      document.getElementById(candidateId).scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    function inlineEditor() {
+      const fields = fieldSetFor(selected.action);
+      return `
+        <div class="inline-editor">
+          <div class="inline-editor-head">
+            <div>
+              <strong>${escapeHtml(selected.actionLabel)}</strong>
+              <span>${escapeHtml(selected.status)} / ${escapeHtml(selected.action)}</span>
+            </div>
+            <span class="pill green">原地填寫</span>
+          </div>
+          <div class="form-block" id="dynamicFields">
+            ${fields.map(field => `
+        <label>${field.label}
+          ${field.type === "textarea"
+            ? `<textarea id="${field.id}">${escapeHtml(field.value || "")}</textarea>`
+            : field.type === "select"
+              ? `<select id="${field.id}">${field.options.map(option => `<option>${escapeHtml(option)}</option>`).join("")}</select>`
+              : `<input id="${field.id}" value="${escapeHtml(field.value || "")}">`}
+        </label>
+            `).join("")}
+          </div>
+          <div class="panel-actions">
+            <button class="ghost-btn" type="button" onclick="clearSelection()">取消</button>
+            <button class="main-btn" type="button" onclick="saveDecision()">儲存並收起</button>
+          </div>
+          <div class="summary-box" id="writePreview"></div>
+        </div>
+      `;
+    }
+
+    function bindInlinePreview() {
+      updateWritePreview();
+      document.querySelectorAll("#dynamicFields input, #dynamicFields select, #dynamicFields textarea")
+        .forEach(input => input.addEventListener("input", updateWritePreview));
+    }
+
+    function fieldSetFor(actionKey) {
+      const commonProjects = ["範例專案 A", "範例專案 B", "範例專案 C", "範例專案 D", "行政背景"];
+      if (actionKey === "CREATE_TASK") {
+        return [
+          { id: "targetProject", label: "修正後總控專案", type: "select", options: commonProjects },
+          { id: "taskGoal", label: "指定任務目標", type: "textarea", value: selected.suggestedGoal },
+          { id: "owner", label: "負責人或群組", type: "input", value: "待指定" },
+          { id: "controllerNote", label: "控制者備註", type: "textarea", value: "" }
+        ];
+      }
+      if (actionKey === "DISMISS_NOT_TASK") {
+        return [
+          { id: "dismissReason", label: "排除原因", type: "select", options: ["只是背景資訊", "重複項目", "不需要追蹤", "交由人工處理"] },
+          { id: "controllerNote", label: "控制者備註", type: "textarea", value: "" }
+        ];
+      }
+      if (actionKey === "CHANGE_PROJECT") {
+        return [
+          { id: "targetProject", label: "修正後總控專案", type: "select", options: commonProjects },
+          { id: "controllerNote", label: "改派原因", type: "textarea", value: "" }
+        ];
+      }
+      if (actionKey === "SET_PROJECT_GOAL") {
+        return [
+          { id: "targetProject", label: "總控專案", type: "select", options: commonProjects },
+          { id: "projectGoal", label: "指定專案目標", type: "textarea", value: "本週完成可追蹤的專案目標定義。" },
+          { id: "controllerNote", label: "控制者備註", type: "textarea", value: "" }
+        ];
+      }
+      if (actionKey === "SET_TASK_GOAL") {
+        return [
+          { id: "taskGoal", label: "指定任務目標", type: "textarea", value: selected.suggestedGoal },
+          { id: "dueDate", label: "期望完成日", type: "input", value: "2026-06-08" },
+          { id: "controllerNote", label: "控制者備註", type: "textarea", value: "" }
+        ];
+      }
+      return [
+        { id: "ownerOrOwnerGroup", label: "要求口述目標對象", type: "input", value: "待指定負責人" },
+        { id: "candidateQuestion", label: "要發給負責人的問題", type: "textarea", value: "請口述這件事的完成目標：怎樣叫完成、誰驗收、今天要做到哪一步？" },
+        { id: "controllerNote", label: "控制者備註", type: "textarea", value: "" }
+      ];
+    }
+
+    function updateWritePreview() {
+      if (!selected) return;
+      const preview = document.getElementById("writePreview");
+      if (!preview) return;
+      const values = [...document.querySelectorAll("#dynamicFields input, #dynamicFields select, #dynamicFields textarea")]
+        .map(input => `<strong>${escapeHtml(input.parentElement.firstChild.textContent.trim())}</strong>：${escapeHtml(input.value || "未填")}`)
+        .join("<br>");
+      preview.innerHTML =
+        `<strong>介入狀態</strong>：${escapeHtml(selected.status)}<br>` +
+        `<strong>介入動作</strong>：${escapeHtml(selected.action)}<br>` +
+        values;
+    }
+
+    function saveDecision() {
+      if (!selected) return;
+      const payload = {
+        id: selected.id,
+        title: selected.title,
+        action: selected.action,
+        actionLabel: selected.actionLabel,
+        status: selected.status,
+        at: new Date().toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" }),
+        fields: collectInlineFields()
+      };
+      decisions.set(selected.id, payload);
+      selected = null;
+      renderCandidates();
+      renderHistory();
+      updateSubmitState();
+    }
+
+    function renderHistory() {
+      const rows = [...decisions.values()];
+      document.getElementById("decisionHistory").innerHTML = rows.length
+        ? rows.map(item => `
+          <div class="history-row">
+            <strong>${escapeHtml(item.at)}</strong>
+            <span>${escapeHtml(item.title)}<br>${escapeHtml(item.actionLabel)} / ${escapeHtml(item.action)}</span>
+            <span class="pill green">${escapeHtml(item.status)}</span>
+          </div>
+        `).join("")
+        : `<div class="history-row"><strong>尚未決策</strong><span>請在候選項目中點選一個介入動作。</span><span class="pill">Draft</span></div>`;
+    }
+
+    function updateSubmitState() {
+      const decided = decisions.size;
+      const undecided = candidates.length - decided;
+      const button = document.getElementById("submitReportButton");
+      const title = document.getElementById("submitStatusTitle");
+      const text = document.getElementById("submitStatusText");
+      const meta = document.getElementById("submitMeta");
+      if (!button || !title || !text || !meta) return;
+      button.disabled = decided === 0;
+      button.innerText = decided === 0 ? "送出本次日報決策" : "送出本次日報決策";
+      title.innerText = decided === 0 ? "尚未有可送出的決策" : "可以送出本次日報決策";
+      text.innerText = decided === 0
+        ? "請先在候選項目中完成至少一筆決策，再送出本次日報。"
+        : undecided > 0
+          ? `目前已暫存 ${decided} 筆，還有 ${undecided} 筆未決策；可先送出已處理項目。`
+          : `全部 ${decided} 筆候選項目都已完成決策，可以送出。`;
+      meta.innerHTML = `
+        <span class="pill green">已決策 ${decided}</span>
+        <span class="pill ${undecided ? "yellow" : "green"}">未決策 ${undecided}</span>
+      `;
+    }
+
+    function submitDailyReport() {
+      if (!decisions.size) return;
+      const rows = [...decisions.values()];
+      const undecided = candidates.length - rows.length;
+      const result = document.getElementById("submitResult");
+      const submittedAt = new Date().toLocaleString("zh-TW", {
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
+      });
+      result.className = "submit-result show";
+      result.innerHTML = `
+        <strong>已送出 08:00 日報決策預覽</strong><br>
+        送出時間：${escapeHtml(submittedAt)}<br>
+        已送出決策：${rows.length} 筆；未決策：${undecided} 筆。<br><br>
+        ${rows.map(item => `${escapeHtml(item.title)}：${escapeHtml(item.actionLabel)} / ${escapeHtml(item.action)}`).join("<br>")}
+      `;
+      document.getElementById("submitReportButton").innerText = "已送出本次日報決策";
+      result.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    function clearSelection() {
+      selected = null;
+      renderCandidates();
+    }
+
+    function collectInlineFields() {
+      const fields = {};
+      document.querySelectorAll("#dynamicFields input, #dynamicFields select, #dynamicFields textarea")
+        .forEach(input => {
+          fields[input.id] = input.value || "";
+        });
+      return fields;
+    }
+
+    function decisionStatusChip(candidateId) {
+      const decision = decisions.get(candidateId);
+      if (!decision) return '<span class="pill">待確認</span>';
+      return `<span class="pill green">${escapeHtml(decision.status)}</span>`;
+    }
+
+    function decisionSummary(candidateId) {
+      const decision = decisions.get(candidateId);
+      if (!decision) return "";
+      const important = [
+        decision.fields.targetProject && `專案：${decision.fields.targetProject}`,
+        decision.fields.projectGoal && `專案目標：${decision.fields.projectGoal}`,
+        decision.fields.taskGoal && `任務目標：${decision.fields.taskGoal}`,
+        decision.fields.ownerOrOwnerGroup && `口述對象：${decision.fields.ownerOrOwnerGroup}`,
+        decision.fields.candidateQuestion && `詢問：${decision.fields.candidateQuestion}`,
+        decision.fields.dismissReason && `原因：${decision.fields.dismissReason}`
+      ].filter(Boolean).slice(0, 3);
+      return `
+        <div class="decision-summary">
+          <strong>${escapeHtml(decision.actionLabel)} 已暫存</strong><br>
+          ${important.length ? important.map(escapeHtml).join("<br>") : "已記錄控制者決策。"}
+        </div>
+      `;
+    }
+
+    function getDecisionField(candidateId, fieldName) {
+      const decision = decisions.get(candidateId);
+      return decision && decision.fields ? decision.fields[fieldName] : "";
+    }
+
+    function escapeHtml(value) {
+      return String(value || "").replace(/[&<>"']/g, char => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;"
+      }[char]));
+    }
+  </script>
+</body>
+</html>

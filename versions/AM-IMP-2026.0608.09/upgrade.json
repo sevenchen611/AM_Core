@@ -1,0 +1,33 @@
+{
+  "id": "AM-IMP-2026.0608.09",
+  "name": "Immediate LINE command conversation mode",
+  "type": "LINE command",
+  "portable": true,
+  "requiresDatabases": [
+    "PROJECT_TASKS_DATA_SOURCE_ID",
+    "PROJECT_CODEX_COMMANDS_DATA_SOURCE_ID"
+  ],
+  "requiresEnv": [
+    "PROJECT_COMMAND_TRIGGERS",
+    "PROJECT_TASKS_DATA_SOURCE_ID",
+    "PROJECT_CODEX_COMMANDS_DATA_SOURCE_ID"
+  ],
+  "requiresScripts": [
+    "scripts/codex-command-queue.js"
+  ],
+  "installTargets": ["HOZO_AM", "SEVEN_AM"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Health endpoint reports immediateCommandEnabled",
+    "Task list command still works",
+    "Task detail ordinal command works after a task list",
+    "High-risk commands are acknowledged but not executed",
+    "Project manifest is updated"
+  ]
+}
+

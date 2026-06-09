@@ -1,0 +1,27 @@
+{
+  "id": "AM-IMP-2026.0608.10",
+  "name": "Notion database view layout registry",
+  "type": "Governance",
+  "portable": true,
+  "requiresDatabases": [
+    "PROJECT_LINE_GROUP_OPTIONS_DATA_SOURCE_ID",
+    "PROJECT_RESPONSIBILITY_DATA_SOURCE_ID"
+  ],
+  "requiresEnv": [
+    "NOTION_TOKEN"
+  ],
+  "requiresScripts": [],
+  "installTargets": ["HOZO_AM", "SEVEN_AM"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Layout definition is recorded in AMCore",
+    "The target project uses its own Notion access only",
+    "LINE group options Default view displays the registered properties in order",
+    "Missing project-local layout properties are created without copying another project's data"
+  ]
+}

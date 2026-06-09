@@ -1,0 +1,30 @@
+{
+  "id": "AM-IMP-2026.0608.18",
+  "name": "Hourly LINE task reconciliation",
+  "type": "Governance / LINE task control",
+  "portable": true,
+  "requiresDatabases": [
+    "PROJECT_LINE_MESSAGES_DATA_SOURCE_ID",
+    "PROJECT_LINE_CONVERSATIONS_DATA_SOURCE_ID",
+    "PROJECT_TOTAL_CONTROL_TASK_DATA_SOURCE_ID"
+  ],
+  "requiresEnv": [
+    "NOTION_TOKEN"
+  ],
+  "requiresScripts": [],
+  "installTargets": ["HOZO_AM", "SEVEN_AM"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "AMCore documents hourly LINE checks as task reconciliation, not message-level task creation",
+    "The shared JSON spec defines the 08:00-22:00 hourly loop",
+    "Project-local AGENTS.md points the hourly LINE judgement job at this reconciliation contract",
+    "Project-local config contains the spec without storing messages, task records, database IDs, or secrets",
+    "Existing cron schedules remain project-local"
+  ]
+}
+

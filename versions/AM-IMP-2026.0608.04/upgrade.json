@@ -1,0 +1,23 @@
+{
+  "id": "AM-IMP-2026.0608.04",
+  "name": "Cron report deployment verification",
+  "type": "Reporting / Deployment verification",
+  "portable": true,
+  "requiresDatabases": ["PROJECT_DAILY_REPORT_SNAPSHOTS_DATA_SOURCE_ID", "PROJECT_AUTOMATION_RUN_LOG_DATA_SOURCE_ID"],
+  "requiresEnv": ["PROJECT_DAILY_REPORT_SNAPSHOTS_DATA_SOURCE_ID", "PROJECT_AUTOMATION_RUN_LOG_DATA_SOURCE_ID"],
+  "requiresScripts": ["scripts/render-cron-report.js", "scripts/setup-daily-report-snapshots.js"],
+  "installTargets": ["HOZO_AM", "SEVEN_AM"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Each scheduled report leaves a verifiable run record",
+    "Daily report send creates or updates a snapshot",
+    "Render cron run can be checked after deployment",
+    "Project manifest is updated"
+  ]
+}
+

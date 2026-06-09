@@ -1,0 +1,32 @@
+{
+  "id": "AM-IMP-2026.0608.07",
+  "name": "Five-slot goal recognition and confirmation workflow",
+  "type": "Reporting / Goal governance",
+  "portable": true,
+  "requiresDatabases": [
+    "NOTION_TASK_DATABASE_ID"
+  ],
+  "requiresEnv": [
+    "PROJECT_TASKS_DATA_SOURCE_ID",
+    "MORNING_BRIEF_URL",
+    "FOLLOWUP_CONFIRMATION_URL",
+    "DAILY_REPORT_URL"
+  ],
+  "requiresScripts": [
+    "scripts/render-cron-report.js"
+  ],
+  "installTargets": ["HOZO_AM", "SEVEN_AM"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "All five report slots mention goal recognition",
+    "Task queries can read goal-confirmation fields when present",
+    "Local syntax checks pass",
+    "Project manifest is updated"
+  ]
+}
+

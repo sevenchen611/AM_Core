@@ -1,0 +1,23 @@
+{
+  "id": "AM-IMP-2026.0608.02",
+  "name": "Scheduled report multi-recipient rule",
+  "type": "Reporting",
+  "portable": true,
+  "requiresDatabases": ["PROJECT_CONVERSATIONS_DATA_SOURCE_ID"],
+  "requiresEnv": ["PROJECT_REPORT_TARGET", "PROJECT_REPORT_CC"],
+  "requiresScripts": ["scripts/render-cron-report.js"],
+  "installTargets": ["HOZO_AM", "SEVEN_AM"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Scheduled report target resolver supports more than one recipient",
+    "Default target and CC are project-local",
+    "No-send preview remains available",
+    "Project manifest is updated"
+  ]
+}
+

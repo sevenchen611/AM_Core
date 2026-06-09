@@ -1,0 +1,34 @@
+{
+  "id": "AM-IMP-2026.0609.01",
+  "name": "Context-first daily intake reconciliation",
+  "type": "Governance / LINE task control",
+  "portable": true,
+  "requiresDatabases": [
+    "PROJECT_LINE_MESSAGES_DATA_SOURCE_ID",
+    "PROJECT_LINE_CONVERSATIONS_DATA_SOURCE_ID",
+    "PROJECT_TOTAL_CONTROL_TASK_DATA_SOURCE_ID",
+    "PROJECT_MEETINGS_DATA_SOURCE_ID"
+  ],
+  "requiresEnv": [
+    "NOTION_TOKEN"
+  ],
+  "requiresScripts": [
+    "scripts/verify-line-reconciliation-implementation.js"
+  ],
+  "installTargets": ["HOZO_AM", "SEVEN_AM"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Project-local LINE intake loads same-conversation context before task judgment",
+    "Project-local LINE intake searches active total-control tasks before creating a new task",
+    "Existing related tasks are updated with source evidence instead of duplicated",
+    "Command, acknowledgement, duplicate, test, pure knowledge, and background messages are marked judged without task creation",
+    "Meeting checkbox tasks still enter as confirmed meeting tasks with meeting-reference deduplication",
+    "Post-run verification can identify whether the implementation is policy-compliant"
+  ]
+}
+

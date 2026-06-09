@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LINE 新群組與訊息進入 AM 系統的資料流</title>
+  <style>
+    :root {
+      --ink: #1f2933;
+      --muted: #5f6b7a;
+      --line: #d8dee6;
+      --bg: #f7f9fb;
+      --panel: #ffffff;
+      --blue: #2563eb;
+      --green: #12805c;
+      --amber: #b7791f;
+      --red: #b42318;
+      --violet: #6d28d9;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--bg);
+      font-family: "Segoe UI", "Noto Sans TC", Arial, sans-serif;
+      line-height: 1.62;
+    }
+
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 32px 24px 56px;
+    }
+
+    header {
+      margin-bottom: 24px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 30px;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 32px 0 12px;
+      font-size: 22px;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 0 0 8px;
+      font-size: 17px;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 0 0 12px;
+    }
+
+    .lead {
+      max-width: 900px;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .callout {
+      padding: 14px 16px;
+      border: 1px solid #f0d48a;
+      border-left: 5px solid var(--amber);
+      background: #fff8e6;
+      border-radius: 6px;
+      margin: 16px 0;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 14px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+    }
+
+    .card strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .tag {
+      display: inline-block;
+      margin: 0 6px 8px 0;
+      padding: 2px 8px;
+      border-radius: 999px;
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .tag.auto { background: var(--green); }
+    .tag.gap { background: var(--red); }
+    .tag.derived { background: var(--violet); }
+    .tag.manual { background: var(--amber); }
+    .tag.system { background: var(--blue); }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(160px, 1fr));
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .step {
+      position: relative;
+      min-height: 132px;
+      padding: 14px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .step::after {
+      content: ">";
+      position: absolute;
+      right: -11px;
+      top: 48%;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .step:last-child::after {
+      content: "";
+    }
+
+    .step .num {
+      color: var(--blue);
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    th, td {
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+      text-align: left;
+    }
+
+    th {
+      background: #eef3f8;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    code {
+      padding: 1px 5px;
+      border: 1px solid #d5dbe3;
+      border-radius: 4px;
+      background: #f3f6f9;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 0.94em;
+    }
+
+    .status-ok {
+      color: var(--green);
+      font-weight: 700;
+    }
+
+    .status-gap {
+      color: var(--red);
+      font-weight: 700;
+    }
+
+    .status-later {
+      color: var(--amber);
+      font-weight: 700;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    ul {
+      margin: 8px 0 0 20px;
+      padding: 0;
+    }
+
+    .small {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 980px) {
+      .grid, .two-col, .flow {
+        grid-template-columns: 1fr;
+      }
+
+      .step::after {
+        content: "v";
+        right: 50%;
+        top: auto;
+        bottom: -18px;
+      }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>LINE 新群組與訊息進入 AM 系統的資料流</h1>
+    <p class="lead">
+      這份說明回答兩件事：新 LINE 群組第一次傳訊息進來時，系統目前會寫入哪些 Notion 表；
+      以及為了讓權責指派、通知候選、報表後續可用，還有哪些衍生表應該同步建立或刷新。
+    </p>
+  </header>
+
+  <section class="callout">
+    <strong>先回答問題：</strong>
+    不是只有 `HOZO LINE 群組選項` 這一張表會有同步缺口。
+    只要是從 `LINE 對話主檔` 或 `LINE 訊息紀錄` 衍生出來的輔助表，都需要有「可重跑的 upsert/reconcile 同步」。
+    目前最明顯的缺口是權責流程用的 `LINE 群組選項` 和 `LINE 群組成員選項`。
+  </section>
+
+  <h2>目前資料流總覽</h2>
+  <div class="flow" aria-label="LINE message data flow">
+    <div class="step">
+      <div class="num">1. LINE Webhook</div>
+      <h3>收到事件</h3>
+      <p>LINE OA 收到文字、檔案、圖片、影片或其他事件。</p>
+    </div>
+    <div class="step">
+      <div class="num">2. 對話主檔</div>
+      <h3>找或建立對話</h3>
+      <p>如果是新 group/room/user，會在 `LINE 對話主檔` 建立對話頁。</p>
+    </div>
+    <div class="step">
+      <div class="num">3. 訊息紀錄</div>
+      <h3>建立每則訊息</h3>
+      <p>每個 LINE event/message 會寫入 `LINE 訊息紀錄`，並關聯對話主檔。</p>
+    </div>
+    <div class="step">
+      <div class="num">4. 附件/指令</div>
+      <h3>依類型分流</h3>
+      <p>非文字訊息可建立附件紀錄；助理指令可建立 Codex command queue。</p>
+    </div>
+    <div class="step">
+      <div class="num">5. 衍生同步</div>
+      <h3>後續判斷與權責</h3>
+      <p>任務、進度、群組選項、群組成員、權責候選都屬於後續衍生流程。</p>
+    </div>
+  </div>
+
+  <h2>新群組第一次出現時，應該分派到哪些表</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>資料表</th>
+        <th>用途</th>
+        <th>目前狀態</th>
+        <th>新群組時應該做什麼</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>LINE 對話主檔</code></td>
+        <td>一個 LINE 對話一筆，保存 Group ID / Room ID / User ID、對話名稱、監控狀態、最後訊息時間。</td>
+        <td class="status-ok">已自動處理</td>
+        <td>如果對話不存在，webhook 應建立新對話頁；如果存在，更新最後訊息、預覽、訊息數。</td>
+      </tr>
+      <tr>
+        <td><code>LINE 訊息紀錄</code></td>
+        <td>保存每一則 LINE event/message，關聯到對話主檔。</td>
+        <td class="status-ok">已自動處理</td>
+        <td>每則訊息都建立一筆，含訊息 ID、文字內容、來源、發話者、排序時間、原始 payload。</td>
+      </tr>
+      <tr>
+        <td><code>LINE 附件紀錄</code></td>
+        <td>保存圖片、影片、檔案、音訊等附件資訊，關聯到訊息與對話。</td>
+        <td class="status-ok">條件式自動處理</td>
+        <td>只有非文字且有附件內容時建立；文字訊息不用建立。</td>
+      </tr>
+      <tr>
+        <td><code>Codex 指令佇列</code></td>
+        <td>保存不能直接執行或需要 Codex 接手的 LINE 指令。</td>
+        <td class="status-ok">條件式自動處理</td>
+        <td>只有訊息符合助理觸發詞或 command 條件時建立；一般訊息不用建立。</td>
+      </tr>
+      <tr>
+        <td><code>LINE 群組選項</code></td>
+        <td>權責指派時可選的群組候選清單，讓使用者從專案縮小到群組。</td>
+        <td class="status-gap">目前有缺口</td>
+        <td>新 group/room 出現在對話主檔時，應 upsert 一筆群組選項，保存顯示名稱、GroupID/RoomID、專案分類、來源對話頁、訊息數、最後訊息時間。</td>
+      </tr>
+      <tr>
+        <td><code>LINE 群組成員選項</code></td>
+        <td>權責指派時可選的群組成員候選清單，讓使用者從群組縮小到負責人。</td>
+        <td class="status-gap">目前有缺口</td>
+        <td>新群組內有人發話時，應依 `群組 + UserID` upsert 成員選項，並關聯到 LINE 群組選項。</td>
+      </tr>
+      <tr>
+        <td><code>權責定義</code></td>
+        <td>定義每個專案或責任項目的主要群組、主要負責人、備援負責人與 LINE 發送結果。</td>
+        <td class="status-later">需刷新候選</td>
+        <td>新群組不一定新增權責項目，但應在群組選項補齊後重跑候選刷新，讓符合專案分類的權責項目看得到新群組。</td>
+      </tr>
+      <tr>
+        <td><code>總控任務庫</code> / <code>專案進度報表庫</code></td>
+        <td>把有行動價值的訊息整理成任務、進度、風險或決策。</td>
+        <td class="status-later">後續判斷</td>
+        <td>不是每個新群組都要建立任務。只有訊息內容被判斷為任務、風險、進度或決策時才建立或更新。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>目前 HOZO 缺漏案例</h2>
+  <div class="grid">
+    <div class="card">
+      <span class="tag auto">已存在</span>
+      <h3>HOZO LINE 對話主檔</h3>
+      <p><strong>群組：</strong>HOZO好住寓好公司設立</p>
+      <p><strong>Group ID：</strong><code>Ca526c1123e4e4bf5a5053236b56c7602</code></p>
+      <p><strong>最後訊息：</strong>2026-06-08 16:16 台北時間</p>
+    </div>
+    <div class="card">
+      <span class="tag gap">缺漏</span>
+      <h3>HOZO LINE 群組選項</h3>
+      <p>目前只有 5 筆初始 seed 群組選項。</p>
+      <p>對話主檔已有 6 個群組/聊天室，缺的唯一一筆就是這個群組。</p>
+    </div>
+    <div class="card">
+      <span class="tag derived">受影響</span>
+      <h3>權責候選</h3>
+      <p>因為群組選項沒有這筆，權責定義的候選群組也無法看到它。</p>
+      <p>如果該群組有人發話，群組成員選項也應該補齊。</p>
+    </div>
+  </div>
+
+  <h2>這張表原本怎麼建的</h2>
+  <div class="two-col">
+    <div class="card">
+      <span class="tag system">一次性建置</span>
+      <h3>setup-responsibility-owner-narrowing.js</h3>
+      <p>
+        `seedResponsibilityOwnerNarrowingData` 會讀 `LINE 對話主檔` 中的群組/聊天室，
+        然後建立 `LINE 群組選項`、`LINE 群組成員選項` 和初始 `權責定義`。
+      </p>
+      <p class="small">關鍵流程：查對話主檔 -> normalizeConversationOption -> createPage 到群組選項表。</p>
+    </div>
+    <div class="card">
+      <span class="tag derived">定期刷新但不補群組</span>
+      <h3>sync-responsibility-candidates.js</h3>
+      <p>
+        這支 script 會讀現有 `LINE 群組選項` 和 `LINE 群組成員選項`，
+        用來更新 `權責定義` 裡的候選群組、候選負責人、候選數量與選擇狀態。
+      </p>
+      <p class="small">它目前不會回頭掃 `LINE 對話主檔` 補新增群組。</p>
+    </div>
+  </div>
+
+  <h2>建議的標準流程</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>時機</th>
+        <th>動作</th>
+        <th>需要更新的表</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>LINE webhook 收到任何訊息</td>
+        <td>找或建立對話主檔，建立訊息紀錄，必要時建立附件或指令佇列。</td>
+        <td><code>LINE 對話主檔</code>、<code>LINE 訊息紀錄</code>、<code>LINE 附件紀錄</code>、<code>Codex 指令佇列</code></td>
+      </tr>
+      <tr>
+        <td>對話來源是新群組或聊天室</td>
+        <td>依 Group ID / Room ID upsert 群組選項，避免重複建立。</td>
+        <td><code>LINE 群組選項</code></td>
+      </tr>
+      <tr>
+        <td>群組內出現新發話者</td>
+        <td>依 `群組選項 + UserID` upsert 群組成員選項。</td>
+        <td><code>LINE 群組成員選項</code></td>
+      </tr>
+      <tr>
+        <td>群組選項或成員選項有變動</td>
+        <td>刷新權責定義的候選群組與候選負責人。</td>
+        <td><code>權責定義</code></td>
+      </tr>
+      <tr>
+        <td>訊息內容有任務、進度、風險、決策價值</td>
+        <td>由判斷同步流程建立或更新任務與進度。</td>
+        <td><code>總控任務庫</code>、<code>專案進度報表庫</code>、可能的風險/決策庫</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>結論</h2>
+  <div class="card">
+    <p>
+      `LINE 對話主檔` 和 `LINE 訊息紀錄` 是 ingestion 層，現在已經能自動接住新群組與新訊息。
+      `LINE 群組選項`、`LINE 群組成員選項`、`權責定義` 是權責治理層，目前需要新增可重跑的 reconciliation/upsert 流程。
+    </p>
+    <p>
+      下一個合理升級是建立一個共用規則：從對話主檔補齊群組選項，從訊息紀錄補齊群組成員選項，
+      再重跑權責候選刷新。這個規則應同時套用到 HOZO_AM 和 SevenAM。
+    </p>
+  </div>
+</main>
+</body>
+</html>

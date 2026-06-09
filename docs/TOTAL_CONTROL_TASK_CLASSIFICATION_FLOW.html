@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>總控任務判斷與專案歸屬流程圖</title>
+  <style>
+    :root {
+      --ink: #17202a;
+      --muted: #5d6978;
+      --bg: #f5f7fa;
+      --panel: #ffffff;
+      --line: #d8dee8;
+      --auto: #0f766e;
+      --judge: #315ca8;
+      --user: #9a5b00;
+      --write: #6d28d9;
+      --risk: #b42318;
+      --quiet: #eef2f6;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--bg);
+      font-family: "Segoe UI", "Noto Sans TC", Arial, sans-serif;
+      line-height: 1.56;
+    }
+
+    main {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 30px 24px 56px;
+    }
+
+    header {
+      margin-bottom: 22px;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 30px;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 30px 0 14px;
+      font-size: 22px;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 0 0 8px;
+      font-size: 17px;
+      letter-spacing: 0;
+    }
+
+    p { margin: 0 0 10px; }
+
+    code {
+      padding: 1px 5px;
+      border: 1px solid #d4dbe5;
+      border-radius: 4px;
+      background: #f1f4f8;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 0.94em;
+    }
+
+    .lead {
+      max-width: 940px;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin: 16px 0 0;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--panel);
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .dot.auto { background: var(--auto); }
+    .dot.judge { background: var(--judge); }
+    .dot.user { background: var(--user); }
+    .dot.write { background: var(--write); }
+    .dot.risk { background: var(--risk); }
+
+    .flow-wrap {
+      overflow-x: auto;
+      padding-bottom: 10px;
+    }
+
+    .flow {
+      min-width: 1120px;
+      display: grid;
+      grid-template-columns: 180px repeat(6, 1fr);
+      gap: 10px;
+      align-items: stretch;
+    }
+
+    .lane-label {
+      min-height: 92px;
+      padding: 14px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: #e9eef5;
+      font-weight: 700;
+    }
+
+    .node {
+      min-height: 92px;
+      padding: 13px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+      position: relative;
+    }
+
+    .node::after {
+      content: ">";
+      position: absolute;
+      right: -9px;
+      top: 42%;
+      color: #8b96a5;
+      font-weight: 700;
+    }
+
+    .node.end::after,
+    .node.blank::after {
+      content: "";
+    }
+
+    .node.blank {
+      border-style: dashed;
+      background: transparent;
+    }
+
+    .node.auto { border-top: 5px solid var(--auto); }
+    .node.judge { border-top: 5px solid var(--judge); }
+    .node.user { border-top: 5px solid var(--user); background: #fff8e8; }
+    .node.write { border-top: 5px solid var(--write); }
+    .node.risk { border-top: 5px solid var(--risk); background: #fff4f2; }
+
+    .small {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .decision {
+      clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+      min-height: 118px;
+      padding: 24px 22px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      text-align: center;
+      border: 0;
+      background: #eaf1ff;
+    }
+
+    .decision.user {
+      background: #fff0cf;
+    }
+
+    .section-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 15px;
+      background: var(--panel);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--panel);
+    }
+
+    th, td {
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+      text-align: left;
+    }
+
+    th {
+      background: #edf2f7;
+      white-space: nowrap;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+
+    ul {
+      margin: 8px 0 0 20px;
+      padding: 0;
+    }
+
+    .callout {
+      margin: 16px 0;
+      padding: 14px 16px;
+      border-radius: 8px;
+      border: 1px solid #f0d48a;
+      border-left: 5px solid var(--user);
+      background: #fff8e8;
+    }
+
+    @media (max-width: 900px) {
+      main { padding: 22px 14px 42px; }
+      .section-grid { grid-template-columns: 1fr; }
+      .flow { min-width: 980px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>總控任務判斷與專案歸屬流程圖</h1>
+    <p class="lead">
+      這份流程圖描述任何 LINE 對話或訊息進入 AM 系統後，如何從原始訊息一路判斷成
+      「不是任務」、「待確認訊號」、「總控任務」、「專案進度」、「風險/決策」，
+      並標出控制者可以在哪些時機介入，指定專案、專案目標或任務目標。
+    </p>
+    <div class="legend">
+      <span class="chip"><span class="dot auto"></span>自動接收/保存</span>
+      <span class="chip"><span class="dot judge"></span>系統判斷</span>
+      <span class="chip"><span class="dot user"></span>控制者可介入</span>
+      <span class="chip"><span class="dot write"></span>寫入正式資料庫</span>
+      <span class="chip"><span class="dot risk"></span>高風險需確認</span>
+    </div>
+  </header>
+
+  <section class="callout">
+    <strong>目前建議原則：</strong>
+    控制者可以在 LINE 指令、群組/權責設定、每日與各時段回報、任務庫人工修正這幾個位置介入。
+    每天的回報報表應該成為固定介入窗口，讓控制者把訊息重新指定到正確專案、專案目標或任務目標。
+  </section>
+
+  <h2>主流程圖</h2>
+  <div class="flow-wrap">
+    <div class="flow" aria-label="Total control task classification flow">
+      <div class="lane-label">LINE / Notion 收件層</div>
+      <div class="node auto">
+        <h3>收到 LINE event</h3>
+        <p>文字、附件、貼圖、join/leave、postback 或其他事件。</p>
+      </div>
+      <div class="node auto">
+        <h3>找/建對話主檔</h3>
+        <p>依 User ID、Group ID、Room ID 建立或更新對話。</p>
+      </div>
+      <div class="node auto">
+        <h3>建立訊息紀錄</h3>
+        <p>保存文字、來源、發話者、原始 payload、時間。</p>
+      </div>
+      <div class="node auto">
+        <h3>分流附加資料</h3>
+        <p>附件進附件表；助理指令進 Codex command queue。</p>
+      </div>
+      <div class="node auto">
+        <h3>更新群組治理資料</h3>
+        <p>群組選項、群組成員選項、權責候選應同步刷新。</p>
+      </div>
+      <div class="node end auto">
+        <h3>進入判斷佇列</h3>
+        <p>等待 hourly sync 或報表生成時被判斷。</p>
+      </div>
+
+      <div class="lane-label">系統判斷層</div>
+      <div class="node judge">
+        <h3>訊息是否有行動價值？</h3>
+        <p>排除寒暄、純通知、重複訊息、低訊號內容。</p>
+      </div>
+      <div class="node decision judge">
+        <h3>是總控訊號嗎？</h3>
+        <p class="small">任務、進度、風險、決策、等待回覆、責任歸屬</p>
+      </div>
+      <div class="node judge">
+        <h3>分類訊號類型</h3>
+        <p>任務 / 進度 / 風險 / 決策 / 會議行動 / 追蹤提醒。</p>
+      </div>
+      <div class="node judge">
+        <h3>推論專案歸屬</h3>
+        <p>依明確指令、群組權責、關鍵字、會議專案、歷史脈絡排序判斷。</p>
+      </div>
+      <div class="node judge">
+        <h3>推論目標與下一步</h3>
+        <p>整理任務名稱、完成目標、負責人、期限、下一步。</p>
+      </div>
+      <div class="node decision judge end">
+        <h3>信心足夠嗎？</h3>
+        <p class="small">不足則進入待確認，而不是直接寫成正式任務。</p>
+      </div>
+
+      <div class="lane-label">控制者介入層</div>
+      <div class="node user">
+        <h3>LINE 即時指令</h3>
+        <p>例如：這件歸到「財務」，目標是「完成付款確認」。</p>
+      </div>
+      <div class="node user">
+        <h3>群組/權責設定</h3>
+        <p>指定某群組屬於哪個總控專案、主要負責人是誰。</p>
+      </div>
+      <div class="node user">
+        <h3>候選任務確認</h3>
+        <p>在任務候選、跟催清單或回報報表中確認是否建立任務。</p>
+      </div>
+      <div class="node user">
+        <h3>專案與目標修正</h3>
+        <p>把任務改歸到特定專案、專案目標、任務目標或完成定義。</p>
+      </div>
+      <div class="node user">
+        <h3>每日/時段報表介入</h3>
+        <p>08:00、10:00、13:00、17:00、20:30 都應可確認、改派、補目標。</p>
+      </div>
+      <div class="node end user">
+        <h3>人工覆寫成準則</h3>
+        <p>控制者修正後，應回寫為群組、專案或關鍵字規則。</p>
+      </div>
+
+      <div class="lane-label">正式寫入層</div>
+      <div class="node write">
+        <h3>非任務留存</h3>
+        <p>只保留在訊息紀錄與對話頁，作為脈絡。</p>
+      </div>
+      <div class="node write">
+        <h3>待確認訊號</h3>
+        <p>進報表、候選清單或指令佇列，等待控制者確認。</p>
+      </div>
+      <div class="node write">
+        <h3>建立總控任務</h3>
+        <p>寫入總控任務庫，帶入專案、狀態、優先級、來源頁。</p>
+      </div>
+      <div class="node write">
+        <h3>建立進度/風險/決策</h3>
+        <p>必要時同步專案進度報表庫、風險與決策庫。</p>
+      </div>
+      <div class="node write">
+        <h3>回報與追蹤</h3>
+        <p>下一次報表依任務狀態、目標確認、責任人更新追蹤。</p>
+      </div>
+      <div class="node end write">
+        <h3>完成或封存</h3>
+        <p>完成後標記、摘要、保留來源鏈結與決策紀錄。</p>
+      </div>
+    </div>
+  </div>
+
+  <h2>如何判斷是否為「總控任務」</h2>
+  <div class="section-grid">
+    <div class="card">
+      <h3>會成為任務的訊號</h3>
+      <ul>
+        <li>有明確要做的動作：處理、確認、追蹤、整理、回覆、付款、簽核。</li>
+        <li>有責任人、對象、期限、等待回覆或下一步。</li>
+        <li>影響專案進度、客戶承諾、財務、合約、交付或營運風險。</li>
+        <li>控制者明確說「這是任務」、「幫我列入總控」、「下次報告追蹤」。</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>不應直接成為任務</h3>
+      <ul>
+        <li>單純寒暄、收到、貼圖、沒有行動指向的資訊。</li>
+        <li>重複訊息或已經有同名任務正在追蹤。</li>
+        <li>脈絡不足，無法判斷專案或下一步。</li>
+        <li>高風險內容需要確認，不能直接執行或承諾。</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>介於中間的訊號</h3>
+      <ul>
+        <li>看起來重要但缺少目標：進入候選清單。</li>
+        <li>看起來像決策但沒有結論：進報表請控制者判斷。</li>
+        <li>看起來像進度但缺少完成標準：請負責人口述目標。</li>
+        <li>同一事件有多則訊息：先合併成事件結論再建立任務。</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>專案、專案目標、任務目標的歸屬順序</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>優先序</th>
+        <th>來源</th>
+        <th>說明</th>
+        <th>控制者是否可介入</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1</td>
+        <td>控制者明確指示</td>
+        <td>例如「這件歸到公司治理」、「目標是完成公司設立文件」、「負責人是 Maggie」。</td>
+        <td>可以，最高優先。</td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>權責定義與群組設定</td>
+        <td>群組已綁定總控專案、主要對話群組、主要負責人時，用這些設定作為預設。</td>
+        <td>可以，在 `權責定義`、`LINE 群組選項` 中調整。</td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td>既有任務或會議脈絡</td>
+        <td>訊息若引用某任務、會議或既有專案，沿用其專案與目標。</td>
+        <td>可以，在任務庫或會議紀錄修正。</td>
+      </tr>
+      <tr>
+        <td>4</td>
+        <td>關鍵字與內容判斷</td>
+        <td>依財務、合約、工程、品牌、營運、系統等關鍵字推論。</td>
+        <td>可以，透過報表修正後回寫成規則。</td>
+      </tr>
+      <tr>
+        <td>5</td>
+        <td>未分類 / 待確認</td>
+        <td>信心不足時不直接放錯專案，而是標為待確認。</td>
+        <td>可以，應在下一次報表或候選清單中處理。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>控制者可以介入的時機</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>介入點</th>
+        <th>可以做什麼</th>
+        <th>應寫回哪裡</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>LINE 當下指令</td>
+        <td>直接說明任務歸屬、專案、目標、負責人、期限。</td>
+        <td>Codex 指令佇列、總控任務庫、權責規則。</td>
+      </tr>
+      <tr>
+        <td>群組第一次建立後</td>
+        <td>指定群組屬於哪個總控專案，是否納入監控。</td>
+        <td>LINE 群組選項、權責定義。</td>
+      </tr>
+      <tr>
+        <td>08:00 早報</td>
+        <td>確認今日目標、昨日未完成事項是否轉成任務。</td>
+        <td>總控任務庫、目標欄位。</td>
+      </tr>
+      <tr>
+        <td>10:00 / 13:00 / 17:00 跟催報表</td>
+        <td>確認候選任務、改派專案、補任務目標、要求負責人回覆。</td>
+        <td>總控任務庫、權責定義、通知候選。</td>
+      </tr>
+      <tr>
+        <td>20:30 每日報告</td>
+        <td>把當天事件結論定稿，確認哪些要追蹤、哪些不追蹤。</td>
+        <td>總控任務庫、專案進度報表庫、風險與決策庫。</td>
+      </tr>
+      <tr>
+        <td>任務庫人工修正</td>
+        <td>改專案、狀態、優先級、負責人、完成目標。</td>
+        <td>總控任務庫；必要時同步回報表與規則。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>報表是否都可以介入？</h2>
+  <div class="card">
+    <p>
+      設計上應該可以。五個固定報表時段都應該是控制者介入窗口：
+      08:00 先定今日目標，10:00 / 13:00 / 17:00 做候選任務與跟催確認，20:30 做事件結論與隔日追蹤定稿。
+    </p>
+    <p>
+      目前程式已經有報表 preview、send、approve 的控制 API 基礎；
+      AMCore 已將報表介入動作定義成 `AM-IMP-2026.0608.11` 標準。
+      每個候選項都應提供：
+      `建立任務`、`不是任務`、`改專案`、`指定專案目標`、`指定任務目標`、`要求負責人口述目標`。
+    </p>
+  </div>
+</main>
+</body>
+</html>

@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "packageId": "AM-IMP-2026.0608.13",
+  "databases": [
+    {
+      "name": "Judgment calibration cases",
+      "purpose": "Project-local log of assistant judgment, controller correction, source task update, and extracted rule.",
+      "properties": [
+        { "name": "Review ID", "type": "title", "required": true },
+        { "name": "Project", "type": "select", "options": ["HOZO_AM", "SEVEN_AM"] },
+        { "name": "Source Type", "type": "select", "options": ["total-control task", "report candidate", "LINE message", "meeting action", "manual review"] },
+        { "name": "Source Task", "type": "relation", "target": "project-local total-control task database" },
+        { "name": "Source URL", "type": "url" },
+        { "name": "Task Type", "type": "select", "options": ["task", "note", "report signal", "responsibility item", "goal", "deployment", "data governance", "unknown"] },
+        { "name": "Assistant Judgment", "type": "rich_text" },
+        { "name": "Assistant Reason", "type": "rich_text" },
+        { "name": "Assistant Confidence", "type": "select", "options": ["low", "medium", "high"] },
+        { "name": "Controller Judgment", "type": "rich_text" },
+        { "name": "Controller Reason", "type": "rich_text" },
+        { "name": "Difference Type", "type": "multi_select", "options": ["scope", "priority", "risk", "data boundary", "project assignment", "task classification", "verification", "communication", "deployment status"] },
+        { "name": "Severity", "type": "select", "options": ["low", "medium", "high"] },
+        { "name": "Case Status", "type": "select", "options": ["New", "Sent to LINE", "Replied", "Updated", "Rule Extracted", "Archived"] },
+        { "name": "LINE Review Sent At", "type": "date" },
+        { "name": "Controller Replied At", "type": "date" },
+        { "name": "Reply Summary", "type": "rich_text" },
+        { "name": "Generalized Rule", "type": "rich_text" },
+        { "name": "Rule Link", "type": "relation", "target": "project-local judgment rules database" },
+        { "name": "Source Task Updated", "type": "checkbox" },
+        { "name": "Data Boundary Check", "type": "checkbox" }
+      ]
+    },
+    {
+      "name": "Judgment rules",
+      "purpose": "Project-local and anonymizable reusable rules extracted from reviewed judgment cases.",
+      "properties": [
+        { "name": "Rule Name", "type": "title", "required": true },
+        { "name": "Trigger Pattern", "type": "rich_text" },
+        { "name": "Preferred Judgment", "type": "rich_text" },
+        { "name": "Avoided Judgment", "type": "rich_text" },
+        { "name": "Reason", "type": "rich_text" },
+        { "name": "Applies To", "type": "multi_select", "options": ["AMCore", "HOZO_AM", "SEVEN_AM", "future AM projects"] },
+        { "name": "Exceptions", "type": "rich_text" },
+        { "name": "Source Case Count", "type": "number" },
+        { "name": "Status", "type": "select", "options": ["Draft", "Needs review", "Active", "Deprecated"] },
+        { "name": "Checklist Placement", "type": "select", "options": ["task start", "before LINE send", "before Notion write", "before deployment", "before marking done", "none"] },
+        { "name": "Last Verified", "type": "date" }
+      ]
+    }
+  ],
+  "dataBoundary": [
+    "Use these schemas only as templates.",
+    "Store live reviewed tasks and LINE replies in each project.",
+    "Do not copy production database IDs, tokens, LINE target IDs, customer messages, task records, or attachment content into AMCore."
+  ]
+}

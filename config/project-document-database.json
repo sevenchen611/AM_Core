@@ -1,0 +1,175 @@
+{
+  "schemaVersion": 1,
+  "databaseName": "AMCore project documentation database",
+  "updatedAt": "2026-06-08",
+  "purpose": "Collect project explanation documents, operating guides, architecture notes, and visual HTML explainers for AMCore without storing project secrets or live project data.",
+  "rules": [
+    "Store document metadata and relative file paths only.",
+    "Do not store tokens, secrets, customer records, task records, report records, message records, or attachment records.",
+    "Prefer stable document IDs so future references do not break when titles change.",
+    "When a new project explanation document is created, add it to this registry and to docs/PROJECT_DOCUMENT_DATABASE.md."
+  ],
+  "documents": [
+    {
+      "id": "amcore-readme",
+      "title": "AM_Core project overview",
+      "file": "README.md",
+      "format": "markdown",
+      "category": "project-overview",
+      "status": "Active",
+      "audience": ["operator", "developer"],
+      "summary": "Explains AM_Core as the shared planning and upgrade center for AM-style LINE/Notion assistant projects.",
+      "tags": ["AMCore", "overview", "data-boundary"]
+    },
+    {
+      "id": "architecture-split-plan",
+      "title": "AM Core architecture split plan",
+      "file": "docs/ARCHITECTURE_SPLIT_PLAN.md",
+      "format": "markdown",
+      "category": "architecture",
+      "status": "Active",
+      "audience": ["operator", "developer"],
+      "summary": "Defines the staged split between AM_Core, HOZO_AM, and SevenAM.",
+      "tags": ["architecture", "project-separation", "shared-core"]
+    },
+    {
+      "id": "standardization-rules",
+      "title": "AM project standardization rules",
+      "file": "docs/STANDARDIZATION_RULES.md",
+      "format": "markdown",
+      "category": "governance",
+      "status": "Active",
+      "audience": ["developer"],
+      "summary": "Defines project identity, environment naming, Notion naming, and data boundary standards.",
+      "tags": ["standardization", "environment", "notion", "data-boundary"]
+    },
+    {
+      "id": "upgrade-package-standard",
+      "title": "Upgrade package standard",
+      "file": "docs/UPGRADE_PACKAGE_STANDARD.md",
+      "format": "markdown",
+      "category": "upgrade-governance",
+      "status": "Active",
+      "audience": ["developer"],
+      "summary": "Defines required files and metadata for AM-IMP upgrade packages.",
+      "tags": ["upgrade-package", "AM-IMP", "governance"]
+    },
+    {
+      "id": "install-version-workflow",
+      "title": "Install version workflow",
+      "file": "docs/INSTALL_VERSION_WORKFLOW.md",
+      "format": "markdown",
+      "category": "upgrade-governance",
+      "status": "Active",
+      "audience": ["operator", "developer"],
+      "summary": "Explains how to install an AM_Core upgrade package into a project without mixing data.",
+      "tags": ["installation", "upgrade", "HOZO_AM", "SEVEN_AM"]
+    },
+    {
+      "id": "current-version-matrix",
+      "title": "Current version matrix",
+      "file": "docs/CURRENT_VERSION_MATRIX.md",
+      "format": "markdown",
+      "category": "status",
+      "status": "Active",
+      "audience": ["operator", "developer"],
+      "summary": "Tracks visible version state across HOZO AM and 7AM.",
+      "tags": ["version-status", "alignment", "manifest"]
+    },
+    {
+      "id": "notion-database-view-layouts",
+      "title": "Notion database view layouts",
+      "file": "docs/NOTION_DATABASE_VIEW_LAYOUTS.md",
+      "format": "markdown",
+      "category": "notion-governance",
+      "status": "Active",
+      "audience": ["operator", "developer"],
+      "summary": "Human-readable registry for shared Notion view layout definitions.",
+      "tags": ["notion", "view-layout", "database-layout"]
+    },
+    {
+      "id": "line-message-group-registration-flow",
+      "title": "LINE new group and message registration flow",
+      "file": "docs/LINE_MESSAGE_GROUP_REGISTRATION_FLOW.html",
+      "format": "html",
+      "category": "process-explainer",
+      "status": "Active",
+      "audience": ["operator", "developer"],
+      "summary": "Visual explainer for what happens when a LINE message from a new group enters the AM system, including which Notion tables should be updated.",
+      "tags": ["LINE", "Notion", "group-options", "responsibility", "message-flow"],
+      "relatedUpgrade": "AM-IMP-2026.0608.08"
+    },
+    {
+      "id": "total-control-task-classification-flow",
+      "title": "Total control task classification and project assignment flow",
+      "file": "docs/TOTAL_CONTROL_TASK_CLASSIFICATION_FLOW.html",
+      "format": "html",
+      "category": "process-explainer",
+      "status": "Draft",
+      "audience": ["operator", "developer"],
+      "summary": "Flowchart for deciding whether incoming LINE messages become total control tasks, how project and goal assignment should work, and where the controller can intervene.",
+      "tags": ["LINE", "task-classification", "project-assignment", "goal-recognition", "report-intervention"],
+      "relatedUpgrade": "AM-IMP-2026.0608.06"
+    },
+    {
+      "id": "report-intervention-action-standard",
+      "title": "Report intervention action standard",
+      "file": "docs/REPORT_INTERVENTION_ACTION_STANDARD.md",
+      "format": "markdown",
+      "category": "reporting-governance",
+      "status": "Active",
+      "audience": ["operator", "developer"],
+      "summary": "Defines the six standard controller actions for report candidates, the decision statuses, candidate contract, and report-slot intervention rules.",
+      "tags": ["reporting", "controller-intervention", "task-candidates", "goal-recognition", "AM-IMP"],
+      "relatedUpgrade": "AM-IMP-2026.0608.11"
+    },
+    {
+      "id": "report-0800-daily-intervention-form-prototype",
+      "title": "08:00 daily report intervention form prototype",
+      "file": "docs/REPORT_0800_DAILY_INTERVENTION_FORM_PROTOTYPE.html",
+      "format": "html",
+      "category": "reporting-prototype",
+      "status": "Draft",
+      "audience": ["operator", "developer"],
+      "summary": "Interactive prototype showing how the 08:00 daily report can present today's goals, candidate items, standard controller actions, and a decision write-back panel.",
+      "tags": ["reporting", "08:00", "daily-report", "controller-intervention", "prototype"],
+      "relatedUpgrade": "AM-IMP-2026.0608.11"
+    },
+    {
+      "id": "judgment-calibration-knowledge-base",
+      "title": "Judgment calibration knowledge base",
+      "file": "docs/JUDGMENT_CALIBRATION_KNOWLEDGE_BASE.md",
+      "format": "markdown",
+      "category": "governance",
+      "status": "Active",
+      "audience": ["operator", "developer"],
+      "summary": "Defines how AM projects send uncertain task judgments to the controller, capture LINE feedback, update project-local tasks, and extract reusable judgment rules without mixing project data.",
+      "tags": ["judgment-calibration", "LINE", "task-review", "knowledge-base", "data-boundary"],
+      "relatedUpgrade": "AM-IMP-2026.0608.13"
+    },
+    {
+      "id": "meeting-checkbox-task-standard",
+      "title": "Meeting checkbox task standard",
+      "file": "docs/MEETING_CHECKBOX_TASK_STANDARD.md",
+      "format": "markdown",
+      "category": "task-governance",
+      "status": "Active",
+      "audience": ["operator", "developer"],
+      "summary": "Defines that checkbox items inside meeting records are confirmed tasks and should enter project-local tracking without extra task confirmation.",
+      "tags": ["meeting-records", "checkbox", "task-tracking", "AM-IMP", "data-boundary"],
+      "relatedUpgrade": "AM-IMP-2026.0608.14"
+    },
+    {
+      "id": "total-control-task-title-rules",
+      "title": "Total-control task title rules",
+      "file": "docs/TOTAL_CONTROL_TASK_TITLE_RULES.md",
+      "format": "markdown",
+      "category": "task-governance",
+      "status": "Active",
+      "audience": ["operator", "developer"],
+      "summary": "Defines how total-control task titles should be written without exposing Notion page IDs, LINE IDs, message IDs, or sync IDs.",
+      "tags": ["task-title", "total-control-task", "LINE", "Notion", "title-hygiene"],
+      "relatedUpgrade": "AM-IMP-2026.0608.15"
+    }
+  ]
+}

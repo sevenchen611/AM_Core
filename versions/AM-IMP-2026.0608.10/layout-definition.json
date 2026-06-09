@@ -1,0 +1,14 @@
+{
+  "layoutKey": "line_group_options.default_table",
+  "appliesTo": ["HOZO_AM", "SEVEN_AM"],
+  "databaseRole": "LINE group options",
+  "viewName": "Default view",
+  "viewType": "table",
+  "visibleProperties": [
+    "總控專案",
+    "群組顯示名稱",
+    "LINE對話名稱",
+    "候選來源權責項目"
+  ],
+  "propertyOrderRule": "The listed properties are the only visible table columns and must appear in this order."
+}

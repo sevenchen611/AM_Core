@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "databaseRole": "report-candidate-or-report-snapshot",
+  "fields": [
+    {
+      "name": "介入狀態",
+      "type": "select",
+      "options": [
+        "待控制者確認",
+        "已建立任務",
+        "不是任務",
+        "已改專案",
+        "已指定專案目標",
+        "已指定任務目標",
+        "待負責人口述目標"
+      ]
+    },
+    {
+      "name": "介入動作",
+      "type": "select",
+      "options": [
+        "CREATE_TASK",
+        "DISMISS_NOT_TASK",
+        "CHANGE_PROJECT",
+        "SET_PROJECT_GOAL",
+        "SET_TASK_GOAL",
+        "REQUEST_OWNER_GOAL_STATEMENT"
+      ]
+    },
+    {
+      "name": "候選來源類型",
+      "type": "select",
+      "options": [
+        "LINE_MESSAGE_SIGNAL",
+        "MEETING_ACTION_SIGNAL",
+        "REPORT_FOLLOWUP_SIGNAL",
+        "GOAL_RECOGNITION_SIGNAL",
+        "RISK_OR_DECISION_SIGNAL"
+      ]
+    },
+    {
+      "name": "候選摘要",
+      "type": "rich_text"
+    },
+    {
+      "name": "系統建議專案",
+      "type": "select_or_relation",
+      "note": "Use the target project's existing project property type."
+    },
+    {
+      "name": "修正後總控專案",
+      "type": "select_or_relation",
+      "note": "Use the target project's existing project property type."
+    },
+    {
+      "name": "指定專案目標",
+      "type": "rich_text_or_relation",
+      "note": "Use relation if the target project already has a project-goal database."
+    },
+    {
+      "name": "指定任務目標",
+      "type": "rich_text"
+    },
+    {
+      "name": "要求口述目標對象",
+      "type": "relation_or_rich_text",
+      "note": "Prefer relation to project-local owner/member candidates when available."
+    },
+    {
+      "name": "控制者備註",
+      "type": "rich_text"
+    },
+    {
+      "name": "介入時間",
+      "type": "date"
+    },
+    {
+      "name": "結果任務",
+      "type": "relation",
+      "target": "PROJECT_TOTAL_CONTROL_TASK_DATA_SOURCE_ID"
+    },
+    {
+      "name": "結果進度報表",
+      "type": "relation",
+      "target": "PROJECT_PROGRESS_REPORT_DATA_SOURCE_ID"
+    }
+  ]
+}

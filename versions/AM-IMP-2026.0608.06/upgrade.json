@@ -1,0 +1,34 @@
+{
+  "id": "AM-IMP-2026.0608.06",
+  "name": "Event-conclusion daily report and follow-up task synthesis",
+  "type": "Reporting",
+  "portable": true,
+  "requiresDatabases": [
+    "NOTION_TASK_DATABASE_ID",
+    "NOTION_MESSAGE_DATABASE_ID"
+  ],
+  "requiresEnv": [
+    "NOTION_TOKEN",
+    "DAILY_REPORT_URL",
+    "PROJECT_TASKS_DATA_SOURCE_ID",
+    "PROJECT_MESSAGES_DATA_SOURCE_ID"
+  ],
+  "requiresScripts": [
+    "scripts/render-cron-report.js"
+  ],
+  "installTargets": ["HOZO_AM", "SEVEN_AM"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Control API can preview a daily report without sending LINE",
+    "Daily report groups signals into event conclusion sections",
+    "Project manifest is updated",
+    "Project upgrade record is created",
+    "Local syntax checks pass"
+  ]
+}
+

@@ -1,0 +1,23 @@
+{
+  "id": "AM-IMP-2026.0608.05",
+  "name": "Improvement manifest and upgrade records",
+  "type": "Governance",
+  "portable": true,
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [],
+  "installTargets": ["HOZO_AM", "SEVEN_AM"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Project manifest exists",
+    "Project upgrade record folder exists",
+    "Shared registry references the project status",
+    "Data separation rule is documented"
+  ]
+}
+

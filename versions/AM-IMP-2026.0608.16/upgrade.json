@@ -1,0 +1,29 @@
+{
+  "id": "AM-IMP-2026.0608.16",
+  "name": "Project dossier and task relation architecture",
+  "type": "Governance / Task control",
+  "portable": true,
+  "requiresDatabases": [
+    "PROJECT_TOTAL_CONTROL_PROJECT_DATA_SOURCE_ID",
+    "PROJECT_TOTAL_CONTROL_TASK_DATA_SOURCE_ID"
+  ],
+  "requiresEnv": [
+    "NOTION_TOKEN"
+  ],
+  "requiresScripts": [],
+  "installTargets": ["HOZO_AM", "SEVEN_AM"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "AMCore defines total-control projects as case dossiers and tasks as supporting execution items",
+    "The task database has a relation field named 總控專案 pointing to the project database",
+    "The project database exposes the reciprocal relation field named 關聯任務",
+    "Legacy select project fields remain only as compatibility fields",
+    "Project pages use the dossier body structure for supporting tasks and process evidence",
+    "Project manifests and upgrade records are updated without copying project data into AMCore"
+  ]
+}

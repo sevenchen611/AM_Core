@@ -1,0 +1,27 @@
+{
+  "id": "AM-IMP-2026.0608.19",
+  "name": "Total-control task table source text hide rule",
+  "type": "Governance / Notion view layout",
+  "portable": true,
+  "requiresDatabases": [
+    "PROJECT_TOTAL_CONTROL_TASK_DATA_SOURCE_ID"
+  ],
+  "requiresEnv": [
+    "NOTION_TOKEN"
+  ],
+  "requiresScripts": [],
+  "installTargets": ["HOZO_AM", "SEVEN_AM"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "AMCore records total_control_tasks.default_table in config/notion-view-layouts.json",
+    "The project-local total-control task Default view does not display 來源原文",
+    "Any project-local task review table that displayed 來源原文 has it hidden",
+    "The 來源原文 property is not deleted and existing values are not erased",
+    "Project manifests record the local installation separately"
+  ]
+}

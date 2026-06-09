@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "updatedAt": "2026-06-08",
+  "layouts": [
+    {
+      "layoutKey": "line_group_options.default_table",
+      "name": "LINE group options default table",
+      "appliesTo": ["HOZO_AM", "SEVEN_AM"],
+      "databaseRole": "LINE group options",
+      "viewName": "Default view",
+      "viewType": "table",
+      "visibleProperties": [
+        "總控專案",
+        "群組顯示名稱",
+        "LINE對話名稱",
+        "候選來源權責項目"
+      ],
+      "propertyOrderRule": "The listed properties are the only visible table columns and must appear in this order.",
+      "notes": [
+        "Project-specific database IDs and data source IDs must remain outside AMCore.",
+        "If a project is missing 候選來源權責項目, add it as a project-local relation to that project's responsibility database before applying the view layout."
+      ]
+    },
+    {
+      "layoutKey": "total_control_tasks.default_table",
+      "name": "Total-control tasks default table",
+      "appliesTo": ["HOZO_AM", "SEVEN_AM"],
+      "databaseRole": "Total-control task database",
+      "viewName": "Default view",
+      "viewType": "table",
+      "hiddenProperties": [
+        "來源原文"
+      ],
+      "propertyOrderRule": "Keep the project's existing useful task-control columns, but do not show 來源原文 in the default table header.",
+      "notes": [
+        "來源原文 remains a project-local database property for backward compatibility and audit fallback.",
+        "Primary task evidence should be recorded in the task page body so the table header can stay compact.",
+        "Do not drop or delete the 來源原文 property unless the project owner explicitly approves data removal."
+      ]
+    }
+  ]
+}

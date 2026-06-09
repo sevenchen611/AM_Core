@@ -1,0 +1,25 @@
+{
+  "logicalDatabase": "Total Control Task",
+  "requiredProperties": [
+    {
+      "name": "母任務",
+      "type": "relation",
+      "target": "same project-local total-control task data source",
+      "purpose": "Points from a child task to the parent task it supports."
+    },
+    {
+      "name": "子任務",
+      "type": "relation",
+      "target": "same project-local total-control task data source",
+      "purpose": "Reciprocal relation showing child tasks that gate or support the parent task."
+    }
+  ],
+  "completionRule": {
+    "parentTask": "A parent task should not close until child tasks are complete, cancelled, transferred, or explicitly marked no longer needed.",
+    "evidence": "Closure must be grounded in task body evidence, source conversations, files, meetings, reports, or controller confirmation."
+  },
+  "dataIsolation": {
+    "projectDataStoredInAMCore": false,
+    "relationTargetMustBeProjectLocal": true
+  }
+}

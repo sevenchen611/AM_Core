@@ -1,0 +1,35 @@
+{
+  "id": "AM-IMP-2026.0608.12",
+  "name": "Cron report reliability upgrade",
+  "type": "Reporting",
+  "portable": true,
+  "requiresDatabases": [],
+  "requiresEnv": [
+    "CONTROL_API_URL",
+    "CONTROL_LINE_PUSH_URL",
+    "AM_PROJECT_ENV_PREFIX",
+    "AM_CONTROL_HEADER_PREFIX",
+    "AM_CRON_RETRY_DELAYS_MS",
+    "AM_CRON_REQUEST_TIMEOUT_MS",
+    "AM_CRON_HEALTH_PING_ENABLED",
+    "AM_CRON_ALERTS_ENABLED"
+  ],
+  "requiresScripts": [
+    "scripts/render-cron-report.js"
+  ],
+  "installTargets": ["HOZO_AM", "SEVEN_AM"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Project render-cron-report.js retries transient Render and network failures",
+    "Project cron report jobs health-ping /control/health before sending reports",
+    "Project cron logs include structured attempt records with runId and reportType",
+    "Final failure alerts are sent only after retries are exhausted",
+    "Project Render cron env uses project-local control key and header prefix",
+    "Project manifest and upgrade record are updated after local verification"
+  ]
+}
