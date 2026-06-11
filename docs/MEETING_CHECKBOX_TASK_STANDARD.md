@@ -33,6 +33,23 @@ For each checkbox item:
 - keep a source excerpt that shows the meeting name and checkbox task text,
 - avoid duplicates by comparing the meeting reference plus task text.
 
+## User UI Source Display
+
+Meeting checkbox tasks must keep the meeting record as their visible task-page
+source.
+
+Rules:
+
+- The task page source block should say `資料來源：會議記錄`.
+- The task page `關聯頁面` should link to the meeting record, not to a LINE
+  conversation group.
+- The task page should include the meeting name, meeting date, and useful body
+  excerpt so users can understand the decision context behind the checkbox.
+- The checkbox text should remain visible as the task action item.
+- The task page should preserve source marker and sync id for audit.
+- Do not use `來源對話群組：LINE 對話群組` as a fallback for tasks whose source
+  marker or sync id identifies a meeting source.
+
 ## Confirmation Boundary
 
 This rule only removes the extra question of whether the checkbox item is a task.

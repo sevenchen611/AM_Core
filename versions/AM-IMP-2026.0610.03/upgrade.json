@@ -1,0 +1,55 @@
+{
+  "id": "AM-IMP-2026.0610.03",
+  "name": "Task body evidence log standard",
+  "type": "Task database governance",
+  "portable": true,
+  "requiresDatabases": [
+    "project-local total-control task database",
+    "project-local LINE conversation/message records",
+    "project-local meeting records when used",
+    "project-local report records when used"
+  ],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/apply-task-body-evidence-log-standard.js"
+  ],
+  "installTargets": [
+    "HOZO_AM",
+    "SEVEN_AM"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyRules": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "taskBodyContract": {
+    "bodyField": "內文",
+    "bodyRole": "append-only evidence and judgment log",
+    "legacySourceOriginalProperty": "來源原文",
+    "legacySourceOriginalPropertyRole": "compatibility only; not authoritative for new evidence events",
+    "recordSections": [
+      "來源原文",
+      "證據摘要",
+      "AM 判斷",
+      "處理結果",
+      "狀態變更",
+      "下一步",
+      "關聯規則"
+    ],
+    "lineSourceOriginalRule": "copy the project-local LINE conversation master block into the matching record without summarizing or rewriting",
+    "lineImageRule": "embed the image directly as stored by the LINE conversation master",
+    "lineDocumentRule": "preserve the file name and attachment link; do not expand document contents"
+  },
+  "definitionOfDone": [
+    "Shared task body evidence log standard exists in AMCore docs",
+    "Reusable AMCore migration tool exists for project-local task body conversion",
+    "Project-local task creation writes the standard body format",
+    "Project-local status updates append evidence records",
+    "LINE source original blocks preserve the LINE conversation master format",
+    "Image messages are embedded inside the matching source original record",
+    "Document/file messages preserve file names and links",
+    "Project manifests and upgrade records are updated separately"
+  ]
+}

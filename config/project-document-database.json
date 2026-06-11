@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "databaseName": "AMCore project documentation database",
-  "updatedAt": "2026-06-08",
+  "updatedAt": "2026-06-10",
   "purpose": "Collect project explanation documents, operating guides, architecture notes, and visual HTML explainers for AMCore without storing project secrets or live project data.",
   "rules": [
     "Store document metadata and relative file paths only.",
@@ -124,15 +124,37 @@
       "relatedUpgrade": "AM-IMP-2026.0608.11"
     },
     {
+      "id": "task-judgment-rule-loading-standard",
+      "title": "AM 任務判斷規則載入標準",
+      "file": "docs/TASK_JUDGMENT_RULE_LOADING_STANDARD.md",
+      "format": "markdown",
+      "category": "task-control-governance",
+      "status": "Active",
+      "audience": ["operator", "developer"],
+      "summary": "Defines that AM must load the latest shared, project-local, learned, and manually added judgment rules before hourly LINE reconciliation or any task judgment run.",
+      "tags": ["task-judgment", "rule-loading", "hourly-reconciliation", "User-UI", "calibration", "AMCore"]
+    },
+    {
+      "id": "line-conversation-rendering-standard",
+      "title": "User UI LINE 對話引用呈現標準",
+      "file": "docs/LINE_CONVERSATION_RENDERING_STANDARD.md",
+      "format": "markdown",
+      "category": "user-ui-governance",
+      "status": "Active",
+      "audience": ["operator", "developer"],
+      "summary": "Defines that every User UI reference to LINE conversation content must render from the project-local LINE conversation master/group record style, including metadata, colors, text layout, images, files, and stickers.",
+      "tags": ["User-UI", "LINE", "conversation-rendering", "media", "task-evidence", "Notion"]
+    },
+    {
       "id": "report-0800-daily-intervention-form-prototype",
-      "title": "08:00 daily report intervention form prototype",
+      "title": "08:30 daily report intervention form prototype",
       "file": "docs/REPORT_0800_DAILY_INTERVENTION_FORM_PROTOTYPE.html",
       "format": "html",
       "category": "reporting-prototype",
       "status": "Draft",
       "audience": ["operator", "developer"],
-      "summary": "Interactive prototype showing how the 08:00 daily report can present today's goals, candidate items, standard controller actions, and a decision write-back panel.",
-      "tags": ["reporting", "08:00", "daily-report", "controller-intervention", "prototype"],
+      "summary": "Interactive prototype showing how the 08:30 daily report can present today's goals, candidate items, standard controller actions, and a decision write-back panel.",
+      "tags": ["reporting", "08:30", "daily-report", "controller-intervention", "prototype"],
       "relatedUpgrade": "AM-IMP-2026.0608.11"
     },
     {

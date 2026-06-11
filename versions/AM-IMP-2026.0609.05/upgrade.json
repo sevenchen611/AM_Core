@@ -1,0 +1,36 @@
+{
+  "id": "AM-IMP-2026.0609.05",
+  "name": "Task deadline control standard",
+  "type": "Task control schema / User UI",
+  "portable": true,
+  "requiresDatabases": [
+    "PROJECT_TOTAL_CONTROL_TASK_DATA_SOURCE_ID"
+  ],
+  "requiresEnv": [
+    "NOTION_TOKEN",
+    "PROJECT_TASKS_DATA_SOURCE_ID"
+  ],
+  "requiresScripts": [
+    "scripts/install-task-deadline-standard.js",
+    "scripts/verify-task-deadline-standard.js"
+  ],
+  "installTargets": [
+    "HOZO_AM",
+    "SEVEN_AM"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyRules": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Task schema has deadline, deadline basis, next follow-up date, and overdue status fields",
+    "User UI task pages show and edit the deadline control fields",
+    "SevenAM active tasks without a deadline are backfilled with an auditable default deadline",
+    "HOZO AM active tasks without a deadline are backfilled with an auditable default deadline",
+    "Project manifests and upgrade records are updated separately",
+    "AMCore package check and alignment audit pass"
+  ]
+}

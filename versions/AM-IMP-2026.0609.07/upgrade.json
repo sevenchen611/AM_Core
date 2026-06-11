@@ -1,0 +1,36 @@
+{
+  "id": "AM-IMP-2026.0609.07",
+  "name": "Manual task judgment rule capture",
+  "type": "Governance / User UI / Control API",
+  "portable": true,
+  "requiresDatabases": [
+    "PROJECT_JUDGMENT_RULES_DATA_SOURCE_ID"
+  ],
+  "requiresEnv": [
+    "NOTION_TOKEN",
+    "PROJECT_USER_UI_USERNAME",
+    "PROJECT_USER_UI_PASSWORD"
+  ],
+  "requiresScripts": [],
+  "installTargets": [
+    "HOZO_AM",
+    "SEVEN_AM"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyRules": false,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "User UI rules page shows a 手動加入任務判斷規則 form below rule tables",
+    "The form posts to /control/judgment-rules/create",
+    "SevenAM control API writes new rules to SEVEN_JUDGMENT_RULES_DATA_SOURCE_ID",
+    "HOZO AM control API writes new rules to HOZO_JUDGMENT_RULES_DATA_SOURCE_ID",
+    "User UI Basic auth or project control auth protects the write endpoint",
+    "Generated SevenAM and HOZO AM User UI files include the manual rule form",
+    "Project manifests and upgrade records are updated separately"
+  ]
+}
+

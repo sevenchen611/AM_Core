@@ -1,0 +1,27 @@
+{
+  "version": "AM-IMP-2026.0609.04",
+  "reportSlots": ["10:00", "13:00", "17:00"],
+  "requiredTopSections": [
+    {
+      "id": "today-completed",
+      "label": "今天已完成的任務",
+      "mode": "read-only",
+      "purpose": "Give the user immediate status context before asking for more decisions."
+    },
+    {
+      "id": "active-tasks",
+      "label": "今天目前還在進行中的待辦任務",
+      "mode": "read-only",
+      "purpose": "Help the user decide whether to follow up, change status, or add a next step."
+    }
+  ],
+  "removedSections": [
+    {
+      "id": "rules",
+      "label": "確認規則",
+      "reason": "This section is explanatory only and cannot be confirmed or changed by the user."
+    }
+  ],
+  "dataBoundary": "Task lists must be generated from the current project only. Do not copy task data between projects."
+}
+

@@ -27,6 +27,10 @@ Editable control table:
 | `AM-IMP-2026.0608.17` | Task dossier and subtask hierarchy architecture | Installed | Installed | Adds `母任務` / `子任務` self-relations in each project-local task database; task pages become execution dossiers with child tasks, source evidence, files, and completion gates. |
 | `AM-IMP-2026.0608.19` | Total-control task table source text hide rule | Installed | Installed | Hides `來源原文` from total-control task table headers while keeping the property and existing evidence available. |
 | `AM-IMP-2026.0608.20` | SevenAM 08:00 Google Calendar agenda section | 未列入 | Installed | SevenAM-only report upgrade; HOZO AM intentionally not installed. |
+| `AM-IMP-2026.0610.01` | Morning brief 08:30 schedule standard | Installed | Installed | Morning brief local standard changed to 08:30; production Render verification remains project-local before marking Deployed. |
+| `AM-IMP-2026.0610.04` | Exclude archived tasks from User UI | Installed | Installed | User UI generators filter `封存` / `Archived` task statuses before rendering task lists and task detail pages. |
+| `AM-IMP-2026.0610.05` | Conversation-master task intake source rule | Ready | Installed | SevenAM now uses LINE 對話主檔 for judgement/User UI/report clues and keeps 訊息紀錄 as raw/outgoing/attachment/debug only; HOZO AM is ready for separate installation. |
+| `AM-IMP-2026.0611.01` | Task hierarchy judgment and promotion prompt | Ready | Ready | Preserves the conversation-to-task master prompt in AMCore and adds parent/child/side-task/promotion judgment rules; User UI manual organization is deferred. |
 
 ## Immediate Integration Priorities
 
@@ -39,3 +43,4 @@ Editable control table:
 7. Install `AM-IMP-2026.0608.14` into HOZO_AM and SevenAM meeting sync when each project is ready to treat meeting checkboxes as confirmed tasks.
 8. Backfill `AM-IMP-2026.0608.16` relations for historical tasks by matching legacy project select values to project records.
 9. Backfill `AM-IMP-2026.0608.17` parent-child task hierarchy for active multi-step tasks, keeping unrelated sibling tasks under the project relation.
+10. Install `AM-IMP-2026.0611.01` into SevenAM and HOZO_AM runtimes so task creation and hourly reconciliation can classify parent tasks, child tasks, side tasks, and promotion candidates.

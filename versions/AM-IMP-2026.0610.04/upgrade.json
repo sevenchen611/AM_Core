@@ -1,0 +1,50 @@
+{
+  "id": "AM-IMP-2026.0610.04",
+  "name": "Exclude archived tasks from User UI",
+  "type": "User UI governance / generator behavior",
+  "status": "Ready",
+  "createdDate": "2026-06-10",
+  "portable": true,
+  "projects": ["HOZO_AM", "SevenAM"],
+  "installTargets": ["HOZO_AM", "SevenAM"],
+  "requiresDatabases": [
+    "project-local total-control task database"
+  ],
+  "requiresEnv": [
+    "NOTION_TOKEN",
+    "PROJECT_TASKS_DATA_SOURCE_ID or project-specific TASKS_DATA_SOURCE_ID"
+  ],
+  "requiresScripts": [
+    "scripts/build-user-ui-connected-preview.js",
+    "versions/AM-IMP-2026.0610.04/scripts/verify-archived-task-exclusion.js"
+  ],
+  "requires": [
+    "project-local total-control task database",
+    "project-local User UI generator",
+    "project-local User UI regeneration"
+  ],
+  "changes": [
+    "Defines archived tasks as excluded from daily User UI task surfaces",
+    "Filters task records with status matching 封存 or Archived before building the User UI model",
+    "Prevents stale archived tasks from appearing in all-task lists, project task lists, task status filters, counts, and generated task detail pages"
+  ],
+  "verification": [
+    "Generator syntax check passes",
+    "Archived task exclusion verifier passes for each regenerated project",
+    "Generated User UI contains no archived task row status data attributes"
+  ],
+  "dataBoundary": [
+    "Does not delete archived Notion tasks",
+    "Does not copy task records into AMCore",
+    "Only changes shared generator behavior and generated project-local HTML output"
+  ],
+  "dataIsolation": "Each project regenerates User UI from its own Notion task data source. Archived task records remain in the same project-local task database and are not copied into AMCore or another project.",
+  "definitionOfDone": [
+    "AMCore User UI rules document states that archived tasks are excluded from task surfaces",
+    "Shared generator filters archived task statuses before rendering task lists or pages",
+    "SevenAM and HOZO AM generators are updated from AMCore",
+    "SevenAM and HOZO AM User UI HTML files are regenerated after clearing stale user-ui HTML outputs",
+    "Archived task exclusion verifier passes for SevenAM and HOZO AM"
+  ],
+  "rollback": "Restore previous project-local User UI generator and regenerate User UI."
+}

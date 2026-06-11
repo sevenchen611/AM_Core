@@ -1,0 +1,39 @@
+{
+  "id": "AM-IMP-2026.0609.03",
+  "name": "Task page source format standard",
+  "type": "Governance / User UI task dossier",
+  "portable": true,
+  "requiresDatabases": [
+    "PROJECT_TOTAL_CONTROL_TASK_DATA_SOURCE_ID",
+    "PROJECT_LINE_CONVERSATIONS_DATA_SOURCE_ID",
+    "PROJECT_LINE_MESSAGES_DATA_SOURCE_ID"
+  ],
+  "requiresEnv": [
+    "NOTION_TOKEN"
+  ],
+  "requiresScripts": [
+    "scripts/verify-task-page-source-format.js"
+  ],
+  "installTargets": [
+    "HOZO_AM",
+    "SEVEN_AM"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyRules": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "AMCore User UI generator renders task source summaries as conversation or meeting sources",
+    "Project-local User UI generator is aligned with AMCore where present",
+    "Task pages do not render the standalone source-evidence section",
+    "Task pages do not render raw judgment-supplement fallback cards",
+    "LINE source evidence renders with archive-style metadata header and next-line message body",
+    "SevenAM task pages are regenerated with the accepted format",
+    "HOZO AM task pages are regenerated with the accepted format",
+    "Project manifests and upgrade records are updated separately"
+  ]
+}
+

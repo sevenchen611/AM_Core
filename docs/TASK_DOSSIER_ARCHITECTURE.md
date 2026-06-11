@@ -10,6 +10,12 @@ Each task page should explain:
 - which conversations, files, meetings, and reports explain the work,
 - how AM judged the task status, owner, risk, and next step.
 
+The judgment of `下一步` belongs to task-control workflows, not User UI rendering.
+Hourly LINE reconciliation, meeting sync, report write-back, manual task edits,
+and judgment calibration should decide or update the next step and write it into
+the project-local task database. User UI should read and display that stored
+value instead of generating a next step at render time.
+
 ## Parent And Child Tasks
 
 The task database must support self-relations:
@@ -26,6 +32,31 @@ Required relation fields:
 A child task is used when completing one task requires another track of work, another owner, another attachment processing step, or another decision before the parent can be closed.
 
 Do not use child tasks for every related item. If an item belongs to the same project but does not directly gate the parent task, keep it as a sibling under the same project instead.
+
+## Hierarchy Judgment And Promotion
+
+The shared hierarchy judgment prompt is defined in:
+
+```text
+versions/AM-IMP-2026.0611.01/config/conversation-task-hierarchy-prompt.json
+```
+
+AM should classify conversation-derived work as:
+
+- parent task,
+- child task,
+- side task,
+- evidence-only update,
+- promotion candidate,
+- promoted parent task,
+- update to an existing task,
+- suppressed non-task.
+
+A child task may be promoted when it grows into its own outcome, has multiple action tracks, gains an independent owner/deadline/risk, affects more than one parent task, or becomes a project milestone.
+
+Promotion should create a new parent task and preserve the original child task as the promotion source. Do not overwrite or delete the original child task.
+
+User UI manual hierarchy editing is not part of this architecture version and should be handled by a separate UI design package.
 
 ## Parent Completion Gate
 

@@ -13,6 +13,26 @@ The goal is to compare:
 
 This is not a production task database. AMCore stores the shared process, schema, templates, and anonymized judgment rules. Each project stores its own live tasks, LINE replies, Notion page IDs, and operational records.
 
+## Runtime Use Requirement
+
+Calibration and manual judgment rules are not passive documentation. Before an hourly LINE task reconciliation or any task judgment run starts, each project must load the latest project-local judgment rules and apply them to task extraction, existing-task updates, status changes, progress updates, merge/suppression decisions, and no-task decisions.
+
+The shared loading standard is:
+
+```text
+D:\Codex_project\AM_Core\docs\TASK_JUDGMENT_RULE_LOADING_STANDARD.md
+```
+
+Task creation and status updates must also follow the source-evidence gate:
+
+```text
+D:\Codex_project\AM_Core\docs\TASK_SOURCE_EVIDENCE_REQUIREMENT.md
+```
+
+No judgment rule may approve a formal task that lacks project-local source
+evidence. If a task looks useful but the source cannot be attached, the correct
+judgment is candidate or pending confirmation, not confirmed task creation.
+
 ## Operating Model
 
 1. Select review candidates from a project-local total-control task database.
@@ -145,7 +165,19 @@ Stable rules should become short preflight questions, for example:
 - Does this belong in AMCore, HOZO_AM, or SevenAM?
 - Is this a shared upgrade package or a project-local installation?
 - Is the source item a real task, a report signal, a note, a responsibility item, or a goal?
+- Is the source item only an assistant operation command, such as asking Seven
+  Junior or another AM assistant to show, list, search, open, or update tasks?
+  If yes, keep it as a command/message log and do not create a total-control
+  task. Phonetic or mistyped assistant aliases in a project assistant control
+  conversation should not be treated as real people.
+- Did the conversation start with a real operational check and later receive a
+  short confirmation such as "normal", "no adjustment needed", or "handled"?
+  If yes, treat the later message as completion evidence for the task, not as a
+  reason to archive or discard the task.
 - Does this require controller confirmation before sending LINE, writing Notion, deploying, or marking complete?
+- Does the task body or source/evidence field include the LINE conversation,
+  meeting record, report clue, system suggestion trace, attachment, or linked
+  source page that caused the task or status change?
 - Is any project-specific data being copied into AMCore?
 
 ## Status Values

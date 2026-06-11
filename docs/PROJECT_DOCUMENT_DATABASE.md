@@ -29,7 +29,11 @@ D:\Codex_project\AM_Core\config\project-document-database.json
 | `line-message-group-registration-flow` | LINE new group and message registration flow | `docs/LINE_MESSAGE_GROUP_REGISTRATION_FLOW.html` | Process explainer | HTML | Active |
 | `total-control-task-classification-flow` | Total control task classification and project assignment flow | `docs/TOTAL_CONTROL_TASK_CLASSIFICATION_FLOW.html` | Process explainer | HTML | Draft |
 | `report-intervention-action-standard` | Report intervention action standard | `docs/REPORT_INTERVENTION_ACTION_STANDARD.md` | Reporting governance | Markdown | Active |
-| `report-0800-daily-intervention-form-prototype` | 08:00 daily report intervention form prototype | `docs/REPORT_0800_DAILY_INTERVENTION_FORM_PROTOTYPE.html` | Reporting prototype | HTML | Draft |
+| `report-slot-rules` | AM 各時段報告規則 | `docs/REPORT_SLOT_RULES.md` | Reporting governance | Markdown | Active |
+| `task-next-step-decision-rules` | AM 任務下一步判斷規則 | `docs/TASK_NEXT_STEP_DECISION_RULES.md` | Task control governance | Markdown | Active |
+| `task-judgment-rule-loading-standard` | AM 任務判斷規則載入標準 | `docs/TASK_JUDGMENT_RULE_LOADING_STANDARD.md` | Task control governance | Markdown | Active |
+| `line-conversation-rendering-standard` | User UI LINE 對話引用呈現標準 | `docs/LINE_CONVERSATION_RENDERING_STANDARD.md` | User UI governance | Markdown | Active |
+| `report-0800-daily-intervention-form-prototype` | 08:30 daily report intervention form prototype | `docs/REPORT_0800_DAILY_INTERVENTION_FORM_PROTOTYPE.html` | Reporting prototype | HTML | Draft |
 | `judgment-calibration-knowledge-base` | Judgment calibration knowledge base | `docs/JUDGMENT_CALIBRATION_KNOWLEDGE_BASE.md` | Governance | Markdown | Active |
 | `meeting-checkbox-task-standard` | Meeting checkbox task standard | `docs/MEETING_CHECKBOX_TASK_STANDARD.md` | Task governance | Markdown | Active |
 | `total-control-task-title-rules` | Total-control task title rules | `docs/TOTAL_CONTROL_TASK_TITLE_RULES.md` | Task governance | Markdown | Active |
@@ -54,7 +58,7 @@ Open this standard to review the controller actions every report candidate shoul
 D:\Codex_project\AM_Core\docs\REPORT_INTERVENTION_ACTION_STANDARD.md
 ```
 
-Open this draft prototype to review the 08:00 daily report intervention form:
+Open this draft prototype to review the 08:30 daily report intervention form:
 
 ```text
 D:\Codex_project\AM_Core\docs\REPORT_0800_DAILY_INTERVENTION_FORM_PROTOTYPE.html

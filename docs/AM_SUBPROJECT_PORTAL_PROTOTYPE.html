@@ -477,6 +477,32 @@
       gap: 12px;
     }
 
+    .manual-rule-panel {
+      margin-top: 16px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fbfcfe;
+    }
+
+    .manual-rule-form {
+      display: grid;
+      gap: 12px;
+    }
+
+    .manual-rule-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(220px, 1fr));
+      gap: 12px;
+    }
+
+    .manual-rule-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
     .database-map {
       display: grid;
       grid-template-columns: repeat(2, minmax(260px, 1fr));
@@ -621,7 +647,7 @@
         <button class="nav-button" data-view="tasks">所有任務</button>
         <button class="nav-button" data-view="line">LINE 群組</button>
         <button class="nav-button" data-view="meetings">會議紀錄</button>
-        <button class="nav-button" data-view="rules">判斷規則</button>
+        <button class="nav-button" data-view="rules">任務判斷規則</button>
         <button class="nav-button" data-view="databases">資料庫地圖</button>
         <button class="nav-button" data-view="env">Environment data</button>
         <button class="nav-button" data-view="versions">版本安裝</button>
@@ -788,6 +814,55 @@
             <span id="ruleCount" class="tag"></span>
           </div>
           <div id="ruleRows" class="rule-grid"></div>
+          <div class="manual-rule-panel">
+            <h3>手動加入任務判斷規則</h3>
+            <form id="manualRuleForm" class="manual-rule-form">
+              <div class="manual-rule-grid">
+                <div class="field">
+                  <label for="manualRuleName">規則名稱</label>
+                  <input id="manualRuleName" class="input" required placeholder="例如：停班停課回覆正常時標記完成">
+                </div>
+                <div class="field">
+                  <label for="manualRuleScope">適用範圍</label>
+                  <select id="manualRuleScope" class="select">
+                    <option value="AM Core">AM Core</option>
+                    <option value="HOZO 專案規則">HOZO 專案規則</option>
+                    <option value="SevenAM 專案規則">SevenAM 專案規則</option>
+                    <option value="手動新增">手動新增</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="manualRuleCategory">類別</label>
+                  <select id="manualRuleCategory" class="select">
+                    <option>Task extraction</option>
+                    <option>Task reconciliation</option>
+                    <option>Status update</option>
+                    <option>Assistant command</option>
+                    <option>Meeting record</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="manualRuleStatus">狀態</label>
+                  <select id="manualRuleStatus" class="select">
+                    <option>Needs review</option>
+                    <option>Active</option>
+                  </select>
+                </div>
+              </div>
+              <div class="field">
+                <label for="manualRulePreferred">應該怎麼判斷</label>
+                <textarea id="manualRulePreferred" required placeholder="請寫出正確處理方式"></textarea>
+              </div>
+              <div class="field">
+                <label for="manualRuleReason">原因 / 觸發條件</label>
+                <textarea id="manualRuleReason" placeholder="看到什麼情境時要套用，為什麼這樣判斷"></textarea>
+              </div>
+              <div class="manual-rule-actions">
+                <button class="btn primary" type="submit">儲存任務判斷規則</button>
+                <span id="manualRuleResult" class="muted">原型會先加入目前專案規則；正式版寫回專案本地判斷規則庫。</span>
+              </div>
+            </form>
+          </div>
         </div>
       </section>
 
@@ -1133,6 +1208,28 @@
       render();
     });
 
+    document.getElementById("manualRuleForm").addEventListener("submit", (event) => {
+      event.preventDefault();
+      const scope = document.getElementById("manualRuleScope").value;
+      const name = document.getElementById("manualRuleName").value.trim();
+      const category = document.getElementById("manualRuleCategory").value;
+      const status = document.getElementById("manualRuleStatus").value;
+      const preferred = document.getElementById("manualRulePreferred").value.trim();
+      const reason = document.getElementById("manualRuleReason").value.trim();
+      if (!name || !preferred) return;
+
+      if (!judgmentRules[state.activeProject]) judgmentRules[state.activeProject] = [];
+      judgmentRules[state.activeProject].push([
+        scope,
+        name,
+        `${preferred}${reason ? `\n原因 / 觸發條件：${reason}` : ""}\n類別：${category}｜狀態：${status}`
+      ]);
+
+      document.getElementById("manualRuleForm").reset();
+      document.getElementById("manualRuleResult").textContent = "已加入目前專案的原型規則清單。正式版會寫回專案本地判斷規則庫。";
+      render();
+    });
+
     document.getElementById("adminForm").addEventListener("submit", (event) => {
       event.preventDefault();
       const project = projects[state.activeProject];
@@ -1167,7 +1264,7 @@
         tasks: "所有任務",
         line: "LINE 群組",
         meetings: "會議紀錄",
-        rules: "判斷規則",
+        rules: "任務判斷規則",
         databases: "資料庫地圖",
         env: "Environment data",
         versions: "版本安裝",
@@ -1318,6 +1415,10 @@
 
     function renderRules(project) {
       const rows = judgmentRules[project.key] || [];
+      const scopeSelect = document.getElementById("manualRuleScope");
+      if (scopeSelect && !document.activeElement?.closest("#manualRuleForm")) {
+        scopeSelect.value = project.key === "HOZO_AM" ? "HOZO 專案規則" : "SevenAM 專案規則";
+      }
       document.getElementById("ruleCount").textContent = `${rows.length} rules`;
       document.getElementById("ruleRows").innerHTML = rows.map(([scope, title, body]) => `
         <article class="item-card">
@@ -1325,7 +1426,7 @@
             <span class="tag ${scope === "AM Core" ? "installed" : "review"}">${scope}</span>
           </div>
           <h3>${title}</h3>
-          <p class="muted">${body}</p>
+          <p class="muted">${String(body).replace(/\n/g, "<br>")}</p>
         </article>
       `).join("");
     }

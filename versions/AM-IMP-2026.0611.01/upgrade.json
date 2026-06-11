@@ -1,0 +1,39 @@
+{
+  "id": "AM-IMP-2026.0611.01",
+  "name": "Task hierarchy judgment and promotion prompt",
+  "type": "Governance / Task control / Prompt contract",
+  "portable": true,
+  "requiresDatabases": [
+    "PROJECT_TOTAL_CONTROL_TASK_DATA_SOURCE_ID",
+    "PROJECT_CONVERSATIONS_DATA_SOURCE_ID"
+  ],
+  "requiresEnv": [
+    "NOTION_TOKEN"
+  ],
+  "requiresScripts": [],
+  "installTargets": [
+    "HOZO_AM",
+    "SEVEN_AM",
+    "FUTURE_AM_PROJECTS"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "dependsOn": [
+    "AM-IMP-2026.0608.17",
+    "AM-IMP-2026.0609.01",
+    "AM-IMP-2026.0610.05"
+  ],
+  "definitionOfDone": [
+    "AMCore stores the reusable conversation-to-task master prompt",
+    "AMCore defines task hierarchy judgment for parent tasks, child tasks, side tasks, and evidence-only updates",
+    "AMCore defines child-to-parent promotion rules with source traceability",
+    "The judgment contract runs at task creation time and hourly reconciliation time",
+    "User UI manual organization is explicitly excluded from this version",
+    "Project-local task databases can add hierarchy judgment fields without copying live project data into AMCore",
+    "Project-local runtimes can load the JSON contract before conversation-to-task extraction"
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "id": "AM-IMP-2026.0610.05.source-policy",
+  "taskJudgementSource": "ConversationDataSourceID",
+  "forbiddenTaskJudgementSource": "MessageDataSourceID",
+  "conversationContextLimitDefault": 20,
+  "messageDataSourceAllowedUses": [
+    "incoming_raw_line_event_log",
+    "outgoing_line_message_log",
+    "attachment_or_media_audit_relation",
+    "webhook_resend_tracing",
+    "debugging"
+  ],
+  "messageDataSourceForbiddenUses": [
+    "line_task_judgement_input",
+    "user_ui_line_evidence_source",
+    "daily_report_conversation_clue_source",
+    "line_group_member_source"
+  ],
+  "conversationJudgementFields": [
+    "最後任務判斷時間",
+    "最後任務判斷訊息時間",
+    "任務判斷狀態"
+  ],
+  "groupMemberIndexRequired": true,
+  "groupMemberIndexPopulation": [
+    "webhook_group_or_room_member_activity",
+    "line_member_list_api_when_available",
+    "manual_backfill_when_needed"
+  ],
+  "conversationToTaskMasterPromptPolicy": {
+    "name": "Conversation-to-task event-line judgment",
+    "mainControllerConversationMustBeAnalyzedLast": true,
+    "mainControllerConversationNeverExcluded": true,
+    "mainControllerConversationPurpose": "Highest-priority source for user instructions, task results, rule corrections, cross-group answers, and final status overrides.",
+    "projectNameBasedAliases": {
+      "SevenAM": ["Seven Junior", "7Junior", "7 Junior", "Seven Jr.", "7 Jr."],
+      "HOZO_AM": ["HOZO Junior", "HOZO Jr.", "Hozo Junior", "Hozo Jr."],
+      "genericPattern": ["{ProjectName} Junior", "{ProjectName} Jr.", "{AssistantName} Junior", "{AssistantName} Jr."]
+    },
+    "coreInstruction": "Do not convert messages one by one. Read each conversation old-to-new, split it into event lines, merge related messages, then use the main controller conversation last to correct, complete, archive, suppress, or update earlier provisional judgments.",
+    "topicBoundaryRules": [
+      "Main-controller notebook messages must be split by real subject and project event, not by isolated keywords.",
+      "Business numbers such as revenue, cost, rent, price, or annual sales do not imply tax unless the surrounding event is actually about tax filing, tax documents, tax payment, or tax deadlines.",
+      "Investment observations, site visits, operating estimates, rent negotiation, offer letters, checks, and requests for operating reports belong to the relevant investment or project-evaluation task.",
+      "Before attaching source evidence to a formal task, verify every evidence paragraph belongs to that task's subject."
+    ],
+    "pureOperationCommandsAreNotTasks": [
+      "query current tasks",
+      "list today's tasks",
+      "open task by number",
+      "show current task status",
+      "reload or open User UI"
+    ],
+    "controllerSignalsThatMustAffectJudgment": [
+      "new task instructions",
+      "completion reports",
+      "task cancellation or do-not-track decisions",
+      "task judgment rule updates",
+      "cross-conversation task results",
+      "project background supplied by the user",
+      "deadline or schedule instructions",
+      "daily report decisions and confirmations"
+    ]
+  }
+}

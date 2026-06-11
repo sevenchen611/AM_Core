@@ -1,0 +1,35 @@
+{
+  "version": "AM-IMP-2026.0609.06",
+  "viewId": "rules",
+  "viewLabel": "任務判斷規則",
+  "requiredRuleGroups": [
+    "AMCore 共用規則",
+    "PROJECT_AM 專案規則",
+    "校準學習規則"
+  ],
+  "rules": {
+    "AMCore": [
+      "以主題串判斷任務，不以單一訊息判斷",
+      "後續訊息能吸收時，更新既有任務",
+      "只有真實行動或控制需求才成立任務",
+      "助理操作指令不是現實任務",
+      "任務必須連回專案目標",
+      "會議 checkbox 是已確認任務",
+      "狀態改變必須有來源證據",
+      "高風險事項需要人工確認"
+    ],
+    "SEVEN_AM": [
+      "Seven Junior 指令與音譯別名不是任務",
+      "讀書會相關會議不進任務清單",
+      "正常回覆是完成證據，不是封存理由",
+      "重複個人待辦要合併到主任務"
+    ],
+    "HOZO_AM": [
+      "HOZO 只處理 HOZO 專案資料",
+      "HOZO LINE 訊息先對照既有任務",
+      "直接通知負責人使用 HOZO 報告目標"
+    ]
+  },
+  "dataBoundary": "Learned calibration rules must be loaded from the current project only."
+}
+

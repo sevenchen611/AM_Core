@@ -2,6 +2,12 @@
 
 This document defines how a controller should intervene when a scheduled report shows candidate LINE messages, meeting actions, follow-up signals, goal-recognition items, risks, or decisions.
 
+The per-slot report generation and display rules are maintained in:
+
+```text
+D:\Codex_project\AM_Core\docs\REPORT_SLOT_RULES.md
+```
+
 The machine-readable action registry is stored at:
 
 ```text
@@ -62,7 +68,7 @@ All scheduled report slots are controller intervention windows.
 
 | Report Slot | Main Intervention Use |
 | --- | --- |
-| 08:00 | Set today's project goals, task goals, and owner goal requests. |
+| 08:30 | Set today's project goals, task goals, and owner goal requests. |
 | 10:00 | Confirm morning task candidates and dismiss noise. |
 | 13:00 | Correct project assignment and clarify task goals. |
 | 17:00 | Confirm follow-ups, unresolved candidates, and owner requests. |
@@ -79,4 +85,3 @@ For example, a button labeled `建立任務` in a report and a LINE command that
 AMCore defines the action contract only.
 
 Each project must store its own report candidates, source messages, controller decisions, task records, and owner requests in its own Notion databases.
-

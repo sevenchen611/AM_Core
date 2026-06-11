@@ -1,0 +1,28 @@
+{
+  "id": "AM-IMP-2026.0609.08",
+  "name": "Environment data grouped sorting",
+  "type": "User UI governance",
+  "portable": true,
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [],
+  "installTargets": [
+    "HOZO_AM",
+    "SEVEN_AM"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyRules": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "AMCore User UI generator sorts environment rows by group and key",
+    "Credential, Secret, Notion ID, Database ID, LINE, Report, URL, Runtime, and Config values are grouped together",
+    "User UI username is shown directly above User UI password",
+    "SevenAM User UI is regenerated with grouped environment data",
+    "HOZO AM User UI is regenerated with grouped environment data",
+    "Project manifests and upgrade records are updated separately"
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "version": "AM-IMP-2026.0609.07",
+  "feature": "manual-task-judgment-rule-capture",
+  "uiSection": "rules",
+  "formId": "manualJudgmentRuleForm",
+  "endpoint": "/control/judgment-rules/create",
+  "writesTo": "project-local judgment rules data source",
+  "fields": [
+    "Rule Name",
+    "Applies To",
+    "Status",
+    "Trigger Pattern",
+    "Preferred Judgment",
+    "Avoided Judgment",
+    "Reason",
+    "Exceptions",
+    "Checklist Placement",
+    "Last Verified",
+    "Source Case Count"
+  ],
+  "dataBoundary": {
+    "amCoreStoresProjectRules": false,
+    "projectRulesStayLocal": true,
+    "secretsStayProjectLocal": true
+  }
+}
+

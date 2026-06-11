@@ -1,0 +1,104 @@
+{
+  "id": "task-body-evidence-log-standard",
+  "version": "AM-IMP-2026.0610.03",
+  "appliesTo": [
+    "formal-total-control-task-creation",
+    "task-status-update",
+    "hourly-line-reconciliation",
+    "meeting-task-sync",
+    "report-task-sync",
+    "system-suggestion-writeback"
+  ],
+  "taskBodyField": "內文",
+  "legacySourceOriginalProperty": {
+    "name": "來源原文",
+    "role": "compatibility-only",
+    "mustNotBeOnlyEvidenceStoreForNewEvents": true
+  },
+  "topLevelSections": [
+    "任務控制紀錄",
+    "目前任務摘要",
+    "最新判斷",
+    "證據與處理紀錄"
+  ],
+  "evidenceRecord": {
+    "appendOnly": true,
+    "requiredMetadataFields": [
+      "擷取時間",
+      "來源類型",
+      "來源位置",
+      "來源時間",
+      "來源對象"
+    ],
+    "requiredSections": [
+      "來源原文",
+      "證據摘要",
+      "AM 判斷",
+      "處理結果",
+      "下一步"
+    ],
+    "optionalSections": [
+      "狀態變更",
+      "關聯規則"
+    ]
+  },
+  "sourceLocation": {
+    "mustBeClickableWhenSourcePageExists": true,
+    "lineSourceLocationTarget": "project-local LINE 對話主檔 or LINE 對話組檔 page",
+    "fileSourceLocationTarget": "keep file/document links inside the matching 來源原文 block",
+    "doNot": [
+      "store only a plain group name when a conversation page URL is known",
+      "link only to the task page when a source conversation page exists",
+      "replace file attachment links with source-location text"
+    ]
+  },
+  "lineSourceOriginal": {
+    "sourceOfTruth": "project-local LINE 對話主檔 or LINE 對話組檔",
+    "copyRule": "copy the complete source message block into the matching evidence record",
+    "doNot": [
+      "summarize inside 來源原文",
+      "rewrite inside 來源原文",
+      "merge speakers into one paragraph",
+      "move images to a separate attachment section",
+      "expand document contents inside 來源原文"
+    ],
+    "standardHumanMessageHeader": "【日期時間】群組名稱 - 發言人（訊息格式）",
+    "standardAssistantMessageHeader": "【日期時間】Seven Jr.：訊息格式",
+    "preserve": [
+      "dateTime",
+      "conversationName",
+      "sender",
+      "messageType",
+      "messageContent",
+      "lineBreaks",
+      "urls",
+      "emoji",
+      "stickers",
+      "imageMarkdown",
+      "fileNames",
+      "attachmentLinks"
+    ]
+  },
+  "mediaRules": {
+    "image": "embed directly in 來源原文 using the same image markdown or project-local image reference as the LINE conversation master",
+    "document": "preserve file name and attachment link; do not expand file contents",
+    "sticker": "preserve sticker package/id and shop link when available",
+    "other": "copy only when needed as evidence for a judgment"
+  },
+  "dataBoundary": {
+    "amcoreMayStore": [
+      "shared schema",
+      "shared format rules",
+      "examples without live project data"
+    ],
+    "amcoreMustNotStore": [
+      "live LINE messages",
+      "customer data",
+      "media files",
+      "document contents",
+      "production database ids",
+      "tokens",
+      "secrets"
+    ]
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "id": "AM-IMP-2026.0609.10",
+  "name": "Meeting-source task page evidence",
+  "type": "User UI governance",
+  "portable": true,
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "scripts/verify-meeting-source-task-page.js"
+  ],
+  "installTargets": [
+    "HOZO_AM",
+    "SEVEN_AM"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyRules": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "AMCore User UI architecture requires meeting-derived tasks to render meeting evidence before LINE fallback",
+    "AMCore meeting checkbox task standard requires meeting page links and meeting excerpts on task pages",
+    "Verifier checks that the generator contains meeting-derived source detection and meeting evidence rendering",
+    "HOZO AM User UI generator passes the verifier and regenerated pages show meeting evidence",
+    "SevenAM User UI generator passes the verifier and regenerated pages show meeting evidence",
+    "Project manifests and upgrade records are updated separately"
+  ]
+}

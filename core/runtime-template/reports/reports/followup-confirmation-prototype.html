@@ -12,23 +12,33 @@
   <div class="app">
     <aside>
       <div class="brand"><strong>追蹤與任務確認</strong><span>10:00 / 13:00 / 17:00 審核</span></div>
-      <nav><a href="#goals">目標追認</a><a href="#followups">候選訊息</a><a href="#tasks">待確認任務</a><a href="#rules">確認規則</a><a href="#summary">確認結果</a></nav>
+      <nav><a href="#today-completed">今日完成</a><a href="#active-tasks">進行中</a><a href="#goals">目標追認</a><a href="#followups">候選訊息</a><a href="#tasks">待確認任務</a><a href="#summary">確認結果</a></nav>
     </aside>
     <main>
       <div class="top">
         <div>
-          <h1>HOZO Jr. 追蹤確認與新任務確認</h1>
+          <h1>AM Jr. 追蹤確認與新任務確認</h1>
           <div class="subtitle">這份報告先確認新增任務或專案是否已有完成目標，再決定是否對外追蹤與建立正式任務。</div>
         </div>
         <div class="date-card"><strong id="briefTime">下午 5:00</strong><span>確認時段</span></div>
       </div>
 
       <div class="metrics">
-        <div class="metric"><span>待目標追認</span><strong>13</strong></div>
-        <div class="metric"><span>候選追蹤訊息</span><strong>3</strong></div>
-        <div class="metric"><span>未確認任務</span><strong>11</strong></div>
-        <div class="metric"><span>高風險需人工看</span><strong>2</strong></div>
+        <div class="metric"><span>今日已完成</span><strong>0</strong></div>
+        <div class="metric"><span>目前進行中</span><strong>0</strong></div>
+        <div class="metric"><span>候選追蹤訊息</span><strong>0</strong></div>
+        <div class="metric"><span>未確認任務</span><strong>0</strong></div>
       </div>
+
+      <section id="today-completed">
+        <div class="head"><h2>今天已完成的任務</h2><span class="note">作為本時段回顧，不需要操作</span></div>
+        <div class="list" id="completedTaskList"></div>
+      </section>
+
+      <section id="active-tasks">
+        <div class="head"><h2>今天目前還在進行中的待辦任務</h2><span class="note">用來決定是否需要追問、改狀態或補下一步</span></div>
+        <div class="list" id="activeTaskList"></div>
+      </section>
 
       <section id="goals">
         <div class="head"><h2>本時段目標追認</h2><span class="note">新增項目先問目標，Codex 確認後才追蹤</span></div>
@@ -55,9 +65,9 @@
               <select><option>批准發送</option><option>修改後發送</option><option>暫緩</option><option>取消</option></select>
             </div>
             <div class="card-body">
-              <div class="field"><div class="label">對象</div><div class="target">台翰營造&茲心園改建</div><div class="meta"><span class="chip warn">等待回覆</span><span class="chip info">招租管理</span></div></div>
-              <div class="field"><div class="label">原因</div><p class="reason">已有估價與圖面相關進度，但仍需要確認正式報價流程與後續回覆。</p></div>
-              <div class="field"><div class="label">建議訊息</div><textarea>學姐好，我這邊協助確認一下：茲心園改建估價資料目前是否已正式進入報價流程？如果還需要補 D 棟或本棟圖面資料，我這邊可以協助整理。</textarea></div>
+              <div class="field"><div class="label">對象</div><div class="target">專案負責人</div><div class="meta"><span class="chip warn">等待確認</span><span class="chip info">專案本地資料</span></div></div>
+              <div class="field"><div class="label">原因</div><p class="reason">此為共用模板，實際追蹤訊息必須由專案本地資料庫產生。</p></div>
+              <div class="field"><div class="label">建議訊息</div><textarea>請確認這件事目前的完成目標、責任人與下一步。</textarea></div>
             </div>
           </article>
           <article class="card followup-card">
@@ -66,9 +76,9 @@
               <select><option>暫緩</option><option>批准發送</option><option>修改後發送</option><option>取消</option></select>
             </div>
             <div class="card-body">
-              <div class="field"><div class="label">對象</div><div class="target">招租管理 / 昱晴</div><div class="meta"><span class="chip warn">待釐清</span><span class="chip info">招租管理</span></div></div>
-              <div class="field"><div class="label">原因</div><p class="reason">登入頁不實用與 Codex 使用教學都還缺明確範圍，建議先不急著對外催。</p></div>
-              <div class="field"><div class="label">建議訊息</div><textarea>昱晴，方便的話你可以先把後台想調整的地方用條列方式整理，我晚點再協助判斷哪些可以交給 Codex 修改。</textarea></div>
+              <div class="field"><div class="label">對象</div><div class="target">專案窗口</div><div class="meta"><span class="chip warn">待釐清</span><span class="chip info">專案本地資料</span></div></div>
+              <div class="field"><div class="label">原因</div><p class="reason">實際追蹤對象與訊息內容必須由專案本地資料庫產生。</p></div>
+              <div class="field"><div class="label">建議訊息</div><textarea>請補充目前卡住的地方、希望完成的結果，以及方便討論的時間。</textarea></div>
             </div>
           </article>
           <article class="card followup-card">
@@ -77,8 +87,8 @@
               <select><option>取消</option><option>暫緩</option><option>批准發送</option><option>修改後發送</option></select>
             </div>
             <div class="card-body">
-              <div class="field"><div class="label">對象</div><div class="target">招租管理</div><div class="meta"><span class="chip gray">內部整理</span><span class="chip risk">不對外發送</span></div></div>
-              <div class="field"><div class="label">原因</div><p class="reason">招租管理類任務不需要對外發 LINE，只需要在任務庫確認是否保留。</p></div>
+              <div class="field"><div class="label">對象</div><div class="target">內部整理</div><div class="meta"><span class="chip gray">內部整理</span><span class="chip risk">不對外發送</span></div></div>
+              <div class="field"><div class="label">原因</div><p class="reason">內部整理類任務不需要對外發 LINE，只需要在任務庫確認是否保留。</p></div>
               <div class="field"><div class="label">建議訊息</div><textarea>這類任務僅作為內部整理，不建議發送對外訊息。</textarea></div>
             </div>
           </article>
@@ -91,16 +101,6 @@
         <div class="list" id="taskList"></div>
       </section>
 
-      <section id="rules">
-        <div class="head"><h2>確認規則</h2><span class="note">避免把候選內容誤當正式承諾</span></div>
-        <div class="list">
-          <article class="card"><div class="card-body"><div class="task-name">待負責人口述</div><p class="reason">任務看起來成立，但還不知道怎樣叫完成。先發 LINE / Email 問目標，不更新完成百分比。</p></div></article>
-          <article class="card"><div class="card-body"><div class="task-name">Codex 待確認</div><p class="reason">已拿到口述原文，等待 Codex 判斷是否足以追蹤。下一時段再告訴負責人後續行動。</p></div></article>
-          <article class="card"><div class="card-body"><div class="task-name">已確認可追蹤</div><p class="reason">完成目標明確，才寫回總控任務庫並安排下一步與完成百分比。</p></div></article>
-          <article class="card"><div class="card-body"><div class="task-name">不成立 / 封存</div><p class="reason">用在你不要、不需要追蹤、不需要繼續發的任務。它會從待確認清單退場。</p></div></article>
-        </div>
-      </section>
-
       <div class="actions"><button class="btn" onclick="resetChoices()">重設</button><button class="btn primary js-confirm" onclick="confirmSend()">確認並寫回</button></div>
       <div class="result" id="summary"></div>
     </main>
@@ -108,24 +108,30 @@
   <script>
     const APPROVAL_API='/control/reports/approve';
     const pendingTasks=[
-      {task:'招租管理：建立生活行政與家庭事項追蹤清單',project:'招租管理',source:'Codex 手動整理',summary:'建立生活行政與家庭事項追蹤清單；目前缺少明細，需確認是否保留。',risk:'一般'},
-      {task:'招租管理：建立個人財務與帳務追蹤清單',project:'招租管理',source:'Codex 手動整理',summary:'建立個人財務與帳務追蹤清單；涉及財務，建議人工確認後再追蹤。',risk:'高風險'},
-      {task:'招租管理：建立私人文件與證件整理清單',project:'招租管理',source:'Codex 手動整理',summary:'建立私人文件與證件整理清單；目前缺少明細，需確認是否保留。',risk:'一般'},
-      {task:'招租管理：待確認客戶回覆與進度整理',project:'招租管理',source:'Codex 手動整理',summary:'報稅逾期處理具時效與稅務風險，需 HOZO 主管 明確確認。',risk:'高風險'},
-      {task:'招租管理：盤點目前私人待辦清單',project:'招租管理',source:'Codex 手動整理',summary:'盤點私人待辦清單；屬於內部整理，不需要對外發送。',risk:'一般'},
-      {task:'個人待辦：報稅今天完成',project:'財務',source:'LINE OA',summary:'使用者明確提到今天一定要先處理報稅。',risk:'高風險'},
-      {task:'招租管理：再發設計圖給 2-3 家營造廠估價',project:'招租管理',source:'LINE OA',summary:'明確交辦，比價需要更多廠商報價。',risk:'一般'},
-      {task:'招租管理：確認學姐估價資料是否已正式進入報價流程',project:'招租管理',source:'LINE OA',summary:'需確認估價資料是否已正式進入報價流程。',risk:'一般'},
-      {task:'招租管理：釐清登入頁不實用的具體問題',project:'招租管理',source:'LINE OA',summary:'問題存在，但缺少明確修改範圍，需先收集操作卡點。',risk:'一般'},
-      {task:'招租管理：建立昱晴使用 Codex 的教學與安全規則',project:'招租管理',source:'LINE OA',summary:'建立 Codex 使用教學、安全規則、修改流程與回復機制。',risk:'一般'},
-      {task:'後臺設計製作：建立 Local / Staging / Production 隔離確認表',project:'後臺設計製作',source:'LINE OA',summary:'環境隔離不清楚，需建立確認表避免改壞正式環境。',risk:'一般'}
+      {task:'範例任務：確認完成目標與下一步',project:'專案本地資料',source:'專案本地資料庫',summary:'此為共用模板範例。安裝到專案後，請改由專案自己的任務庫產生候選任務。',risk:'一般'}
     ];
+    const completedTasks=[];
+    const activeTasks=[];
     const params=new URLSearchParams(location.search);
     const hashParams=new URLSearchParams(location.hash.replace(/^#/,''));
     const slot=params.get('slot')||hashParams.get('slot')||'17';
     const slotLabels={10:'上午 10:00',13:'下午 1:00',17:'下午 5:00'};
     document.getElementById('briefTime').innerText=slotLabels[slot]||slotLabels[17];
+    renderReadOnlyTaskList('completedTaskList', completedTasks);
+    renderReadOnlyTaskList('activeTaskList', activeTasks);
     renderTasks();
+
+    function renderReadOnlyTaskList(elementId, items){
+      const list=document.getElementById(elementId);
+      list.innerHTML=items.length?items.map(item=>`
+        <article class="card">
+          <div class="card-body">
+            <div class="task-name">${escapeHtml(item.task)}</div>
+            <div class="meta"><span class="chip info">${escapeHtml(item.project)}</span>${item.owner?`<span class="chip gray">${escapeHtml(item.owner)}</span>`:''}</div>
+            <p class="reason">${escapeHtml(item.summary)}</p>
+          </div>
+        </article>`).join(''):'<article class="card"><div class="card-body"><p class="muted">目前沒有資料。</p></div></article>';
+    }
 
     function renderTasks(){
       const list=document.getElementById('taskList');
@@ -171,7 +177,7 @@
       result.className='result show';
       result.innerHTML='<strong>正在寫回追蹤與任務確認...</strong>';
       try{
-        const response=await fetch(APPROVAL_API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reportType,approvedBy:'陸昱晴',submittedAt:new Date().toISOString(),reportContent:buildReportContent(followups,taskDecisions),followups,tasks,decisions:deferred.map(item=>({item:item.task,decision:'保留未確認',status:'未處理'})),notes:`${slotLabel} 追蹤確認與新任務確認寫回；未選正式狀態者保留未確認。`})});
+        const response=await fetch(APPROVAL_API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reportType,approvedBy:'AM 使用者',submittedAt:new Date().toISOString(),reportContent:buildReportContent(followups,taskDecisions),followups,tasks,decisions:deferred.map(item=>({item:item.task,decision:'保留未確認',status:'未處理'})),notes:`${slotLabel} 追蹤確認與新任務確認寫回；未選正式狀態者保留未確認。`})});
         const data=await response.json().catch(()=>({}));
         if(!response.ok||!data.ok){throw new Error(data.error||`寫回失敗 (${response.status})`)}
         const sentText=selectedFollowups.length?selectedFollowups.map(escapeHtml).join('<br>'):'沒有勾選要對外追蹤的訊息。';

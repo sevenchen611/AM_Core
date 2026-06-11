@@ -1,0 +1,28 @@
+{
+  "id": "AM-IMP-2026.0609.06",
+  "name": "Task judgment rules User UI",
+  "type": "Governance / User UI",
+  "portable": true,
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [],
+  "installTargets": [
+    "HOZO_AM",
+    "SEVEN_AM"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyRules": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "User UI rules page is labeled 任務判斷規則",
+    "AMCore shared task judgment rules are visible",
+    "Project-specific SevenAM or HOZO AM rules are visible only inside the matching project",
+    "Learned calibration rules are loaded from the current project only",
+    "SevenAM and HOZO AM User UI files are regenerated",
+    "Project manifests and upgrade records are updated separately"
+  ]
+}

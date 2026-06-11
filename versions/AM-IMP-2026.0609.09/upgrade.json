@@ -1,0 +1,29 @@
+{
+  "id": "AM-IMP-2026.0609.09",
+  "name": "Task evidence media in User UI",
+  "type": "User UI governance",
+  "portable": true,
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "scripts/verify-task-evidence-media.js"
+  ],
+  "installTargets": [
+    "HOZO_AM",
+    "SEVEN_AM"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyRules": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "AMCore User UI architecture requires task evidence cards to include source LINE media when available",
+    "AMCore verifier checks task evidence media rendering behavior",
+    "SevenAM User UI generator passes the media verifier",
+    "HOZO AM User UI generator passes the media verifier",
+    "Project manifests and upgrade records are updated separately"
+  ]
+}

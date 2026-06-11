@@ -1,0 +1,37 @@
+{
+  "fields": {
+    "dueDate": "截止日",
+    "deadlineBasis": "期限依據",
+    "nextFollowupDate": "下次追蹤日",
+    "overdueStatus": "逾期狀態"
+  },
+  "overdueStatusOptions": [
+    "需補期限",
+    "未逾期",
+    "今天到期",
+    "已逾期",
+    "已完成"
+  ],
+  "defaultDeadlineRules": [
+    {
+      "when": "next step or judgment says today",
+      "deadlineOffsetDays": 0,
+      "basis": "對話推定：文字提到今天，截止日設為今天。"
+    },
+    {
+      "when": "next step or judgment says tomorrow",
+      "deadlineOffsetDays": 1,
+      "basis": "對話推定：文字提到明天，截止日設為明天。"
+    },
+    {
+      "when": "task is pending confirmation",
+      "deadlineOffsetDays": 1,
+      "basis": "系統預設：待確認任務應在 1 天內補齊負責人、期限或成立判斷。"
+    },
+    {
+      "when": "active task has no explicit deadline",
+      "deadlineOffsetDays": 3,
+      "basis": "系統預設：一般進行中任務應在 3 天內完成或重新確認期限。"
+    }
+  ]
+}

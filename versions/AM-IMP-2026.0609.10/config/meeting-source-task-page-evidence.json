@@ -1,0 +1,32 @@
+{
+  "id": "meeting-source-task-page-evidence",
+  "version": "AM-IMP-2026.0609.10",
+  "scope": "AM User UI task pages",
+  "sourcePriority": [
+    "meeting",
+    "line-conversation",
+    "manual-or-unknown"
+  ],
+  "meetingDerivedSignals": [
+    "meeting-checkbox",
+    "meeting-action",
+    "同步識別碼：meeting:<meetingPageId>:<itemId>"
+  ],
+  "requiredMeetingTaskPageFields": [
+    "資料來源：會議記錄",
+    "關聯頁面：<meeting Notion URL or meeting page reference>",
+    "會議：<meeting name>",
+    "會議日期：<meeting date when available>",
+    "會議記錄內文：<meeting body excerpt when available>",
+    "行動項目：<checkbox or meeting action item text>",
+    "來源標記：<source marker>",
+    "同步識別碼：<sync id>"
+  ],
+  "forbiddenFallbackForMeetingTasks": [
+    "來源對話群組：LINE 對話群組"
+  ],
+  "dataBoundary": {
+    "amCoreStoresLiveMeetingData": false,
+    "childProjectStoresLiveMeetingData": true
+  }
+}

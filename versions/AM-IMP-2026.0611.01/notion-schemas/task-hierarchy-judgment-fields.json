@@ -1,0 +1,113 @@
+{
+  "id": "amcore.task-hierarchy-judgment-fields",
+  "version": "2026-06-11",
+  "targetDatabase": "PROJECT_TOTAL_CONTROL_TASK_DATA_SOURCE_ID",
+  "buildsOnExistingFields": [
+    {
+      "name": "母任務",
+      "type": "relation",
+      "requiredBy": "AM-IMP-2026.0608.17"
+    },
+    {
+      "name": "子任務",
+      "type": "relation",
+      "requiredBy": "AM-IMP-2026.0608.17"
+    }
+  ],
+  "fields": [
+    {
+      "name": "任務層級",
+      "type": "select",
+      "required": true,
+      "options": [
+        "父任務",
+        "子任務",
+        "副任務",
+        "證據更新",
+        "升級候選",
+        "已升級來源",
+        "未判斷"
+      ],
+      "purpose": "Records whether the task is a parent task, child task, side task, evidence-only record, promotion candidate, or promoted source."
+    },
+    {
+      "name": "阻擋母任務完成",
+      "type": "checkbox",
+      "required": true,
+      "purpose": "Marks whether this child task gates parent completion."
+    },
+    {
+      "name": "階層判斷狀態",
+      "type": "select",
+      "required": true,
+      "options": [
+        "已判斷",
+        "待確認",
+        "需升級",
+        "已升級",
+        "需合併",
+        "需拆分",
+        "不需階層"
+      ],
+      "purpose": "Records the current hierarchy judgment result."
+    },
+    {
+      "name": "升級來源任務",
+      "type": "relation",
+      "required": true,
+      "relationTarget": "PROJECT_TOTAL_CONTROL_TASK_DATA_SOURCE_ID",
+      "purpose": "On a newly promoted parent task, links to the original child task that caused promotion."
+    },
+    {
+      "name": "升級後主任務",
+      "type": "relation",
+      "required": true,
+      "relationTarget": "PROJECT_TOTAL_CONTROL_TASK_DATA_SOURCE_ID",
+      "purpose": "On the original child task, links forward to the new parent task created by promotion."
+    },
+    {
+      "name": "升級原因",
+      "type": "rich_text",
+      "required": true,
+      "purpose": "Explains why a child task became a parent task or promotion candidate."
+    },
+    {
+      "name": "事件線識別",
+      "type": "rich_text",
+      "required": true,
+      "purpose": "Stores a stable event-line key for grouping parent, child, side, and promotion records."
+    },
+    {
+      "name": "完成門檻",
+      "type": "rich_text",
+      "required": true,
+      "purpose": "Defines what must be true before this task can close."
+    },
+    {
+      "name": "相關任務",
+      "type": "relation",
+      "required": false,
+      "relationTarget": "PROJECT_TOTAL_CONTROL_TASK_DATA_SOURCE_ID",
+      "purpose": "Links side tasks or sibling tasks that are related but do not gate parent completion."
+    },
+    {
+      "name": "副任務類型",
+      "type": "select",
+      "required": false,
+      "options": [
+        "同專案平行事項",
+        "參考資料處理",
+        "背景追蹤",
+        "非阻擋支援",
+        "其他"
+      ],
+      "purpose": "Classifies side tasks without treating them as blocking child tasks."
+    },
+    {
+      "name": "階層判斷時間",
+      "type": "date",
+      "required": false,
+      "purpose": "Records when AM last judged the task hierarchy."
+    }
+  ]
+}

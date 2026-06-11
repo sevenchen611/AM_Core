@@ -1,0 +1,87 @@
+{
+  "id": "AM-IMP-2026.0610.05",
+  "name": "Conversation-master task intake source rule",
+  "type": "LINE task intake governance / runtime source migration",
+  "status": "Ready",
+  "createdDate": "2026-06-10",
+  "portable": true,
+  "projects": ["HOZO_AM", "SevenAM"],
+  "installTargets": ["HOZO_AM", "SevenAM"],
+  "requiresDatabases": [
+    "project-local LINE conversation master database",
+    "project-local LINE raw message log database",
+    "project-local total-control task database",
+    "project-local LINE group member index database",
+    "project-local LINE group option database",
+    "project-local LINE group member option database",
+    "project-local progress report database"
+  ],
+  "requiresEnv": [
+    "NOTION_TOKEN",
+    "PROJECT_CONVERSATIONS_DATA_SOURCE_ID or project-specific CONVERSATIONS_DATA_SOURCE_ID",
+    "PROJECT_MESSAGES_DATA_SOURCE_ID or project-specific MESSAGES_DATA_SOURCE_ID",
+    "PROJECT_TASKS_DATA_SOURCE_ID or project-specific TASKS_DATA_SOURCE_ID",
+    "PROJECT_LINE_GROUP_MEMBER_INDEX_DATA_SOURCE_ID or project-specific LINE_GROUP_MEMBER_INDEX_DATA_SOURCE_ID",
+    "PROJECT_LINE_GROUPS_DATA_SOURCE_ID or project-specific LINE_GROUPS_DATA_SOURCE_ID",
+    "PROJECT_LINE_GROUP_MEMBERS_DATA_SOURCE_ID or project-specific LINE_GROUP_MEMBERS_DATA_SOURCE_ID",
+    "PROJECT_PROGRESS_REPORTS_DATA_SOURCE_ID or project-specific PROGRESS_REPORTS_DATA_SOURCE_ID"
+  ],
+  "requiresScripts": [
+    "scripts/sync-line-message-judgements.js",
+    "scripts/build-user-ui-connected-preview.js",
+    "scripts/generate-0800-daily-report-preview.js",
+    "scripts/sync-line-group-options.js",
+    "scripts/setup-line-group-member-index.js",
+    "scripts/sync-line-group-member-index.js",
+    "scripts/setup-responsibility-owner-narrowing.js",
+    "src/server.js",
+    "src/control-api.js"
+  ],
+  "requires": [
+    "Conversation master pages store enough recent LINE message content for task judgement",
+    "Raw message database remains available for webhook logging, outgoing logs, attachment audit, resend tracing, and debugging",
+    "Hourly task judgement can be run in dry-run mode before production use",
+    "User UI generator can be regenerated from project-local Notion data"
+  ],
+  "changes": [
+    "Forbid using MessageDataSourceID as a LINE task-judgement input",
+    "Use ConversationDataSourceID as the only LINE conversation source for hourly task judgement, User UI evidence, and daily report conversation clues",
+    "Read the latest 20 messages from each conversation master page when judging LINE task updates or new events",
+    "Replace per-message judgement flags with conversation-level judgement fields on the conversation master",
+    "Keep writing raw incoming and outgoing messages to the message log for audit and debugging only",
+    "Add a LINE group member index table for durable Group ID or Room ID to User ID membership relationships",
+    "Populate the group member index from webhook events when a group or room member speaks, and optionally from LINE API when available",
+    "Derive group member option records from the member index instead of reading the message log",
+    "Regenerate User UI and 08:00 daily report previews from conversation-master content"
+  ],
+  "verification": [
+    "Syntax checks pass for all changed runtime and script files",
+    "Hourly judgement dry-run reports sourceDataSource as ConversationDataSourceID and uses conversation-prefixed source message ids",
+    "Group option dry-run reads conversation master pages and group member index records",
+    "08:00 daily report preview generation succeeds and counts conversation clues from the conversation master",
+    "Generated User UI does not configure the message log as its LINE evidence source",
+    "Remaining MessageDataSourceID references are limited to raw/outgoing log, attachment audit, resend tracing, or debugging"
+  ],
+  "dataBoundary": [
+    "AMCore stores only the shared rule, checklist, package metadata, and implementation notes",
+    "Do not copy project LINE messages, customer records, Notion pages, database IDs, tokens, or Render secrets into AMCore",
+    "Each project must create and fill its own group member index database",
+    "Each project must deploy and verify production separately"
+  ],
+  "dataIsolation": "The migration changes source-selection behavior inside each project-local runtime. Conversation records, message logs, tasks, reports, group member indexes, attachments, and generated User UI files remain inside the target project. AMCore stores no live project data.",
+  "definitionOfDone": [
+    "Project docs state that ConversationDataSourceID is the only LINE source for task judgement, User UI evidence, and report conversation clues",
+    "Project docs state that MessageDataSourceID is raw/outgoing/attachment/debug only",
+    "Hourly LINE task judgement no longer queries MessageDataSourceID",
+    "Hourly LINE task judgement reads the latest 20 conversation-master messages per conversation segment",
+    "Conversation master schema has judgement tracking fields replacing the message-level judged flag",
+    "User UI generator is conversation-led and excludes MessageDataSourceID as its LINE evidence source",
+    "Daily report preview reads conversation clues from the conversation master",
+    "LINE group member index database exists and its env var is configured",
+    "Webhook records group or room member appearances into the member index when source user id is present",
+    "Group member option sync reads from the member index, not from message records",
+    "Dry-run verification passes before production deployment",
+    "Production Render service is deployed and checked separately for each project"
+  ],
+  "rollback": "Restore the previous project-local scripts and Render command configuration, remove the group member index sync from scheduled flows, and regenerate User UI from the prior generator. Do not delete conversation pages, message logs, tasks, attachments, or member index records during rollback."
+}

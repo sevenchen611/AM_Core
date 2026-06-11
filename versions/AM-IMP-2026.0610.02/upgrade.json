@@ -1,0 +1,46 @@
+{
+  "id": "AM-IMP-2026.0610.02",
+  "name": "Task source evidence gate",
+  "type": "Task database governance",
+  "portable": true,
+  "requiresDatabases": [
+    "project-local total-control task database",
+    "project-local LINE conversation/message records",
+    "project-local meeting records when used"
+  ],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/validate-task-source-evidence.js"
+  ],
+  "installTargets": [
+    "HOZO_AM",
+    "SEVEN_AM"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyRules": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "taskDatabaseContract": {
+    "sourceEvidenceMandatory": true,
+    "formalTaskWithoutEvidenceAllowed": false,
+    "missingEvidenceFallback": [
+      "recover source",
+      "candidate task",
+      "pending confirmation",
+      "judgment log"
+    ],
+    "userUiRole": "render source evidence from task data only"
+  },
+  "definitionOfDone": [
+    "AMCore AGENTS.md defines source evidence as mandatory for formal tasks",
+    "AMCore task judgment rules reference the source-evidence requirement",
+    "Shared hourly reconciliation config contains a source-evidence gate",
+    "HOZO AM hourly reconciliation config contains a source-evidence gate",
+    "SevenAM hourly reconciliation config contains a source-evidence gate",
+    "Validation tool reports generated task pages with source evidence",
+    "Project manifests and upgrade records are updated separately"
+  ]
+}

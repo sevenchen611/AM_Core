@@ -1,0 +1,31 @@
+{
+  "id": "AM-IMP-2026.0609.04",
+  "name": "Report slot task snapshot format",
+  "type": "Reporting / Task control UI",
+  "portable": true,
+  "requiresDatabases": [
+    "PROJECT_TOTAL_CONTROL_TASK_DATA_SOURCE_ID"
+  ],
+  "requiresEnv": [],
+  "requiresScripts": [],
+  "installTargets": [
+    "HOZO_AM",
+    "SEVEN_AM"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyRules": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "AMCore runtime template shows today's completed tasks and currently active tasks before follow-up decisions",
+    "The non-actionable confirmation-rules section is removed from the report UI",
+    "SevenAM follow-up confirmation report uses the new slot snapshot format",
+    "HOZO AM follow-up confirmation report uses the new slot snapshot format",
+    "Project manifests and upgrade records are updated separately",
+    "HTML script blocks parse successfully in both project-local report pages"
+  ]
+}
+

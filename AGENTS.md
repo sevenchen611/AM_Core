@@ -57,6 +57,11 @@ Rules:
   source messages or command logs when needed, but do not create total-control
   tasks from them unless the same message also contains a separate concrete
   action, owner, delivery, deadline, or external commitment.
+- In a project assistant direct chat or small assistant control group, phonetic
+  or mistyped assistant addresses such as "謝孟娟" or "謝夢娟" used for
+  Seven Junior should be treated as assistant command aliases when the message
+  asks to show, list, open, search, or update tasks. Do not reinterpret those
+  aliases as real people or task owners.
 - Each task should connect back to a project goal. A task without a project goal
   is incomplete context, not a fully understood control item.
 - If a conversation reveals a new project goal, first record or propose the
@@ -68,6 +73,17 @@ Rules:
 - The task record should preserve source context: original message, conversation
   or meeting reference, project guess, reason for extraction, and any inferred
   owner, due date, priority, or risk.
+- A task must not become a formal project-local task without source evidence in
+  its task body or source/evidence fields. The task body must include or link the
+  LINE conversation content, meeting record content, report clue, attachment, or
+  other source record that caused the task to exist.
+- When creating a task from LINE, include the relevant conversation group,
+  message time, sender, message content, and media/file reference when present.
+  When creating a task from a meeting, include the meeting reference and the
+  checkbox item or decision paragraph that caused the task.
+- If a useful candidate task is found but no source evidence can be attached,
+  keep it as a candidate or pending-confirmation item. Do not treat it as a
+  confirmed total-control task until the source is recovered or added.
 
 Project-goal linkage:
 
@@ -143,6 +159,12 @@ Status update behavior:
 
 - If evidence shows completion, move the task toward completed or pending
   completion confirmation depending on risk and confidence.
+- If an earlier conversation raised a real operational check, such as whether
+  staff, site operations, classes, delivery, service, or scheduling must change,
+  and a later reply confirms "normal", "no adjustment needed", "already handled",
+  or equivalent, preserve the task as a real task and mark it completed or
+  pending completion confirmation. Do not archive it merely because the later
+  message is a short status reply.
 - If evidence shows waiting on someone, mark that the task is waiting and record
   who or what is being waited on.
 - If evidence shows work started but not finished, mark that it is in progress
@@ -168,17 +190,53 @@ creates new tasks.
 
 Hourly reconciliation flow:
 
-1. Read new LINE messages since the previous hourly run.
-2. For each message, review earlier context in the same LINE conversation.
-3. Search the project-local total-control task database for related active tasks.
-4. If the new message extends, answers, completes, blocks, changes, or clarifies
+1. Load the latest task judgment rules before judging any new message. This is
+   mandatory. The hourly run must read AMCore shared rules, the project-local
+   judgment rules database, learned calibration rules, and active manual rules
+   written from User UI before it classifies messages or updates tasks.
+2. Read new LINE messages since the previous hourly run.
+3. For each message, review earlier context in the same LINE conversation.
+4. Search the project-local total-control task database for related active tasks.
+5. If the new message extends, answers, completes, blocks, changes, or clarifies
    an existing task, update that task and record the evidence.
-5. If no existing task can absorb the message, decide whether it is a new event.
-6. Create a new task only when the new event contains a real action, owner,
-   delivery, decision, risk, or follow-up need.
-7. If the message is background, acknowledgement, duplicate content, test text,
+6. If no existing task can absorb the message, decide whether it is a new event.
+7. Create a new task only when the new event contains a real action, owner,
+   delivery, decision, risk, or follow-up need, and source evidence can be
+   written into the task body or source/evidence fields.
+8. If the message is background, acknowledgement, duplicate content, test text,
    pure knowledge sharing, or a record with no action, mark it judged without
    creating a task.
+
+Mandatory source-evidence gate:
+
+- Every newly created task must pass the source-evidence gate before it becomes
+  a formal total-control task.
+- The gate requires at least one project-local source reference: LINE message or
+  conversation record, meeting record and checkbox/decision, daily report clue,
+  system suggestion trace, attachment/file record, or a linked source page.
+- The task body should carry enough source content for a project owner to audit
+  why the task exists without relying on memory.
+- If the gate fails, the hourly run must either recover the source from the
+  project-local records, mark the item as a candidate/pending-confirmation task,
+  or refuse creation and log the failure.
+- Status changes and next-step changes must also append the new evidence that
+  caused the change.
+
+Judgment rule loading requirements:
+
+- The hourly task judgment job must not rely only on hard-coded rules.
+- It must load the latest project-local Notion judgment rules from
+  `HOZO_JUDGMENT_RULES_DATA_SOURCE_ID`, `SEVEN_JUDGMENT_RULES_DATA_SOURCE_ID`,
+  or the project's equivalent `PROJECT_JUDGMENT_RULES_DATA_SOURCE_ID`.
+- Loaded rules should be filtered by status, scope, trigger pattern, and
+  exception conditions before use.
+- Loaded rules must be considered for task extraction, existing-task update vs
+  new-task decisions, task merge or suppression, status changes, project
+  assignment, next-step updates, and no-task decisions.
+- When a loaded rule materially affects the result, record the rule name or id
+  in the task evidence, message judgment log, or calibration trace.
+- If rules cannot be loaded, record a warning and use the safest fallback
+  behavior. Do not silently ignore rule-loading failure.
 
 The task database should remain an event-control system, not a message-to-task
 dump. The shared machine-readable contract for this behavior is:

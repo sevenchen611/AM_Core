@@ -126,6 +126,23 @@ Required fields:
 
 Parent tasks should not be marked complete until child tasks are complete, cancelled, transferred, or explicitly no longer needed. If a child task is only related to the same project but does not directly gate the parent task, keep it as a sibling under the same `總控專案` relation instead of nesting it.
 
+Task hierarchy judgment is standardized by `AM-IMP-2026.0611.01`.
+
+Runtime task extraction and hourly reconciliation should classify each conversation-derived item as one of:
+
+- parent task,
+- child task,
+- side task,
+- evidence-only update,
+- promotion candidate,
+- promoted parent task,
+- update existing task,
+- suppress no task.
+
+A child task can be promoted into a new parent task when it becomes its own outcome, develops multiple sub-actions, gains independent risk or ownership, affects multiple parent tasks, or is explicitly split by the project owner. Promotion must preserve the original child task as a source record and link it to the new parent task.
+
+User UI manual hierarchy organization is intentionally deferred to a separate UI package and should not be mixed into this core judgment standard.
+
 Task pages are work dossiers. Properties summarize the current state; the page body preserves the process:
 
 - 任務定位
