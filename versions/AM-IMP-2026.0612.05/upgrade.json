@@ -1,0 +1,39 @@
+{
+  "id": "AM-IMP-2026.0612.05",
+  "name": "Calibration feedback loop",
+  "type": "Learning",
+  "portable": true,
+  "requiresDatabases": [],
+  "requiresEnv": [
+    "SEVEN_JUDGMENT_CALIBRATION_CASES_DATA_SOURCE_ID",
+    "SEVEN_JUDGMENT_RULES_DATA_SOURCE_ID",
+    "ANTHROPIC_API_KEY"
+  ],
+  "requiresScripts": [],
+  "installTargets": [
+    "HOZO_AM",
+    "SEVEN_AM",
+    "FUTURE_AM_PROJECTS"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Package files are complete",
+    "Project manifest is updated",
+    "Upgrade record is created",
+    "Local verification passed"
+  ],
+  "backfill": {
+    "backfilled": true,
+    "backfilledAt": "2026-06-13",
+    "authoritativeSource": "7AM: UPGRADE-2026-06-12-AM-IMP-2026.0612.05.md",
+    "projectStatus": {
+      "HOZO_AM": "Installed (deploy pending)",
+      "SEVEN_AM": "Deployed"
+    }
+  }
+}

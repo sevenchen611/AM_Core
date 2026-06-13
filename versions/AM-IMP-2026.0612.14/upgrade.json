@@ -1,0 +1,35 @@
+{
+  "id": "AM-IMP-2026.0612.14",
+  "name": "Planned messages and Next Action scheduling",
+  "type": "Task control / Scheduling",
+  "portable": true,
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [],
+  "installTargets": [
+    "HOZO_AM",
+    "SEVEN_AM",
+    "FUTURE_AM_PROJECTS"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Package files are complete",
+    "Project manifest is updated",
+    "Upgrade record is created",
+    "Local verification passed"
+  ],
+  "backfill": {
+    "backfilled": true,
+    "backfilledAt": "2026-06-13",
+    "authoritativeSource": "7AM: UPGRADE-2026-06-12-AM-IMP-2026.0612.14.md",
+    "projectStatus": {
+      "HOZO_AM": "Installed (deploy pending)",
+      "SEVEN_AM": "Deployed"
+    }
+  }
+}

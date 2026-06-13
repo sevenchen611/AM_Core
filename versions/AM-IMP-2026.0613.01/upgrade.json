@@ -1,0 +1,40 @@
+{
+  "id": "AM-IMP-2026.0613.01",
+  "name": "OpenAI Codex CLI LLM backend",
+  "type": "Architecture / LLM backend",
+  "portable": true,
+  "requiresDatabases": [],
+  "requiresEnv": [
+    "LLM_BACKEND",
+    "CODEX_MODEL",
+    "HOZO_WORKER_LLM_BACKEND",
+    "SEVEN_WORKER_LLM_BACKEND"
+  ],
+  "requiresScripts": [],
+  "installTargets": [
+    "HOZO_AM",
+    "SEVEN_AM",
+    "FUTURE_AM_PROJECTS"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Package files are complete",
+    "Project manifest is updated",
+    "Upgrade record is created",
+    "Local verification passed"
+  ],
+  "backfill": {
+    "backfilled": true,
+    "backfilledAt": "2026-06-13",
+    "authoritativeSource": "7AM: UPGRADE-2026-06-13-AM-IMP-2026.0613.01.md",
+    "projectStatus": {
+      "HOZO_AM": "Deployed",
+      "SEVEN_AM": "Ready"
+    }
+  }
+}

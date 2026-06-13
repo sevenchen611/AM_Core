@@ -1,0 +1,38 @@
+{
+  "amcoreVersion": "AM-IMP-2026.0613.04",
+  "amcoreHubRelease": "AMCORE-2026.0613.04",
+  "latestTrackedImprovement": "AM-IMP-2026.0613.04",
+  "packagedThrough": "AM-IMP-2026.0613.04",
+  "isCurrent": true,
+  "behindBy": 0,
+  "missingPackages": [],
+  "totalTrackedImprovements": 56,
+  "totalPackagedVersions": 56,
+  "projects": [
+    {
+      "projectKey": "HOZO_AM",
+      "displayName": "HOZO AM",
+      "head": "AM-IMP-2026.0613.04",
+      "headStatus": "Installed",
+      "trackedVersions": 40,
+      "dataBoundary": "HOZO AM owns its own LINE, Notion, Render, GitHub, and environment values."
+    },
+    {
+      "projectKey": "SEVEN_AM",
+      "displayName": "7AM",
+      "head": "AM-IMP-2026.0613.04",
+      "headStatus": "Installed",
+      "trackedVersions": 56,
+      "dataBoundary": "7AM owns its own LINE, Notion, Render, GitHub, and environment values."
+    }
+  ],
+  "sources": {
+    "sharedRegistry": "D:\\Codex_project\\AM_SHARED_VERSION_UPGRADES\\SHARED_IMPROVEMENT_REGISTRY.md",
+    "versionsFolder": "D:\\Codex_project\\AM_Core\\versions",
+    "manifests": [
+      "D:\\Codex_project\\HOZO_AM\\line-oa-webhook\\docs\\project-improvement-manifest.md",
+      "D:\\Codex_project\\SevenAM\\line-oa-webhook\\docs\\project-improvement-manifest.md"
+    ]
+  },
+  "generatedAt": "2026-06-13T03:31:28.493Z"
+}

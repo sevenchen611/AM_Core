@@ -1,0 +1,37 @@
+{
+  "id": "AM-IMP-2026.0613.03",
+  "name": "Local-worker schedule consolidation",
+  "type": "Scheduling / Architecture",
+  "portable": true,
+  "requiresDatabases": [],
+  "requiresEnv": [
+    "CONTROL_API_URL"
+  ],
+  "requiresScripts": [],
+  "installTargets": [
+    "HOZO_AM",
+    "SEVEN_AM",
+    "FUTURE_AM_PROJECTS"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Package files are complete",
+    "Project manifest is updated",
+    "Upgrade record is created",
+    "Local verification passed"
+  ],
+  "backfill": {
+    "backfilled": true,
+    "backfilledAt": "2026-06-13",
+    "authoritativeSource": "7AM: UPGRADE-2026-06-13-AM-IMP-2026.0613.03.md",
+    "projectStatus": {
+      "HOZO_AM": "Installed",
+      "SEVEN_AM": "Installed"
+    }
+  }
+}

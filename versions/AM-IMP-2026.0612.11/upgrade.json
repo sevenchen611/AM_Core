@@ -1,0 +1,41 @@
+{
+  "id": "AM-IMP-2026.0612.11",
+  "name": "Dual-mode local worker",
+  "type": "Architecture",
+  "portable": true,
+  "requiresDatabases": [],
+  "requiresEnv": [
+    "LLM_BACKEND",
+    "SEVEN_WORKER_HEARTBEAT_URL",
+    "SEVEN_WORKER_INTERVAL_SECONDS",
+    "SEVEN_WORKER_HEARTBEAT_MAX_AGE_SECONDS",
+    "CLAUDE_CODE_MODEL"
+  ],
+  "requiresScripts": [],
+  "installTargets": [
+    "HOZO_AM",
+    "SEVEN_AM",
+    "FUTURE_AM_PROJECTS"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Package files are complete",
+    "Project manifest is updated",
+    "Upgrade record is created",
+    "Local verification passed"
+  ],
+  "backfill": {
+    "backfilled": true,
+    "backfilledAt": "2026-06-13",
+    "authoritativeSource": "7AM: UPGRADE-2026-06-12-AM-IMP-2026.0612.11.md",
+    "projectStatus": {
+      "HOZO_AM": "Installed (deploy pending)",
+      "SEVEN_AM": "Deployed"
+    }
+  }
+}

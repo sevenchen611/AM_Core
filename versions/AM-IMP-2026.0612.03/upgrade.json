@@ -1,0 +1,40 @@
+{
+  "id": "AM-IMP-2026.0612.03",
+  "name": "Codex command LLM triage",
+  "type": "LINE command",
+  "portable": true,
+  "requiresDatabases": [],
+  "requiresEnv": [
+    "ANTHROPIC_API_KEY",
+    "SEVEN_CODEX_COMMANDS_DATA_SOURCE_ID",
+    "CONTROL_LINE_PUSH_URL",
+    "SEVEN_CONTROL_API_KEY"
+  ],
+  "requiresScripts": [],
+  "installTargets": [
+    "HOZO_AM",
+    "SEVEN_AM",
+    "FUTURE_AM_PROJECTS"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Package files are complete",
+    "Project manifest is updated",
+    "Upgrade record is created",
+    "Local verification passed"
+  ],
+  "backfill": {
+    "backfilled": true,
+    "backfilledAt": "2026-06-13",
+    "authoritativeSource": "7AM: UPGRADE-2026-06-12-AM-IMP-2026.0612.03.md",
+    "projectStatus": {
+      "HOZO_AM": "Installed (deploy pending)",
+      "SEVEN_AM": "Deployed"
+    }
+  }
+}

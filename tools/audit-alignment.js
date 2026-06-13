@@ -68,9 +68,12 @@ function runNodeCheck(filePath) {
   }
 }
 
+const SKIP_DIRS = new Set(['node_modules', '.git']);
+
 function walkFiles(dir, predicate, files = []) {
   if (!fs.existsSync(dir)) return files;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory() && SKIP_DIRS.has(entry.name)) continue;
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) walkFiles(fullPath, predicate, files);
     else if (predicate(fullPath)) files.push(fullPath);
