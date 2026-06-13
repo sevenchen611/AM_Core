@@ -83,9 +83,23 @@ function main() {
   for (const { manifest } of projectData) for (const v of manifest.keys()) allVersions.add(v);
   for (const v of packaged) allVersions.add(v);
 
+  // A version is "shippable" (expected to have a package) when it is active
+  // (Ready/Installed/Deployed) in the registry or any manifest, or already
+  // packaged. Proposed/design-stage items do not make AMCore "behind".
+  const ACTIVE = new Set(['Ready', 'Installed', 'Deployed']);
+  const shippable = new Set(packaged);
+  const proposedOnly = [];
+  for (const version of allVersions) {
+    const statuses = [registry.get(version)?.hozoStatus, registry.get(version)?.sevenStatus];
+    for (const { manifest } of projectData) statuses.push(manifest.get(version)?.status);
+    if (statuses.some((s) => ACTIVE.has(s))) shippable.add(version);
+    else if (!packaged.has(version)) proposedOnly.push(version);
+  }
+  proposedOnly.sort();
+
   const latestTracked = maxVersion(allVersions);
   const packagedThrough = maxVersion(packaged);
-  const missingPackages = compareVersionCount(latestTracked, packaged, allVersions);
+  const missingPackages = [...shippable].filter((v) => !packaged.has(v)).sort();
 
   const projects = projectData.map(({ project, manifest }) => {
     const head = maxVersion(manifest.keys());
@@ -100,7 +114,9 @@ function main() {
     };
   });
 
-  const isCurrent = packagedThrough === latestTracked && missingPackages.length === 0;
+  // Current = every shippable version is packaged. A newer Proposed/design item
+  // (not active anywhere) does not make AMCore behind.
+  const isCurrent = missingPackages.length === 0;
 
   const state = {
     amcoreVersion: packagedThrough,
@@ -110,6 +126,7 @@ function main() {
     isCurrent,
     behindBy: missingPackages.length,
     missingPackages,
+    proposedDesignItems: proposedOnly,
     totalTrackedImprovements: allVersions.size,
     totalPackagedVersions: packaged.size,
     projects,
@@ -127,8 +144,9 @@ function main() {
 
   console.log(`AMCore version: ${state.amcoreVersion} (${state.amcoreHubRelease})`);
   console.log(`Latest tracked: ${state.latestTrackedImprovement}`);
-  console.log(`Status: ${isCurrent ? 'CURRENT — packages cover every tracked version' : `BEHIND by ${state.behindBy}: ${missingPackages.join(', ')}`}`);
+  console.log(`Status: ${isCurrent ? 'CURRENT — packages cover every shippable version' : `BEHIND by ${state.behindBy}: ${missingPackages.join(', ')}`}`);
   console.log(`Packaged ${state.totalPackagedVersions} / tracked ${state.totalTrackedImprovements}`);
+  if (proposedOnly.length) console.log(`Proposed (design stage, no package expected): ${proposedOnly.join(', ')}`);
 }
 
 function writeVersionMd(state) {
@@ -160,6 +178,15 @@ function writeVersionMd(state) {
     for (const v of state.missingPackages) lines.push(`- \`${v}\``);
     lines.push('');
     lines.push('Run `node tools/backfill-version-packages.js` to create packages for these.');
+    lines.push('');
+  }
+  if (state.proposedDesignItems.length) {
+    lines.push('## Proposed (Design Stage — No Package Expected Yet)');
+    lines.push('');
+    for (const v of state.proposedDesignItems) lines.push(`- \`${v}\``);
+    lines.push('');
+    lines.push('These are tracked design proposals, not yet Ready/Installed anywhere, so');
+    lines.push('they do not count against AMCore being current.');
     lines.push('');
   }
   lines.push('## Project Heads');

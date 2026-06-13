@@ -6,7 +6,7 @@ registry and each project's improvement manifest. Do not edit by hand.
 _Last generated: 2026-06-13_
 
 - AMCore version (packaged through): `AM-IMP-2026.0613.04`
-- Latest tracked improvement: `AM-IMP-2026.0613.04`
+- Latest tracked improvement: `AM-IMP-2026.0613.05`
 
 Editable planning copies (not authoritative for status):
 
@@ -71,3 +71,4 @@ Editable planning copies (not authoritative for status):
 | `AM-IMP-2026.0613.02` | Worker wrapper OS-level log redirection | Deployed | Deployed | Held | Never pipe worker output through PowerShell (Tee-Object / pwsh redirects): a stalled pipeline blocks node stdout and freezes the worker silently. Wrappers use cmd /c append redirection. |
 | `AM-IMP-2026.0613.03` | Local-worker schedule consolidation | Installed | Installed | Held | The worker is the primary scheduler (cycles, 15-min, hourly, daily reports with grace window, nightly batches); Render keeps only API fallbacks (7AM) or nothing (HOZO Codex-only). |
 | `AM-IMP-2026.0613.04` | Queue database plan policy | Installed | Installed | Held | Queue Postgres lives next to the webhook in the cloud; production uses a paid plan (no expiry); the single Render free-Postgres slot is reserved for the active test project. |
+| `AM-IMP-2026.0613.05` | Two-way Google Calendar sync and invite confirmation | 未列入 | Proposed | Missing | SevenAM-ONLY by request. Writes confirmed project deadlines/checkpoints and LINE-sourced invitations to the controller's Google Calendar; unconfirmed invites are chased in default reminder windows before auto-creating. Design: AMCore `docs/SEVENAM_CALENDAR_INTEGRATION.md`. Builds on 0608.20 (read-only agenda), 0612.02 (LLM extraction), 0612.14 (Next Action scheduler). HOZO not in scope. |

@@ -13,10 +13,17 @@ _Last generated: 2026-06-13_
 | --- | --- |
 | AMCore version (packages held through) | `AM-IMP-2026.0613.04` |
 | AMCore hub release | `AMCORE-2026.0613.04` |
-| Latest tracked improvement (ecosystem) | `AM-IMP-2026.0613.04` |
+| Latest tracked improvement (ecosystem) | `AM-IMP-2026.0613.05` |
 | AMCore current? | Yes — every tracked version is packaged |
 | Packaged versions | 56 |
-| Tracked improvements | 56 |
+| Tracked improvements | 57 |
+
+## Proposed (Design Stage — No Package Expected Yet)
+
+- `AM-IMP-2026.0613.05`
+
+These are tracked design proposals, not yet Ready/Installed anywhere, so
+they do not count against AMCore being current.
 
 ## Project Heads
 
