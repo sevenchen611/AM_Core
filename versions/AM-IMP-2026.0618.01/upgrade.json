@@ -1,0 +1,33 @@
+{
+  "id": "AM-IMP-2026.0618.01",
+  "name": "Dashboard project quick status update",
+  "type": "Task control UI",
+  "portable": true,
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [],
+  "installTargets": [
+    "HOZO_AM",
+    "SEVEN_AM",
+    "FUTURE_AM_PROJECTS"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Package files are complete",
+    "Project manifest is updated",
+    "Upgrade record is created",
+    "Project dashboard task cards expose quick status update controls",
+    "Status changes save through the project-local /control/tasks/update endpoint",
+    "Archive status preserves confirmation state",
+    "Local syntax verification passed"
+  ],
+  "projectStatus": {
+    "HOZO_AM": "Ready",
+    "SEVEN_AM": "Installed"
+  }
+}

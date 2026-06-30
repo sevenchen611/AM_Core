@@ -1,0 +1,35 @@
+{
+  "id": "AM-IMP-2026.0630.02",
+  "name": "Inline attachment parse placement",
+  "type": "Conversation UI / Attachment",
+  "portable": true,
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [],
+  "installTargets": [
+    "HOZO_AM",
+    "SEVEN_AM",
+    "FUTURE_AM_PROJECTS"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Package files are complete",
+    "Project manifest is updated",
+    "Upgrade record is created",
+    "Local verification passed"
+  ],
+  "backfill": {
+    "backfilled": true,
+    "backfilledAt": "2026-06-30",
+    "authoritativeSource": "7AM: UPGRADE-2026-06-30-AM-IMP-2026.0630.02.md",
+    "projectStatus": {
+      "HOZO_AM": "Installed",
+      "SEVEN_AM": "Installed"
+    }
+  }
+}

@@ -1,16 +1,14 @@
 {
-  "amcoreVersion": "AM-IMP-2026.0613.04",
-  "amcoreHubRelease": "AMCORE-2026.0613.04",
-  "latestTrackedImprovement": "AM-IMP-2026.0613.05",
-  "packagedThrough": "AM-IMP-2026.0613.04",
+  "amcoreVersion": "AM-IMP-2026.0630.02",
+  "amcoreHubRelease": "AMCORE-2026.0630.02",
+  "latestTrackedImprovement": "AM-IMP-2026.0630.02",
+  "packagedThrough": "AM-IMP-2026.0630.02",
   "isCurrent": true,
   "behindBy": 0,
   "missingPackages": [],
-  "proposedDesignItems": [
-    "AM-IMP-2026.0613.05"
-  ],
-  "totalTrackedImprovements": 57,
-  "totalPackagedVersions": 56,
+  "proposedDesignItems": [],
+  "totalTrackedImprovements": 59,
+  "totalPackagedVersions": 59,
   "projects": [
     {
       "projectKey": "HOZO_AM",
@@ -23,9 +21,9 @@
     {
       "projectKey": "SEVEN_AM",
       "displayName": "7AM",
-      "head": "AM-IMP-2026.0613.04",
+      "head": "AM-IMP-2026.0618.01",
       "headStatus": "Installed",
-      "trackedVersions": 56,
+      "trackedVersions": 57,
       "dataBoundary": "7AM owns its own LINE, Notion, Render, GitHub, and environment values."
     }
   ],
@@ -37,5 +35,5 @@
       "D:\\Codex_project\\SevenAM\\line-oa-webhook\\docs\\project-improvement-manifest.md"
     ]
   },
-  "generatedAt": "2026-06-13T04:32:15.506Z"
+  "generatedAt": "2026-06-30T12:09:51.148Z"
 }

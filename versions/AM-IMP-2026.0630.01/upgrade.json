@@ -1,0 +1,42 @@
+{
+  "id": "AM-IMP-2026.0630.01",
+  "name": "Two-way Google Calendar sync and invite confirmation",
+  "type": "Scheduling / Calendar (SevenAM-specific)",
+  "portable": true,
+  "requiresDatabases": [],
+  "requiresEnv": [
+    "GOOGLE_OAUTH_CLIENT_ID",
+    "GOOGLE_OAUTH_CLIENT_SECRET",
+    "GOOGLE_OAUTH_REFRESH_TOKEN",
+    "SEVEN_CALENDAR_ID",
+    "SEVEN_CALENDAR_NAME",
+    "SEVEN_CALENDAR_TIMEZONE"
+  ],
+  "requiresScripts": [],
+  "installTargets": [
+    "HOZO_AM",
+    "SEVEN_AM",
+    "FUTURE_AM_PROJECTS"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Package files are complete",
+    "Project manifest is updated",
+    "Upgrade record is created",
+    "Local verification passed"
+  ],
+  "backfill": {
+    "backfilled": true,
+    "backfilledAt": "2026-06-30",
+    "authoritativeSource": "7AM: UPGRADE-2026-06-30-AM-IMP-2026.0630.01.md",
+    "projectStatus": {
+      "HOZO_AM": "未列入",
+      "SEVEN_AM": "Installed"
+    }
+  }
+}

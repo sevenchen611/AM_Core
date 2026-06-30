@@ -5,32 +5,25 @@ AMCore is the version master and core-code holder for the AM family
 `node tools/build-amcore-version.js` from the shared registry, the project
 manifests, and the packages in `versions/`. Do not edit it by hand.
 
-_Last generated: 2026-06-13_
+_Last generated: 2026-06-30_
 
 ## At A Glance
 
 | Field | Value |
 | --- | --- |
-| AMCore version (packages held through) | `AM-IMP-2026.0613.04` |
-| AMCore hub release | `AMCORE-2026.0613.04` |
-| Latest tracked improvement (ecosystem) | `AM-IMP-2026.0613.05` |
+| AMCore version (packages held through) | `AM-IMP-2026.0630.02` |
+| AMCore hub release | `AMCORE-2026.0630.02` |
+| Latest tracked improvement (ecosystem) | `AM-IMP-2026.0630.02` |
 | AMCore current? | Yes — every tracked version is packaged |
-| Packaged versions | 56 |
-| Tracked improvements | 57 |
-
-## Proposed (Design Stage — No Package Expected Yet)
-
-- `AM-IMP-2026.0613.05`
-
-These are tracked design proposals, not yet Ready/Installed anywhere, so
-they do not count against AMCore being current.
+| Packaged versions | 59 |
+| Tracked improvements | 59 |
 
 ## Project Heads
 
 | Project | Current head | Status | Tracked versions |
 | --- | --- | --- | --- |
 | HOZO AM (`HOZO_AM`) | `AM-IMP-2026.0613.04` | Installed | 40 |
-| 7AM (`SEVEN_AM`) | `AM-IMP-2026.0613.04` | Installed | 56 |
+| 7AM (`SEVEN_AM`) | `AM-IMP-2026.0618.01` | Installed | 57 |
 
 ## Definitions
 

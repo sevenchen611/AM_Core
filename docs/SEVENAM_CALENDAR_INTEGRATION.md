@@ -1,7 +1,7 @@
 # SevenAM Two-Way Google Calendar Sync And Invite Confirmation
 
-**Version:** `AM-IMP-2026.0613.05`
-**Status:** Proposed (design stage)
+**Version:** `AM-IMP-2026.0630.01`
+**Status:** Installed in SevenAM (Phase 1 + Phase 2), verified live 2026-06-30.
 **Install target:** `SEVEN_AM` only. **HOZO_AM: not in scope** by request.
 
 > This is a **SevenAM-specific** feature. It is recorded in AMCore as the design
@@ -118,7 +118,7 @@ projects never receive them.
 - No Google tokens, event data, or calendar IDs are stored in AMCore or copied
   from/to HOZO_AM.
 
-## Locked Decisions (2026-06-13)
+## Locked Decisions (2026-06-30)
 
 1. **Connection approach: OAuth refresh token.** The controller authorizes once;
    SevenAM stores the refresh token as its own Render secret and writes events
@@ -146,6 +146,25 @@ SEVEN_CALENDAR_ID            (filled after first-run calendar creation)
 The controller creates a Google Cloud OAuth client (Calendar API enabled) once
 and runs the one-time auth helper to mint the refresh token. No Google secret is
 ever stored in AMCore or shared with HOZO_AM.
+
+### Multi-service token provisioning (2026-06-30)
+
+To avoid re-authorizing for every future Google feature, the one-time consent
+mints a refresh token covering a **bundle of scopes**, not just Calendar:
+
+```
+auth/calendar  auth/tasks  auth/drive.file  auth/documents  auth/spreadsheets  auth/gmail.modify
+```
+
+Each corresponding API must be enabled once in the Google Cloud project. The
+Calendar feature only uses `auth/calendar`; the extra scopes are pre-authorized
+for later AM features (Tasks/Drive/Docs/Sheets/Gmail). Notes:
+
+- `drive.file` limits Drive access to files SevenAM creates/opens (safest).
+- `gmail.modify` is a **restricted** scope: keep the OAuth app in **Production**
+  publishing status so the refresh token does not expire after 7 days (Testing
+  mode), and expect Google's unverified-app warning (proceed as app owner).
+- Override the set with env `GOOGLE_OAUTH_SCOPES` (space-separated).
 
 ## Definition Of Done (when built into SevenAM)
 
