@@ -11,12 +11,12 @@ _Last generated: 2026-07-08_
 
 | Field | Value |
 | --- | --- |
-| AMCore version (packages held through) | `AM-IMP-2026.0708.01` |
-| AMCore hub release | `AMCORE-2026.0708.01` |
-| Latest tracked improvement (ecosystem) | `AM-IMP-2026.0708.01` |
+| AMCore version (packages held through) | `AM-IMP-2026.0708.02` |
+| AMCore hub release | `AMCORE-2026.0708.02` |
+| Latest tracked improvement (ecosystem) | `AM-IMP-2026.0708.02` |
 | AMCore current? | Yes — every tracked version is packaged |
-| Packaged versions | 60 |
-| Tracked improvements | 60 |
+| Packaged versions | 61 |
+| Tracked improvements | 61 |
 
 ## Project Heads
 
@@ -24,7 +24,7 @@ _Last generated: 2026-07-08_
 | --- | --- | --- | --- |
 | HOZO AM (`HOZO_AM`) | `AM-IMP-2026.0613.04` | Installed | 40 |
 | 7AM (`SEVEN_AM`) | `AM-IMP-2026.0618.01` | Installed | 57 |
-| BuildAM (`BUILD_AM`) | `AM-IMP-2026.0708.01` | Deployed | 3 |
+| BuildAM (`BUILD_AM`) | `AM-IMP-2026.0708.02` | Deployed | 4 |
 
 ## Definitions
 

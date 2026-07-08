@@ -5,8 +5,8 @@ registry and each project's improvement manifest. Do not edit by hand.
 
 _Last generated: 2026-07-08_
 
-- AMCore version (packaged through): `AM-IMP-2026.0708.01`
-- Latest tracked improvement: `AM-IMP-2026.0708.01`
+- AMCore version (packaged through): `AM-IMP-2026.0708.02`
+- Latest tracked improvement: `AM-IMP-2026.0708.02`
 
 Editable planning copies (not authoritative for status):
 
@@ -75,3 +75,4 @@ Editable planning copies (not authoritative for status):
 | `AM-IMP-2026.0630.01` | Two-way Google Calendar sync and invite confirmation | 未列入 | Installed | Held | SevenAM-ONLY by request. Writes confirmed project deadlines/checkpoints and LINE-sourced invitations to the controller's Google Calendar; unconfirmed invites are chased in default reminder windows before auto-creating. Design: AMCore `docs/SEVENAM_CALENDAR_INTEGRATION.md`. Builds on 0608.20 (read-only agenda), 0612.02 (LLM extraction), 0612.14 (Next Action scheduler). HOZO not in scope. |
 | `AM-IMP-2026.0630.02` | Inline attachment parse placement | Installed | Installed | Held | Parse content (image OCR/summary, file text) is inserted directly below its own message in the conversation master (matched by LINE message id in the image block caption), not appended at the bottom. Gray callout summary + collapsible OCR toggle. Fixes a stale anchor (`LINE 對話記錄` vs `LINE】對話記錄`). |
 | `AM-IMP-2026.0708.01` |  | Missing | Missing | Held |  |
+| `AM-IMP-2026.0708.02` |  | Missing | Missing | Held |  |

@@ -1,0 +1,46 @@
+{
+  "id": "AM-IMP-2026.0708.02",
+  "name": "BuildAM meeting engine → AssemblyAI (speaker diarization + roster ask-back)",
+  "type": "Engineering module / Feature upgrade",
+  "portable": true,
+  "supersedesMeetingPipelineIn": "AM-IMP-2026.0708.01",
+  "requiresDatabases": [
+    "會議記錄", "待辦任務", "工程專案", "群組綁定"
+  ],
+  "requiresEnv": [
+    "ASSEMBLYAI_API_KEY",
+    "GEMINI_API_KEY",
+    "BUILD_MEETING_MODEL (optional, default gemini-2.5-flash)",
+    "BUILD_MEETINGS_DATA_SOURCE_ID",
+    "BUILD_TASKS_DATA_SOURCE_ID",
+    "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_OAUTH_REFRESH_TOKEN",
+    "BUILD_DRIVE_ROOT_FOLDER_ID"
+  ],
+  "requiresScripts": [],
+  "installTargets": [
+    "BUILD_AM",
+    "FUTURE_ENGINEERING_AM_PROJECTS"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Package files are complete",
+    "Project manifest is updated",
+    "Upgrade record is created",
+    "Syntax check passed (node --check on meeting.js and server.js)",
+    "AssemblyAI key auth verified (HTTP 200)",
+    "Production verification pending: real meeting recording end-to-end in a bound group"
+  ],
+  "backfill": {
+    "backfilled": true,
+    "backfilledAt": "2026-07-08",
+    "authoritativeSource": "BuildAM repo sevenchen611/BuildAM main (src/meeting.js, src/server.js, PROJECT_OVERVIEW.md)",
+    "projectStatus": {
+      "BUILD_AM": "Deployed (code); production activation gated on ASSEMBLYAI_API_KEY set in Render"
+    }
+  }
+}
