@@ -1,0 +1,53 @@
+{
+  "id": "AM-IMP-2026.0708.01",
+  "name": "BuildAM engineering management module (Phase 1, F1-F5)",
+  "type": "Engineering module / Full vertical",
+  "portable": true,
+  "requiresDatabases": [
+    "工程專案", "空間", "工項", "群組綁定", "訊息", "附件",
+    "回饋單", "變更單", "會議記錄", "待辦任務"
+  ],
+  "requiresEnv": [
+    "LINE_CHANNEL_ACCESS_TOKEN", "LINE_CHANNEL_SECRET",
+    "NOTION_TOKEN", "BUILD_DATA_SOURCE_PARENT_PAGE_ID",
+    "BUILD_*_DATA_SOURCE_ID (10 data sources)",
+    "BUILD_QUEUE_ACCESS_KEY", "BUILD_PORTAL_PIN",
+    "MINIMAX_API_KEY", "MINIMAX_API_BASE_URL", "BUILD_AI_JUDGE_MODEL", "BUILD_AI_PROVIDER",
+    "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_OAUTH_REFRESH_TOKEN",
+    "BUILD_DRIVE_ROOT_FOLDER_ID", "GEMINI_API_KEY", "BUILD_MEETING_MODEL",
+    "BUILD_ESCALATION_DAYS", "BUILD_CAL_ZS", "BUILD_CAL_HZ"
+  ],
+  "requiresScripts": [
+    "scripts/setup-notion-schema.js",
+    "scripts/google-drive-auth.js",
+    "scripts/setup-drive-folder.js",
+    "scripts/setup-escalation-fields.js",
+    "scripts/add-workitem-project-relation.js",
+    "scripts/add-space-aliases.js",
+    "scripts/rejudge-pending.js"
+  ],
+  "installTargets": [
+    "BUILD_AM",
+    "FUTURE_ENGINEERING_AM_PROJECTS"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Package files are complete",
+    "Project manifest is updated",
+    "Upgrade record is created",
+    "Production verification passed (M1 accepted with real field data)"
+  ],
+  "backfill": {
+    "backfilled": true,
+    "backfilledAt": "2026-07-08",
+    "authoritativeSource": "BuildAM repo sevenchen611/BuildAM (docs/M1_驗收記錄.md, PROJECT_OVERVIEW.md, docs/upgrades/)",
+    "projectStatus": {
+      "BUILD_AM": "Deployed"
+    }
+  }
+}

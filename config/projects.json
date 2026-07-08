@@ -15,6 +15,14 @@
       "manifestPath": "D:\\Codex_project\\SevenAM\\line-oa-webhook\\docs\\project-improvement-manifest.md",
       "upgradeRecordsPath": "D:\\Codex_project\\SevenAM\\line-oa-webhook\\docs\\upgrades",
       "dataBoundary": "7AM owns its own LINE, Notion, Render, GitHub, and environment values."
+    },
+    {
+      "projectKey": "BUILD_AM",
+      "displayName": "BuildAM",
+      "localPath": "D:\\Codex_project\\BuildAM\\line-oa-webhook",
+      "manifestPath": "D:\\Codex_project\\BuildAM\\line-oa-webhook\\docs\\project-improvement-manifest.md",
+      "upgradeRecordsPath": "D:\\Codex_project\\BuildAM\\line-oa-webhook\\docs\\upgrades",
+      "dataBoundary": "BuildAM owns its own LINE, Notion, Render, GitHub, and environment values. Minimal-seed project: only foundational AM_Core packages are installed; engineering-module features are project-local."
     }
   ],
   "sharedRegistryPath": "D:\\Codex_project\\AM_SHARED_VERSION_UPGRADES\\SHARED_IMPROVEMENT_REGISTRY.md",

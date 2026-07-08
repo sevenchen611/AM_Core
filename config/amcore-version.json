@@ -1,14 +1,14 @@
 {
-  "amcoreVersion": "AM-IMP-2026.0630.02",
-  "amcoreHubRelease": "AMCORE-2026.0630.02",
-  "latestTrackedImprovement": "AM-IMP-2026.0630.02",
-  "packagedThrough": "AM-IMP-2026.0630.02",
+  "amcoreVersion": "AM-IMP-2026.0708.01",
+  "amcoreHubRelease": "AMCORE-2026.0708.01",
+  "latestTrackedImprovement": "AM-IMP-2026.0708.01",
+  "packagedThrough": "AM-IMP-2026.0708.01",
   "isCurrent": true,
   "behindBy": 0,
   "missingPackages": [],
   "proposedDesignItems": [],
-  "totalTrackedImprovements": 59,
-  "totalPackagedVersions": 59,
+  "totalTrackedImprovements": 60,
+  "totalPackagedVersions": 60,
   "projects": [
     {
       "projectKey": "HOZO_AM",
@@ -25,6 +25,14 @@
       "headStatus": "Installed",
       "trackedVersions": 57,
       "dataBoundary": "7AM owns its own LINE, Notion, Render, GitHub, and environment values."
+    },
+    {
+      "projectKey": "BUILD_AM",
+      "displayName": "BuildAM",
+      "head": "AM-IMP-2026.0708.01",
+      "headStatus": "Deployed",
+      "trackedVersions": 3,
+      "dataBoundary": "BuildAM owns its own LINE, Notion, Render, GitHub, and environment values. Minimal-seed project: only foundational AM_Core packages are installed; engineering-module features are project-local."
     }
   ],
   "sources": {
@@ -32,8 +40,9 @@
     "versionsFolder": "D:\\Codex_project\\AM_Core\\versions",
     "manifests": [
       "D:\\Codex_project\\HOZO_AM\\line-oa-webhook\\docs\\project-improvement-manifest.md",
-      "D:\\Codex_project\\SevenAM\\line-oa-webhook\\docs\\project-improvement-manifest.md"
+      "D:\\Codex_project\\SevenAM\\line-oa-webhook\\docs\\project-improvement-manifest.md",
+      "D:\\Codex_project\\BuildAM\\line-oa-webhook\\docs\\project-improvement-manifest.md"
     ]
   },
-  "generatedAt": "2026-06-30T12:09:51.148Z"
+  "generatedAt": "2026-07-08T04:26:57.838Z"
 }
