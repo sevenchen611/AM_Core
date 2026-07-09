@@ -18,4 +18,4 @@ Notion 頁 ID、資料來源 ID、LINE/AI 金鑰**一律放平台的 `.env`（gi
 ## 目前租戶
 
 - **工程**（`engineering.json`）＝ 原 BuildAM（旅宿工程管理）
-- **森在**（`senzai.json`）＝ Notion「AI」頁
+- **森在**（`forest.json`）＝ Notion「AI」頁

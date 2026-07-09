@@ -29,7 +29,7 @@ const platform = {
 tasks.init(platform);
 
 const engTenant = { key: 'engineering', displayName: '工程', dataSources: { tasks: ENG_TASKS } };
-const senTenant = { key: 'senzai', displayName: '森在', dataSources: { tasks: SEN_TASKS } };
+const senTenant = { key: 'forest', displayName: '森在', dataSources: { tasks: SEN_TASKS } };
 
 const results = [];
 function check(name, fn) {

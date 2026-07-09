@@ -21,7 +21,7 @@ const dbToPage = {};
 for (const id of [DS.engMessages, DS.engBindings, DS.engMeetings, DS.engTasks]) dbToPage[`db_${id}`] = ENG_PAGE;
 for (const id of [DS.senMessages, DS.senBindings]) dbToPage[`db_${id}`] = SEN_PAGE;
 
-const GROUP_TO_TENANT = { gENG: 'engineering', gSEN: 'senzai' }; // gUNBOUND → 未綁定
+const GROUP_TO_TENANT = { gENG: 'engineering', gSEN: 'forest' }; // gUNBOUND → 未綁定
 const stored = []; // { ds, groupId }  ← _stub-echo 寫入紀錄
 const pushed = []; // { to, text }
 let guardMetadataHits = 0;
@@ -59,7 +59,7 @@ globalThis.fetch = async (input, options = {}) => {
       const gid = body?.filter?.and?.[0]?.rich_text?.equals || '';
       const wantTenant = GROUP_TO_TENANT[gid];
       const isEngBindings = dsId === DS.engBindings && wantTenant === 'engineering';
-      const isSenBindings = dsId === DS.senBindings && wantTenant === 'senzai';
+      const isSenBindings = dsId === DS.senBindings && wantTenant === 'forest';
       if (isEngBindings || isSenBindings) {
         return jsonResponse({ results: [{
           id: `binding_${gid}`,
@@ -93,7 +93,7 @@ const tenants = [
     driveRootFolderId: '', driveConfigured: false, line: null, notionConfigured: true,
   },
   {
-    key: 'senzai', displayName: '森在', envPrefix: 'SENZAI', modules: ['_stub-echo'],
+    key: 'forest', displayName: '森在', envPrefix: 'FOREST', modules: ['_stub-echo'],
     parentPageId: SEN_PAGE,
     dataSources: { messages: DS.senMessages, groupBindings: DS.senBindings },
     driveRootFolderId: '', driveConfigured: false, line: null, notionConfigured: true,
@@ -132,7 +132,7 @@ await check('工程群訊息落入工程訊息庫', async () => {
 await check('森在群訊息落入森在訊息庫(隔離)', async () => {
   stored.length = 0;
   const t = await handle(msgEvent('gSEN', '森在測試', 'm2'));
-  assert.equal(t, 'senzai');
+  assert.equal(t, 'forest');
   assert.equal(stored.length, 1);
   assert.equal(stored[0].ds, DS.senMessages, `expected senMessages, got ${stored[0].ds}`);
   assert.notEqual(stored[0].ds, DS.engMessages);
