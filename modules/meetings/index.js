@@ -31,16 +31,17 @@ function isAudio(message) {
   return message.type === 'file' && AUDIO_EXT.test(message.fileName || '');
 }
 
-// Tab 1「摘要」:重點摘要 + 主議題結論 + 待辦(checkbox)
-function summaryTabBlocks(parsed) {
+// Tab 1「摘要」:重點摘要 + 結論/收穫 + 待辦(checkbox)。標題依會議樣式(工作/分享)微調。
+function summaryTabBlocks(parsed, kind = 'work') {
+  const share = kind === 'share';
   const b = [];
   const highlights = (parsed.highlights || []).slice(0, 10);
   if (highlights.length) { b.push(heading2('💡 重點摘要')); highlights.forEach((h) => b.push(bullet(h))); }
   const conclusions = (parsed.conclusions || []).slice(0, 15);
-  if (conclusions.length) { b.push(heading2('✅ 主議題結論')); conclusions.forEach((c) => b.push(bullet(c))); }
+  if (conclusions.length) { b.push(heading2(share ? '✅ 收穫與共識' : '✅ 主議題結論')); conclusions.forEach((c) => b.push(bullet(c))); }
   const todos = (parsed.todos || []).slice(0, 30);
-  b.push(heading2('📅 待辦(checkbox 即任務,已同步待辦任務資料庫)'));
-  if (todos.length) todos.forEach((t) => b.push(todoBlock(t))); else b.push(para('(無待辦事項)'));
+  b.push(heading2(share ? '📅 後續行動/延伸(checkbox,已同步待辦任務資料庫)' : '📅 待辦(checkbox 即任務,已同步待辦任務資料庫)'));
+  if (todos.length) todos.forEach((t) => b.push(todoBlock(t))); else b.push(para(share ? '(無後續行動)' : '(無待辦事項)'));
   return b;
 }
 
@@ -158,6 +159,7 @@ function rosterPrompt(filename) {
     '1️⃣ 參與者有誰?請含性別、角色/職務,以及「發言順序」',
     '　　例:①昱晴 女 設計師 ②其勳 男 工地主任 ③阿明 男 木工師傅',
     '2️⃣ 這次會議的主題是什麼?',
+    '　　(若是讀書會/分享會/座談等「分享型」聚會,主題註明即可,我會改用分享格式整理)',
     '',
     '(兩題可打在同一則訊息。若 30 分鐘內沒回覆,我會先用「講者A/B/C」直接整理,事後再補。)',
   ].join('\n');
@@ -247,18 +249,24 @@ async function finalizeMeeting(key, rosterAnswer, answeredBy) {
   }
 }
 
+// 會議樣式:分享型關鍵字(讀書會/心得分享等)→ 用「分享」格式;其餘一律「工作」。
+const SHARE_HINT = /讀書會|分享會|分享型|心得|座談|沙龍|工作坊|讀經|讀書/;
+const kindFromText = (s) => (SHARE_HINT.test(String(s || '')) ? 'share' : '');
+
 // ── 與會資訊解析 ───────────────────────────────────────────
 async function parseRoster(answer) {
-  const empty = { topic: '', speakers: [], keyterms: [], projectCode: '' };
+  const empty = { topic: '', speakers: [], keyterms: [], projectCode: '', kind: 'work' };
   if (!answer || !answer.trim()) return empty;
-  if (!platform.geminiKey) return { topic: answer.trim().slice(0, 40), speakers: [], keyterms: [], projectCode: '' };
+  const fallbackKind = kindFromText(answer) || 'work';
+  if (!platform.geminiKey) return { topic: answer.trim().slice(0, 40), speakers: [], keyterms: [], projectCode: '', kind: fallbackKind };
   try {
-    const raw = await geminiText(`以下是使用者提供的一場旅宿工程會議的與會資訊。請抽取成 JSON:
-{"topic":"會議主題(15字內)","project":"ZS|HZ|SYS 或空字串","speakers":[{"order":1,"name":"姓名","role":"職務/角色","gender":"男|女|"}],"keyterms":["需要被正確辨識的人名或工程專有名詞",...]}
+    const raw = await geminiText(`以下是使用者提供的一場會議/聚會的與會資訊。請抽取成 JSON:
+{"kind":"work|share","topic":"主題(15字內)","project":"ZS|HZ|SYS 或空字串","speakers":[{"order":1,"name":"姓名","role":"職務/角色","gender":"男|女|"}],"keyterms":["需要被正確辨識的人名或專有名詞",...]}
 規則:
+- kind:一般工作/工程會議填 "work";讀書會、心得分享、座談、分享會等「分享/討論型」聚會填 "share";不確定填 "work"。
 - project:若提到「茲心園」填 ZS;提到「草悟道」或「草屋」填 HZ;提到「系統」填 SYS;沒提到就空字串。
 - speakers 依「發言順序」由小到大排列。
-- keyterms 放所有人名與可能被聽錯的工程術語、案場名。
+- keyterms 放所有人名與可能被聽錯的術語、案場名。
 只輸出 JSON,不要說明。
 使用者輸入:
 ${answer.trim().slice(0, 1000)}`);
@@ -267,6 +275,7 @@ ${answer.trim().slice(0, 1000)}`);
     return {
       topic: String(j.topic || '').trim(),
       projectCode: ['ZS', 'HZ', 'SYS'].includes(code) ? code : '',
+      kind: (['work', 'share'].includes(j.kind) ? j.kind : '') || fallbackKind,
       speakers: Array.isArray(j.speakers) ? j.speakers.filter((s) => s && s.name).map((s, i) => ({
         order: Number(s.order) || i + 1, name: String(s.name).trim(), role: String(s.role || '').trim(), gender: String(s.gender || '').trim(),
       })).sort((a, b) => a.order - b.order) : [],
@@ -274,7 +283,7 @@ ${answer.trim().slice(0, 1000)}`);
     };
   } catch (e) {
     console.warn(`parseRoster failed: ${e.message}`);
-    return { topic: answer.trim().slice(0, 40), speakers: [], keyterms: [], projectCode: '' };
+    return { topic: answer.trim().slice(0, 40), speakers: [], keyterms: [], projectCode: '', kind: fallbackKind };
   }
 }
 
@@ -379,14 +388,39 @@ function renderDiarized(tr, legend) {
 // ── Gemini 收斂(署名摘要/決議/待辦)────────────────────────
 async function summarize({ diarized, roster, legend }) {
   const who = [...legend.values()].join('、');
-  const raw = await geminiText(meetingPrompt({ who, topic: roster.topic, today: todayStr() }) + `\n\n逐字稿:\n${diarized}`);
+  const raw = await geminiText(meetingPrompt({ who, topic: roster.topic, today: todayStr(), kind: roster.kind }) + `\n\n逐字稿:\n${diarized}`);
   return normalizeParsed(extractJson(raw));
 }
 
-// 會議記錄整理指示(AssemblyAI 逐字稿路徑與 Gemini 直轉路徑共用)
-function meetingPrompt({ who, topic, today }) {
+// 會議記錄整理指示(AssemblyAI 逐字稿路徑與 Gemini 直轉路徑共用)。
+// kind='work' → 工作/工程會議格式(定案、待辦);kind='share' → 分享/討論型格式(讀書會、心得分享)。
+function meetingPrompt({ who, topic, today, kind = 'work' }) {
+  const dateNote = `今天是 ${today}(西元年-月-日,台灣時間)。凡「下週三、明天、下個月」等相對日期,一律依今天換算成西元 YYYY-MM-DD,年份用今天的年份,不要用過去年份。`;
+  if (kind === 'share') {
+    return `這是一場「分享/討論型」聚會${who ? `(已標註講者的逐字稿)。與會/分享者:${who}` : '的錄音'}(例:讀書會、心得分享、座談)。${topic ? `主題:${topic}。` : ''}(繁體中文)
+${dateNote}
+
+請仔細聽/讀完整場,整理成適合「分享會」的記錄。要求:
+- 依「分享者」或「主題」分段,逐條記錄每個人分享的重點、觀點、舉的例子/故事、引用的書或金句。一律用真名。
+- 忠實保留每個人的個人觀點與差異,不要把大家的話合併成單一結論。寧可詳盡,不要過度濃縮。
+- highlights:整場最有價值、最打動人的精華觀點(3-6 條)。
+- conclusions:寫「共同收穫 / 共識 / 值得延伸的觀點」(分享會不一定有硬性定案,沒有就寫收穫)。
+- todos:分享會通常較少;只有「後續行動、延伸閱讀、下次主題、個人承諾」才列,沒有就空陣列。
+- 若約定了下次聚會時間,務必在 nextMeeting 寫出,並在 todos 補一條「在群組發送下次聚會提醒」。
+
+只輸出 JSON,不要任何說明文字:
+{
+ "title":"主題(15字內)",
+ "type":"讀書會|分享會|座談|討論會 擇一(或最貼切的短詞)",
+ "minutes":[{"heading":"分享者或主題","points":["該人/該段的分享重點、例子、金句(含真名)","..."]}],
+ "highlights":["整場精華觀點(3-6條)"],
+ "conclusions":["共同收穫/共識/值得延伸的觀點"],
+ "todos":[{"content":"後續行動/延伸閱讀/下次主題","owner":"承諾者真名或空字串","due":"YYYY-MM-DD 或空字串"}],
+ "nextMeeting":"下次聚會時間(有約定才寫,否則空字串)"
+}`;
+  }
   return `這是一場台灣旅宿室內裝修工程會議${who ? `(已標註講者的逐字稿)。與會者:${who}` : '的錄音'}。${topic ? `會議主題:${topic}。` : ''}(繁體中文)
-今天是 ${today}(西元年-月-日,台灣時間)。凡「下週三、明天、下個月」等相對日期,一律依今天換算成西元 YYYY-MM-DD,年份用今天的年份,不要用過去年份。
+${dateNote}
 
 請仔細聽/讀完整場,整理成結構化、可追蹤的會議記錄。要求:
 - 逐條記錄討論脈絡與「具體細節」:空間/房型、尺寸、材質、規格、品牌、金額、做法,以及每位與會者的主張與理由。寧可詳盡,不要過度濃縮。
@@ -428,7 +462,12 @@ function normalizeParsed(j) {
 // ── 落地 + 發布 ────────────────────────────────────────────
 async function publishMeeting({ parsed, diarized, legend, roster, projectPageId, groupId, senderName, answeredBy, filename, audioDriveUrl, tenant }) {
   const today = todayStr();
-  const meetingType = ['審圖', '交底', '工地檢討'].includes(parsed.type) ? parsed.type : '工地檢討';
+  const kind = roster?.kind === 'share' ? 'share' : 'work';
+  // 工作型:限定工程類型(預設工地檢討);分享型:用 AI 給的型別(讀書會/分享會…,Notion select 自動建選項),預設分享會
+  const meetingType = kind === 'share'
+    ? (parsed.type || '分享會')
+    : (['審圖', '交底', '工地檢討'].includes(parsed.type) ? parsed.type : '工地檢討');
+  const defaultTitle = kind === 'share' ? '分享會' : '工程會議';
   const legendLine = [...legend.entries()].map(([k, v]) => `講者${k}=${v}`).join('  ');
   const participantsText = roster.speakers.length
     ? roster.speakers.map((s) => `${s.name}${s.role ? `(${s.role})` : ''}`).join('、')
@@ -447,7 +486,7 @@ async function publishMeeting({ parsed, diarized, legend, roster, projectPageId,
     body: {
       parent: { type: 'data_source_id', data_source_id: tenant.dataSources.meetings },
       properties: {
-        '會議': { title: [text(`${today} ${parsed.title || '工程會議'}`)] },
+        '會議': { title: [text(`${today} ${parsed.title || defaultTitle}`)] },
         '類型': { select: { name: meetingType } },
         '日期': { date: { start: today } },
         ...(projectPageId ? { '專案': { relation: [{ id: projectPageId }] } } : {}),
@@ -457,7 +496,7 @@ async function publishMeeting({ parsed, diarized, legend, roster, projectPageId,
   });
   // 同一頁三個可展開區段(tab):摘要 → 筆記 → 逐字稿
   await appendChildren(meeting.id, sourceBlocks);
-  await appendToggleSection(meeting.id, '📄 摘要(會議記錄)', summaryTabBlocks(parsed));
+  await appendToggleSection(meeting.id, '📄 摘要(會議記錄)', summaryTabBlocks(parsed, kind));
   await appendToggleSection(meeting.id, '📝 筆記(分區詳細記錄)', notesTabBlocks(parsed));
   const transcriptBlocks = [];
   for (let i = 0; i < diarized.length && transcriptBlocks.length < 90; i += 1900) {
@@ -540,7 +579,7 @@ async function geminiTranscribeParsed({ buffer, filename, contentType, roster })
   }
   if (file.state !== 'ACTIVE') throw new Error(`Gemini file state: ${file.state}`);
   const who = (roster?.speakers || []).map((s) => `${s.name}${s.role ? `(${s.role})` : ''}`).join('、');
-  const prompt = meetingPrompt({ who: '', topic: roster?.topic || '', today: todayStr() })
+  const prompt = meetingPrompt({ who: '', topic: roster?.topic || '', today: todayStr(), kind: roster?.kind })
     + (who ? `\n與會者(供人名辨識,依發言順序):${who}` : '');
   const gen = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${platform.geminiModel}:generateContent`, {
     method: 'POST', headers: { 'x-goog-api-key': platform.geminiKey, 'Content-Type': 'application/json' },
