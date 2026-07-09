@@ -1,0 +1,13 @@
+{
+  "name": "am-platform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AM Platform — 單一平台 + 多租戶(葉小蝸 AI 小幫手)。一支 OA → 一個 webhook → 依群組分流到各租戶 → 各租戶用自己的 Notion 頁。",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --env-file=.env --watch server.js",
+    "check": "node --check server.js",
+    "dryrun": "node --experimental-vm-modules tools/dryrun-core.mjs"
+  }
+}

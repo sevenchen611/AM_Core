@@ -1,43 +1,48 @@
-# modules/queue —（待抽出）確認佇列（通用部分）
+# modules/queue — 確認佇列(通用部分)✅ 已完成
 
-> 狀態:**待做**。範本見 `modules/meetings/`。先讀 `modules/EXTRACTION_PLAN.md`。
+PM 用的「確認佇列」網頁與 API。從 BuildAM `src/queue.js` 抽出**通用佇列**;
+**不含**開單/單據狀態邏輯(回饋單開立、變更單、核准/銷項/催辦 → 屬 `construction`)。
 
 ## 這個模組做什麼
-PM 用的「確認佇列」網頁與 API:待確認訊息列表、照片縮圖、掛載到空間/工項、佇列內新增工項、
-批次確認。確認瞬間把訊息掛上目標、照片搬進 Drive 正式目錄。
+- 待確認 / 已確認列表(`/queue/api/pending`、`/queue/api/confirmed`)
+- 照片縮圖代理(`/queue/api/photo`,伺服器以自身 Drive 授權取縮圖)
+- 掛載到空間/工項(`/queue/api/confirm`);佇列內**直接新增工項**(名稱+工種)
+- **選專案掛載**(總管群訊息原本無專案,掛載時補上;`/queue/api/projects`、`/queue/api/options`)
+- **雙向連帶掛載**:文字訊息上/下方相鄰的同群同人照片一併掛同一目標
+- **批次確認**高信心(`/queue/api/batch-confirm`)
+- **掛到既有回饋單**:LINE 回覆/複驗照片一鍵寫回單據(開立→回覆中),隨 `confirm` 帶 `ticketId`
 
-## 來源(BuildAM `src/queue.js`)——**只搬「通用佇列」的部分**
-| 函式 | 行(約) | 說明 |
-|---|---|---|
-| `handleQueueRequest` | 70 | 路由(挑出通用端點,見下) |
-| `listMessages` | 137 | 待確認/已確認列表 |
-| `loadOptions` | 230 | 某專案的空間/工項/回饋單選項 |
-| `confirmMessage` | 274 | 確認掛載(核心) |
-| `linkMessageToTicket` | 379 | 掛到回饋單（→ 見糾纏:回饋單屬 construction） |
-| `archiveAttachments` | 434 | 確認後照片搬 Drive 四層目錄 |
-| `moveDriveFile` | 484 | Drive 搬檔 |
-| `batchConfirm` | 904 | 批次確認 |
-| `servePhoto` 202 / `attachmentPhotos` 183 | | 照片代理/相鄰照片 |
-| `renderQueuePage` | 935 | 佇列 HTML(混了工程料,見糾纏) |
-
-**通用端點**(歸 queue):`/queue`、`/queue/api/pending`、`/queue/api/confirmed`、`/queue/api/options`、
-`/queue/api/confirm`、`/queue/api/batch-confirm`、`/queue/api/photo`、`/queue/api/projects`、`/queue/api/trades`。
-
-## 契約
+## 介面(契約)
 ```js
 export default {
   name: 'queue',
-  init(platform),
-  routes: [ /* /queue, /queue/api/* 的通用端點 */ ],   // 見 meetings 尚無 routes;此模組以 routes 為主
+  init(platform),                               // 注入共用能力
+  routes: [{ prefix: '/queue', handler }],      // /queue、/queue/api/*
 };
-// route handler 需能從請求解析出 ctx.tenant(哪個租戶的佇列),並做租戶內 scope 過濾。
 ```
-`ctx.tenant` 需帶:`dataSources { messages, attachments, spaces, workItems, projects }`、`queueAccessKey`(網頁 key)、`driveRootFolderId`、`calendars`。
+- **共用能力**(`init(platform)`):`notionRequest`(帶 tenantKey 隔離)、`pushLineMessage`、
+  Drive 助手(`getDriveAccessToken`/`ensureDriveFolder`/`driveConfigured`)、Portal(`portal`,由 route ctx 帶入)。
+- **租戶特定**(每次由 `ctx.tenant`):`dataSources { messages, attachments, spaces, workItems, projects, feedbackTickets? }`、`driveRootFolderId`。
+- **狀態隔離**:名稱快取以 page id(全域唯一)為鍵;館別代碼快取以**租戶**為鍵;所有查詢走 `tenant.dataSources` + `tenantKey` 隔離守衛。
 
-## ⚠️ 糾纏點(與 construction 共用 `queue.js`)
-`queue.js` **混了工程領域**功能,這些**不歸 queue、歸 `construction`**:
-- 回饋單:`createTicket` 536、`generateTicketNumber` 511、`nextTicketNumber` 505、`listTickets` 672、`ticketAction` 745、`appendHistory` 737;端點 `/queue/api/create-ticket`、`/queue/api/tickets`、`/queue/api/ticket-action`。
-- 變更單:`createChangeOrder` 875、`listChangeOrders` 708;端點 `/queue/api/change-orders`、`/queue/api/create-co`。
-- `confirmMessage`/`renderQueuePage` 內也夾雜「掛到回饋單」「開回饋單」的 UI/邏輯——需與 construction session 一起切乾淨。
+## Web 授權(走 core Portal)
+- `handler` 由 core 傳入 `portal`。授權 = `portal.pinAuthed(req)`(PIN cookie)或 `portal.userAuthed(req)`(hozo SSO)。
+- 未授權:`GET /queue` 出 PIN 登入頁 → `POST /queue/api/login` 以 `portal.checkPin` 核對 → 種 `amcore_auth` cookie(值 = `portal.pinCookieValue()`)。
+- **per-tenant**:頁面嵌 `TENANT`,所有 API 帶 `?tenant=`,server 依此解析租戶;`?scope=` 做子專案 scope 過濾。
 
-**協作建議**:queue 與 construction 兩個 session 一起切 `queue.js`——先把「回饋單/變更單」整段圈出移到 construction,留下的就是通用 queue。或由一個 session 先切、另一個接手。
+## 與 construction 的接縫(不含開單)
+- **掛到回饋單(mount)**屬本模組:掛上『既有』單據。
+- **開立回饋單(create)**屬 construction:`POST /queue/api/create-ticket` 委派 `platform.createFeedbackTicket({ tenant, ...body })`;
+  未提供時回 `501`。construction 上線後於其 `init` 設 `platform.createFeedbackTicket`(及選用 `platform.listTrades`)即接上。
+- `/queue/api/options` 的回饋單清單、`loadOptions` 的 tickets:僅當 `tenant.dataSources.feedbackTickets` 存在才查(非工程租戶自動略過)。
+- 回饋單/變更單「單據管理」分頁、`ticketAction`/`createChangeOrder`/`listTickets`/`listChangeOrders`/開單編號 → **未搬入**(留給 construction)。
+
+## BuildAM 綁定(不動生產)
+vendored 複製 + 薄 shim:`BuildAM/src/_platform/queue/` 放一份本模組,shim 把舊 `deps`
+(單一 `buildam` 租戶 + drive/portal)拆成 `platform` + 固定 tenant,`handleQueueRequest` 函式名照舊 re-export;
+`server.js` 對外介面不變。（本次僅完成平台側模組,BuildAM 端綁定待接。)
+
+## 驗證
+- `node --check modules/queue/index.js` ✅
+- 等同性煙霧測試(mock platform,不打真 API):授權閘、`listMessages` 查詢形狀、`confirm` 掛載+新增工項+隔離 tenantKey、
+  非工程租戶不查回饋單、create-ticket 501/委派 —— 20/20 通過。

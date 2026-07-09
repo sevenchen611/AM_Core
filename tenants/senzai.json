@@ -1,0 +1,8 @@
+{
+  "key": "senzai",
+  "displayName": "森在",
+  "aka": "經營單位（非工程）",
+  "envPrefix": "SENZAI",
+  "modules": ["collect", "queue", "meetings", "tasks", "reminders"],
+  "status": "Notion「AI」頁（39851c68…）；integration 待連接、schema 待建"
+}

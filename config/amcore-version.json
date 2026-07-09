@@ -33,6 +33,14 @@
       "headStatus": "Deployed",
       "trackedVersions": 4,
       "dataBoundary": "BuildAM owns its own LINE, Notion, Render, GitHub, and environment values. Minimal-seed project: only foundational AM_Core packages are installed; engineering-module features are project-local."
+    },
+    {
+      "projectKey": "LEAF_AM",
+      "displayName": "LeafAM",
+      "head": "AM-IMP-2026.0708.02",
+      "headStatus": "Installed",
+      "trackedVersions": 4,
+      "dataBoundary": "LeafAM owns its own LINE, Notion, Render, GitHub, and environment values. Verbatim clone of BuildAM's architecture (display name 葉小蝸 AI 小助手); minimal-seed, no project bindings yet."
     }
   ],
   "sources": {
@@ -41,8 +49,9 @@
     "manifests": [
       "D:\\Codex_project\\HOZO_AM\\line-oa-webhook\\docs\\project-improvement-manifest.md",
       "D:\\Codex_project\\SevenAM\\line-oa-webhook\\docs\\project-improvement-manifest.md",
-      "D:\\Codex_project\\BuildAM\\line-oa-webhook\\docs\\project-improvement-manifest.md"
+      "D:\\Codex_project\\BuildAM\\line-oa-webhook\\docs\\project-improvement-manifest.md",
+      "D:\\Codex_project\\LeafAM\\line-oa-webhook\\docs\\project-improvement-manifest.md"
     ]
   },
-  "generatedAt": "2026-07-08T08:53:19.477Z"
+  "generatedAt": "2026-07-09T11:24:05.159Z"
 }

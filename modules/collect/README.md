@@ -1,41 +1,56 @@
-# modules/collect —（待抽出）訊息/照片落庫 + 群組路由 + AI 初判
+# collect — 訊息落庫(通用核心)
 
-> 狀態:**待做**。範本見 `modules/meetings/`。先讀 `modules/EXTRACTION_PLAN.md`。
+> 狀態:**已抽出**(BuildAM `src/server.js` 的「訊息落庫」段)。形狀比照 `modules/meetings/`。
 
-## 這個模組做什麼
-每則進來的 LINE 訊息的「進門」處理:查群組綁定(群→租戶/專案/角色/工種)→ 訊息落 Notion →
-照片/檔案存 Drive+Notion 附件 → 對文字做 **AI 初判**(空間/工項/類型/信心度)→ 決定進佇列或自動歸檔。
+把每則 LINE 事件**落進當前租戶的 Notion 庫**:訊息進「訊息」庫、照片/檔案進「附件」庫(照片原圖另存 Drive)。
+這是所有租戶的第一道收集層——**只收、不判**。AI 初判、確認佇列、會議整理都由後續模組接手。
 
-## 來源(BuildAM `src/server.js`)
-| 函式 | 行(約) | 說明 |
-|---|---|---|
-| `handleEvent` | 227 | 主流程:落庫 + 分流(**核心**,會呼叫下面所有) |
-| `resolveGroupBinding` | 408 | 群組 → 租戶/專案/角色/工種/成員對照 |
-| `resolveSenderName` | 451 | userId → 顯示名 |
-| `storeAttachment` | 345 | 照片/檔案 → Notion 附件 + Drive |
-| `mapMessageType` | 1303 | LINE type → 中文類型 |
-| `resolveLineFilename` | 494 | 檔名推導 |
-| **AI 初判**:`loadProjectContext` 507、`queryAllByProject` 519、`buildJudgePrompt` 544、`callAiJudge` 569、`extractJudgeJson` 607、`judgeMessage` 617 | | 見糾纏點 |
+來源:BuildAM `src/server.js` 的 `handleEvent` + `storeAttachment`「訊息落庫」段,行為等同,重塑成模組形狀。
+(群組綁定查詢已上移到 `core/router.js`;發送者解析在 `core/line.js`——collect 直接吃 `ctx.binding` / `ctx.senderName`。)
 
-## 契約
+## 做什麼
+
+1. **群組脈絡** — 讀 `ctx.binding`(路由器已解析):群組綁定頁、專案、是否總管群(`ctx.isMaster`)。
+2. **發送者解析** — 讀 `ctx.senderName`(dispatcher 已用 `platform.resolveSenderName` 解過)。
+3. **成員對照** — 名字 → LINE `userId`,新對照即時 PATCH 回綁定頁的「成員對照」欄(供日後推播真 @mention);
+   已記過零成本。狀態以 **(租戶, 群組)** 為鍵(`memberSync` Map),跨租戶不污染。
+4. **訊息落庫** — 寫入 `ctx.tenant.dataSources.messages`,`掛載狀態=未掛載`;有綁定則掛「群組綁定」,
+   非總管群且有專案則掛「專案」。
+5. **附件** — `image`/`file` → `platform.uploadFileToNotion` 進「附件」庫預覽;**照片**原圖另存
+   Drive `未歸檔/YYYY-MM-DD/`。**會議錄音跳過**(由 `meetings` 自存 Drive,避免大檔重複下載+上傳)。
+
+## 不做什麼
+
+- **不做 AI 判斷**(那是 `triage` 的通用初判管線;空間/工項的領域分類詞彙又另在 `construction.classify`,
+  屬工程領域知識,不應綁進通用落庫)。collect 只負責把訊息/照片落庫並交棒。
+- 不做系統回聲自動歸檔、不進確認佇列、不整理會議。
+
+## 介面
+
 ```js
-export default {
-  name: 'collect',
-  init(platform),                    // notionRequest / pushLineMessage / drive / AI 金鑰
-  async onMessage(ctx),              // 落庫 + 分流;回傳 true=已處理(短路後續)
-  // 音檔交給 meetings.onAudio;collect 只處理文字/照片/檔案
-};
-// ctx: { tenant, message, binding, text, senderName, groupId, event }
+init(platform)          // 注入共用能力:notionRequest / uploadFileToNotion / downloadLineContent /
+                        //   resolveLineFilename / ensureDriveFolder / uploadToDrive
+async onMessage(ctx)    // 每則訊息落庫;寫完「回傳 false」→ 不短路,後續模組續跑同一則事件
+// ctx: { tenant, binding, groupId, isMaster, senderName, event, message, text, notionRequest }
 ```
-`ctx.tenant` 需帶:`dataSources { messages, attachments, groupBindings, spaces, workItems, projects }`、`driveRootFolderId`、AI 設定(provider/model/是否啟用)。
 
-## ⚠️ 糾纏點
-- **AI 初判是工程領域的**:`buildJudgePrompt` 讀「空間/工項/別名清單」來分類——這是 construction 知識。
-  建議把 collect 設計成:通用落庫 + 一個 **classifier hook**;實際分類器由 `construction` 模組提供並註冊給 collect。
-  這樣 collect 保持通用,森在等非工程租戶可換自己的分類器(或不分類)。
-- **群組綁定 schema**:`resolveGroupBinding` 讀「群組角色/工種/成員對照」——工種是工程欄位。通用欄位(專案/角色/成員)留 collect,工程欄位由租戶 schema 決定。
-- 與 `meetings` 的分工:server.js 目前先判 `hasPendingMeeting`→`consumeMeetingRoster`、再判 `isMeetingAudio`→音檔,最後才走 AI 初判。抽 collect 時,這個「音檔/會議答覆優先於初判」的順序要保留(由 core router 依序呼叫 meetings 再 collect)。
+- **寫哪個庫由 `ctx.tenant.dataSources` 決定**:`messages`(必須,缺則直接回 false 交棒)、`attachments`(選用,沒有就只落訊息)。
+- 落好的訊息列 id 掛在 `ctx.messagePageId`,供後續模組(triage/queue)承接同一列。
+- Notion 寫入走 `ctx.notionRequest`(tenant-locked,per-tenant 隔離守衛):結構上碰不到別租戶的庫。
+- Drive 目標資料夾用 `ctx.tenant.driveRootFolderId`,是否啟用看 `ctx.tenant.driveConfigured`。
 
-## BuildAM 綁定
-vendored 複製 + 薄 shim;`server.js` 的 `handleEvent` 改為委派到 `collect.onMessage` + `meetings.onAudio`。
-（注意:handleEvent 是 server.js 核心,改動較大——與動 server.js 的其他 session 協調。）
+## 與後續模組的分工(順序)
+
+`tenants/*.json` 的 `modules` 順序 = 呼叫順序,collect 排第一:
+先由 collect 把**每則訊息**(含會議錄音、會議答覆)落庫並回 false;接著 meetings 才 `onAudio` 收音檔、
+或 `onMessage` 收斂會議答覆(回 true 短路)。這與 BuildAM「先落庫、再判會議/初判」的順序一致。
+
+## 與 BuildAM 的行為對照
+
+| 項目 | 行為 |
+|---|---|
+| 訊息庫欄位 | 訊息/內容/LINE 群組 ID/LINE 訊息 ID/發送者/時間/訊息類型/掛載狀態(未掛載)/群組綁定/專案 |
+| 訊息類型 | `text→文字 image→照片 file→檔案 sticker→貼圖`,其餘→`其他`(**含音檔**,與 BuildAM 同,不同於 `core/util` 的 `語音`) |
+| 總管群 | 訊息不自動掛專案(留待佇列人工選) |
+| 附件 Drive | **只有照片**存 `未歸檔/日期`;純檔案僅進 Notion 附件(與 BuildAM 同) |
+| 會議錄音 | 不進附件流程 |

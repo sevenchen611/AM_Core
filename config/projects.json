@@ -23,6 +23,14 @@
       "manifestPath": "D:\\Codex_project\\BuildAM\\line-oa-webhook\\docs\\project-improvement-manifest.md",
       "upgradeRecordsPath": "D:\\Codex_project\\BuildAM\\line-oa-webhook\\docs\\upgrades",
       "dataBoundary": "BuildAM owns its own LINE, Notion, Render, GitHub, and environment values. Minimal-seed project: only foundational AM_Core packages are installed; engineering-module features are project-local."
+    },
+    {
+      "projectKey": "FOREST_AM",
+      "displayName": "ForestAM",
+      "localPath": "D:\\Codex_project\\ForestAM\\line-oa-webhook",
+      "manifestPath": "D:\\Codex_project\\ForestAM\\line-oa-webhook\\docs\\project-improvement-manifest.md",
+      "upgradeRecordsPath": "D:\\Codex_project\\ForestAM\\line-oa-webhook\\docs\\upgrades",
+      "dataBoundary": "ForestAM is a verbatim clone of BuildAM's architecture (display name 葉小蝸 AI 小助手). Shares Seven's Notion integration token and AI API keys with BuildAM by explicit instruction; data isolation is enforced by parent-page verification against its own Notion 'AI' page. Owns its own Render/GitHub. Minimal-seed, no project bindings yet. LINE OA channel: pending decision."
     }
   ],
   "sharedRegistryPath": "D:\\Codex_project\\AM_SHARED_VERSION_UPGRADES\\SHARED_IMPROVEMENT_REGISTRY.md",

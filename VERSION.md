@@ -5,7 +5,7 @@ AMCore is the version master and core-code holder for the AM family
 `node tools/build-amcore-version.js` from the shared registry, the project
 manifests, and the packages in `versions/`. Do not edit it by hand.
 
-_Last generated: 2026-07-08_
+_Last generated: 2026-07-09_
 
 ## At A Glance
 
@@ -25,6 +25,7 @@ _Last generated: 2026-07-08_
 | HOZO AM (`HOZO_AM`) | `AM-IMP-2026.0613.04` | Installed | 40 |
 | 7AM (`SEVEN_AM`) | `AM-IMP-2026.0618.01` | Installed | 57 |
 | BuildAM (`BUILD_AM`) | `AM-IMP-2026.0708.02` | Deployed | 4 |
+| LeafAM (`LEAF_AM`) | `AM-IMP-2026.0708.02` | Installed | 4 |
 
 ## Definitions
 
