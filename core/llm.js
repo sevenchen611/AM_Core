@@ -10,8 +10,10 @@
 //      唯有如此,它們才是真的可互換 —— 換一家,行為不變,備援才有意義。
 //   2. 鏈序 = 成本閥門。預設 minimax(付費穩、單價低)→ gemini(免費額度)→ anthropic(貴、最後手段)。
 //      以 AMCORE_LLM_CHAIN 覆寫。
-//   3. imagePaths 存在時,自動只挑「看得見圖」的後端(MiniMax 不支援 → 直接跳過,
+//   3. imagePaths 存在時,自動只挑「看得見圖」的後端(看不見的直接跳過,
 //      而不是看不到圖卻硬生出解析結果)。
+//   3b. 重試分三類(見下方 classify):暫時性錯誤退避重試同一後端,解析失敗立刻重試,
+//      確定性錯誤(金鑰錯/模型不存在)不重試直接換人。三者混為一談會既慢又救不回來。
 //   4. 零相依:全部走 fetch,不引入 SDK(平台 npm install 目前是 0 套件)。
 //
 // 合約(與 HOZO_AM src/llm-backend.js 相同,收編時可直接對接):
@@ -30,7 +32,40 @@ import path from 'node:path';
 
 const DEFAULT_CHAIN = 'minimax,gemini,anthropic';
 const DEFAULT_TIMEOUT_MS = 300_000;
-const PARSE_ATTEMPTS = 2; // 同一後端吐出無法解析的 JSON 時,再給一次機會
+
+// ── 失敗分類:三種失敗的正確處置相反,別混為一談 ─────────────
+//   transient 429 / 5xx / 網路例外 / timeout → 退避後重試同一後端
+//   parse     JSON 解不出來 / 回傳空內容      → 立刻重試,sleep 是純浪費
+//   fatal     400 / 401 / 403(金鑰錯、模型不存在)→ 不重試,直接換下一個後端
+//
+// 註:單靠 `retryable` 布林蓋不住三種處置——「回傳空內容」沒有 HTTP status,
+//    會被誤判成 retryable 而白白睡 24 秒。所以以 kind 分流,retryable 僅供觀測。
+const PARSE_ATTEMPTS = 2;       // 解析類:共 2 次,不 sleep
+const TRANSIENT_ATTEMPTS = 3;   // 暫時性:共 3 次,退避 8s → 16s(單一後端最壞 24s)
+const TRANSIENT_BASE_DELAY_MS = 8000;
+
+const sleepReal = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function httpError(name, status, detail) {
+  const transient = status === 429 || status >= 500;
+  const e = new Error(`${name} ${status}: ${detail}`);
+  e.status = status;
+  e.retryable = transient;
+  e.kind = transient ? 'transient' : 'fatal';
+  return e;
+}
+
+function taggedError(kind, message) {
+  const e = new Error(message);
+  e.kind = kind;
+  e.retryable = kind === 'transient';
+  return e;
+}
+
+// 沒帶 kind 的例外 = fetch 自己丟的(TypeError / AbortError 逾時)→ 當暫時性。
+function classify(error) {
+  return error?.kind || 'transient';
+}
 
 // ── prompt 組裝與寬鬆解析(三家共用)────────────────────────────
 function buildPrompt({ system, userContent, schema }) {
@@ -91,8 +126,13 @@ const MIME_BY_EXT = {
 };
 function readImage(p) {
   const mime = MIME_BY_EXT[path.extname(p).toLowerCase()];
-  if (!mime) throw new Error(`unsupported image type: ${p}`);
-  return { mime, base64: fs.readFileSync(p).toString('base64') };
+  if (!mime) throw taggedError('fatal', `unsupported image type: ${p}`);
+  try {
+    return { mime, base64: fs.readFileSync(p).toString('base64') };
+  } catch (e) {
+    // 檔案讀不到是確定性錯誤,重試三次還睡 24 秒毫無意義。
+    throw taggedError('fatal', `讀取圖片失敗 ${p}: ${e.message}`);
+  }
 }
 
 // ── HTTP(統一逾時)──────────────────────────────────────────
@@ -153,16 +193,20 @@ function minimaxBackend({ apiKey, model, baseUrl, visionOverride }) {
         headers: { authorization: `Bearer ${apiKey}` },
         body: { model, max_tokens: maxTokens, temperature: 0.2, messages: [{ role: 'user', content: userMessage }] },
       });
-      if (!ok) throw new Error(`MiniMax ${status}: ${brief(data?.error || data?.base_resp || data)}`);
+      if (!ok) throw httpError('MiniMax', status, brief(data?.error || data?.base_resp || data));
       // MiniMax 有兩種錯誤面貌:HTTP 錯誤碼,或 200 但 base_resp.status_code != 0。
       if (data?.base_resp && Number(data.base_resp.status_code) !== 0) {
-        throw new Error(`MiniMax base_resp ${data.base_resp.status_code}: ${data.base_resp.status_msg || 'unknown'}`);
+        const code = Number(data.base_resp.status_code);
+        // 1001 逾時 / 1002 觸發限流 / 1013 內部錯誤 → 值得退避重試;其餘(1004 認證、
+        // 1008 餘額不足、2013 參數錯誤)是確定性的,重試只是浪費。
+        const kind = [1001, 1002, 1013].includes(code) ? 'transient' : 'fatal';
+        throw taggedError(kind, `MiniMax base_resp ${code}: ${data.base_resp.status_msg || 'unknown'}`);
       }
       // ⚠️ 空值檢查必須在 stripThink「之後」。MiniMax 是推理模型:當它把 max_tokens
       // 燒光在 <think>…</think> 裡(finish_reason=length),content 非空但剝完是空的。
       // 先檢查再剝,等於放行一個空字串出去。
       const cleaned = stripThink(data?.choices?.[0]?.message?.content);
-      if (!cleaned) throw new Error(`MiniMax 無內容 (finish_reason: ${data?.choices?.[0]?.finish_reason || 'unknown'})`);
+      if (!cleaned) throw taggedError('parse', `MiniMax 無內容 (finish_reason: ${data?.choices?.[0]?.finish_reason || 'unknown'})`);
       return cleaned;
     },
   };
@@ -185,9 +229,9 @@ function geminiBackend({ apiKey, model }) {
       const { ok, status, data } = await postJson(url, {
         body: { contents: [{ parts }], generationConfig: { temperature: 0.2, maxOutputTokens: maxTokens } },
       });
-      if (!ok) throw new Error(`Gemini ${status}: ${brief(data?.error || data)}`);
+      if (!ok) throw httpError('Gemini', status, brief(data?.error || data));
       const content = (data?.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
-      if (!content) throw new Error(`Gemini 無內容 (finishReason: ${data?.candidates?.[0]?.finishReason || 'unknown'})`);
+      if (!content) throw taggedError('parse', `Gemini 無內容 (finishReason: ${data?.candidates?.[0]?.finishReason || 'unknown'})`);
       return content;
     },
   };
@@ -215,9 +259,9 @@ function assemblyaiBackend({ apiKey, model }) {
         headers: { authorization: apiKey },
         body: { model, max_tokens: maxTokens, temperature: 0.2, messages: [{ role: 'user', content: prompt }] },
       });
-      if (!ok) throw new Error(`AssemblyAI Gateway ${status}: ${brief(data?.error || data)}`);
+      if (!ok) throw httpError('AssemblyAI Gateway', status, brief(data?.error || data));
       const cleaned = stripThink(data?.choices?.[0]?.message?.content);
-      if (!cleaned) throw new Error(`AssemblyAI Gateway 無內容 (finish_reason: ${data?.choices?.[0]?.finish_reason || 'unknown'})`);
+      if (!cleaned) throw taggedError('parse', `AssemblyAI Gateway 無內容 (finish_reason: ${data?.choices?.[0]?.finish_reason || 'unknown'})`);
       return cleaned;
     },
   };
@@ -241,16 +285,17 @@ function anthropicBackend({ apiKey, model }) {
         headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
         body: { model, max_tokens: maxTokens, messages: [{ role: 'user', content }] },
       });
-      if (!ok) throw new Error(`Anthropic ${status}: ${brief(data?.error || data)}`);
+      if (!ok) throw httpError('Anthropic', status, brief(data?.error || data));
       const textBlock = (data?.content || []).find((b) => b.type === 'text');
-      if (!textBlock) throw new Error(`Anthropic 無文字區塊 (stop_reason: ${data?.stop_reason || 'unknown'})`);
+      if (!textBlock) throw taggedError('parse', `Anthropic 無文字區塊 (stop_reason: ${data?.stop_reason || 'unknown'})`);
       return textBlock.text;
     },
   };
 }
 
 // ── 組裝 ────────────────────────────────────────────────────
-export function createLlm({ env = process.env, logger = console } = {}) {
+// sleep 可注入:測試用 no-op 跑完退避邏輯而不真的等 24 秒。
+export function createLlm({ env = process.env, logger = console, sleep = sleepReal } = {}) {
   const all = [
     minimaxBackend({
       apiKey: env.MINIMAX_API_KEY || '',
@@ -323,31 +368,62 @@ export function createLlm({ env = process.env, logger = console } = {}) {
 
     const prompt = buildPrompt({ system, userContent, schema });
     const failures = [];
+    let totalAttempts = 0;
+
+    // 打一次,並把「空回應」與「解析失敗」都標成 parse 類。
+    async function attemptOnce(backend) {
+      const raw = await backend.callRaw({ prompt, maxTokens, imagePaths });
+      // 空回應一律當失敗。有 schema 時 parseJsonLoose('') 本來就會拋錯,但
+      // completeText(schema=null)會把 '' 當成功回傳 → 靜默失敗、永不落備援。
+      // 擋在這裡,四家後端 × 兩個入口一次全保護。
+      if (!String(raw || '').trim()) {
+        throw taggedError('parse', `${backend.name} 回傳空內容(推理可能吃光 max_tokens)`);
+      }
+      if (!schema) return raw;
+      try {
+        return parseJsonLoose(raw, schema);
+      } catch (e) {
+        throw taggedError('parse', `${backend.name} 回傳無法解析的 JSON: ${e.message}`);
+      }
+    }
 
     for (const backend of candidates) {
-      for (let attempt = 1; attempt <= PARSE_ATTEMPTS; attempt += 1) {
+      let transientTries = 0;
+      let parseTries = 0;
+
+      // 依失敗類別決定「重試同一後端」或「換下一個後端」。
+      // 退避只吃短暫抖動;跨不過 Gemini 完整的 60 秒限流窗口是刻意的取捨——
+      // 韌性主要由「換後端」承擔(quality 鏈頭 assemblyai 是付費、不受免費額度限流),
+      // 不值得為了湊滿 60 秒把單一後端卡死一分鐘、拖慢整條鏈。
+      for (;;) {
+        totalAttempts += 1;
         try {
-          const raw = await backend.callRaw({ prompt, maxTokens, imagePaths });
-          // 空回應一律當失敗。有 schema 時 parseJsonLoose('') 本來就會拋錯,但
-          // completeText(schema=null)會把 '' 當成功回傳 → 靜默失敗、永不落備援。
-          // 擋在這裡,三家後端 × 兩個入口一次全保護。
-          if (!String(raw || '').trim()) {
-            throw new Error(`${backend.name} 回傳空內容(推理可能吃光 max_tokens)`);
-          }
-          const data = schema ? parseJsonLoose(raw, schema) : raw;
+          const data = await attemptOnce(backend);
           if (failures.length) logger.log(`[llm] ${backend.name} 接手成功(前面失敗:${failures.map((f) => f.backend).join(', ')})`);
-          return { data, backend: backend.name, attempts: failures.length + attempt };
+          return { data, backend: backend.name, attempts: totalAttempts };
         } catch (error) {
-          const last = attempt === PARSE_ATTEMPTS;
-          if (last) {
-            failures.push({ backend: backend.name, message: error.message });
-            logger.warn(`[llm] ${backend.name} 失敗,改用下一個後端: ${error.message}`);
+          const kind = classify(error);
+
+          if (kind === 'transient' && transientTries + 1 < TRANSIENT_ATTEMPTS) {
+            transientTries += 1;
+            const delay = transientTries * TRANSIENT_BASE_DELAY_MS;
+            logger.warn(`[llm] ${backend.name} 暫時性失敗(${error.message}),${delay / 1000}s 後重試`);
+            await sleep(delay);
+            continue;
           }
+          if (kind === 'parse' && parseTries + 1 < PARSE_ATTEMPTS) {
+            parseTries += 1;
+            continue; // 立刻重試,不 sleep
+          }
+
+          failures.push({ backend: backend.name, kind, message: error.message });
+          logger.warn(`[llm] ${backend.name} 失敗(${kind}),改用下一個後端: ${error.message}`);
+          break;
         }
       }
     }
 
-    throw new Error(`所有 LLM 後端都失敗 → ${failures.map((f) => `${f.backend}(${f.message})`).join('; ')}`);
+    throw new Error(`所有 LLM 後端都失敗 → ${failures.map((f) => `${f.backend}/${f.kind}(${f.message})`).join('; ')}`);
   }
 
   const describe = (b) => ({ name: b.name, model: b.model, supportsImages: b.supportsImages });
