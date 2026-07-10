@@ -46,15 +46,24 @@ const DEFAULT_CHAIN = 'minimax,gemini,anthropic';
 const DEFAULT_TIMEOUT_MS = 120_000; // 單一請求
 const DEFAULT_BUDGET_MS = 300_000;  // complete() 整條鏈
 
-// ── 失敗分類:三種失敗的正確處置相反,別混為一談 ─────────────
-//   transient 429 / 5xx / 網路例外 / timeout → 退避後重試同一後端
-//   parse     JSON 解不出來 / 回傳空內容      → 立刻重試,sleep 是純浪費
+// ── 失敗分類:四種失敗的正確處置各不相同,別混為一談 ───────────
+//   transient 429 / 5xx / 網路例外        → 退避後重試同一後端(失敗得快,重試便宜)
+//   timeout   請求掛住到逾時               → 不重試,立刻換下一個後端(見下)
+//   parse     JSON 解不出來 / 回傳空內容    → 立刻重試,sleep 是純浪費
 //   fatal     400 / 401 / 403(金鑰錯、模型不存在)→ 不重試,直接換下一個後端
 //
-// 註:單靠 `retryable` 布林蓋不住三種處置——「回傳空內容」沒有 HTTP status,
+// ⚠️ 為什麼 timeout 必須自成一類,不能併進 transient:
+//    兩者「重試的成本」差三個數量級。429/5xx 約 1 秒就回來,重試 3 次成本 ~3 秒;
+//    掛住的請求要 120 秒才回來,重試 3 次成本 360 秒 —— 比整條鏈的總預算還大。
+//    後果:掛住的鏈頭會吃光整條鏈的預算,備援永遠輪不到,等於退回單點失敗。
+//    而「換後端」是這條鏈唯一的韌性來源(實測 gateway 9/9 vs MiniMax 1/3~2/3)。
+//    何況一個剛掛了 120 秒的後端,再打一次多半還是掛:收益極低,成本是整條鏈的命。
+//
+// 註:單靠 `retryable` 布林蓋不住這些處置——「回傳空內容」沒有 HTTP status,
 //    會被誤判成 retryable 而白白睡 24 秒。所以以 kind 分流,retryable 僅供觀測。
 const PARSE_ATTEMPTS = 2;       // 解析類:共 2 次,不 sleep
 const TRANSIENT_ATTEMPTS = 3;   // 暫時性:共 3 次,退避 8s → 16s(單一後端最壞 24s)
+const TIMEOUT_ATTEMPTS = 1;     // 逾時:只給 1 次,把預算留給下一個後端
 const TRANSIENT_BASE_DELAY_MS = 8000;
 
 const sleepReal = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -71,6 +80,7 @@ function httpError(name, status, detail) {
 function taggedError(kind, message) {
   const e = new Error(message);
   e.kind = kind;
+  // timeout 理論上可重試,但重試成本會吃光整條鏈的預算 → 一律當不可重試(換人)。
   e.retryable = kind === 'transient';
   return e;
 }
@@ -162,9 +172,9 @@ async function postJson(url, { headers, body, timeoutMs = DEFAULT_TIMEOUT_MS }) 
     const data = await res.json().catch(() => ({}));
     return { ok: res.ok, status: res.status, data };
   } catch (error) {
-    // 逾時是暫時性的,但要看得出來是逾時而不是別的網路錯。
-    if (error?.name === 'AbortError') throw taggedError('transient', `請求逾時(${timeoutMs}ms)`);
-    throw error; // 其餘網路例外沒有 kind → classify() 當 transient
+    // 逾時自成一類:掛住的後端不健康,換人比重試划算(見上方 kind 說明)。
+    if (error?.name === 'AbortError') throw taggedError('timeout', `請求逾時(${timeoutMs}ms)`);
+    throw error; // 其餘網路例外沒有 kind → classify() 當 transient(它們失敗得快)
   } finally {
     clearTimeout(timer);
   }
@@ -315,10 +325,17 @@ function anthropicBackend({ apiKey, model }) {
 }
 
 // ── 組裝 ────────────────────────────────────────────────────
-// sleep / now 可注入:測試用假時鐘跑完退避與總預算邏輯,而不真的等 5 分鐘。
-export function createLlm({ env = process.env, logger = console, sleep = sleepReal, now = Date.now } = {}) {
+// sleep / now / backoffBaseMs 可注入。
+// ⚠️ backoffBaseMs 必須可注入:任何把 timeoutMs / budgetMs 縮尺到毫秒的測試,
+//    若沒把退避一起縮尺,就破壞了 timeout:backoff:budget 的比例,
+//    會讓「退避塞不下 → 直接換後端」這條分支永遠觸發,遮住預算飢餓類的 bug。
+export function createLlm({
+  env = process.env, logger = console,
+  sleep = sleepReal, now = Date.now, backoffBaseMs,
+} = {}) {
   const envTimeoutMs = Number(env.AMCORE_LLM_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS;
   const envBudgetMs = Number(env.AMCORE_LLM_BUDGET_MS) || DEFAULT_BUDGET_MS;
+  const backoffBase = Number(backoffBaseMs) || Number(env.AMCORE_LLM_BACKOFF_MS) || TRANSIENT_BASE_DELAY_MS;
   const all = [
     minimaxBackend({
       apiKey: env.MINIMAX_API_KEY || '',
@@ -421,6 +438,7 @@ export function createLlm({ env = process.env, logger = console, sleep = sleepRe
     for (const backend of candidates) {
       let transientTries = 0;
       let parseTries = 0;
+      let timeoutTries = 0;
 
       // 依失敗類別決定「重試同一後端」或「換下一個後端」。
       // 退避只吃短暫抖動;跨不過 Gemini 完整的 60 秒限流窗口是刻意的取捨——
@@ -440,7 +458,7 @@ export function createLlm({ env = process.env, logger = console, sleep = sleepRe
           const kind = classify(error);
 
           if (kind === 'transient' && transientTries + 1 < TRANSIENT_ATTEMPTS) {
-            const delay = (transientTries + 1) * TRANSIENT_BASE_DELAY_MS;
+            const delay = (transientTries + 1) * backoffBase;
             // 睡完就沒時間發請求了 → 別睡,直接把剩下的預算讓給下一個後端。
             if (delay < remainingMs()) {
               transientTries += 1;
@@ -448,6 +466,12 @@ export function createLlm({ env = process.env, logger = console, sleep = sleepRe
               await sleep(delay);
               continue;
             }
+          }
+          // TIMEOUT_ATTEMPTS = 1 ⇒ 這裡永遠不成立,逾時直接落到下面換後端。
+          // 保留條件式是為了讓「只給一次」是個顯式的政策,而不是隱含的省略。
+          if (kind === 'timeout' && timeoutTries + 1 < TIMEOUT_ATTEMPTS) {
+            timeoutTries += 1;
+            continue;
           }
           if (kind === 'parse' && parseTries + 1 < PARSE_ATTEMPTS) {
             parseTries += 1;

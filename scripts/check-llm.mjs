@@ -201,13 +201,15 @@ console.log('\n── 時間預算(真計時器,縮尺至毫秒)──');
     check(capped > 0 && capped <= 200, '單一請求逾時被剩餘預算夾住', `timeout=${capped}ms (budget 200ms < timeout 5000ms)`);
   }
   {
-    // 睡完就沒時間發請求了 → 不睡,把剩下的預算讓給下一個後端
+    // 睡完就沒時間發請求了 → 不睡,把剩下的預算讓給下一個後端。
+    // ⚠️ 這裡必須用 429(暫時性、回得快),不能用掛住的請求 ——
+    //    逾時已自成一類、根本不走退避,拿它來測這條分支會空洞地通過。
     const delays = [];
     const hits = {};
-    hangUntilAborted(hits);
-    const llm = createLlm({ env: FAKE_ENV, logger: quiet, sleep: async (ms) => delays.push(ms) });
-    try { await llm.completeText({ system: 's', userContent: 'u', timeoutMs: 50, budgetMs: 200 }); } catch { /* 預期 */ }
-    check(delays.length === 0 && hits.minimax === 1,
+    fakeFetch(hits, (who) => (who === 'minimax' ? R({ error: 'rate limited' }, 429) : R(GEMINI_OK)));
+    const llm = createLlm({ env: FAKE_ENV, logger: quiet, sleep: async (ms) => delays.push(ms), backoffBaseMs: 30 });
+    const out = await llm.completeText({ system: 's', userContent: 'u', timeoutMs: 50, budgetMs: 20 });
+    check(delays.length === 0 && hits.minimax === 1 && out === '{"title":"OK"}',
       '退避會超出預算 → 不睡,直接換後端', `delays=[${delays}] hits=${JSON.stringify(hits)}`);
   }
   {
@@ -219,20 +221,75 @@ console.log('\n── 時間預算(真計時器,縮尺至毫秒)──');
     check(/所有 LLM 後端都失敗/.test(msg) && !/預算/.test(msg),
       '預算未用盡 → 沿用原本的失敗訊息', msg.slice(0, 40) + '…');
   }
-  {
-    // 逾時被辨識成 transient(不是被誤判成 fatal 而放棄整條鏈)
-    const hits = {};
+}
+
+// ── 預算飢餓:掛住的鏈頭不可吃光整條鏈的預算 ──
+//
+// 這一段用「生產比例」縮尺:timeout:backoff:budget = 120:8:300(÷1000)。
+// ⚠️ backoffBaseMs 一定要跟著縮。只縮 timeout/budget 而讓退避停在 8000ms,
+//    會使「退避塞不下 → 直接換後端」的分支每次都觸發,恰好遮住這一整類 bug。
+//    ——這正是 409bf17 的 28/28 沒抓到預算飢餓的原因。
+console.log('\n── 預算飢餓(生產比例 120:8:300,÷1000)──');
+{
+  const PROD_RATIO = { timeoutMs: 120, budgetMs: 300, backoffBaseMs: 8 };
+  const hangHead = (hits, headOk = false) => {
     globalThis.fetch = (url, init) => new Promise((resolve, reject) => {
-      const who = String(url).includes('minimax') ? 'minimax' : 'gemini';
+      const who = String(url).includes('minimax') ? 'minimax'
+        : String(url).includes('api.anthropic.com') ? 'anthropic'
+          : String(url).includes('llm-gateway') ? 'assemblyai' : 'gemini';
       hits[who] = (hits[who] || 0) + 1;
-      if (who !== 'minimax') { resolve(R(GEMINI_OK)); return; }
+      if (who !== 'minimax' || headOk) { resolve(R(GEMINI_OK)); return; }
       init.signal.addEventListener('abort', () => { const e = new Error('aborted'); e.name = 'AbortError'; reject(e); });
     });
-    // budget 要放得下 8s+16s 的退避,否則會走「睡不下去就換人」那條路(上一項已測)。
-    const llm = createLlm({ env: FAKE_ENV, logger: quiet, sleep: noSleep });
-    const out = await llm.completeText({ system: 's', userContent: 'u', timeoutMs: 60, budgetMs: 60_000 });
-    check(out === '{"title":"OK"}' && hits.minimax === 3 && hits.gemini === 1,
-      '逾時 → transient,退避重試 3 次後換人', JSON.stringify(hits));
+  };
+
+  {
+    // ★ 核心迴歸:鏈頭永遠逾時,備援仍必須被呼叫到並成功
+    const hits = {};
+    hangHead(hits);
+    const llm = createLlm({
+      env: { ...FAKE_ENV, AMCORE_LLM_CHAIN: 'minimax,gemini' }, logger: quiet,
+      sleep: noSleep, backoffBaseMs: PROD_RATIO.backoffBaseMs,
+    });
+    const out = await llm.completeText({
+      system: 's', userContent: 'u', timeoutMs: PROD_RATIO.timeoutMs, budgetMs: PROD_RATIO.budgetMs,
+    });
+    check(out === '{"title":"OK"}' && hits.minimax === 1 && hits.gemini === 1,
+      '★ 鏈頭永遠逾時 → 備援被呼叫到並成功', JSON.stringify(hits));
+  }
+  {
+    // 逾時只給一次機會(不是 3 次)——重試一個掛住的後端,成本是整條鏈的命
+    const hits = {};
+    hangHead(hits);
+    const llm = createLlm({
+      env: { ...FAKE_ENV, AMCORE_LLM_CHAIN: 'minimax,gemini' }, logger: quiet,
+      sleep: noSleep, backoffBaseMs: PROD_RATIO.backoffBaseMs,
+    });
+    await llm.completeText({ system: 's', userContent: 'u', timeoutMs: 120, budgetMs: 60_000 });
+    check(hits.minimax === 1, '逾時 → 只試 1 次就換人(預算再多也不重試)', JSON.stringify(hits));
+  }
+  {
+    // 全鏈皆逾時 → 每個後端各拿到恰好一次機會
+    const hits = {};
+    globalThis.fetch = (url, init) => new Promise((_, reject) => {
+      const who = String(url).includes('minimax') ? 'minimax' : String(url).includes('api.anthropic.com') ? 'anthropic' : 'gemini';
+      hits[who] = (hits[who] || 0) + 1;
+      init.signal.addEventListener('abort', () => { const e = new Error('aborted'); e.name = 'AbortError'; reject(e); });
+    });
+    const llm = createLlm({ env: FAKE_ENV, logger: quiet, sleep: noSleep, backoffBaseMs: PROD_RATIO.backoffBaseMs });
+    let msg = '';
+    try { await llm.completeText({ system: 's', userContent: 'u', timeoutMs: 80, budgetMs: 300 }); } catch (e) { msg = e.message; }
+    const each = ['minimax', 'gemini', 'anthropic'].every((n) => hits[n] === 1);
+    check(each && /timeout/.test(msg), '全鏈皆逾時 → 三家各得一次機會', JSON.stringify(hits));
+  }
+  {
+    // 429 仍維持 3 次退避重試(它們失敗得快,重試便宜)——不可被逾時的政策波及
+    const hits = {}; const delays = [];
+    fakeFetch(hits, (who) => (who === 'minimax' ? R({}, 429) : R(GEMINI_OK)));
+    const llm = createLlm({ env: FAKE_ENV, logger: quiet, sleep: async (ms) => delays.push(ms) });
+    await llm.completeText({ system: 's', userContent: 'u' });
+    check(hits.minimax === 3 && delays.join(',') === '8000,16000',
+      '429 不受影響,仍退避重試 3 次', `hits=${JSON.stringify(hits)} delays=[${delays}]`);
   }
 }
 
