@@ -1,16 +1,18 @@
 // AM Platform 模組:meetings
 // ─────────────────────────────────────────────────────────────────────────
 // 會議錄音 → 反問「與會者(含發言順序)/主題」→ AssemblyAI 轉寫+講者分離
-//   → 依發言順序對齊真名 → Gemini 收斂署名摘要 → 建會議記錄(三分頁)+待辦 → 發布。
+//   → 依發言順序對齊真名 → platform.llm 收斂署名摘要 → 建會議記錄(三分頁)+待辦 → 發布。
 //   AssemblyAI(上傳/轉寫)失敗會自動改用 Gemini 直讀音檔備援(無署名逐字稿,但摘要/筆記/待辦照樣產出);
 //   完全無 ASSEMBLYAI key 時走 Gemini 直轉。
 //
 // 多租戶契約(modules/README.md):
-//   - init(platform):注入「共用能力」(所有租戶相同):notionRequest / pushLineMessage / drive 助手 / AI 金鑰。
+//   - init(platform):注入「共用能力」(所有租戶相同):notionRequest / pushLineMessage / llm / drive 助手 / 金鑰。
 //   - 每次呼叫由 ctx.tenant 帶「租戶特定設定」:自己的 Notion 資料源(meetings/tasks/projects)、Drive 根資料夾。
+//   - 「行業味」(會議類型、術語表、prompt 領域描述)一律來自 ctx.tenant.config.meetings,不寫在本檔。
 //   - 模組狀態(會議待補 pending)一律以「(租戶, 群組)」為鍵,不同租戶不互相污染。
 //
-// 功能與 BuildAM src/meeting.js 完全等同,只是重組成模組形狀。
+// 文字整理(摘要、與會名單)走 platform.llm 的統一備援鏈;只有「讀音檔」還自己打 Gemini,
+// 因為 llm.js 不吃音訊。
 
 import crypto from 'node:crypto';
 
@@ -300,11 +302,22 @@ const SHARE_HINT = /讀書會|分享會|分享型|心得|座談|沙龍|工作坊
 const kindFromText = (s) => (SHARE_HINT.test(String(s || '')) ? 'share' : '');
 
 // ── 與會資訊解析 ───────────────────────────────────────────
+const ROSTER_SCHEMA = (codes) => ({
+  type: 'object',
+  properties: {
+    kind: { type: 'string', enum: ['work', 'share'] },
+    topic: { type: 'string' },
+    ...(codes.length ? { project: { type: 'string', enum: [...codes, ''] } } : {}),
+    speakers: { type: 'array', items: { type: 'object', properties: { order: { type: 'number' }, name: { type: 'string' }, role: { type: 'string' }, gender: { type: 'string' } } } },
+    keyterms: { type: 'array', items: { type: 'string' } },
+  },
+});
+
 async function parseRoster(answer, cfg = GENERIC_MEETINGS_CONFIG) {
   const empty = { topic: '', speakers: [], keyterms: [], projectCode: '', kind: 'work' };
   if (!answer || !answer.trim()) return empty;
   const fallbackKind = kindFromText(answer) || 'work';
-  if (!platform.minimaxApiKey && !platform.geminiKey) return { topic: answer.trim().slice(0, 40), speakers: [], keyterms: [], projectCode: '', kind: fallbackKind };
+  if (!platform.llm?.available) return { topic: answer.trim().slice(0, 40), speakers: [], keyterms: [], projectCode: '', kind: fallbackKind };
   // 專案代碼是租戶特有的(工程租戶有 ZS/HZ/SYS 館別;森在沒有)→ 沒設定就整條規則不出現。
   const codes = Object.keys(cfg.projectCodes);
   const projectField = codes.length ? `"project":"${codes.join('|')} 或空字串",` : '';
@@ -312,16 +325,17 @@ async function parseRoster(answer, cfg = GENERIC_MEETINGS_CONFIG) {
     ? `\n- project:${codes.map((c, i) => `${i ? '' : '若'}提到${(cfg.projectCodes[c] || []).map((t) => `「${t}」`).join('或')}填 ${c}`).join(';')};沒提到就空字串。`
     : '';
   try {
-    const raw = await textLLM(`以下是使用者提供的一場會議/聚會的與會資訊。請抽取成 JSON:
+    // 與會名單是短 prompt,走預設鏈就好(不指名 profile),別為了一行名單去燒 gateway 的錢。
+    const j = await platform.llm.completeJson({
+      system: `以下是使用者提供的一場會議/聚會的與會資訊。請抽取成 JSON:
 {"kind":"work|share","topic":"主題(15字內)",${projectField}"speakers":[{"order":1,"name":"姓名","role":"職務/角色","gender":"男|女|"}],"keyterms":["需要被正確辨識的人名或專有名詞",...]}
 規則:
 - kind:${cfg.workKindHint}填 "work";讀書會、心得分享、座談、分享會等「分享/討論型」聚會填 "share";不確定填 "work"。${projectRule}
 - speakers 依「發言順序」由小到大排列。
-- keyterms 放所有人名與可能被聽錯的術語、案場名。
-只輸出 JSON,不要說明。
-使用者輸入:
-${answer.trim().slice(0, 1000)}`);
-    const j = extractJson(raw);
+- keyterms 放所有人名與可能被聽錯的術語、案場名。`,
+      userContent: answer.trim().slice(0, 1000),
+      schema: ROSTER_SCHEMA(codes),
+    });
     const code = String(j.project || '').trim().toUpperCase();
     return {
       topic: String(j.topic || '').trim(),
@@ -436,11 +450,36 @@ function renderDiarized(tr, legend) {
   return lines.join('\n').slice(0, 60000);
 }
 
-// ── Gemini 收斂(署名摘要/決議/待辦)────────────────────────
+// ── 收斂逐字稿(署名摘要/決議/待辦)──────────────────────────
+// schema 只描述形狀、不列 required:少一個 nextMeeting 就整場失敗,遠比一份少一欄的會議記錄糟。
+// normalizeParsed 本來就容得下缺欄位。schema 的真正價值在 llm.js 那邊——它會把 schema 塞進
+// prompt、寬鬆解析 JSON、解析失敗自動重試並換後端,這正是手寫 extractJson 做不到的。
+const SUMMARY_SCHEMA = {
+  type: 'object',
+  properties: {
+    title: { type: 'string' },
+    type: { type: 'string' },
+    minutes: { type: 'array', items: { type: 'object', properties: { heading: { type: 'string' }, points: { type: 'array', items: { type: 'string' } } } } },
+    highlights: { type: 'array', items: { type: 'string' } },
+    conclusions: { type: 'array', items: { type: 'string' } },
+    todos: { type: 'array', items: { type: 'object', properties: { content: { type: 'string' }, owner: { type: 'string' }, due: { type: 'string' } } } },
+    nextMeeting: { type: 'string' },
+  },
+};
+
+// profile:'quality' → assemblyai gateway 領銜、直連 gemini 接手。實測 27,000 字逐字稿:
+// gateway 三模型 9/9 成功、輸出上看 12,718 tokens(故 maxTokens 不得低於 16000);
+// MiniMax-M3 直連只有 1/3~2/3 吐得出 JSON。
 async function summarize({ diarized, roster, legend, cfg = GENERIC_MEETINGS_CONFIG }) {
   const who = [...legend.values()].join('、');
-  const raw = await textLLM(meetingPrompt({ who, topic: roster.topic, today: todayStr(), kind: roster.kind, cfg }) + `\n\n逐字稿:\n${diarized}`);
-  return normalizeParsed(extractJson(raw));
+  const j = await platform.llm.completeJson({
+    system: meetingPrompt({ who, topic: roster.topic, today: todayStr(), kind: roster.kind, cfg }),
+    userContent: `逐字稿:\n${diarized}`,
+    schema: SUMMARY_SCHEMA,
+    profile: 'quality',
+    maxTokens: 16000,
+  });
+  return normalizeParsed(j);
 }
 
 // 會議記錄整理指示(AssemblyAI 逐字稿路徑與 Gemini 直轉路徑共用)。
@@ -794,44 +833,10 @@ async function archiveAudio(buffer, filename, contentType, tenant) {
   return uploaded.webViewLink || '';
 }
 
-// ── Gemini 共用 ────────────────────────────────────────────
-// 長會議常落到這條備援(MiniMax 對長逐字稿經常吐不出可解析的 JSON),而 Gemini 免費配額是
-// 「每分鐘」限流 —— 故此處必須帶重試,退避總長 ~60 秒足以跨過一個窗口。
-async function geminiText(promptText) {
-  const r = await fetchRetry(`https://generativelanguage.googleapis.com/v1beta/models/${platform.geminiModel}:generateContent`, {
-    method: 'POST',
-    headers: { 'x-goog-api-key': platform.geminiKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contents: [{ parts: [{ text: promptText }] }] }),
-  }, { tries: 5, label: 'Gemini', baseDelay: 6000 });
-  const j = await r.json();
-  return (j.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
-}
-
-// 文字 LLM(解析與會資訊 / 寫摘要):MiniMax 主(付費穩、不吃 Gemini 免費配額)→ Gemini 備援。
-// 回傳純文字(已去 MiniMax-M3 的 <think> 推理段)。「聽」音檔仍走 AssemblyAI/Gemini,不經此。
-async function textLLM(promptText) {
-  if (platform.minimaxApiKey && platform.aiJudgeModel) {
-    try {
-      const r = await fetch(`${platform.minimaxBaseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${platform.minimaxApiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: platform.aiJudgeModel, max_tokens: 8000, messages: [{ role: 'user', content: promptText }] }),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(`MiniMax ${r.status}: ${JSON.stringify(j).slice(0, 160)}`);
-      const content = String(j.choices?.[0]?.message?.content || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-      if (content) return content;
-      throw new Error('MiniMax 回傳空內容');
-    } catch (e) {
-      console.warn(`[meetings] MiniMax 文字失敗,改用 Gemini 備援: ${e.message}`);
-    }
-  }
-  return geminiText(promptText); // 備援
-}
-function extractJson(raw) {
-  return JSON.parse((raw.replace(/```(json)?/gi, '').match(/\{[\s\S]*\}/) || ['{}'])[0]);
-}
-
+// ── Gemini 直讀音檔(唯一還沒被 platform.llm 取代的路徑)──────
+// llm.js 不吃音訊,所以這條備援仍自己打 Gemini Files API,也自己解析 JSON。
+// Gemini 免費配額是「每分鐘」限流,故三個呼叫都必須帶 fetchRetry。
+//
 // Gemini 直接讀音檔 → 整理成 parsed(供「無 AssemblyAI key」與「AssemblyAI 失敗備援」共用)。
 // 走 Google 網路(從雲端主機穩定),但無講者分離,故不產署名逐字稿。
 async function geminiTranscribeParsed({ buffer, filename, contentType, roster, cfg = GENERIC_MEETINGS_CONFIG }) {

@@ -55,7 +55,9 @@ export default {
 ```
 
 ### init(platform) — 共用能力(所有租戶相同)
-`{ notionRequest, pushLineMessage, assemblyKey, geminiKey, geminiModel, ensureDriveFolder, uploadToDrive }`
+`{ notionRequest, pushLineMessage, llm, assemblyKey, geminiKey, geminiModel, ensureDriveFolder, uploadToDrive, publicBaseUrl, publicLinkSecret }`
+
+`llm` 是 `core/llm.js` 的 `createLlm()`。摘要用 `profile:'quality'`(assemblyai gateway 領銜、直連 gemini 接手)、`maxTokens:16000`;與會名單走預設鏈。**「聽」音檔不經 llm**(llm.js 不吃音訊),仍直接打 AssemblyAI / Gemini Files API。
 
 ### ctx — 每次呼叫(帶租戶脈絡)
 - `tenant`:`{ key, dataSources: { meetings, tasks, projects }, driveConfigured, driveRootFolderId }`
