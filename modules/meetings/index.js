@@ -451,11 +451,16 @@ function renderDiarized(tr, legend) {
 }
 
 // ── 收斂逐字稿(署名摘要/決議/待辦)──────────────────────────
-// schema 只描述形狀、不列 required:少一個 nextMeeting 就整場失敗,遠比一份少一欄的會議記錄糟。
-// normalizeParsed 本來就容得下缺欄位。schema 的真正價值在 llm.js 那邊——它會把 schema 塞進
-// prompt、寬鬆解析 JSON、解析失敗自動重試並換後端,這正是手寫 extractJson 做不到的。
+// required 只放 title 與 minutes,不是因為它們「比較重要」,而是因為它們是
+// 「模型有照契約做事」的最低證據。模型把整包答案裹進 {"result":{…}} 是常見行為,
+// 而 extractFirstJsonObject 抓的是第一個 '{',也就是那層包裝:所有欄位一起消失,
+// normalizeParsed 照樣把它正規化成一份空白會議記錄——無錯誤、無 log,直接寫進 Notion 又推到 LINE。
+// 有了這道探針,解析失敗會重試並換後端(鏈上有三家),代價有界;實測 9/9 次成功回應這兩欄都在,
+// 偽陽性≈0。nextMeeting / todos / conclusions 一律維持選填。回歸測試見 tools/dryrun-meetings.mjs。
+const REQUIRED_SUMMARY_KEYS = ['title', 'minutes'];
 const SUMMARY_SCHEMA = {
   type: 'object',
+  required: REQUIRED_SUMMARY_KEYS,
   properties: {
     title: { type: 'string' },
     type: { type: 'string' },
@@ -871,7 +876,12 @@ async function geminiTranscribeParsed({ buffer, filename, contentType, roster, c
   }, { tries: 5, label: 'Gemini generate', baseDelay: 6000 });
   const genJson = await gen.json();
   const raw = (genJson.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
-  return normalizeParsed(JSON.parse((raw.replace(/```(json)?/gi, '').match(/\{[\s\S]*\}/) || ['{}'])[0]));
+  const j = JSON.parse((raw.replace(/```(json)?/gi, '').match(/\{[\s\S]*\}/) || ['{}'])[0]);
+  // 這條路徑不經 llm.js,拿不到 schema 檢查 —— 同一個「包一層」的洞在這裡也開著。
+  // 寧可讓 finalizeMeeting 的 catch 誠實報「整理失敗」(錄音留底還在),也不要靜靜產出一頁空白。
+  const missing = REQUIRED_SUMMARY_KEYS.filter((k) => !(k in j));
+  if (missing.length) throw new Error(`Gemini 直讀回傳缺少 ${missing.join('/')}(整包可能被裹在另一層 key 裡)`);
+  return normalizeParsed(j);
 }
 
 // ══ 後備:Gemini 直轉流程(無 AssemblyAI key 時使用)══
