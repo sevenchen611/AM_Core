@@ -40,7 +40,14 @@ export default {
   drive, driveConfigured, ensureDriveFolder(name, parentId), uploadToDrive(...), getDriveAccessToken(),
   // Portal 授權(web routes 用)
   portal: { pinAuthed(req), userAuthed(req), checkPin(pin) },
-  // AI 金鑰(共用)
+  // LLM(統一備援鏈)← 呼叫 AI 一律用這個
+  llm: {
+    completeJson({ system, userContent, schema, maxTokens, imagePaths }),  // → 解析後的物件
+    completeText({ system, userContent, maxTokens, imagePaths }),          // → 純文字
+    complete(...),        // → { data, backend, attempts }：想知道實際是誰答的
+    available, backends, selfTest(),
+  },
+  // AI 金鑰(共用)⚠️ 逐步退場——留給尚未遷移的模組與非 LLM 服務(AssemblyAI)
   anthropicApiKey, assemblyKey, geminiKey, geminiModel, minimaxApiKey, minimaxBaseUrl, aiProvider, aiJudgeModel,
 }
 ```
@@ -75,6 +82,7 @@ routes: [
 
 - **寫 Notion 一律經 `platform.notionRequest`**：守衛只放行「某租戶宣告過、且位於該租戶母頁下」的資料源；目標 id 一律取自 `ctx.tenant.dataSources.*`，模組因此碰不到別租戶的庫。
 - **模組內任何狀態(例如會議待補 pending)必須以「(租戶, 群組)」為鍵**(`${tenant.key}::${groupId}`)，避免跨租戶污染。
+- **呼叫 AI 一律經 `platform.llm`**，不要自己 `fetch` 任何供應商、不要自己寫備援。備援鏈與成本策略集中在 `core/llm.js`(鏈序由 `AMCORE_LLM_CHAIN` 決定，預設 `minimax,gemini,anthropic`)。需要看圖就傳 `imagePaths`——抽象層會自動跳過看不見圖的後端(MiniMax)，而不是讓它瞎掰。
 
 ### 參考實作（以此為準）
 

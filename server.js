@@ -7,7 +7,7 @@ import { bootstrap } from './core/bootstrap.js';
 import { sendJson, sendText, readBody } from './core/util.js';
 
 const ctx = await bootstrap(process.env);
-const { tenants, line, router, dispatcher, portal, modules, platform, logger } = ctx;
+const { tenants, line, router, dispatcher, portal, modules, platform, llm, logger } = ctx;
 const queueAccessKey = process.env.AMCORE_QUEUE_ACCESS_KEY || process.env.BUILD_QUEUE_ACCESS_KEY || '';
 
 if (!line.configured) logger.warn('Missing LINE_CHANNEL_ACCESS_TOKEN or LINE_CHANNEL_SECRET — webhook signature will fail.');
@@ -28,6 +28,7 @@ const server = http.createServer(async (req, res) => {
       platform: 'am-core',
       lineConfigured: line.configured,
       driveConfigured: platform.driveConfigured,
+      llm: { available: llm.available, chain: llm.backends },
       tenants: tenants.map((t) => ({
         key: t.key,
         displayName: t.displayName,

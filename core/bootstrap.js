@@ -7,6 +7,7 @@ import { createNotion } from './notion.js';
 import { createLine } from './line.js';
 import { createDrive } from './drive.js';
 import { createPortal } from './portal.js';
+import { createLlm } from './llm.js';
 import { createRouter } from './router.js';
 import { loadModules, createDispatcher } from './modules.js';
 
@@ -39,6 +40,8 @@ export async function bootstrap(env = process.env, overrides = {}) {
     portalPin: env.AMCORE_PORTAL_PIN || '',
     logger,
   });
+  // LLM 抽象層:可插拔後端 + 統一備援鏈(鏈序見 AMCORE_LLM_CHAIN)。
+  const llm = overrides.llm || createLlm({ env, logger });
 
   // 注入模組 init(platform) 的共用能力包(比照 BuildAM 各 init 的聯集,平台級一份)。
   const platform = {
@@ -60,7 +63,10 @@ export async function bootstrap(env = process.env, overrides = {}) {
     getDriveAccessToken: drive.getAccessToken,
     // Portal 授權(web routes 用)
     portal,
+    // LLM(統一備援鏈)。新模組一律用這個,不要自己接 AI 供應商。
+    llm,
     // AI 金鑰(共用;meetings 等模組於 init 取用)
+    // ⚠️ 逐步退場:新程式請改用 platform.llm,金鑰只留給尚未遷移的模組與非 LLM 服務(AssemblyAI)。
     anthropicApiKey: env.ANTHROPIC_API_KEY || '',
     assemblyKey: env.ASSEMBLYAI_API_KEY || '',
     geminiKey: env.GEMINI_API_KEY || '',
@@ -75,5 +81,5 @@ export async function bootstrap(env = process.env, overrides = {}) {
   const modules = await loadModules({ tenants, platform, logger });
   const dispatcher = createDispatcher({ tenants, modules, platform, logger });
 
-  return { env, logger, tenants, registry, platform, line, notion, drive, portal, router, modules, dispatcher };
+  return { env, logger, tenants, registry, platform, line, notion, drive, portal, llm, router, modules, dispatcher };
 }
