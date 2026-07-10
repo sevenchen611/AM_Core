@@ -258,9 +258,9 @@ async function parseRoster(answer) {
   const empty = { topic: '', speakers: [], keyterms: [], projectCode: '', kind: 'work' };
   if (!answer || !answer.trim()) return empty;
   const fallbackKind = kindFromText(answer) || 'work';
-  if (!platform.geminiKey) return { topic: answer.trim().slice(0, 40), speakers: [], keyterms: [], projectCode: '', kind: fallbackKind };
+  if (!platform.minimaxApiKey && !platform.geminiKey) return { topic: answer.trim().slice(0, 40), speakers: [], keyterms: [], projectCode: '', kind: fallbackKind };
   try {
-    const raw = await geminiText(`以下是使用者提供的一場會議/聚會的與會資訊。請抽取成 JSON:
+    const raw = await textLLM(`以下是使用者提供的一場會議/聚會的與會資訊。請抽取成 JSON:
 {"kind":"work|share","topic":"主題(15字內)","project":"ZS|HZ|SYS 或空字串","speakers":[{"order":1,"name":"姓名","role":"職務/角色","gender":"男|女|"}],"keyterms":["需要被正確辨識的人名或專有名詞",...]}
 規則:
 - kind:一般工作/工程會議填 "work";讀書會、心得分享、座談、分享會等「分享/討論型」聚會填 "share";不確定填 "work"。
@@ -388,7 +388,7 @@ function renderDiarized(tr, legend) {
 // ── Gemini 收斂(署名摘要/決議/待辦)────────────────────────
 async function summarize({ diarized, roster, legend }) {
   const who = [...legend.values()].join('、');
-  const raw = await geminiText(meetingPrompt({ who, topic: roster.topic, today: todayStr(), kind: roster.kind }) + `\n\n逐字稿:\n${diarized}`);
+  const raw = await textLLM(meetingPrompt({ who, topic: roster.topic, today: todayStr(), kind: roster.kind }) + `\n\n逐字稿:\n${diarized}`);
   return normalizeParsed(extractJson(raw));
 }
 
@@ -551,6 +551,28 @@ async function geminiText(promptText) {
   const j = await r.json();
   if (!r.ok) throw new Error(`Gemini ${r.status}: ${JSON.stringify(j).slice(0, 160)}`);
   return (j.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
+}
+
+// 文字 LLM(解析與會資訊 / 寫摘要):MiniMax 主(付費穩、不吃 Gemini 免費配額)→ Gemini 備援。
+// 回傳純文字(已去 MiniMax-M3 的 <think> 推理段)。「聽」音檔仍走 AssemblyAI/Gemini,不經此。
+async function textLLM(promptText) {
+  if (platform.minimaxApiKey && platform.aiJudgeModel) {
+    try {
+      const r = await fetch(`${platform.minimaxBaseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${platform.minimaxApiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: platform.aiJudgeModel, max_tokens: 8000, messages: [{ role: 'user', content: promptText }] }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(`MiniMax ${r.status}: ${JSON.stringify(j).slice(0, 160)}`);
+      const content = String(j.choices?.[0]?.message?.content || '').replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+      if (content) return content;
+      throw new Error('MiniMax 回傳空內容');
+    } catch (e) {
+      console.warn(`[meetings] MiniMax 文字失敗,改用 Gemini 備援: ${e.message}`);
+    }
+  }
+  return geminiText(promptText); // 備援
 }
 function extractJson(raw) {
   return JSON.parse((raw.replace(/```(json)?/gi, '').match(/\{[\s\S]*\}/) || ['{}'])[0]);
