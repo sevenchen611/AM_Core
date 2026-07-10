@@ -746,14 +746,15 @@ async function archiveAudio(buffer, filename, contentType, tenant) {
 }
 
 // ── Gemini 共用 ────────────────────────────────────────────
+// 長會議的摘要實際上只有這條路(MiniMax-M3 會把 max_tokens 全耗在 <think> 上、回空內容),
+// 故此處必須帶重試:免費配額是「每分鐘」限流,退避總長 ~60 秒足以跨過一個窗口。
 async function geminiText(promptText) {
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${platform.geminiModel}:generateContent`, {
+  const r = await fetchRetry(`https://generativelanguage.googleapis.com/v1beta/models/${platform.geminiModel}:generateContent`, {
     method: 'POST',
     headers: { 'x-goog-api-key': platform.geminiKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({ contents: [{ parts: [{ text: promptText }] }] }),
-  });
+  }, { tries: 5, label: 'Gemini', baseDelay: 6000 });
   const j = await r.json();
-  if (!r.ok) throw new Error(`Gemini ${r.status}: ${JSON.stringify(j).slice(0, 160)}`);
   return (j.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
 }
 
