@@ -12,6 +12,8 @@
 //
 // 功能與 BuildAM src/meeting.js 完全等同,只是重組成模組形狀。
 
+import crypto from 'node:crypto';
+
 let platform = null;
 function init(injected) { platform = injected; }
 
@@ -92,7 +94,7 @@ function withNextMeetingTodo(parsed) {
 }
 
 // LINE 版會議記錄:只放「重點摘要 + 主議題結論 + 待辦」(不含分區筆記與逐字稿)
-function meetingLineText({ parsed, legendLine, date, type, url }) {
+function meetingLineText({ parsed, legendLine, date, type, url, publicUrl }) {
   const L = [`📋 會議記錄|${date} ${parsed.title || '工程會議'}(${type})`];
   if (legendLine) L.push(`講者:${legendLine}`);
   const hi = parsed.highlights || [];
@@ -102,7 +104,8 @@ function meetingLineText({ parsed, legendLine, date, type, url }) {
   const todos = parsed.todos || [];
   L.push(`\n📅 待辦 ${todos.length} 項${todos.length ? '\n' + todos.map((t, n) => `${n + 1}. ${t.content}${t.owner ? `(${t.owner})` : ''}${t.due ? ` 期限${t.due}` : ''}`).join('\n') : ':(無)'}`);
   if (parsed.nextMeeting) L.push(`\n🔔 下次會議:${parsed.nextMeeting}`);
-  L.push(`\n📄 完整記錄(含分區筆記與逐字稿):${url}`);
+  if (publicUrl) L.push(`\n🌐 完整記錄(免帳號,可轉傳):${publicUrl}`);
+  L.push(`${publicUrl ? '' : '\n'}📄 Notion 完整記錄(需帳號):${url}`);
   return L.join('\n');
 }
 
@@ -515,8 +518,8 @@ async function resolveMeetingsTarget(tenant, binding) {
   }
 }
 
-// 取「公開連結」:Notion 的頁面被發佈到網頁後(通常是把所屬會議庫/母頁按了 Share→Publish),
-// API 才讀得到 page.public_url(唯讀,無法用 API 發佈)。沒發佈就退回內部連結(需 Notion 帳號)。
+// 取 Notion 連結:若該頁已在 Notion 手動發佈到網頁,用其 public_url;否則用內部連結(需帳號)。
+// (Notion API 無法發佈頁面——public_url 唯讀;真正的免帳號分享走下方「公開會議頁」。)
 async function shareableUrl(pageId, fallbackUrl) {
   try {
     const p = await platform.notionRequest(`/v1/pages/${encodeURIComponent(pageId)}`, { method: 'GET' });
@@ -525,6 +528,136 @@ async function shareableUrl(pageId, fallbackUrl) {
     console.warn(`read public_url failed: ${e.message}`);
     return fallbackUrl;
   }
+}
+
+// ══ 公開會議頁(自架,免 Notion 帳號,連結可轉傳)══════════════
+// 連結形如 /m/<32碼頁id>-<16碼簽章>。簽章用 platform.publicLinkSecret,
+// 確保只有「我們發出的會議連結」能開,無法用別的 Notion 頁 id 亂猜/亂讀。
+const normId = (id) => String(id || '').replace(/-/g, '').toLowerCase();
+function meetingSig(pageId) {
+  return crypto.createHmac('sha256', platform.publicLinkSecret || '').update(`meeting:${normId(pageId)}`).digest('hex').slice(0, 16);
+}
+function publicMeetingUrl(pageId) {
+  if (!platform.publicBaseUrl || !platform.publicLinkSecret) return '';
+  return `${String(platform.publicBaseUrl).replace(/\/+$/, '')}/m/${normId(pageId)}-${meetingSig(pageId)}`;
+}
+
+async function readChildren(blockId) {
+  let cursor, out = [];
+  do {
+    const r = await platform.notionRequest(`/v1/blocks/${encodeURIComponent(blockId)}/children?page_size=100${cursor ? `&start_cursor=${cursor}` : ''}`, { method: 'GET' });
+    out.push(...(r.results || []));
+    cursor = r.has_more ? r.next_cursor : null;
+  } while (cursor);
+  return out;
+}
+
+const esc = (s) => String(s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const richText = (rt) => (rt || []).map((r) => r.plain_text || '').join('');
+
+// Notion 區塊 → HTML(標題/條列/checkbox/段落)
+function blocksToHtml(blocks) {
+  let html = '', inList = false;
+  const closeList = () => { if (inList) { html += '</ul>'; inList = false; } };
+  for (const b of blocks) {
+    const t = b[b.type];
+    const txt = esc(richText(t?.rich_text));
+    if (b.type === 'bulleted_list_item') { if (!inList) { html += '<ul>'; inList = true; } html += `<li>${txt}</li>`; continue; }
+    closeList();
+    if (b.type === 'heading_2') html += `<h2>${txt}</h2>`;
+    else if (b.type === 'heading_3') html += `<h3>${txt}</h3>`;
+    else if (b.type === 'to_do') html += `<div class="todo"><input type="checkbox" disabled${t?.checked ? ' checked' : ''}><span>${txt}</span></div>`;
+    else if (b.type === 'paragraph' && txt) html += `<p>${txt}</p>`;
+  }
+  closeList();
+  return html;
+}
+
+// 讀會議頁的三個可展開區段,並把「摘要」內的待辦切出來 → 摘要/筆記/待辦/逐字稿 四段
+async function buildPublicSections(pageId) {
+  const top = await readChildren(pageId);
+  const legend = top.filter((b) => b.type === 'paragraph')
+    .map((b) => richText(b.paragraph?.rich_text)).find((s) => s.includes('【講者對照】')) || '';
+  const sections = [];
+  for (const tg of top.filter((b) => b.type === 'heading_2' && b.heading_2?.is_toggleable)) {
+    const title = richText(tg.heading_2.rich_text);
+    const kids = await readChildren(tg.id);
+    if (title.includes('摘要')) {
+      const i = kids.findIndex((b) => b.type === 'heading_2' && richText(b.heading_2?.rich_text).includes('待辦'));
+      sections.push({ key: 'summary', title: '📄 摘要', blocks: i >= 0 ? kids.slice(0, i) : kids });
+      if (i >= 0) sections.push({ key: 'todo', title: '📅 待辦事項', blocks: kids.slice(i + 1) });
+    } else if (title.includes('筆記')) sections.push({ key: 'notes', title: '📝 筆記', blocks: kids });
+    else if (title.includes('逐字稿')) sections.push({ key: 'transcript', title: '🎧 逐字稿', blocks: kids });
+    else sections.push({ key: 'other', title, blocks: kids });
+  }
+  const order = { summary: 1, notes: 2, todo: 3, transcript: 4, other: 5 };
+  sections.sort((a, b) => (order[a.key] || 9) - (order[b.key] || 9));
+  return { legend, sections };
+}
+
+async function renderPublicMeetingHtml(pageId) {
+  const page = await platform.notionRequest(`/v1/pages/${encodeURIComponent(pageId)}`, { method: 'GET' });
+  const title = richText(page.properties?.['會議']?.title);
+  if (!title) throw new Error('not a meeting page'); // 只服務會議頁,避免被拿去讀別的 Notion 頁
+  const date = (page.properties?.['日期']?.date?.start || '').slice(0, 10);
+  const who = richText(page.properties?.['參與者']?.rich_text);
+  const type = page.properties?.['類型']?.select?.name || '';
+  const { legend, sections } = await buildPublicSections(pageId);
+  const body = sections.map((s) => `<details${s.key === 'summary' ? ' open' : ''}><summary>${esc(s.title)}</summary>`
+    + `<div class="sec">${blocksToHtml(s.blocks) || '<p class="dim">(無內容)</p>'}</div></details>`).join('');
+  return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>${esc(title)}</title>
+<style>
+ :root{--bg:#f5f7f6;--card:#fff;--line:#e0e6e3;--green:#2e7d52;--ink:#22302a;--dim:#6b7a72}
+ @media(prefers-color-scheme:dark){:root{--bg:#161a18;--card:#1e2422;--line:#2f3a35;--ink:#e6ece9;--dim:#9aa8a1}}
+ *{box-sizing:border-box;margin:0}
+ body{font-family:system-ui,-apple-system,'Noto Sans TC',sans-serif;background:var(--bg);color:var(--ink);line-height:1.65;padding:16px 14px 48px}
+ .wrap{max-width:760px;margin:0 auto}
+ header{border-bottom:2px solid var(--green);padding-bottom:12px;margin-bottom:16px}
+ h1{font-size:20px;color:var(--green);line-height:1.35}
+ .meta{font-size:13px;color:var(--dim);margin-top:6px}
+ details{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:10px;overflow:hidden}
+ summary{cursor:pointer;padding:13px 14px;font-weight:700;font-size:15px;list-style:revert}
+ summary::marker{color:var(--green)}
+ .sec{padding:2px 16px 14px;border-top:1px solid var(--line)}
+ .sec h2{font-size:15px;color:var(--green);margin:14px 0 6px}
+ .sec h3{font-size:14px;margin:12px 0 4px}
+ .sec p{font-size:14px;margin:8px 0;white-space:pre-wrap;word-break:break-word}
+ .sec ul{margin:6px 0 6px 18px}
+ .sec li{font-size:14px;margin:4px 0}
+ .todo{display:flex;gap:8px;align-items:flex-start;font-size:14px;margin:6px 0}
+ .todo input{margin-top:5px}
+ .dim{color:var(--dim)}
+ footer{margin-top:20px;font-size:13px;color:var(--dim);text-align:center}
+ footer a{color:var(--green)}
+</style></head><body><div class="wrap">
+<header><h1>${esc(title)}</h1>
+<div class="meta">${[date, type, who && `與會:${who}`].filter(Boolean).map(esc).join(' ・ ')}</div>
+${legend ? `<div class="meta">${esc(legend)}</div>` : ''}
+</header>
+${body || '<p class="dim">(此會議尚無內容)</p>'}
+<footer>🐌 葉小蝸自動整理 ・ <a href="${esc(page.url)}" target="_blank" rel="noopener">在 Notion 開啟(需帳號)</a></footer>
+</div></body></html>`;
+}
+
+// GET /m/<32碼id>-<16碼簽章> → 公開會議頁。回傳 true=已處理。
+async function handlePublicRequest(req, res, pathname) {
+  const m = String(pathname).match(/^\/m\/([0-9a-f]{32})-([0-9a-f]{16})$/i);
+  if (!m) return false;
+  const [, id, sig] = m;
+  const deny = () => { res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end('<meta charset="utf-8"><p style="font-family:system-ui;padding:40px;text-align:center">找不到這份會議記錄(連結可能失效)。</p>'); };
+  if (!platform.publicLinkSecret || meetingSig(id) !== sig.toLowerCase()) { deny(); return true; }
+  try {
+    const html = await renderPublicMeetingHtml(id);
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' });
+    res.end(html);
+  } catch (e) {
+    console.warn(`public meeting page failed: ${e.message}`);
+    deny();
+  }
+  return true;
 }
 
 // ── 落地 + 發布 ────────────────────────────────────────────
@@ -597,9 +730,9 @@ async function publishMeeting({ parsed, diarized, legend, roster, projectPageId,
     }).catch((e) => console.warn(`todo create failed: ${e.message}`));
   }
 
-  // LINE 推完整會議記錄(不含逐字稿),過長自動分段;連結優先用公開連結(沒發佈則退回內部連結)
+  // LINE 推完整會議記錄(不含逐字稿),過長自動分段;附「自架公開頁(免帳號)」+「Notion 連結」
   const url = await shareableUrl(meeting.id, meeting.url);
-  await sendMeetingToLine(groupId, parsed, { legendLine, date: today, type: meetingType, url });
+  await sendMeetingToLine(groupId, parsed, { legendLine, date: today, type: meetingType, url, publicUrl: publicMeetingUrl(meeting.id) });
   console.log(`Meeting published (AssemblyAI): ${parsed.title}, ${todos.length} todos.`);
 }
 
@@ -744,7 +877,7 @@ async function processRecording({ tenant, buffer, filename, contentType, binding
   }
 
   const url = await shareableUrl(meeting.id, meeting.url);
-  await sendMeetingToLine(groupId, parsed, { legendLine: '', date: today, type: meetingType, url });
+  await sendMeetingToLine(groupId, parsed, { legendLine: '', date: today, type: meetingType, url, publicUrl: publicMeetingUrl(meeting.id) });
   console.log(`Meeting processed (Gemini fallback): ${parsed.title}, ${todos.length} todos.`);
 }
 
@@ -758,6 +891,8 @@ export default {
   onAudio,             // (ctx) 綁定群收到音檔 → 反問並暫存
   onMessage,           // (ctx) 每則訊息;若在等與會資訊則收斂,回傳 true=已處理
   provisionMeetingsDb, // (tenant, groupName) 手動預建某群的會議庫(選用)
+  publicMeetingUrl,    // (pageId) → 自架公開頁連結(需 publicBaseUrl + publicLinkSecret)
+  handlePublicRequest, // (req,res,pathname) GET /m/<id>-<sig> 公開會議頁;回 true=已處理
   consumeRoster,       // (ctx) 直接以與會資訊收斂發布(外層已判定 pending 時用)
   processRecording,    // (ctx) 無 AssemblyAI 時的 Gemini 直轉
 };

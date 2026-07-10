@@ -41,6 +41,17 @@ export default {
 - 音檔類:`{ tenant, buffer, filename, contentType, binding, senderName, groupId, ackSent }`
 - 訊息類:`{ tenant, groupId, text, senderName }`
 
+## 公開會議頁(免 Notion 帳號)
+LINE 訊息尾端同時附**兩條連結**:
+- 🌐 **公開連結**(自架,免帳號、可轉傳):`GET /m/<32碼頁id>-<16碼簽章>` → 一頁 HTML,四個 toggle 收合:**📄 摘要 / 📝 筆記 / 📅 待辦事項 / 🎧 逐字稿**(摘要預設展開)。手機友善、支援深色模式、`noindex` 不被搜尋引擎收錄。
+- 📄 **Notion 連結**(需帳號):若該頁已在 Notion 手動發佈,自動改用其 `public_url`。
+
+**安全**:連結帶 HMAC 簽章(`platform.publicLinkSecret`),簽章錯 → 404;且只渲染「有『會議』標題欄」的頁面,拿別的 Notion 頁 id 也讀不到 → 不會外洩其他資料。
+**設定**:`init(platform)` 需 `publicBaseUrl` + `publicLinkSecret`;沒設就只放 Notion 連結(行為不變)。
+**掛載**:core/server 需在任何授權檢查「之前」把 `GET /m/*` 交給 `handlePublicRequest(req,res,pathname)`(回 `true` 表示已處理)。
+
+> ⚠️ 公開頁**包含逐字稿**。連結不可猜(簽章),但**拿到連結的人就看得到全部**——轉傳前請留意。
+
 ## 每群一個獨立會議庫(選用,真隔離)
 若 `tenant.meetingsParentPageId` 有值(母頁 id),就啟用「**每個 LINE 群一個獨立會議記錄庫**」:
 - 某群第一次開會、綁定頁的「會議資料庫」欄還空著 → 在母頁下**自動建一個會議庫**(欄位:會議/類型/日期/參與者/專案),把 data source id **回填該群綁定頁的「會議資料庫」欄**;之後這群的會議都寫進去。
