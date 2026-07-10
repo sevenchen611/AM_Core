@@ -794,26 +794,28 @@ async function geminiTranscribeParsed({ buffer, filename, contentType, roster })
     Buffer.from(buffer),
     Buffer.from(`\r\n--${boundary}--`),
   ]);
-  const up = await fetch('https://generativelanguage.googleapis.com/upload/v1beta/files?uploadType=multipart', {
+  // 這是「備援的備援」(AssemblyAI 全掛時的唯一活路),三個呼叫都必須耐得住暫時性失敗。
+  const up = await fetchRetry('https://generativelanguage.googleapis.com/upload/v1beta/files?uploadType=multipart', {
     method: 'POST', headers: { 'x-goog-api-key': platform.geminiKey, 'Content-Type': `multipart/related; boundary=${boundary}` }, body,
-  });
-  const upText = await up.text();
-  if (!up.ok) throw new Error(`Gemini upload failed: ${up.status} ${upText.slice(0, 200)}`);
-  let file = JSON.parse(upText).file;
+  }, { tries: 3, label: 'Gemini upload', baseDelay: 5000 });
+  let file = JSON.parse(await up.text()).file;
   for (let i = 0; i < 60 && file.state === 'PROCESSING'; i++) {
     await new Promise((r) => setTimeout(r, 10000));
-    file = await (await fetch(`https://generativelanguage.googleapis.com/v1beta/${file.name}`, { headers: { 'x-goog-api-key': platform.geminiKey } })).json();
+    // 輪詢也要過 fetchRetry:否則一次 429 會讓 file.state 變 undefined、直接跳出迴圈當成失敗。
+    const poll = await fetchRetry(`https://generativelanguage.googleapis.com/v1beta/${file.name}`, {
+      headers: { 'x-goog-api-key': platform.geminiKey },
+    }, { tries: 3, label: 'Gemini file state' });
+    file = await poll.json();
   }
   if (file.state !== 'ACTIVE') throw new Error(`Gemini file state: ${file.state}`);
   const who = (roster?.speakers || []).map((s) => `${s.name}${s.role ? `(${s.role})` : ''}`).join('、');
   const prompt = meetingPrompt({ who: '', topic: roster?.topic || '', today: todayStr(), kind: roster?.kind })
     + (who ? `\n與會者(供人名辨識,依發言順序):${who}` : '');
-  const gen = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${platform.geminiModel}:generateContent`, {
+  const gen = await fetchRetry(`https://generativelanguage.googleapis.com/v1beta/models/${platform.geminiModel}:generateContent`, {
     method: 'POST', headers: { 'x-goog-api-key': platform.geminiKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({ contents: [{ parts: [{ file_data: { mime_type: contentType, file_uri: file.uri } }, { text: prompt }] }] }),
-  });
+  }, { tries: 5, label: 'Gemini generate', baseDelay: 6000 });
   const genJson = await gen.json();
-  if (!gen.ok) throw new Error(`Gemini generate failed: ${gen.status} ${JSON.stringify(genJson).slice(0, 200)}`);
   const raw = (genJson.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
   return normalizeParsed(JSON.parse((raw.replace(/```(json)?/gi, '').match(/\{[\s\S]*\}/) || ['{}'])[0]));
 }
