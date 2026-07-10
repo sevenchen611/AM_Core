@@ -17,7 +17,8 @@
 //   4. 零相依:全部走 fetch,不引入 SDK(平台 npm install 目前是 0 套件)。
 //
 // 合約(與 HOZO_AM src/llm-backend.js 相同,收編時可直接對接):
-//   llm.completeJson({ system, userContent, schema, maxTokens, imagePaths, profile, chain }) → 解析後的物件
+//   llm.completeJson({ system, userContent, schema, maxTokens, imagePaths, profile, chain,
+//                      timeoutMs, budgetMs }) → 解析後的物件
 //   llm.completeText({ ... 同上 }) → 純文字
 //   llm.complete(...) → { data, backend, attempts }   // 想知道實際是誰答的
 //   llm.available / llm.backends / llm.profiles / llm.selfTest()
@@ -26,12 +27,24 @@
 //   profile:'cheap'   → 短 prompt、每則訊息都跑(＝預設鏈,minimax 當頭)
 //   chain:'a,b,c'     → 直接指名鏈序(蓋過 profile)
 //   兩者指名的後端若全不可用,會退回預設鏈,不會變成空鏈。
+//   timeoutMs         → 單一請求逾時(預設 120s)
+//   budgetMs          → 整條鏈的總時間硬上限(預設 300s)。這才是使用者等待的界線。
 
 import fs from 'node:fs';
 import path from 'node:path';
 
 const DEFAULT_CHAIN = 'minimax,gemini,anthropic';
-const DEFAULT_TIMEOUT_MS = 300_000;
+
+// ── 時間預算 ────────────────────────────────────────────────
+// timeout 綁的是「單一請求」,綁不住「整條鏈」:3 家後端 × 最多 3 次 = 最多 9 個請求。
+// 舊值 300s 逾時 → 最壞 3×300s+24s 退避 = 15.4 分/後端 × 3 家 ≈ 46 分鐘才會拋錯。
+// 只把逾時降到 120s 仍有 19.2 分 —— 對「約 3-8 分鐘」的承諾來說一樣是石沉大海。
+// 所以真正的界線是 BUDGET:complete() 的總時間硬上限,超過就拋,不再試下一個後端。
+//
+// 120s 的由來:真實 meetingPrompt + 27,000 字逐字稿實測,最慢的 gpt-5-nano 是 94s。
+// 若日後要吃長影片/大 PDF,請由呼叫端傳 timeoutMs 覆寫,不要調高這個預設值。
+const DEFAULT_TIMEOUT_MS = 120_000; // 單一請求
+const DEFAULT_BUDGET_MS = 300_000;  // complete() 整條鏈
 
 // ── 失敗分類:三種失敗的正確處置相反,別混為一談 ─────────────
 //   transient 429 / 5xx / 網路例外 / timeout → 退避後重試同一後端
@@ -148,6 +161,10 @@ async function postJson(url, { headers, body, timeoutMs = DEFAULT_TIMEOUT_MS }) 
     });
     const data = await res.json().catch(() => ({}));
     return { ok: res.ok, status: res.status, data };
+  } catch (error) {
+    // 逾時是暫時性的,但要看得出來是逾時而不是別的網路錯。
+    if (error?.name === 'AbortError') throw taggedError('transient', `請求逾時(${timeoutMs}ms)`);
+    throw error; // 其餘網路例外沒有 kind → classify() 當 transient
   } finally {
     clearTimeout(timer);
   }
@@ -177,7 +194,7 @@ function minimaxBackend({ apiKey, model, baseUrl, visionOverride }) {
     model,
     available: Boolean(apiKey),
     supportsImages: minimaxSeesImages(model, visionOverride),
-    async callRaw({ prompt, maxTokens, imagePaths }) {
+    async callRaw({ prompt, maxTokens, imagePaths, timeoutMs }) {
       let userMessage = prompt;
       if (imagePaths && imagePaths.length) {
         // OpenAI 相容的 image_url + data URL。PDF 不走這條(端點只吃圖),丟錯讓鏈落到 Gemini。
@@ -192,6 +209,7 @@ function minimaxBackend({ apiKey, model, baseUrl, visionOverride }) {
       const { ok, status, data } = await postJson(url, {
         headers: { authorization: `Bearer ${apiKey}` },
         body: { model, max_tokens: maxTokens, temperature: 0.2, messages: [{ role: 'user', content: userMessage }] },
+        timeoutMs,
       });
       if (!ok) throw httpError('MiniMax', status, brief(data?.error || data?.base_resp || data));
       // MiniMax 有兩種錯誤面貌:HTTP 錯誤碼,或 200 但 base_resp.status_code != 0。
@@ -219,7 +237,7 @@ function geminiBackend({ apiKey, model }) {
     model,
     available: Boolean(apiKey),
     supportsImages: true,
-    async callRaw({ prompt, maxTokens, imagePaths }) {
+    async callRaw({ prompt, maxTokens, imagePaths, timeoutMs }) {
       const parts = [{ text: prompt }];
       for (const p of imagePaths || []) {
         const { mime, base64 } = readImage(p);
@@ -228,6 +246,7 @@ function geminiBackend({ apiKey, model }) {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
       const { ok, status, data } = await postJson(url, {
         body: { contents: [{ parts }], generationConfig: { temperature: 0.2, maxOutputTokens: maxTokens } },
+        timeoutMs,
       });
       if (!ok) throw httpError('Gemini', status, brief(data?.error || data));
       const content = (data?.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
@@ -254,10 +273,11 @@ function assemblyaiBackend({ apiKey, model }) {
     model,
     available: Boolean(apiKey),
     supportsImages: false, // 未驗證 gateway 的多模態請求形狀,先關;要開請先實測(scripts/check-llm.mjs)
-    async callRaw({ prompt, maxTokens }) {
+    async callRaw({ prompt, maxTokens, timeoutMs }) {
       const { ok, status, data } = await postJson('https://llm-gateway.assemblyai.com/v1/chat/completions', {
         headers: { authorization: apiKey },
         body: { model, max_tokens: maxTokens, temperature: 0.2, messages: [{ role: 'user', content: prompt }] },
+        timeoutMs,
       });
       if (!ok) throw httpError('AssemblyAI Gateway', status, brief(data?.error || data));
       const cleaned = stripThink(data?.choices?.[0]?.message?.content);
@@ -274,7 +294,7 @@ function anthropicBackend({ apiKey, model }) {
     model,
     available: Boolean(apiKey),
     supportsImages: true,
-    async callRaw({ prompt, maxTokens, imagePaths }) {
+    async callRaw({ prompt, maxTokens, imagePaths, timeoutMs }) {
       const content = [];
       for (const p of imagePaths || []) {
         const { mime, base64 } = readImage(p);
@@ -284,6 +304,7 @@ function anthropicBackend({ apiKey, model }) {
       const { ok, status, data } = await postJson('https://api.anthropic.com/v1/messages', {
         headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
         body: { model, max_tokens: maxTokens, messages: [{ role: 'user', content }] },
+        timeoutMs,
       });
       if (!ok) throw httpError('Anthropic', status, brief(data?.error || data));
       const textBlock = (data?.content || []).find((b) => b.type === 'text');
@@ -294,8 +315,10 @@ function anthropicBackend({ apiKey, model }) {
 }
 
 // ── 組裝 ────────────────────────────────────────────────────
-// sleep 可注入:測試用 no-op 跑完退避邏輯而不真的等 24 秒。
-export function createLlm({ env = process.env, logger = console, sleep = sleepReal } = {}) {
+// sleep / now 可注入:測試用假時鐘跑完退避與總預算邏輯,而不真的等 5 分鐘。
+export function createLlm({ env = process.env, logger = console, sleep = sleepReal, now = Date.now } = {}) {
+  const envTimeoutMs = Number(env.AMCORE_LLM_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS;
+  const envBudgetMs = Number(env.AMCORE_LLM_BUDGET_MS) || DEFAULT_BUDGET_MS;
   const all = [
     minimaxBackend({
       apiKey: env.MINIMAX_API_KEY || '',
@@ -358,6 +381,7 @@ export function createLlm({ env = process.env, logger = console, sleep = sleepRe
   async function complete({
     system, userContent, schema = null, maxTokens = 16000, imagePaths = [],
     profile = null, chain: chainSpec = null,
+    timeoutMs = envTimeoutMs, budgetMs = envBudgetMs,
   }) {
     const candidates = eligible(imagePaths, chainSpec || (profile && PROFILES[profile]));
     if (!candidates.length) {
@@ -370,9 +394,16 @@ export function createLlm({ env = process.env, logger = console, sleep = sleepRe
     const failures = [];
     let totalAttempts = 0;
 
+    // 總時間預算:使用者看得見的等待上限。逾時只綁單一請求,綁不住整條鏈。
+    const startedAt = now();
+    const remainingMs = () => budgetMs - (now() - startedAt);
+    const budgetError = () => new Error(
+      `LLM 總時間預算 ${budgetMs >= 1000 ? `${Math.round(budgetMs / 1000)}s` : `${budgetMs}ms`} 用盡 → ${failures.map((f) => `${f.backend}/${f.kind}(${f.message})`).join('; ') || '(無後端來得及回應)'}`,
+    );
+
     // 打一次,並把「空回應」與「解析失敗」都標成 parse 類。
-    async function attemptOnce(backend) {
-      const raw = await backend.callRaw({ prompt, maxTokens, imagePaths });
+    async function attemptOnce(backend, perRequestTimeoutMs) {
+      const raw = await backend.callRaw({ prompt, maxTokens, imagePaths, timeoutMs: perRequestTimeoutMs });
       // 空回應一律當失敗。有 schema 時 parseJsonLoose('') 本來就會拋錯,但
       // completeText(schema=null)會把 '' 當成功回傳 → 靜默失敗、永不落備援。
       // 擋在這裡,四家後端 × 兩個入口一次全保護。
@@ -396,20 +427,27 @@ export function createLlm({ env = process.env, logger = console, sleep = sleepRe
       // 韌性主要由「換後端」承擔(quality 鏈頭 assemblyai 是付費、不受免費額度限流),
       // 不值得為了湊滿 60 秒把單一後端卡死一分鐘、拖慢整條鏈。
       for (;;) {
+        // 預算用盡就別再發請求了 —— 使用者不該為一條注定失敗的鏈再等一個逾時。
+        if (remainingMs() <= 0) throw budgetError();
+
         totalAttempts += 1;
         try {
-          const data = await attemptOnce(backend);
+          // 單一請求也不准超出剩餘預算,否則最後一次逾時會整個穿出去。
+          const data = await attemptOnce(backend, Math.min(timeoutMs, remainingMs()));
           if (failures.length) logger.log(`[llm] ${backend.name} 接手成功(前面失敗:${failures.map((f) => f.backend).join(', ')})`);
           return { data, backend: backend.name, attempts: totalAttempts };
         } catch (error) {
           const kind = classify(error);
 
           if (kind === 'transient' && transientTries + 1 < TRANSIENT_ATTEMPTS) {
-            transientTries += 1;
-            const delay = transientTries * TRANSIENT_BASE_DELAY_MS;
-            logger.warn(`[llm] ${backend.name} 暫時性失敗(${error.message}),${delay / 1000}s 後重試`);
-            await sleep(delay);
-            continue;
+            const delay = (transientTries + 1) * TRANSIENT_BASE_DELAY_MS;
+            // 睡完就沒時間發請求了 → 別睡,直接把剩下的預算讓給下一個後端。
+            if (delay < remainingMs()) {
+              transientTries += 1;
+              logger.warn(`[llm] ${backend.name} 暫時性失敗(${error.message}),${delay / 1000}s 後重試`);
+              await sleep(delay);
+              continue;
+            }
           }
           if (kind === 'parse' && parseTries + 1 < PARSE_ATTEMPTS) {
             parseTries += 1;
@@ -423,6 +461,7 @@ export function createLlm({ env = process.env, logger = console, sleep = sleepRe
       }
     }
 
+    if (remainingMs() <= 0) throw budgetError();
     throw new Error(`所有 LLM 後端都失敗 → ${failures.map((f) => `${f.backend}/${f.kind}(${f.message})`).join('; ')}`);
   }
 

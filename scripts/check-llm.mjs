@@ -143,6 +143,99 @@ console.log('\n── 重試分類(transient / parse / fatal)──');
     '網路例外 → 當暫時性,退避重試', `hits=${JSON.stringify(hits)}`);
 }
 
+// ── 時間預算:使用者看得見的等待上限 ──
+//
+// 這一段刻意「不」用假時鐘。假時鐘餵得出 complete() 想要的答案,卻不會真的去聽
+// AbortSignal —— 而 abort 正是逾時在生產環境的唯一實現方式。所以改用真計時器 +
+// 縮尺數值(毫秒級):timeoutMs=120、budgetMs=300。走的是與線上完全相同的那條路徑,
+// 只是把秒換成毫秒。sleep 注成 no-op(退避秒數另有測試,這裡只量時間界線)。
+console.log('\n── 時間預算(真計時器,縮尺至毫秒)──');
+{
+  // 永不回應、只聽 abort 的伺服器 —— 模擬「請求掛住」。
+  const hangUntilAborted = (hits) => {
+    globalThis.fetch = (url, init) => new Promise((_, reject) => {
+      const u = String(url);
+      const who = u.includes('llm-gateway.assemblyai.com') ? 'assemblyai' : u.includes('minimax') ? 'minimax'
+        : u.includes('api.anthropic.com') ? 'anthropic' : 'gemini';
+      hits[who] = (hits[who] || 0) + 1;
+      init.signal.addEventListener('abort', () => {
+        const e = new Error('aborted'); e.name = 'AbortError'; reject(e);
+      });
+    });
+  };
+  const SLACK = 250; // 真計時器的抖動餘裕
+
+  {
+    const hits = {};
+    hangUntilAborted(hits);
+    const llm = createLlm({ env: FAKE_ENV, logger: quiet, sleep: noSleep });
+    const t0 = Date.now();
+    let msg = '';
+    try { await llm.completeText({ system: 's', userContent: 'u', timeoutMs: 120, budgetMs: 300 }); }
+    catch (e) { msg = e.message; }
+    const elapsed = Date.now() - t0;
+    const reqs = Object.values(hits).reduce((a, b) => a + b, 0);
+    check(elapsed <= 300 + SLACK && /總時間預算 300ms 用盡/.test(msg),
+      '全部請求掛住 → 總預算一到就拋錯', `elapsed=${elapsed}ms reqs=${reqs} ${JSON.stringify(hits)}`);
+    check(reqs <= 3, '不把 9 個請求全部發完(舊行為 ≈46 分鐘)', `reqs=${reqs}`);
+  }
+  {
+    // 呼叫端可以自己縮預算
+    const hits = {};
+    hangUntilAborted(hits);
+    const llm = createLlm({ env: FAKE_ENV, logger: quiet, sleep: noSleep });
+    const t0 = Date.now();
+    try { await llm.completeText({ system: 's', userContent: 'u', timeoutMs: 120, budgetMs: 150 }); } catch { /* 預期 */ }
+    const elapsed = Date.now() - t0;
+    check(elapsed <= 150 + SLACK, '呼叫端可覆寫 budgetMs', `elapsed=${elapsed}ms (budget 150ms)`);
+  }
+  {
+    // 單一請求的逾時被剩餘預算夾住,否則最後一次逾時會整個穿出預算
+    const warns = [];
+    const hits = {};
+    hangUntilAborted(hits);
+    const llm = createLlm({ env: FAKE_ENV, logger: { log() {}, warn: (m) => warns.push(String(m)) }, sleep: noSleep });
+    try { await llm.completeText({ system: 's', userContent: 'u', timeoutMs: 5000, budgetMs: 200 }); } catch { /* 預期 */ }
+    const m = warns.map((w) => w.match(/請求逾時\((\d+)ms\)/)).find(Boolean);
+    const capped = m ? Number(m[1]) : -1;
+    check(capped > 0 && capped <= 200, '單一請求逾時被剩餘預算夾住', `timeout=${capped}ms (budget 200ms < timeout 5000ms)`);
+  }
+  {
+    // 睡完就沒時間發請求了 → 不睡,把剩下的預算讓給下一個後端
+    const delays = [];
+    const hits = {};
+    hangUntilAborted(hits);
+    const llm = createLlm({ env: FAKE_ENV, logger: quiet, sleep: async (ms) => delays.push(ms) });
+    try { await llm.completeText({ system: 's', userContent: 'u', timeoutMs: 50, budgetMs: 200 }); } catch { /* 預期 */ }
+    check(delays.length === 0 && hits.minimax === 1,
+      '退避會超出預算 → 不睡,直接換後端', `delays=[${delays}] hits=${JSON.stringify(hits)}`);
+  }
+  {
+    // 預算沒用盡時,行為不變(錯誤訊息仍是「所有 LLM 後端都失敗」,不是預算用盡)
+    const hits = {};
+    fakeFetch(hits, () => R({ error: 'bad key' }, 401));
+    let msg = '';
+    try { await fakeLlm().completeText({ system: 's', userContent: 'u' }); } catch (e) { msg = e.message; }
+    check(/所有 LLM 後端都失敗/.test(msg) && !/預算/.test(msg),
+      '預算未用盡 → 沿用原本的失敗訊息', msg.slice(0, 40) + '…');
+  }
+  {
+    // 逾時被辨識成 transient(不是被誤判成 fatal 而放棄整條鏈)
+    const hits = {};
+    globalThis.fetch = (url, init) => new Promise((resolve, reject) => {
+      const who = String(url).includes('minimax') ? 'minimax' : 'gemini';
+      hits[who] = (hits[who] || 0) + 1;
+      if (who !== 'minimax') { resolve(R(GEMINI_OK)); return; }
+      init.signal.addEventListener('abort', () => { const e = new Error('aborted'); e.name = 'AbortError'; reject(e); });
+    });
+    // budget 要放得下 8s+16s 的退避,否則會走「睡不下去就換人」那條路(上一項已測)。
+    const llm = createLlm({ env: FAKE_ENV, logger: quiet, sleep: noSleep });
+    const out = await llm.completeText({ system: 's', userContent: 'u', timeoutMs: 60, budgetMs: 60_000 });
+    check(out === '{"title":"OK"}' && hits.minimax === 3 && hits.gemini === 1,
+      '逾時 → transient,退避重試 3 次後換人', JSON.stringify(hits));
+  }
+}
+
 // ── gateway / profile / 鏈序 ──
 console.log('\n── AssemblyAI Gateway 與 profile ──');
 {

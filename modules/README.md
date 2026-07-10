@@ -82,6 +82,8 @@ routes: [
 
 - **寫 Notion 一律經 `platform.notionRequest`**：守衛只放行「某租戶宣告過、且位於該租戶母頁下」的資料源；目標 id 一律取自 `ctx.tenant.dataSources.*`，模組因此碰不到別租戶的庫。
 - **模組內任何狀態(例如會議待補 pending)必須以「(租戶, 群組)」為鍵**(`${tenant.key}::${groupId}`)，避免跨租戶污染。
+- **vendored 的薄 shim 也必須供給 `tenant.config`，否則模組會退回通用預設。**
+  BuildAM 那類 shim 是自己組 `TENANT` 物件的（`{ key, dataSources, driveConfigured, … }`），漏掉 `config` 不會崩潰——它會**安靜地**退回模組內建的通用設定，把該租戶的詞彙、術語、時刻表全部洗掉。這種失敗沒有錯誤訊息，只有「AI 突然變笨了」。
 - **呼叫 AI 一律經 `platform.llm`**，不要自己 `fetch` 任何供應商、不要自己寫備援。備援鏈與成本策略集中在 `core/llm.js`(鏈序由 `AMCORE_LLM_CHAIN` 決定，預設 `minimax,gemini,anthropic`)。需要看圖就傳 `imagePaths`——抽象層只會把它交給**看得見圖的後端**，而不是讓瞎子瞎掰。
 - 視覺能力是**型號**的屬性、不是廠商的屬性：MiniMax-M3 看得見圖，M2 看不見。換型號後請跑 `node scripts/check-llm.mjs`(會送一張自製彩圖實測每個宣告支援圖片的後端)。
 - **依「這通呼叫要什麼」挑 profile，不要改全域鏈**：
@@ -89,6 +91,7 @@ routes: [
   - 不給 profile（＝`cheap`）— 短 prompt、每則訊息都跑（訊息初判一類）。走 MiniMax 優先，**別為了一則 LINE 訊息去打 Claude**。
   - `chain: 'a,b,c'` 可直接指名，蓋過 profile。指名的後端若全不可用會**退回預設鏈**，不會變成空鏈。
 - **空回應一律當失敗、往下一個後端落。** MiniMax 這類推理模型會把 `max_tokens` 燒光在 `<think>…</think>` 裡，剝掉後只剩空字串——`core/llm.js` 已在 `complete()` 統一擋掉。**模組不要自己判斷「回空就算了」**：那會產出一份標題空白、零內容的 Notion 頁，而且不報錯，比大聲失敗更糟。
+- **重試與時間界線都在 core，模組不要自己包一層。** 暫時性錯誤（429／5xx／逾時）會退避重試同一後端；解析失敗立刻重試；金鑰錯／模型不存在則直接換人。整條鏈有 **300 秒總預算**（`budgetMs`），這才是使用者等待的上限——單一請求的 `timeoutMs`（120 秒）綁不住整條鏈。要更長只在該次呼叫傳參，不要調全域預設。
 
 ### 參考實作（以此為準）
 
