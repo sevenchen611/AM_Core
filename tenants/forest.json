@@ -4,5 +4,18 @@
   "aka": "經營單位（非工程）",
   "envPrefix": "FOREST",
   "modules": ["collect", "queue", "meetings", "tasks", "reminders"],
-  "status": "Notion「AI」頁（39851c68…）；integration 待連接、schema 待建"
+  "status": "Notion「AI」頁（39851c68…）；integration 待連接、schema 待建",
+  "config": {
+    "meetings": {
+      "domain": "營運會議",
+      "transcriptionHint": "台灣的營運會議,繁體中文為主。",
+      "keyterms": [],
+      "types": ["一般會議"],
+      "defaultType": "一般會議",
+      "defaultTitle": "會議",
+      "sectionBy": "主題",
+      "sectionExample": "",
+      "projectCodes": {}
+    }
+  }
 }

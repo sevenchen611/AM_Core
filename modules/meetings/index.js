@@ -94,8 +94,8 @@ function withNextMeetingTodo(parsed) {
 }
 
 // LINE 版會議記錄:只放「重點摘要 + 主議題結論 + 待辦」(不含分區筆記與逐字稿)
-function meetingLineText({ parsed, legendLine, date, type, url, publicUrl }) {
-  const L = [`📋 會議記錄|${date} ${parsed.title || '工程會議'}(${type})`];
+function meetingLineText({ parsed, legendLine, date, type, url, publicUrl, defaultTitle = '會議' }) {
+  const L = [`📋 會議記錄|${date} ${parsed.title || defaultTitle}(${type})`];
   if (legendLine) L.push(`講者:${legendLine}`);
   const hi = parsed.highlights || [];
   if (hi.length) L.push(`\n💡 重點摘要\n${hi.map((h) => `・${h}`).join('\n')}`);
@@ -131,12 +131,50 @@ async function sendMeetingToLine(groupId, parsed, c) {
   }
 }
 
-// 固定工程術語詞庫(餵給 AssemblyAI keyterms,降低專有名詞聽錯率)
-const BASE_KEYTERMS = [
-  '茲心園', '草悟道館', '葉綠宿', '拆除', '泥作', '木作', '水電', '油漆', '防水',
-  '鋁窗', '放樣', '封板', '矽酸鈣板', '天花板', '輕隔間', '系統櫃', '交底', '審圖',
-  '驗收', '管道間', '樑柱', '隔音', '牆面', '地坪', '衛浴', '弱電', '消防', '空調',
-];
+// ── 行業味設定(tenants/<key>.json 的 config.meetings)────────
+// 原則:程式通用,行業味進設定。此處的預設「不帶任何行業色彩」——沒設定的租戶
+// 會拿到一份中性的會議格式,絕不可退回工程味(否則森在的營運晨會會被標成「工地檢討」)。
+const GENERIC_MEETINGS_CONFIG = {
+  domain: '會議',                    // 完整名詞片語,直接接在「這是一場」之後
+  transcriptionHint: '繁體中文為主的會議錄音。', // 餵 AssemblyAI 的 prompt 開頭(語言/領域提示)
+  keyterms: [],                      // 餵 AssemblyAI 的詞彙表:案場、術語等易聽錯的專有名詞
+  types: [],                         // 允許的會議類型;空陣列 = 不限制,直接採用 AI 判定的類型
+  defaultType: '一般會議',           // AI 給的類型不在 types 內(或沒給)時的退路
+  defaultTitle: '會議',              // AI 沒給標題時的退路
+  sectionBy: '主題',                 // 筆記如何分區
+  sectionExample: '',                // 分區小標題的例子;空字串則 prompt 不寫例子
+  detailFocus: '關鍵事實、數字、決定與負責人,以及每位與會者的主張與理由',
+  workKindHint: '一般工作會議',      // 分辨 work/share 時,拿來當「work」的例子
+  projectCodes: {},                  // { 代碼: [觸發詞…] };空 = 此租戶不做專案歸屬判斷
+};
+
+// 合併租戶設定與通用預設。型別不對的欄位一律退回預設,免得一個手誤的 json 讓整條路徑爆掉。
+function meetingsCfg(tenant) {
+  const c = (tenant && tenant.config && tenant.config.meetings) || {};
+  return {
+    ...GENERIC_MEETINGS_CONFIG,
+    ...c,
+    keyterms: Array.isArray(c.keyterms) ? c.keyterms.map(String) : GENERIC_MEETINGS_CONFIG.keyterms,
+    types: Array.isArray(c.types) ? c.types.map(String).filter(Boolean) : GENERIC_MEETINGS_CONFIG.types,
+    projectCodes: (c.projectCodes && typeof c.projectCodes === 'object' && !Array.isArray(c.projectCodes)) ? c.projectCodes : {},
+  };
+}
+
+// 把允許的類型寫成 prompt 裡的一句指示。三種類型→「A|B|C 三選一」,一種→就那一種,沒設→讓 AI 自由命名。
+const CN_NUM = ['', '', '二', '三', '四', '五', '六', '七', '八', '九'];
+function typeInstruction(types) {
+  if (!types.length) return '會議類型(15字內短詞)';
+  if (types.length === 1) return types[0];
+  const n = CN_NUM[types.length];
+  return `${types.join('|')} ${n ? `${n}選一` : '擇一'}`;
+}
+
+// 工作型會議的最終類型:有白名單就守白名單,沒白名單就信任 AI,兩者皆空才用預設。
+function workType(aiType, cfg) {
+  const t = String(aiType || '').trim();
+  if (cfg.types.length) return cfg.types.includes(t) ? t : cfg.defaultType;
+  return t || cfg.defaultType;
+}
 
 // ── 待補資訊的會議(記憶體暫存,鍵=（租戶,群組）)──────────────
 // 錄音已即時存 Drive 留底;若伺服器於等待中重啟,原檔仍在 Drive,重傳即可再觸發。
@@ -222,9 +260,10 @@ async function finalizeMeeting(key, rosterAnswer, answeredBy) {
   if (!entry) return;
   clearPending(key);
   const { tenant, buffer, filename, contentType, binding, senderName, audioDriveUrl, groupId } = entry;
+  const cfg = meetingsCfg(tenant);
   try {
     // 1. 解析與會資訊(主題/與會者/發言順序/專有詞/所屬專案)
-    const roster = await parseRoster(rosterAnswer);
+    const roster = await parseRoster(rosterAnswer, cfg);
     // 專案歸屬:預設綁定專案,與會回覆若指名 ZS/HZ/SYS 則改掛
     let projectPageId = binding?.projectPageId || '';
     if (roster.projectCode) {
@@ -234,14 +273,14 @@ async function finalizeMeeting(key, rosterAnswer, answeredBy) {
     // 2-4. 優先 AssemblyAI 轉寫+講者分離 → Gemini 署名整理;失敗則自動改 Gemini 直讀備援
     let parsed, diarized = '', legend = new Map();
     try {
-      const tr = await transcribeWithAssembly({ buffer, filename, contentType, roster });
+      const tr = await transcribeWithAssembly({ buffer, filename, contentType, roster, cfg });
       legend = buildSpeakerLegend(tr.utterances, roster.speakers);
       diarized = renderDiarized(tr, legend);
-      parsed = await summarize({ diarized, roster, legend });
+      parsed = await summarize({ diarized, roster, legend, cfg });
     } catch (assemblyErr) {
       console.warn(`AssemblyAI path failed, fallback to Gemini-direct: ${assemblyErr.message}`);
       await platform.pushLineMessage(groupId, '⚠ 逐字轉寫服務忙線,改用備援方式整理(這次不附署名逐字稿),稍候發布。').catch(() => {});
-      parsed = await geminiTranscribeParsed({ buffer, filename, contentType, roster });
+      parsed = await geminiTranscribeParsed({ buffer, filename, contentType, roster, cfg });
     }
     if (roster.topic) parsed.title = roster.topic; // 使用者主題優先
     // 5. 落地 + 發布
@@ -261,17 +300,22 @@ const SHARE_HINT = /讀書會|分享會|分享型|心得|座談|沙龍|工作坊
 const kindFromText = (s) => (SHARE_HINT.test(String(s || '')) ? 'share' : '');
 
 // ── 與會資訊解析 ───────────────────────────────────────────
-async function parseRoster(answer) {
+async function parseRoster(answer, cfg = GENERIC_MEETINGS_CONFIG) {
   const empty = { topic: '', speakers: [], keyterms: [], projectCode: '', kind: 'work' };
   if (!answer || !answer.trim()) return empty;
   const fallbackKind = kindFromText(answer) || 'work';
   if (!platform.minimaxApiKey && !platform.geminiKey) return { topic: answer.trim().slice(0, 40), speakers: [], keyterms: [], projectCode: '', kind: fallbackKind };
+  // 專案代碼是租戶特有的(工程租戶有 ZS/HZ/SYS 館別;森在沒有)→ 沒設定就整條規則不出現。
+  const codes = Object.keys(cfg.projectCodes);
+  const projectField = codes.length ? `"project":"${codes.join('|')} 或空字串",` : '';
+  const projectRule = codes.length
+    ? `\n- project:${codes.map((c, i) => `${i ? '' : '若'}提到${(cfg.projectCodes[c] || []).map((t) => `「${t}」`).join('或')}填 ${c}`).join(';')};沒提到就空字串。`
+    : '';
   try {
     const raw = await textLLM(`以下是使用者提供的一場會議/聚會的與會資訊。請抽取成 JSON:
-{"kind":"work|share","topic":"主題(15字內)","project":"ZS|HZ|SYS 或空字串","speakers":[{"order":1,"name":"姓名","role":"職務/角色","gender":"男|女|"}],"keyterms":["需要被正確辨識的人名或專有名詞",...]}
+{"kind":"work|share","topic":"主題(15字內)",${projectField}"speakers":[{"order":1,"name":"姓名","role":"職務/角色","gender":"男|女|"}],"keyterms":["需要被正確辨識的人名或專有名詞",...]}
 規則:
-- kind:一般工作/工程會議填 "work";讀書會、心得分享、座談、分享會等「分享/討論型」聚會填 "share";不確定填 "work"。
-- project:若提到「茲心園」填 ZS;提到「草悟道」或「草屋」填 HZ;提到「系統」填 SYS;沒提到就空字串。
+- kind:${cfg.workKindHint}填 "work";讀書會、心得分享、座談、分享會等「分享/討論型」聚會填 "share";不確定填 "work"。${projectRule}
 - speakers 依「發言順序」由小到大排列。
 - keyterms 放所有人名與可能被聽錯的術語、案場名。
 只輸出 JSON,不要說明。
@@ -281,7 +325,7 @@ ${answer.trim().slice(0, 1000)}`);
     const code = String(j.project || '').trim().toUpperCase();
     return {
       topic: String(j.topic || '').trim(),
-      projectCode: ['ZS', 'HZ', 'SYS'].includes(code) ? code : '',
+      projectCode: codes.includes(code) ? code : '',
       kind: (['work', 'share'].includes(j.kind) ? j.kind : '') || fallbackKind,
       speakers: Array.isArray(j.speakers) ? j.speakers.filter((s) => s && s.name).map((s, i) => ({
         order: Number(s.order) || i + 1, name: String(s.name).trim(), role: String(s.role || '').trim(), gender: String(s.gender || '').trim(),
@@ -328,20 +372,20 @@ async function fetchRetry(url, opts, { tries = 3, label = 'request', baseDelay =
 }
 
 // ── AssemblyAI 轉寫(預錄音,universal-3-5-pro + 講者分離)───────
-async function transcribeWithAssembly({ buffer, filename, contentType, roster }) {
+async function transcribeWithAssembly({ buffer, filename, contentType, roster, cfg = GENERIC_MEETINGS_CONFIG }) {
   const auth = { Authorization: platform.assemblyKey }; // 原始 key,不加 Bearer
 
   // 1. 上傳原始位元組(非 multipart);上傳偶發 422/5xx 會自動重試
   const up = await fetchRetry('https://api.assemblyai.com/v2/upload', { method: 'POST', headers: auth, body: buffer }, { tries: 4, label: 'AssemblyAI upload' });
   const uploadUrl = JSON.parse(await up.text()).upload_url;
 
-  // 2. 提交(keyterms=人名+工程術語;prompt=主題+與會者;省略 language_code 讓中英夾雜原生切換)
+  // 2. 提交(keyterms=人名+該租戶的專有名詞;prompt=領域提示+主題+與會者;省略 language_code 讓中英夾雜原生切換)
   const names = roster.speakers.map((s) => s.name);
-  const keyterms = [...new Set([...names, ...roster.keyterms, ...BASE_KEYTERMS])]
+  const keyterms = [...new Set([...names, ...roster.keyterms, ...cfg.keyterms])]
     .filter((t) => t && t.length <= 24).slice(0, 100);
   const who = roster.speakers.map((s) => `${s.name}${s.role ? `(${s.role})` : ''}`).join('、');
   const promptText = [
-    '台灣旅宿室內裝修工程會議,繁體中文為主、夾雜英文工程術語。',
+    cfg.transcriptionHint,
     roster.topic ? `會議主題:${roster.topic}。` : '',
     who ? `與會者:${who}。` : '',
   ].join('').slice(0, 1400);
@@ -393,15 +437,15 @@ function renderDiarized(tr, legend) {
 }
 
 // ── Gemini 收斂(署名摘要/決議/待辦)────────────────────────
-async function summarize({ diarized, roster, legend }) {
+async function summarize({ diarized, roster, legend, cfg = GENERIC_MEETINGS_CONFIG }) {
   const who = [...legend.values()].join('、');
-  const raw = await textLLM(meetingPrompt({ who, topic: roster.topic, today: todayStr(), kind: roster.kind }) + `\n\n逐字稿:\n${diarized}`);
+  const raw = await textLLM(meetingPrompt({ who, topic: roster.topic, today: todayStr(), kind: roster.kind, cfg }) + `\n\n逐字稿:\n${diarized}`);
   return normalizeParsed(extractJson(raw));
 }
 
 // 會議記錄整理指示(AssemblyAI 逐字稿路徑與 Gemini 直轉路徑共用)。
 // kind='work' → 工作/工程會議格式(定案、待辦);kind='share' → 分享/討論型格式(讀書會、心得分享)。
-function meetingPrompt({ who, topic, today, kind = 'work' }) {
+function meetingPrompt({ who, topic, today, kind = 'work', cfg = GENERIC_MEETINGS_CONFIG }) {
   const dateNote = `今天是 ${today}(西元年-月-日,台灣時間)。凡「下週三、明天、下個月」等相對日期,一律依今天換算成西元 YYYY-MM-DD,年份用今天的年份,不要用過去年份。`;
   if (kind === 'share') {
     return `這是一場「分享/討論型」聚會${who ? `(已標註講者的逐字稿)。與會/分享者:${who}` : '的錄音'}(例:讀書會、心得分享、座談)。${topic ? `主題:${topic}。` : ''}(繁體中文)
@@ -426,12 +470,12 @@ ${dateNote}
  "nextMeeting":"下次聚會時間(有約定才寫,否則空字串)"
 }`;
   }
-  return `這是一場台灣旅宿室內裝修工程會議${who ? `(已標註講者的逐字稿)。與會者:${who}` : '的錄音'}。${topic ? `會議主題:${topic}。` : ''}(繁體中文)
+  return `這是一場${cfg.domain}${who ? `(已標註講者的逐字稿)。與會者:${who}` : '的錄音'}。${topic ? `會議主題:${topic}。` : ''}(繁體中文)
 ${dateNote}
 
 請仔細聽/讀完整場,整理成結構化、可追蹤的會議記錄。要求:
-- 逐條記錄討論脈絡與「具體細節」:空間/房型、尺寸、材質、規格、品牌、金額、做法,以及每位與會者的主張與理由。寧可詳盡,不要過度濃縮。
-- 依主題或空間分區段(例:01房需求、02房家電、03房格局與浴室…),每區段一個小標題。
+- 逐條記錄討論脈絡與「具體細節」:${cfg.detailFocus}。寧可詳盡,不要過度濃縮。
+- 依${cfg.sectionBy}分區段${cfg.sectionExample ? `(例:${cfg.sectionExample})` : ''},每區段一個小標題。
 - 提到誰決定/負責/主張時,一律用真名。
 - 每個主議題給出明確結論(定案內容)。
 - 待辦事項要具體可追蹤,盡量指出負責人與期限。
@@ -440,7 +484,7 @@ ${dateNote}
 只輸出 JSON,不要任何說明文字:
 {
  "title":"會議主題(15字內)",
- "type":"審圖|交底|工地檢討 三選一",
+ "type":"${typeInstruction(cfg.types)}",
  "minutes":[{"heading":"區段小標題","points":["逐條要點(含細節與真名)","..."]}],
  "highlights":["重點摘要(整場核心,3-6條)"],
  "conclusions":["主議題結論(每個主議題一條,含定案內容)"],
@@ -472,9 +516,11 @@ const plainRich = (prop) => (prop?.rich_text || prop?.title || []).map((x) => x.
 
 // 新會議庫的欄位模板(與現行會議庫一致);有 projects 才加「專案」關聯
 function meetingsDbProperties(tenant) {
+  const cfg = meetingsCfg(tenant);
+  const types = cfg.types.length ? cfg.types : [cfg.defaultType];
   return {
     '會議': { title: {} },
-    '類型': { select: { options: [{ name: '審圖' }, { name: '交底' }, { name: '工地檢討' }] } },
+    '類型': { select: { options: types.map((name) => ({ name })) } },
     '日期': { date: {} },
     '參與者': { rich_text: {} },
     ...(tenant?.dataSources?.projects ? { '專案': { relation: { data_source_id: tenant.dataSources.projects, single_property: {} } } } : {}),
@@ -667,13 +713,12 @@ async function handlePublicRequest(req, res, pathname) {
 // ── 落地 + 發布 ────────────────────────────────────────────
 async function publishMeeting({ parsed, diarized, legend, roster, projectPageId, groupId, senderName, answeredBy, filename, audioDriveUrl, tenant, binding }) {
   const today = todayStr();
+  const cfg = meetingsCfg(tenant);
   const { dbId: meetingsDb, perGroup } = await resolveMeetingsTarget(tenant, binding);
   const kind = roster?.kind === 'share' ? 'share' : 'work';
-  // 工作型:限定工程類型(預設工地檢討);分享型:用 AI 給的型別(讀書會/分享會…,Notion select 自動建選項),預設分享會
-  const meetingType = kind === 'share'
-    ? (parsed.type || '分享會')
-    : (['審圖', '交底', '工地檢討'].includes(parsed.type) ? parsed.type : '工地檢討');
-  const defaultTitle = kind === 'share' ? '分享會' : '工程會議';
+  // 工作型:守該租戶允許的類型(見 workType);分享型:用 AI 給的型別(讀書會/分享會…,Notion select 自動建選項),預設分享會
+  const meetingType = kind === 'share' ? (parsed.type || '分享會') : workType(parsed.type, cfg);
+  const defaultTitle = kind === 'share' ? '分享會' : cfg.defaultTitle;
   const legendLine = [...legend.entries()].map(([k, v]) => `講者${k}=${v}`).join('  ');
   const participantsText = roster.speakers.length
     ? roster.speakers.map((s) => `${s.name}${s.role ? `(${s.role})` : ''}`).join('、')
@@ -736,7 +781,7 @@ async function publishMeeting({ parsed, diarized, legend, roster, projectPageId,
 
   // LINE 推完整會議記錄(不含逐字稿),過長自動分段;附「自架公開頁(免帳號)」+「Notion 連結」
   const url = await shareableUrl(meeting.id, meeting.url);
-  await sendMeetingToLine(groupId, parsed, { legendLine, date: today, type: meetingType, url, publicUrl: publicMeetingUrl(meeting.id) });
+  await sendMeetingToLine(groupId, parsed, { legendLine, date: today, type: meetingType, url, publicUrl: publicMeetingUrl(meeting.id), defaultTitle });
   console.log(`Meeting published (AssemblyAI): ${parsed.title}, ${todos.length} todos.`);
 }
 
@@ -789,7 +834,7 @@ function extractJson(raw) {
 
 // Gemini 直接讀音檔 → 整理成 parsed(供「無 AssemblyAI key」與「AssemblyAI 失敗備援」共用)。
 // 走 Google 網路(從雲端主機穩定),但無講者分離,故不產署名逐字稿。
-async function geminiTranscribeParsed({ buffer, filename, contentType, roster }) {
+async function geminiTranscribeParsed({ buffer, filename, contentType, roster, cfg = GENERIC_MEETINGS_CONFIG }) {
   if (/x-m4a|m4a/i.test(contentType) || /\.(m4a|mp4)$/i.test(filename)) contentType = 'audio/mp4';
   const boundary = `mtg${Date.now()}`;
   const meta = JSON.stringify({ file: { display_name: filename } });
@@ -813,7 +858,7 @@ async function geminiTranscribeParsed({ buffer, filename, contentType, roster })
   }
   if (file.state !== 'ACTIVE') throw new Error(`Gemini file state: ${file.state}`);
   const who = (roster?.speakers || []).map((s) => `${s.name}${s.role ? `(${s.role})` : ''}`).join('、');
-  const prompt = meetingPrompt({ who: '', topic: roster?.topic || '', today: todayStr(), kind: roster?.kind })
+  const prompt = meetingPrompt({ who: '', topic: roster?.topic || '', today: todayStr(), kind: roster?.kind, cfg })
     + (who ? `\n與會者(供人名辨識,依發言順序):${who}` : '');
   const gen = await fetchRetry(`https://generativelanguage.googleapis.com/v1beta/models/${platform.geminiModel}:generateContent`, {
     method: 'POST', headers: { 'x-goog-api-key': platform.geminiKey, 'Content-Type': 'application/json' },
@@ -828,10 +873,11 @@ async function geminiTranscribeParsed({ buffer, filename, contentType, roster })
 // ctx: { tenant, buffer, filename, contentType, binding, senderName, groupId }
 async function processRecording({ tenant, buffer, filename, contentType, binding, senderName, groupId }) {
   if (/x-m4a|m4a/i.test(contentType) || /\.(m4a|mp4)$/i.test(filename)) contentType = 'audio/mp4';
+  const cfg = meetingsCfg(tenant);
   const minutes = Math.round(buffer.byteLength / 1024 / 1024);
   await platform.pushLineMessage(groupId, `🎙 收到會議錄音「${filename}」,葉小蝸整理中(${minutes > 60 ? '較長錄音約 5-10 分鐘' : '約 3-5 分鐘'}),完成後在此發布。`);
 
-  const parsed = await geminiTranscribeParsed({ buffer, filename, contentType, roster: {} });
+  const parsed = await geminiTranscribeParsed({ buffer, filename, contentType, roster: {}, cfg });
   const today = todayStr();
   let audioDriveUrl = '';
   if (tenant?.driveConfigured) {
@@ -840,7 +886,7 @@ async function processRecording({ tenant, buffer, filename, contentType, binding
   }
 
   parsed.todos = withNextMeetingTodo(parsed);
-  const meetingType = ['審圖', '交底', '工地檢討'].includes(parsed.type) ? parsed.type : '工地檢討';
+  const meetingType = workType(parsed.type, cfg);
   const sourceBlocks = [
     para(`[來源] ${stamp()} 錄音「${filename}」由 ${senderName} 上傳,Gemini 轉寫提煉`),
     ...(audioDriveUrl ? [{ object: 'block', type: 'paragraph', paragraph: { rich_text: [{ type: 'text', text: { content: '🎙 錄音原檔(爭議時回放):' } }, { type: 'text', text: { content: filename, link: { url: audioDriveUrl } } }] } }] : []),
@@ -852,7 +898,7 @@ async function processRecording({ tenant, buffer, filename, contentType, binding
     body: {
       parent: { type: 'data_source_id', data_source_id: meetingsDb },
       properties: {
-        '會議': { title: [text(`${today} ${parsed.title || '工程會議'}`)] },
+        '會議': { title: [text(`${today} ${parsed.title || cfg.defaultTitle}`)] },
         '類型': { select: { name: meetingType } },
         '日期': { date: { start: today } },
         ...(binding?.projectPageId ? { '專案': { relation: [{ id: binding.projectPageId }] } } : {}),
@@ -884,7 +930,7 @@ async function processRecording({ tenant, buffer, filename, contentType, binding
   }
 
   const url = await shareableUrl(meeting.id, meeting.url);
-  await sendMeetingToLine(groupId, parsed, { legendLine: '', date: today, type: meetingType, url, publicUrl: publicMeetingUrl(meeting.id) });
+  await sendMeetingToLine(groupId, parsed, { legendLine: '', date: today, type: meetingType, url, publicUrl: publicMeetingUrl(meeting.id), defaultTitle: cfg.defaultTitle });
   console.log(`Meeting processed (Gemini fallback): ${parsed.title}, ${todos.length} todos.`);
 }
 

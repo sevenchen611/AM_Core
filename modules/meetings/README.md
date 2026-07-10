@@ -18,6 +18,27 @@
 
 **怎麼選**:①自動——`parseRoster`(Gemini)看主題/回覆判 work|share,並有關鍵字後備(讀書會/分享會/心得/座談/沙龍/工作坊/讀書);②明講——與會資訊裡把主題註明為「讀書會/分享會…」即可。反問文字已加提示。三分頁(摘要/筆記/逐字稿)結構兩者相同,只有「內容框架 + 摘要標題 + 類型」隨樣式變。
 
+## 行業味設定 `tenant.config.meetings`
+
+模組本身**不含任何行業字眼**。會議類型、術語表、prompt 的領域描述,一律從 `ctx.tenant.config.meetings` 讀(見 `tenants/README.md`)。沒設定的租戶拿到一份中性預設(類型「一般會議」、標題「會議」、無 keyterms),**絕不會退回工程味**。
+
+| 欄位 | 用途 | 通用預設 |
+|---|---|---|
+| `domain` | 接在 prompt「這是一場」之後的完整名詞片語 | `會議` |
+| `transcriptionHint` | 餵 AssemblyAI 的領域/語言提示 | `繁體中文為主的會議錄音。` |
+| `keyterms` | 餵 AssemblyAI 的專有名詞表(案場、術語) | `[]` |
+| `types` | 允許的會議類型;**空陣列 = 不限制**,採用 AI 判定 | `[]` |
+| `defaultType` | AI 給的類型不在 `types` 內(或沒給)時的退路 | `一般會議` |
+| `defaultTitle` | AI 沒給標題時的退路 | `會議` |
+| `sectionBy` / `sectionExample` | 筆記如何分區、小標題的例子 | `主題` / 無 |
+| `detailFocus` | 要求 AI 記錄哪些「具體細節」 | 關鍵事實、數字、決定與負責人… |
+| `workKindHint` | 判 work/share 時,拿來當 work 的例子 | `一般工作會議` |
+| `projectCodes` | `{代碼:[觸發詞…]}`;**空 = 不做專案歸屬判斷** | `{}` |
+
+型別不對的欄位會靜默退回預設,一個手誤的 json 不會讓整條會議路徑爆掉。分享型(share)格式本來就中性,不受此設定影響。
+
+> ⚠️ **綁定端必須把 config 帶進來。** `tenant` 物件若少了 `config`,該租戶就拿到中性預設 —— 對工程租戶而言等於掉了工程詞庫與「工地檢討」類型。vendored 綁定(BuildAM shim)請把 `tenants/engineering.json` 的 `config` 一併注入。
+
 ## 契約(預設匯出)
 ```js
 export default {

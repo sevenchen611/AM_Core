@@ -4,5 +4,28 @@
   "aka": "原 BuildAM（旅宿工程管理）",
   "envPrefix": "ENG",
   "modules": ["collect", "queue", "meetings", "tasks", "reminders", "construction"],
-  "status": "現行 BuildAM 生產中；平台上線後以此租戶承接，Notion 頁不變、資料不搬"
+  "status": "現行 BuildAM 生產中；平台上線後以此租戶承接，Notion 頁不變、資料不搬",
+  "config": {
+    "meetings": {
+      "domain": "台灣旅宿室內裝修工程會議",
+      "transcriptionHint": "台灣旅宿室內裝修工程會議,繁體中文為主、夾雜英文工程術語。",
+      "keyterms": [
+        "茲心園", "草悟道館", "葉綠宿", "拆除", "泥作", "木作", "水電", "油漆", "防水",
+        "鋁窗", "放樣", "封板", "矽酸鈣板", "天花板", "輕隔間", "系統櫃", "交底", "審圖",
+        "驗收", "管道間", "樑柱", "隔音", "牆面", "地坪", "衛浴", "弱電", "消防", "空調"
+      ],
+      "types": ["審圖", "交底", "工地檢討"],
+      "defaultType": "工地檢討",
+      "defaultTitle": "工程會議",
+      "sectionBy": "主題或空間",
+      "sectionExample": "01房需求、02房家電、03房格局與浴室…",
+      "detailFocus": "空間/房型、尺寸、材質、規格、品牌、金額、做法,以及每位與會者的主張與理由",
+      "workKindHint": "一般工作/工程會議",
+      "projectCodes": {
+        "ZS": ["茲心園"],
+        "HZ": ["草悟道", "草屋"],
+        "SYS": ["系統"]
+      }
+    }
+  }
 }
