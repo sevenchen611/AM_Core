@@ -1,4 +1,5 @@
 // AM Platform core — LLM 抽象層(可插拔後端 + 統一備援鏈)
+// ⚠️ 此檔有下游 vendored 複製品(BuildAM)。改完請依 AM_Core/VENDORED.md 重抄,或至少在 commit 點名 BuildAM 需 re-vendor——否則下游靜默沿用舊版。
 // ─────────────────────────────────────────────────────────────────────────
 // 為什麼放 core 不放 modules:每個模組都要呼叫 AI。以前各模組自己接(meetings 手工
 // 串了一段 MiniMax→Gemini),結果是「備援策略散在各處、fallback 路徑從沒被走過」。

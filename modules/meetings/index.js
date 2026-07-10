@@ -1,4 +1,5 @@
 // AM Platform 模組:meetings
+// ⚠️ 此檔有下游 vendored 複製品(BuildAM)。改完請依 AM_Core/VENDORED.md 重抄,或至少在 commit 點名 BuildAM 需 re-vendor——否則下游靜默沿用舊版。
 // ─────────────────────────────────────────────────────────────────────────
 // 會議錄音 → 反問「與會者(含發言順序)/主題」→ AssemblyAI 轉寫+講者分離
 //   → 依發言順序對齊真名 → platform.llm 收斂署名摘要 → 建會議記錄(三分頁)+待辦 → 發布。
