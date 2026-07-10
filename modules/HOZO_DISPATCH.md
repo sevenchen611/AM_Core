@@ -229,13 +229,17 @@ webhook 事件持久化 ＋ 指數退避重試 ＋ 死信告警。平台目前 `
 附件自動解析（圖片／PDF／Word／Excel）；大檔與私訊圖片**隔離待核准**。
 
 **要點**
-- ★ **這張卡直接受決策 3 影響。** HOZO 的圖片解析原本綁死在本機 codex（因為它的 MiniMax 後端看不見圖）。現在改走 `platform.llm`，傳 `imagePaths` 即可 —— 抽象層會**自動跳過 MiniMax、落到 Gemini/Anthropic**。你不需要自己判斷哪個後端看得見圖。
+- ★ **這張卡直接受決策 3 影響。** HOZO 的圖片解析原本綁死在本機 codex——因為它當年用的 **MiniMax-M2 看不見圖**。
+  但平台現在跑的是 **MiniMax-M3，原生多模態、看得見圖**（2026-07-10 實測通過）。
+  ⇒ 你只要傳 `imagePaths` 給 `platform.llm`，**最便宜的後端就能直接處理圖片解析**，不必落到 Gemini/Anthropic。抽象層會自己挑看得見圖的後端。
+- ⚠️ PDF／Word／Excel **不是圖片**：MiniMax 端點只吃圖，抽象層會丟錯讓鏈落到 Gemini。非圖片檔的轉換路徑請照抄 HOZO 的做法。
 - 平台現有 `collect` 只存檔不解析；**不要動它**，解析是這個模組的事。
 - 「待核准」的隔離狀態要能被 H5 的第五區段讀到。
 
 **進 tenant.config**：大檔門檻、允許的副檔名
 
-**驗收**：丟一張含文字的圖 → 解析出文字；把鏈設成只有 minimax → 應**明確失敗**而非瞎掰。
+**驗收**：丟一張含文字的圖 → 解析出文字。另跑 `node scripts/check-llm.mjs` 確認視覺鏈健在。
+把型號換成 `MINIMAX_MODEL=MiniMax-M2` 且鏈只有 minimax → 應**明確失敗**而非瞎掰。
 
 ---
 

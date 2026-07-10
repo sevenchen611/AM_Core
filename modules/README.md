@@ -82,7 +82,8 @@ routes: [
 
 - **寫 Notion 一律經 `platform.notionRequest`**：守衛只放行「某租戶宣告過、且位於該租戶母頁下」的資料源；目標 id 一律取自 `ctx.tenant.dataSources.*`，模組因此碰不到別租戶的庫。
 - **模組內任何狀態(例如會議待補 pending)必須以「(租戶, 群組)」為鍵**(`${tenant.key}::${groupId}`)，避免跨租戶污染。
-- **呼叫 AI 一律經 `platform.llm`**，不要自己 `fetch` 任何供應商、不要自己寫備援。備援鏈與成本策略集中在 `core/llm.js`(鏈序由 `AMCORE_LLM_CHAIN` 決定，預設 `minimax,gemini,anthropic`)。需要看圖就傳 `imagePaths`——抽象層會自動跳過看不見圖的後端(MiniMax)，而不是讓它瞎掰。
+- **呼叫 AI 一律經 `platform.llm`**，不要自己 `fetch` 任何供應商、不要自己寫備援。備援鏈與成本策略集中在 `core/llm.js`(鏈序由 `AMCORE_LLM_CHAIN` 決定，預設 `minimax,gemini,anthropic`)。需要看圖就傳 `imagePaths`——抽象層只會把它交給**看得見圖的後端**，而不是讓瞎子瞎掰。
+- 視覺能力是**型號**的屬性、不是廠商的屬性：MiniMax-M3 看得見圖，M2 看不見。換型號後請跑 `node scripts/check-llm.mjs`(會送一張自製彩圖實測每個宣告支援圖片的後端)。
 
 ### 參考實作（以此為準）
 

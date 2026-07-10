@@ -109,8 +109,19 @@ async function postJson(url, { headers, body, timeoutMs = DEFAULT_TIMEOUT_MS }) 
 
 const brief = (o) => JSON.stringify(o).slice(0, 240);
 
-// ── 後端:MiniMax(OpenAI 相容;不支援圖片)──────────────────────
-function minimaxBackend({ apiKey, model, baseUrl }) {
+// ── 後端:MiniMax(OpenAI 相容)────────────────────────────────
+// 視覺能力依「型號」而定,不是整家廠商的屬性:
+//   M3  原生多模態(ViT encoder,吃 text/image/video)—— 2026-07-10 以四象限彩圖實測通過
+//   M2  純文字 —— 帶圖呼叫會回「請提供圖片。」(圖被丟掉,模型卻照樣答)
+// HOZO 的 llm-backend.js 註明「minimax 不支援圖片」,那是 M2 時代的事實,別再沿用。
+const MINIMAX_VISION_RE = /(^|[-_])m3\b/i;
+function minimaxSeesImages(model, override) {
+  if (override === '1' || override === 'true') return true;
+  if (override === '0' || override === 'false') return false;
+  return MINIMAX_VISION_RE.test(String(model || ''));
+}
+
+function minimaxBackend({ apiKey, model, baseUrl, visionOverride }) {
   // 平台 .env 的 MINIMAX_API_BASE_URL 已含 /v1;HOZO 的 MINIMAX_BASE_URL 不含。兩種都吃。
   const root = String(baseUrl || '').replace(/\/+$/, '');
   const url = /\/v\d+$/.test(root) ? `${root}/chat/completions` : `${root}/v1/chat/completions`;
@@ -119,11 +130,22 @@ function minimaxBackend({ apiKey, model, baseUrl }) {
     name: 'minimax',
     model,
     available: Boolean(apiKey),
-    supportsImages: false,
-    async callRaw({ prompt, maxTokens }) {
+    supportsImages: minimaxSeesImages(model, visionOverride),
+    async callRaw({ prompt, maxTokens, imagePaths }) {
+      let userMessage = prompt;
+      if (imagePaths && imagePaths.length) {
+        // OpenAI 相容的 image_url + data URL。PDF 不走這條(端點只吃圖),丟錯讓鏈落到 Gemini。
+        const parts = [{ type: 'text', text: prompt }];
+        for (const p of imagePaths) {
+          const { mime, base64 } = readImage(p);
+          if (!mime.startsWith('image/')) throw new Error(`MiniMax 不吃 ${mime}(只吃圖片)`);
+          parts.push({ type: 'image_url', image_url: { url: `data:${mime};base64,${base64}` } });
+        }
+        userMessage = parts;
+      }
       const { ok, status, data } = await postJson(url, {
         headers: { authorization: `Bearer ${apiKey}` },
-        body: { model, max_tokens: maxTokens, temperature: 0.2, messages: [{ role: 'user', content: prompt }] },
+        body: { model, max_tokens: maxTokens, temperature: 0.2, messages: [{ role: 'user', content: userMessage }] },
       });
       if (!ok) throw new Error(`MiniMax ${status}: ${brief(data?.error || data?.base_resp || data)}`);
       // MiniMax 有兩種錯誤面貌:HTTP 錯誤碼,或 200 但 base_resp.status_code != 0。
@@ -195,6 +217,8 @@ export function createLlm({ env = process.env, logger = console } = {}) {
       apiKey: env.MINIMAX_API_KEY || '',
       model: env.MINIMAX_MODEL || env.AMCORE_AI_JUDGE_MODEL || env.BUILD_AI_JUDGE_MODEL || 'MiniMax-M2',
       baseUrl: env.MINIMAX_API_BASE_URL || env.MINIMAX_BASE_URL || 'https://api.minimax.io/v1',
+      // 換型號時若自動偵測判錯,用 AMCORE_LLM_MINIMAX_VISION=1/0 手動覆寫。
+      visionOverride: env.AMCORE_LLM_MINIMAX_VISION || '',
     }),
     geminiBackend({
       apiKey: env.GEMINI_API_KEY || '',
