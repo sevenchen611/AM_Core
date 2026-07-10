@@ -515,6 +515,18 @@ async function resolveMeetingsTarget(tenant, binding) {
   }
 }
 
+// 取「公開連結」:Notion 的頁面被發佈到網頁後(通常是把所屬會議庫/母頁按了 Share→Publish),
+// API 才讀得到 page.public_url(唯讀,無法用 API 發佈)。沒發佈就退回內部連結(需 Notion 帳號)。
+async function shareableUrl(pageId, fallbackUrl) {
+  try {
+    const p = await platform.notionRequest(`/v1/pages/${encodeURIComponent(pageId)}`, { method: 'GET' });
+    return p.public_url || fallbackUrl;
+  } catch (e) {
+    console.warn(`read public_url failed: ${e.message}`);
+    return fallbackUrl;
+  }
+}
+
 // ── 落地 + 發布 ────────────────────────────────────────────
 async function publishMeeting({ parsed, diarized, legend, roster, projectPageId, groupId, senderName, answeredBy, filename, audioDriveUrl, tenant, binding }) {
   const today = todayStr();
@@ -585,8 +597,9 @@ async function publishMeeting({ parsed, diarized, legend, roster, projectPageId,
     }).catch((e) => console.warn(`todo create failed: ${e.message}`));
   }
 
-  // LINE 推完整會議記錄(不含逐字稿),過長自動分段
-  await sendMeetingToLine(groupId, parsed, { legendLine, date: today, type: meetingType, url: meeting.url });
+  // LINE 推完整會議記錄(不含逐字稿),過長自動分段;連結優先用公開連結(沒發佈則退回內部連結)
+  const url = await shareableUrl(meeting.id, meeting.url);
+  await sendMeetingToLine(groupId, parsed, { legendLine, date: today, type: meetingType, url });
   console.log(`Meeting published (AssemblyAI): ${parsed.title}, ${todos.length} todos.`);
 }
 
@@ -730,7 +743,8 @@ async function processRecording({ tenant, buffer, filename, contentType, binding
     }).catch((e) => console.warn(`todo create failed: ${e.message}`));
   }
 
-  await sendMeetingToLine(groupId, parsed, { legendLine: '', date: today, type: meetingType, url: meeting.url });
+  const url = await shareableUrl(meeting.id, meeting.url);
+  await sendMeetingToLine(groupId, parsed, { legendLine: '', date: today, type: meetingType, url });
   console.log(`Meeting processed (Gemini fallback): ${parsed.title}, ${todos.length} todos.`);
 }
 
