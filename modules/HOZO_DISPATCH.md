@@ -83,19 +83,72 @@ webhook 事件持久化 ＋ 指數退避重試 ＋ 死信告警。平台目前 `
 # H1 — `modules/conversations`
 
 **依賴**：無（可立刻開工）
-**來源**：`HOZO_AM/.../src/server.js` 的 `storeLineEventInNotion` 與「對話主檔」寫入路徑
+**來源**（唯讀）：`HOZO_AM/line-oa-webhook/src/server.js`，共 2056 行，你要的部分：
+
+| 行號 | 函式 | 你要不要？ |
+|---|---|---|
+| 1136 | `storeLineEventInNotion` | ✅ 主流程（但只取對話/訊息那段，見下） |
+| 1312 | `resolveConversationContext` | ✅ 決定「這則訊息屬於哪個對話」 |
+| 1329 | `resolveDisplayNames` | ✅ 但改用平台的 LINE 能力 |
+| 1358 | `findOrCreateConversation` | ✅ |
+| 1385 | `findConversationPage` | ✅ |
+| 1478 | `createMessagePage` | ✅ |
+| 1508 | `appendConversationContentFirst` | ✅ ★ 最新在上的關鍵 |
+| 1514 | `findOrCreateConversationAnchor` | ✅ ★ 讀那段註解 |
+| 1539 | `buildConversationMessageBlocks` | ✅ |
+| 1586 | `updateConversationAfterMessage` | ✅ |
+| 1897 | `conversationAnchorBlock` | ✅ |
+| 1087 | `createOutgoingReplyMessagePage` | ✅（機器人自己發的話也要進對話） |
+| 1594 | `createAttachmentPage` | ❌ 那是 **H8** 的 |
+| 1246 | `createCodexCommandPage` | ❌ 那是 **H9** 的 |
+| 1411 | `upsertLineGroupMemberIndex` | ❌ 那是 **H10** 的 |
 
 **要做的**
-把逐則訊息聚合成**對話主檔**（會話級，最新在上），供 `extraction` 讀取整段脈絡。
+把逐則訊息聚合成**對話主檔**（會話級，最新在上），供 `extraction`（H2）讀取整段脈絡。
 
-**要點**
-- 這是 HOZO 血統的入口。平台現有的 `collect` 是 BuildAM 血統（逐則落庫），**兩者並存、不要合併**，租戶各自勾選。
-- 對話主檔的 data source：`ctx.tenant.dataSources.conversations`。
-- 「一則訊息屬於哪個對話」的切分規則要抄 HOZO 的，不要自創。
+## ★ 三個不看原始碼就會踩的陷阱
 
-**進 tenant.config**：無（這層應該是純結構的）
+**① `storeLineEventInNotion` 是個「大орchestrator」，橫跨 H1/H8/H9/H10。**
+你只負責：去重 → 解析對話脈絡 → 找/建對話主檔 → 建訊息頁 → 內容最前面插訊息區塊 → 更新對話主檔統計。
+附件頁、指令頁、成員索引 **不要抄進來**。請在你的模組裡把它們留成**擴充點**（例如 `onMessage` 回傳 `{ conversation, messagePage }` 供其他模組接手），並在模組 README 寫清楚這個介面——H8/H9/H10 三個 session 會依賴它。
 
-**驗收**：`onMessage(ctx)` 把訊息接到正確對話主檔；跨租戶不互相寫入。
+**② 「最新在上」是靠一個錨點區塊實作的，不是靠排序。**
+`appendConversationContentFirst` 用 `PATCH /v1/blocks/{id}/children` 帶 `after: anchor.id`，把新訊息插在錨點**正下方**。
+`findOrCreateConversationAnchor`（1514）有段 2026-06-13 的修正註解值得一讀：錨點比對**刻意用「】對話記錄」這個穩定子字串**，而不是完整前綴——因為舊頁面的錨點是「【HOZO CRM】…」、移植後是「【HOZO LINE】…」，用全字比對會在舊頁面重複建錨點，導致新訊息掉到頁尾。
+**照抄這個比對策略。** 這是踩過坑修好的，不要「順手改良」成全字比對。
+
+**③ 冪等靠 `findMessagePage(messageId)` 先查再寫。**
+LINE 會重送 webhook。開頭那段 `if (existingMessage) return;` 是防重複的唯一防線，別省略。
+（C1 `core/event-queue.js` 上線後會重試事件，這條更重要。）
+
+## 契約與平台適配
+
+- 對話主檔：`ctx.tenant.dataSources.conversations`；訊息：`ctx.tenant.dataSources.messages`。
+- **不要自己 `fetch` LINE**。用 `platform.lineGet` / `platform.resolveSenderName`。
+  HOZO 的 `resolveDisplayNames` 直接打 `/v2/bot/group/{id}/summary` 與 member profile —— 平台已有對應能力，改用它。
+- **不要自己 `fetch` Notion**。一律 `platform.notionRequest`。
+- ⚠️ **`resolveConversationContext` 支援 group / room / user 三種來源，但平台目前收不到個人訊息**：
+  `server.js:96` 的 `handleEvent` 只認 `source.groupId || source.roomId`，未綁定就丟棄。
+  個人對話（`user:` 分支）在平台上**現在不會被觸發**。程式碼保留該分支，但**不要為它設計測試**，也不要因此去改 `core/`——若你認為平台該支援個人訊息，寫進交付報告。
+
+## 與現有模組的關係
+
+- 平台的 `modules/collect` 是 **BuildAM 血統**（逐則訊息落庫、丟給 triage）。
+  你這個是 **HOZO 血統**（聚合成對話級脈絡）。
+  **兩者並存、不要合併、不要動 `collect`。** 租戶各自勾選（工程用 collect，HOZO 用 conversations）。
+
+**進 tenant.config**：無 —— 這層應該是純結構的。
+（`findOrCreateConversation` 會寫「總控專案」等 HOZO 味欄位嗎？不會，那是後續模組填的。若你發現有，抽進 config 並回報。）
+
+## 驗收
+
+- 同一則 `messageId` 送兩次 → 只寫一次。
+- 新訊息出現在對話主檔內容**最上方**（錨點正下方），不是頁尾。
+- 舊頁面（錨點文字為「【HOZO CRM】對話記錄」）不會被重複插入新錨點。
+- 跨租戶不互相寫入（狀態以 `${tenant.key}::${groupId}` 為鍵）。
+- 寫一支 `tools/dryrun-conversations.mjs`，**用 mock `notionRequest` 驗證**——照 `tools/dryrun-tasks.mjs` 的樣子（`bootstrap(env, overrides)` 可注入 mock）。
+  **不要對生產 Notion 做寫入測試**（HOZO 正在運行）。
+- `node --check` 全過。
 
 ---
 
