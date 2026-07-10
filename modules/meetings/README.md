@@ -37,7 +37,7 @@
 
 型別不對的欄位會靜默退回預設,一個手誤的 json 不會讓整條會議路徑爆掉。分享型(share)格式本來就中性,不受此設定影響。
 
-> ⚠️ **綁定端必須把 config 帶進來。** `tenant` 物件若少了 `config`,該租戶就拿到中性預設 —— 對工程租戶而言等於掉了工程詞庫與「工地檢討」類型。vendored 綁定(BuildAM shim)請把 `tenants/engineering.json` 的 `config` 一併注入。
+> ⚠️ **綁定端必須把 config 帶進來。** `tenant` 物件若少了 `config`,該租戶就拿到中性預設 —— 對工程租戶而言等於掉了工程詞庫與「工地檢討」類型。vendored 綁定(BuildAM shim)請把 `tenants/engineering.json` 的 `config` 一併注入。唯一源頭是 `engineering.json`;shim 那份是手抄拷貝、會漂移,防漂移機制見 `tenants/README.md`。
 
 ## 契約(預設匯出)
 ```js

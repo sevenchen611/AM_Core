@@ -24,6 +24,17 @@
 }
 ```
 
+## ⚠️ engineering 的 `config.meetings` 有一份手抄拷貝活在 BuildAM
+
+BuildAM 目前以 vendored 方式綁定 meetings 模組,它的 shim(`BuildAM/line-oa-webhook/src/meeting.js` 的 `TENANT` 物件)裡**手抄了一份 `engineering.json` 的 `config.meetings`**。這是刻意的過渡做法(平台 `core/` 尚未接管 BuildAM 的部署),但代價是:
+
+> **改這裡的 `config.meetings`(加一個 keyterm、改一個 type…)不會自動傳到 BuildAM。**
+> 必須通知 **S3.buildam-binding** 依「這個檔案」重抄一次(不是依 diff——diff 又會是第三份會漂移的拷貝)。
+
+兜底不靠人記得:BuildAM 那邊有一條 meetings dryrun,用 shim 的 `TENANT` 跑一場 mock 會議、斷言 keyterms 含「矽酸鈣板」且類型走「工地檢討」白名單。**shim 的 config 一旦落後於這裡,BuildAM 的 dryrun 會紅**,而不是靜默變笨。這是這個隱性契約唯一的自動守衛,別讓它失效。
+
+（AM_Core 這端對應的守衛是 `tools/dryrun-meetings.mjs`。）
+
 ## 機密放哪
 
 Notion 頁 ID、資料來源 ID、LINE/AI 金鑰**一律放平台的 `.env`（gitignore），不寫進這些 json**，以維持 AM_Core 不含生產機密的規則。此處只存「結構」與非機密設定。**LINE user id（如 controller）算個資，放 `.env`。**
