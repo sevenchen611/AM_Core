@@ -242,7 +242,7 @@ async function finalizeMeeting(key, rosterAnswer, answeredBy) {
     }
     if (roster.topic) parsed.title = roster.topic; // 使用者主題優先
     // 5. 落地 + 發布
-    await publishMeeting({ parsed, diarized, legend, roster, projectPageId, groupId, senderName, answeredBy, filename, audioDriveUrl, tenant });
+    await publishMeeting({ parsed, diarized, legend, roster, projectPageId, groupId, senderName, answeredBy, filename, audioDriveUrl, tenant, binding });
   } catch (error) {
     console.warn(`Meeting finalize failed (key=${key}): ${error.message}`);
     await platform.pushLineMessage(groupId, `⚠ 會議記錄整理失敗(${error.message.slice(0, 90)})。錄音原檔已存 Drive,可重傳再試或聯絡 Seven。`).catch(() => {});
@@ -459,9 +459,66 @@ function normalizeParsed(j) {
   };
 }
 
+// ── 每群一個獨立會議庫(真隔離)──────────────────────────────
+// 讀 Notion property 純文字(title 或 rich_text)
+const plainRich = (prop) => (prop?.rich_text || prop?.title || []).map((x) => x.plain_text || '').join('').trim();
+
+// 新會議庫的欄位模板(與現行會議庫一致);有 projects 才加「專案」關聯
+function meetingsDbProperties(tenant) {
+  return {
+    '會議': { title: {} },
+    '類型': { select: { options: [{ name: '審圖' }, { name: '交底' }, { name: '工地檢討' }] } },
+    '日期': { date: {} },
+    '參與者': { rich_text: {} },
+    ...(tenant?.dataSources?.projects ? { '專案': { relation: { data_source_id: tenant.dataSources.projects, single_property: {} } } } : {}),
+  };
+}
+
+// 在母頁下自動建一個「該群專屬」會議庫,回傳 data_source id
+async function provisionMeetingsDb(tenant, groupName) {
+  const created = await platform.notionRequest('/v1/databases', {
+    method: 'POST',
+    body: {
+      parent: { type: 'page_id', page_id: tenant.meetingsParentPageId },
+      title: [{ type: 'text', text: { content: `會議記錄 · ${groupName || '群組'}` } }],
+      initial_data_source: { properties: meetingsDbProperties(tenant) },
+    },
+  });
+  const dsId = created.data_sources?.[0]?.id;
+  if (!dsId) throw new Error('provision meetings db: no data source id');
+  console.log(`Provisioned per-group meetings DB「${groupName}」→ ${dsId}`);
+  return dsId;
+}
+
+// 決定這則會議寫進哪個會議庫:
+//  per-group 模式(tenant.meetingsParentPageId 有值 + 有 binding.pageId):每群一個獨立庫,第一次開會自動建、id 記回綁定頁「會議資料庫」欄。
+//  否則:租戶預設庫(現行行為;未設 meetingsParentPageId 的租戶=BuildAM 現況,完全不受影響)。
+async function resolveMeetingsTarget(tenant, binding) {
+  const fallback = { dbId: tenant?.dataSources?.meetings, perGroup: false };
+  if (!tenant?.meetingsParentPageId || !binding?.pageId) return fallback;
+  try {
+    const page = await platform.notionRequest(`/v1/pages/${encodeURIComponent(binding.pageId)}`, { method: 'GET' });
+    const existing = plainRich(page.properties?.['會議資料庫']);
+    if (existing) return { dbId: existing, perGroup: true };
+    const groupName = plainRich(page.properties?.['群組名稱']);
+    const dbId = await provisionMeetingsDb(tenant, groupName);
+    try {
+      await platform.notionRequest(`/v1/pages/${encodeURIComponent(binding.pageId)}`, {
+        method: 'PATCH',
+        body: { properties: { '會議資料庫': { rich_text: [text(dbId)] } } },
+      });
+    } catch (e) { console.warn(`⚠ 會議庫 id 未能寫回綁定頁(下次可能重建,請確認綁定庫有「會議資料庫」欄):${e.message}`); }
+    return { dbId, perGroup: true };
+  } catch (e) {
+    console.warn(`resolveMeetingsTarget failed, fall back to default: ${e.message}`);
+    return fallback;
+  }
+}
+
 // ── 落地 + 發布 ────────────────────────────────────────────
-async function publishMeeting({ parsed, diarized, legend, roster, projectPageId, groupId, senderName, answeredBy, filename, audioDriveUrl, tenant }) {
+async function publishMeeting({ parsed, diarized, legend, roster, projectPageId, groupId, senderName, answeredBy, filename, audioDriveUrl, tenant, binding }) {
   const today = todayStr();
+  const { dbId: meetingsDb, perGroup } = await resolveMeetingsTarget(tenant, binding);
   const kind = roster?.kind === 'share' ? 'share' : 'work';
   // 工作型:限定工程類型(預設工地檢討);分享型:用 AI 給的型別(讀書會/分享會…,Notion select 自動建選項),預設分享會
   const meetingType = kind === 'share'
@@ -484,7 +541,7 @@ async function publishMeeting({ parsed, diarized, legend, roster, projectPageId,
   const meeting = await platform.notionRequest('/v1/pages', {
     method: 'POST',
     body: {
-      parent: { type: 'data_source_id', data_source_id: tenant.dataSources.meetings },
+      parent: { type: 'data_source_id', data_source_id: meetingsDb },
       properties: {
         '會議': { title: [text(`${today} ${parsed.title || defaultTitle}`)] },
         '類型': { select: { name: meetingType } },
@@ -521,7 +578,8 @@ async function publishMeeting({ parsed, diarized, legend, roster, projectPageId,
           '期限': /^\d{4}-\d{2}-\d{2}$/.test(t.due || '') ? { date: { start: t.due } } : { date: null },
           '來源': { select: { name: '會議' } },
           '狀態': { select: { name: '待辦' } },
-          '會議記錄': { relation: [{ id: meeting.id }] },
+          // 待辦庫的「會議記錄」關聯指向預設會議庫;per-group 庫的會議頁不在其目標庫內,故略過關聯
+          ...(perGroup ? {} : { '會議記錄': { relation: [{ id: meeting.id }] } }),
         },
       },
     }).catch((e) => console.warn(`todo create failed: ${e.message}`));
@@ -635,10 +693,11 @@ async function processRecording({ tenant, buffer, filename, contentType, binding
     ...(audioDriveUrl ? [{ object: 'block', type: 'paragraph', paragraph: { rich_text: [{ type: 'text', text: { content: '🎙 錄音原檔(爭議時回放):' } }, { type: 'text', text: { content: filename, link: { url: audioDriveUrl } } }] } }] : []),
     para('本會議分兩段(點標題展開):📄 摘要、📝 筆記(分區詳細)。此模式無署名逐字稿。'),
   ];
+  const { dbId: meetingsDb, perGroup } = await resolveMeetingsTarget(tenant, binding);
   const meeting = await platform.notionRequest('/v1/pages', {
     method: 'POST',
     body: {
-      parent: { type: 'data_source_id', data_source_id: tenant.dataSources.meetings },
+      parent: { type: 'data_source_id', data_source_id: meetingsDb },
       properties: {
         '會議': { title: [text(`${today} ${parsed.title || '工程會議'}`)] },
         '類型': { select: { name: meetingType } },
@@ -665,7 +724,7 @@ async function processRecording({ tenant, buffer, filename, contentType, binding
           '期限': /^\d{4}-\d{2}-\d{2}$/.test(t.due || '') ? { date: { start: t.due } } : { date: null },
           '來源': { select: { name: '會議' } },
           '狀態': { select: { name: '待辦' } },
-          '會議記錄': { relation: [{ id: meeting.id }] },
+          ...(perGroup ? {} : { '會議記錄': { relation: [{ id: meeting.id }] } }),
         },
       },
     }).catch((e) => console.warn(`todo create failed: ${e.message}`));
@@ -684,9 +743,10 @@ export default {
   hasPending,          // (tenant, groupId) → bool
   onAudio,             // (ctx) 綁定群收到音檔 → 反問並暫存
   onMessage,           // (ctx) 每則訊息;若在等與會資訊則收斂,回傳 true=已處理
+  provisionMeetingsDb, // (tenant, groupName) 手動預建某群的會議庫(選用)
   consumeRoster,       // (ctx) 直接以與會資訊收斂發布(外層已判定 pending 時用)
   processRecording,    // (ctx) 無 AssemblyAI 時的 Gemini 直轉
 };
 
 // 測試用內部匯出(不影響正式流程)
-export const __test = { meetingPrompt, normalizeParsed, withNextMeetingTodo, summarize, summaryTabBlocks, notesTabBlocks, publishMeeting };
+export const __test = { meetingPrompt, normalizeParsed, withNextMeetingTodo, summarize, summaryTabBlocks, notesTabBlocks, publishMeeting, resolveMeetingsTarget, provisionMeetingsDb };

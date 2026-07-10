@@ -41,6 +41,15 @@ export default {
 - 音檔類:`{ tenant, buffer, filename, contentType, binding, senderName, groupId, ackSent }`
 - 訊息類:`{ tenant, groupId, text, senderName }`
 
+## 每群一個獨立會議庫(選用,真隔離)
+若 `tenant.meetingsParentPageId` 有值(母頁 id),就啟用「**每個 LINE 群一個獨立會議記錄庫**」:
+- 某群第一次開會、綁定頁的「會議資料庫」欄還空著 → 在母頁下**自動建一個會議庫**(欄位:會議/類型/日期/參與者/專案),把 data source id **回填該群綁定頁的「會議資料庫」欄**;之後這群的會議都寫進去。
+- 沒設 `meetingsParentPageId`(如 BuildAM 現況)→ 一律寫租戶預設庫 `tenant.dataSources.meetings`,**行為完全不變**。
+- per-group 時,待辦仍進租戶待辦庫,但**略過「會議記錄」關聯**(Notion 關聯只能指向單一目標庫,per-group 會議頁不在其中)。
+- **前置**:綁定庫需有「會議資料庫」rich_text 欄;可用 `mod.provisionMeetingsDb(tenant, groupName)` 手動預建某群的庫。
+- ⚠️ **權限隔離靠 Notion 分享**:系統能自動「建庫、分流」,但「只給該組的人看」需管理員在 Notion 手動分享各庫/母頁(API 無法設定分享對象)。
+- ⚠️ **與工程儀表板的取捨**:dashboard/reminders 目前讀「單一預設會議庫」;啟用 per-group 後,新會議進各群的庫,**不會出現在讀預設庫的儀表板**,除非後續讓那些功能跨庫彙總。故 BuildAM 暫不啟用。
+
 ## 狀態隔離
 會議「待補 pending」以 **`${tenant.key}::${groupId}`** 為鍵,不同租戶不互相污染(見 `pkey()`)。
 
