@@ -15,9 +15,15 @@
 //   4. 零相依:全部走 fetch,不引入 SDK(平台 npm install 目前是 0 套件)。
 //
 // 合約(與 HOZO_AM src/llm-backend.js 相同,收編時可直接對接):
-//   llm.completeJson({ system, userContent, schema, maxTokens, imagePaths }) → 解析後的物件
+//   llm.completeJson({ system, userContent, schema, maxTokens, imagePaths, profile, chain }) → 解析後的物件
+//   llm.completeText({ ... 同上 }) → 純文字
 //   llm.complete(...) → { data, backend, attempts }   // 想知道實際是誰答的
-//   llm.available / llm.backends / llm.selfTest()
+//   llm.available / llm.backends / llm.profiles / llm.selfTest()
+//
+//   profile:'quality' → 長逐字稿、要品質(assemblyai gateway 當頭)
+//   profile:'cheap'   → 短 prompt、每則訊息都跑(＝預設鏈,minimax 當頭)
+//   chain:'a,b,c'     → 直接指名鏈序(蓋過 profile)
+//   兩者指名的後端若全不可用,會退回預設鏈,不會變成空鏈。
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -152,9 +158,12 @@ function minimaxBackend({ apiKey, model, baseUrl, visionOverride }) {
       if (data?.base_resp && Number(data.base_resp.status_code) !== 0) {
         throw new Error(`MiniMax base_resp ${data.base_resp.status_code}: ${data.base_resp.status_msg || 'unknown'}`);
       }
-      const content = data?.choices?.[0]?.message?.content;
-      if (!content) throw new Error(`MiniMax 無內容 (finish_reason: ${data?.choices?.[0]?.finish_reason || 'unknown'})`);
-      return stripThink(content);
+      // ⚠️ 空值檢查必須在 stripThink「之後」。MiniMax 是推理模型:當它把 max_tokens
+      // 燒光在 <think>…</think> 裡(finish_reason=length),content 非空但剝完是空的。
+      // 先檢查再剝,等於放行一個空字串出去。
+      const cleaned = stripThink(data?.choices?.[0]?.message?.content);
+      if (!cleaned) throw new Error(`MiniMax 無內容 (finish_reason: ${data?.choices?.[0]?.finish_reason || 'unknown'})`);
+      return cleaned;
     },
   };
 }
@@ -180,6 +189,36 @@ function geminiBackend({ apiKey, model }) {
       const content = (data?.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('');
       if (!content) throw new Error(`Gemini 無內容 (finishReason: ${data?.candidates?.[0]?.finishReason || 'unknown'})`);
       return content;
+    },
+  };
+}
+
+// ── 後端:AssemblyAI LLM Gateway(OpenAI 相容;轉售 Claude/GPT/Gemini/Qwen/Kimi)──
+// AssemblyAI 的「分析」不是特殊能力,它就是個 LLM 代理。auth 用原始金鑰、不加 Bearer
+// (與 AssemblyAI 轉寫端點一致)。模型清單:GET https://llm-gateway.assemblyai.com/v1/models
+//
+// ⚠️ ASSEMBLYAI_API_KEY 早已存在(轉寫在用),所以此後端一加入就是 available。
+//    它「不在」DEFAULT_CHAIN 裡是刻意的——只有明確指名 profile:'quality' 才會用到它,
+//    否則每則 LINE 訊息初判都會去打 Claude,錢燒得莫名其妙。
+//
+// ⚠️ 韌性鐵律:任何鏈裡至少保留一個「非 AssemblyAI」的廠商。轉寫已經押在 AssemblyAI,
+//    若摘要也只走 Gateway,AssemblyAI 一掛就同時失去轉寫與摘要。quality 鏈的第二順位
+//    因此是「直連 Gemini(我們自己的金鑰)」,而不是 Gateway 裡轉售的 gemini。
+function assemblyaiBackend({ apiKey, model }) {
+  return {
+    name: 'assemblyai',
+    model,
+    available: Boolean(apiKey),
+    supportsImages: false, // 未驗證 gateway 的多模態請求形狀,先關;要開請先實測(scripts/check-llm.mjs)
+    async callRaw({ prompt, maxTokens }) {
+      const { ok, status, data } = await postJson('https://llm-gateway.assemblyai.com/v1/chat/completions', {
+        headers: { authorization: apiKey },
+        body: { model, max_tokens: maxTokens, temperature: 0.2, messages: [{ role: 'user', content: prompt }] },
+      });
+      if (!ok) throw new Error(`AssemblyAI Gateway ${status}: ${brief(data?.error || data)}`);
+      const cleaned = stripThink(data?.choices?.[0]?.message?.content);
+      if (!cleaned) throw new Error(`AssemblyAI Gateway 無內容 (finish_reason: ${data?.choices?.[0]?.finish_reason || 'unknown'})`);
+      return cleaned;
     },
   };
 }
@@ -224,6 +263,10 @@ export function createLlm({ env = process.env, logger = console } = {}) {
       apiKey: env.GEMINI_API_KEY || '',
       model: env.AMCORE_LLM_GEMINI_MODEL || 'gemini-2.5-flash',
     }),
+    assemblyaiBackend({
+      apiKey: env.ASSEMBLYAI_API_KEY || '',
+      model: env.AMCORE_LLM_ASSEMBLYAI_MODEL || 'claude-haiku-4-5-20251001',
+    }),
     anthropicBackend({
       apiKey: env.ANTHROPIC_API_KEY || '',
       model: env.ANTHROPIC_MODEL || 'claude-opus-4-8',
@@ -239,14 +282,39 @@ export function createLlm({ env = process.env, logger = console } = {}) {
 
   if (!chain.length) logger.warn('[llm] 沒有任何可用後端(缺 MINIMAX_API_KEY / GEMINI_API_KEY / ANTHROPIC_API_KEY)。');
 
-  // 依這次呼叫的需求挑出合格後端(要看圖 → 只留看得見圖的)。
-  function eligible(imagePaths) {
-    if (!imagePaths || !imagePaths.length) return chain;
-    return chain.filter((b) => b.supportsImages);
+  // ── per-call 鏈序(profile)────────────────────────────────
+  // 全域一條鏈滿足不了兩種相反的呼叫者:
+  //   quality — meetings:每天幾場、長逐字稿、要品質(實測 gateway 三模型 9/9,MiniMax 每三次掛一次)
+  //   cheap   — triage :每則 LINE 訊息都跑、prompt 很短、不該為此打 Claude
+  // ⚠️ 上面的 MiniMax 失敗率是「針對長逐字稿」量到的。短訊息初判 MiniMax 可能好好的,
+  //    沒測過就別當已證實 —— 所以 cheap 維持現況,不動 triage。
+  const PROFILES = {
+    quality: env.AMCORE_LLM_CHAIN_QUALITY || 'assemblyai,gemini,minimax',
+    cheap: env.AMCORE_LLM_CHAIN_CHEAP || env.AMCORE_LLM_CHAIN || DEFAULT_CHAIN,
+  };
+
+  // 指名的後端全都不可用時退回預設鏈,不要靜默變成空鏈(那會讓呼叫直接失敗)。
+  function resolveChain(spec) {
+    if (!spec) return chain;
+    const names = Array.isArray(spec) ? spec : String(spec).split(',');
+    const picked = names
+      .map((n) => byName.get(String(n).trim().toLowerCase()))
+      .filter((b) => b && b.available);
+    return picked.length ? picked : chain;
   }
 
-  async function complete({ system, userContent, schema = null, maxTokens = 16000, imagePaths = [] }) {
-    const candidates = eligible(imagePaths);
+  // 依這次呼叫的需求挑出合格後端(要看圖 → 只留看得見圖的)。
+  function eligible(imagePaths, spec) {
+    const base = resolveChain(spec);
+    if (!imagePaths || !imagePaths.length) return base;
+    return base.filter((b) => b.supportsImages);
+  }
+
+  async function complete({
+    system, userContent, schema = null, maxTokens = 16000, imagePaths = [],
+    profile = null, chain: chainSpec = null,
+  }) {
+    const candidates = eligible(imagePaths, chainSpec || (profile && PROFILES[profile]));
     if (!candidates.length) {
       throw new Error(imagePaths?.length
         ? '沒有支援圖片的 LLM 後端可用(需要 GEMINI_API_KEY 或 ANTHROPIC_API_KEY)。'
@@ -260,6 +328,12 @@ export function createLlm({ env = process.env, logger = console } = {}) {
       for (let attempt = 1; attempt <= PARSE_ATTEMPTS; attempt += 1) {
         try {
           const raw = await backend.callRaw({ prompt, maxTokens, imagePaths });
+          // 空回應一律當失敗。有 schema 時 parseJsonLoose('') 本來就會拋錯,但
+          // completeText(schema=null)會把 '' 當成功回傳 → 靜默失敗、永不落備援。
+          // 擋在這裡,三家後端 × 兩個入口一次全保護。
+          if (!String(raw || '').trim()) {
+            throw new Error(`${backend.name} 回傳空內容(推理可能吃光 max_tokens)`);
+          }
           const data = schema ? parseJsonLoose(raw, schema) : raw;
           if (failures.length) logger.log(`[llm] ${backend.name} 接手成功(前面失敗:${failures.map((f) => f.backend).join(', ')})`);
           return { data, backend: backend.name, attempts: failures.length + attempt };
@@ -276,9 +350,13 @@ export function createLlm({ env = process.env, logger = console } = {}) {
     throw new Error(`所有 LLM 後端都失敗 → ${failures.map((f) => `${f.backend}(${f.message})`).join('; ')}`);
   }
 
+  const describe = (b) => ({ name: b.name, model: b.model, supportsImages: b.supportsImages });
+
   return {
     available: chain.length > 0,
-    backends: chain.map((b) => ({ name: b.name, model: b.model, supportsImages: b.supportsImages })),
+    backends: chain.map(describe),                       // 預設鏈(＝不指名 profile 時會用的)
+    allBackends: all.filter((b) => b.available).map(describe), // 有金鑰、可被 profile 指名的全部
+    profiles: PROFILES,
     complete,
     // 與 HOZO_AM 的 completeJson 合約相同,收編模組可直接對接。
     async completeJson(opts) {

@@ -42,10 +42,10 @@ export default {
   portal: { pinAuthed(req), userAuthed(req), checkPin(pin) },
   // LLM(統一備援鏈)← 呼叫 AI 一律用這個
   llm: {
-    completeJson({ system, userContent, schema, maxTokens, imagePaths }),  // → 解析後的物件
-    completeText({ system, userContent, maxTokens, imagePaths }),          // → 純文字
+    completeJson({ system, userContent, schema, maxTokens, imagePaths, profile, chain }),  // → 解析後的物件
+    completeText({ system, userContent, maxTokens, imagePaths, profile, chain }),          // → 純文字
     complete(...),        // → { data, backend, attempts }：想知道實際是誰答的
-    available, backends, selfTest(),
+    available, backends, allBackends, profiles, selfTest(),
   },
   // AI 金鑰(共用)⚠️ 逐步退場——留給尚未遷移的模組與非 LLM 服務(AssemblyAI)
   anthropicApiKey, assemblyKey, geminiKey, geminiModel, minimaxApiKey, minimaxBaseUrl, aiProvider, aiJudgeModel,
@@ -84,6 +84,11 @@ routes: [
 - **模組內任何狀態(例如會議待補 pending)必須以「(租戶, 群組)」為鍵**(`${tenant.key}::${groupId}`)，避免跨租戶污染。
 - **呼叫 AI 一律經 `platform.llm`**，不要自己 `fetch` 任何供應商、不要自己寫備援。備援鏈與成本策略集中在 `core/llm.js`(鏈序由 `AMCORE_LLM_CHAIN` 決定，預設 `minimax,gemini,anthropic`)。需要看圖就傳 `imagePaths`——抽象層只會把它交給**看得見圖的後端**，而不是讓瞎子瞎掰。
 - 視覺能力是**型號**的屬性、不是廠商的屬性：MiniMax-M3 看得見圖，M2 看不見。換型號後請跑 `node scripts/check-llm.mjs`(會送一張自製彩圖實測每個宣告支援圖片的後端)。
+- **依「這通呼叫要什麼」挑 profile，不要改全域鏈**：
+  - `profile: 'quality'` — 長逐字稿、少量呼叫、要品質（會議摘要一類）。走 AssemblyAI LLM Gateway（轉售 Claude/GPT/Gemini），實測長逐字稿 9/9 零失敗。
+  - 不給 profile（＝`cheap`）— 短 prompt、每則訊息都跑（訊息初判一類）。走 MiniMax 優先，**別為了一則 LINE 訊息去打 Claude**。
+  - `chain: 'a,b,c'` 可直接指名，蓋過 profile。指名的後端若全不可用會**退回預設鏈**，不會變成空鏈。
+- **空回應一律當失敗、往下一個後端落。** MiniMax 這類推理模型會把 `max_tokens` 燒光在 `<think>…</think>` 裡，剝掉後只剩空字串——`core/llm.js` 已在 `complete()` 統一擋掉。**模組不要自己判斷「回空就算了」**：那會產出一份標題空白、零內容的 Notion 頁，而且不報錯，比大聲失敗更糟。
 
 ### 參考實作（以此為準）
 
