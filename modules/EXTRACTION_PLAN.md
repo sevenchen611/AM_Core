@@ -49,6 +49,14 @@ BuildAM 端的綁定 `src/meeting.js` + `src/_platform/meetings/`)。
   對外匯出 **`routes` / `classify` / `reminderPasses`**。
 - **8B / 8C 只交自己的領域檔 + 一個 register 掛鉤**(不寫 index.js),由 8A 串接並做**最終整合驗證**。
 
+**決策 5 — 圖片/檔案處理拆兩層(通用 `media` 模組 vs 領域掛載),與決策 1 同形(2026-07-11 定案):**
+- **`media` 模組 = 通用媒體管線**(所有租戶共用):圖片/檔案進來 → `platform.llm` 視覺判讀(主題/標籤/說明)→ 事件關聯解析器(時間鄰近/LINE 回覆/連拍分組)找出所屬事件 → 寫回附件的 `AI影像判讀` JSON + 檔名 slug。
+- **領域掛載由 `construction` 提供 `classifyPhoto(ctx)`**(空間/工項/回饋單,**僅工程租戶**),經 register 掛鉤呼叫——與 triage 呼叫 `construction.classify` 同模式。無此掛鉤的租戶(如 forest)→ 降級「空間相簿/依日期歸檔」,**不進佇列**。
+- **`collect` 仍只落庫**(下載/存附件/Drive 未歸檔);理解與關聯一律在 `media`,**不回頭塞進 collect**(守「collect 只收不判」)。
+- **音檔不歸 `media`**(那是 `meetings`)。
+- **動機**:此能力做在平台一次,所有 AM(工程/forest/未來)通用;BuildAM 以 vendored 帶過去,**別在 BuildAM 各自重做**。BuildAM 現行的「會議噪音過濾」(commit `3c03258`)只是治標,`media` 上線後由正規機制取代。
+- 規格見 [`modules/media/SPEC.md`](media/SPEC.md)。
+
 ---
 
 ## 模組清單與狀態(唯一權威清單)
@@ -61,6 +69,7 @@ BuildAM 端的綁定 `src/meeting.js` + `src/_platform/meetings/`)。
 | `meetings` | 通用核心 | ✅ 已完成(範本) | `src/meeting.js` | 會議錄音→轉寫→記錄 |
 | `tasks` | 通用核心 | ✅ 已完成 | 散落(meetings 建、reminders 讀) | 待辦 CRUD 共用服務 |
 | `reminders` | 通用核心 | ✅ 已完成 | `src/server.js`(runAllReminderPasses 等)+ `/cron/reminders` | 通用排程骨架;工程到期規則吃 `platform.reminderPasses`(construction) |
+| `media` | 通用核心 | 設計定案·待實作 | (新建 `modules/media/`) | **圖片/檔案理解+事件關聯**;領域掛載吃 `platform.classifyPhoto`(construction),無則降級相簿 |
 | `construction` | 領域(僅工程租戶) | 進行中(8A 整合) | `queue.js` 單據 + `budget/contracts/trades/dashboard` + `server.js` 分類/到期 | 工程專屬**含 dashboard**;拆 8A/8B/8C,整合者 8A |
 
 > **沒有獨立 `dashboard` 模組**(見決策 2)。若見任何 `modules/dashboard/` 資料夾或以 M7 名義開工的 session,一律重導併入 `construction`(8A)。
@@ -72,7 +81,8 @@ BuildAM 端的綁定 `src/meeting.js` + `src/_platform/meetings/`)。
 - **queue**:待確認/已確認、照片縮圖、掛載到空間/工項、選專案掛載、批次確認、**掛到既有回饋單**。**開立回饋單委派 `platform.createFeedbackTicket`(construction)**。
 - **tasks**:待辦 CRUD 共用服務(`platform.tasks.createTask/expandTasks/setStatus/listOpen/markReminded`),供 meetings、construction、reminders 共用。
 - **reminders**:通用排程骨架(t30/每日/傍晚 pass + 待辦提醒 + `/cron/reminders`)。**工程專屬的回饋單到期/擱置規則由 `construction.reminderPasses` 提供**,reminders 只迭代呼叫,不自己實作。
-- **construction**(僅工程租戶):回饋單/變更單狀態機、budget、contracts(回寫預算)、trades、**dashboard**、給 triage 的 `classify`、給 reminders 的 `reminderPasses`。整合者 8A 於 `index.js` 匯出 `routes/classify/reminderPasses`。
+- **media**(collect 落庫之後):對圖片/檔案跑 `platform.llm` 視覺判讀 → 事件關聯解析器(±N 分鐘時間鄰近/LINE 回覆/連拍分組)綁到最近的判定事件 → 有 `construction.classifyPhoto` 就交它定空間/工項/回饋單、無則降級空間相簿。**通用邏輯(判讀、關聯、檔名 slug、附件欄位)恆在 media;空間/工項詞彙一律來自 construction。** 不碰音檔(meetings)。
+- **construction**(僅工程租戶):回饋單/變更單狀態機、budget、contracts(回寫預算)、trades、**dashboard**、給 triage 的 `classify`、給 reminders 的 `reminderPasses`、給 media 的 `classifyPhoto`。整合者 8A 於 `index.js` 匯出 `routes/classify/reminderPasses/classifyPhoto`。
 
 ## ⚠️ 糾纏點(跨模組共用檔,認領前必看)
 
