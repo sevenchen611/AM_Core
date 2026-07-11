@@ -71,7 +71,8 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
 
   // 只抓開頭若干 byte(HTTP Range)以辨識檔頭,不必為了看 12 個 byte 下載整個大檔。
   // LINE content API 支援 Range(回 206)。202=仍在轉檔,重試幾次;真失敗回空 ArrayBuffer,交呼叫端走退路。
-  async function peekLineContent(messageId, bytes = 64, { tries = 4, baseDelay = 2000 } = {}) {
+  // 大檔(上百 MB)LINE 準備較久、期間回 202;耐心重試到 ~75s,別讓「檔還沒好」誤判成非音檔。
+  async function peekLineContent(messageId, bytes = 64, { tries = 8, baseDelay = 3000 } = {}) {
     if (!channelAccessToken) throw new Error('LINE_CHANNEL_ACCESS_TOKEN is not set.');
     const url = `https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`;
     for (let attempt = 1; attempt <= tries; attempt += 1) {

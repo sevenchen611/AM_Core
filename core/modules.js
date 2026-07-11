@@ -111,6 +111,9 @@ export function createDispatcher({ tenants, modules, platform, logger = console 
       }
     }
     const audio = nameAudio || contentAudio;
+    // 讓後續 onMessage 模組(尤其 collect)共用同一份「是否會議音檔」判定,避免各自用副檔名重判:
+    // collect 才不會把「掉了副檔名的錄音」當一般附件整包下載+上傳。
+    ctx.isMeetingAudio = audio;
     // 下游轉寫/存檔要吃得到副檔名;檔名掉了副檔名(或 type=audio 無檔名)時補一個 .m4a。
     const audioFilename = AUDIO_EXT.test(message.fileName || '') ? message.fileName : `audio-${message.id}.m4a`;
     for (const mod of tenantModules(tenant)) {

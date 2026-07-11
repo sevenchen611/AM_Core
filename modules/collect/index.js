@@ -108,9 +108,11 @@ async function onMessage(ctx) {
   // 交棒點:把落好的訊息列 id 掛回 ctx,後續模組(triage/queue)承接同一列,免得再查一次
   ctx.messagePageId = messagePage.id;
 
-  // 照片/檔案 → 附件庫(照片另存 Drive「未歸檔/日期」);會議錄音跳過(meetings 自存 Drive)
+  // 照片/檔案 → 附件庫(照片另存 Drive「未歸檔/日期」);會議錄音跳過(meetings 自存 Drive)。
+  // 用 dispatch 已算好的「是否音檔」(含檔頭補判),避免掉了副檔名的錄音被當附件整包下載+上傳。
   const attachmentsDs = tenant?.dataSources?.attachments;
-  if (['image', 'file'].includes(message.type) && attachmentsDs && !isMeetingAudio(message)) {
+  const isAudioMsg = ctx.isMeetingAudio ?? isMeetingAudio(message);
+  if (['image', 'file'].includes(message.type) && attachmentsDs && !isAudioMsg) {
     try {
       const stored = await storeAttachment({ ctx, messagePage, messageId, messageType, eventTime });
       // 交棒給 media:附件頁 id + 圖片 buffer(供視覺判讀)掛回 ctx
