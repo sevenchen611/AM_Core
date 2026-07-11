@@ -152,20 +152,25 @@ async function queryCandidatesSafe(ctx, t) {
   catch (e) { console.warn(`[media] candidate query failed: ${e.message}`); return []; }
 }
 
-// 判讀寫回附件:檔名 slug + AI影像判讀 JSON(欄位若不存在 → 整個 PATCH 失敗,由呼叫端 catch,不擋關聯)
+// 判讀寫回附件:檔名 slug(一定寫)+ AI影像判讀 JSON(該欄位不存在時退回只寫 slug,不因缺欄位而整批失敗)。
 async function writeVision(ctx, vision, photoTimeMs, place) {
   if (!ctx.attachmentPageId) return;
   const notionRequest = ctx.notionRequest || platform.notionRequest;
   const dateStr = new Date(photoTimeMs + 8 * 3600 * 1000).toISOString().slice(0, 10); // 台北日
   const slug = buildSlug({ dateStr, place, topic: vision.topic });
-  await notionRequest(`/v1/pages/${encodeURIComponent(ctx.attachmentPageId)}`, {
-    method: 'PATCH',
-    body: { properties: {
-      '附件項目': { title: [textItem(slug || vision.topic || '照片')] },
-      '檔案名稱': { rich_text: [textItem(slug)] },
-      'AI影像判讀': { rich_text: [textItem(JSON.stringify({ ...vision, resolvedAt: new Date().toISOString(), model: 'platform.llm' }).slice(0, 1900))] },
-    } },
-  });
+  const nameProps = {
+    '附件項目': { title: [textItem(slug || vision.topic || '照片')] },
+    '檔案名稱': { rich_text: [textItem(slug)] },
+  };
+  const judged = { ...vision, resolvedAt: new Date().toISOString(), model: 'platform.llm' };
+  const url = `/v1/pages/${encodeURIComponent(ctx.attachmentPageId)}`;
+  try {
+    await notionRequest(url, { method: 'PATCH', body: { properties: { ...nameProps, 'AI影像判讀': { rich_text: [textItem(JSON.stringify(judged).slice(0, 1900))] } } } });
+  } catch (e) {
+    // 多半是租戶附件庫還沒有「AI影像判讀」欄位 → 至少把檔名 slug 寫進去(slug 用的欄位一定存在)。
+    console.warn(`[media] write vision full failed (${e.message}); slug-only fallback.`);
+    await notionRequest(url, { method: 'PATCH', body: { properties: nameProps } }).catch((e2) => console.warn(`[media] write slug failed: ${e2.message}`));
+  }
 }
 
 async function linkAttachmentToEvent(ctx, eventMessageId) {
