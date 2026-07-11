@@ -26,7 +26,7 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, {
       ok: true,
       platform: 'am-core',
-      build: 'audio-202-patient-2026-07-11c', // 部署版本標記:用來確認正式站跑的是哪一版
+      build: 'audio-streaming-2026-07-11d', // 部署版本標記:用來確認正式站跑的是哪一版
       lineConfigured: line.configured,
       driveConfigured: platform.driveConfigured,
       llm: { available: llm.available, chain: llm.backends },

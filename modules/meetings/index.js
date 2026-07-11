@@ -213,27 +213,35 @@ function rosterPrompt(filename) {
 // ctx: { tenant, buffer, filename, contentType, binding, senderName, groupId, ackSent }
 // ackSent=true 表示外層已先送過反問訊息(大檔先回覆再處理),這裡就不重送。
 async function onAudio(ctx) {
-  const { tenant, buffer, filename, binding, senderName, groupId, ackSent } = ctx;
+  const { tenant, buffer, audioMessageId, filename, binding, senderName, groupId, ackSent } = ctx;
   let contentType = ctx.contentType;
+  // 無 AssemblyAI 金鑰 → Gemini 直讀備援(需要 buffer;串流路徑未帶 buffer 就下載一次)。
   if (!platform.assemblyKey) {
-    return processRecording({ tenant, buffer, filename, contentType, binding, senderName, groupId });
+    let buf = buffer;
+    if (!buf && audioMessageId) buf = (await platform.downloadLineContent(audioMessageId)).buffer;
+    return processRecording({ tenant, buffer: buf, filename, contentType, binding, senderName, groupId });
   }
-  if (/x-m4a|m4a/i.test(contentType) || /\.(m4a|mp4)$/i.test(filename)) contentType = 'audio/mp4';
+  if (contentType && (/x-m4a|m4a/i.test(contentType) || /\.(m4a|mp4)$/i.test(filename))) contentType = 'audio/mp4';
 
+  // 串流路徑(平台,大檔友善):先發反問、只存 messageId,轉寫時才「邊下載邊上傳」;
+  //   不在此下載整包、不在此存 Drive,避免上百 MB 撐爆 512MB 機器、也讓反問即刻送出。
+  // buffer 路徑(相容):有 buffer(舊呼叫)才先存 Drive 留底。
   let audioDriveUrl = '';
-  try { audioDriveUrl = await archiveAudio(buffer, filename, contentType, tenant); }
-  catch (e) { console.warn(`Meeting audio Drive backup failed: ${e.message}`); }
+  if (buffer) {
+    try { audioDriveUrl = await archiveAudio(buffer, filename, contentType, tenant); }
+    catch (e) { console.warn(`Meeting audio Drive backup failed: ${e.message}`); }
+  }
 
   const key = pkey(tenant, groupId);
   clearPending(key); // 同(租戶,群)若有上一份待補會議,以新錄音取代
-  const entry = { tenant, buffer, filename, contentType, binding, senderName, groupId, audioDriveUrl, createdAt: Date.now() };
+  const entry = { tenant, buffer, audioMessageId, filename, contentType, binding, senderName, groupId, audioDriveUrl, createdAt: Date.now() };
   entry.timer = setTimeout(() => {
     finalizeMeeting(key, '').catch((e) => console.warn(`meeting auto-finalize failed: ${e.message}`));
   }, ROSTER_TIMEOUT_MS);
   pending.set(key, entry);
 
   if (!ackSent) await platform.pushLineMessage(groupId, rosterPrompt(filename));
-  console.log(`Meeting audio staged, awaiting roster (tenant=${tenant?.key || 'default'}, group=${groupId}).`);
+  console.log(`Meeting audio staged, awaiting roster (tenant=${tenant?.key || 'default'}, group=${groupId}, mode=${buffer ? 'buffer' : 'stream'}).`);
 }
 
 // 群組下一則文字 = 與會資訊答覆 → 收斂成會議記錄
@@ -262,7 +270,7 @@ async function finalizeMeeting(key, rosterAnswer, answeredBy) {
   const entry = pending.get(key);
   if (!entry) return;
   clearPending(key);
-  const { tenant, buffer, filename, contentType, binding, senderName, audioDriveUrl, groupId } = entry;
+  const { tenant, buffer, audioMessageId, filename, contentType, binding, senderName, audioDriveUrl, groupId } = entry;
   const cfg = meetingsCfg(tenant);
   try {
     // 1. 解析與會資訊(主題/與會者/發言順序/專有詞/所屬專案)
@@ -276,14 +284,17 @@ async function finalizeMeeting(key, rosterAnswer, answeredBy) {
     // 2-4. 優先 AssemblyAI 轉寫+講者分離 → Gemini 署名整理;失敗則自動改 Gemini 直讀備援
     let parsed, diarized = '', legend = new Map();
     try {
-      const tr = await transcribeWithAssembly({ buffer, filename, contentType, roster, cfg });
+      const tr = await transcribeWithAssembly({ buffer, audioMessageId, filename, contentType, roster, cfg });
       legend = buildSpeakerLegend(tr.utterances, roster.speakers);
       diarized = renderDiarized(tr, legend);
       parsed = await summarize({ diarized, roster, legend, cfg });
     } catch (assemblyErr) {
       console.warn(`AssemblyAI path failed, fallback to Gemini-direct: ${assemblyErr.message}`);
       await platform.pushLineMessage(groupId, '⚠ 逐字轉寫服務忙線,改用備援方式整理(這次不附署名逐字稿),稍候發布。').catch(() => {});
-      parsed = await geminiTranscribeParsed({ buffer, filename, contentType, roster, cfg });
+      // 備援需要完整 buffer;串流路徑此時才下載一次(僅在 AssemblyAI 失敗的少見情況)。
+      let buf = buffer;
+      if (!buf && audioMessageId) buf = (await platform.downloadLineContent(audioMessageId)).buffer;
+      parsed = await geminiTranscribeParsed({ buffer: buf, filename, contentType, roster, cfg });
     }
     if (roster.topic) parsed.title = roster.topic; // 使用者主題優先
     // 5. 落地 + 發布
@@ -386,13 +397,40 @@ async function fetchRetry(url, opts, { tries = 3, label = 'request', baseDelay =
   throw last;
 }
 
+// 上傳音檔到 AssemblyAI /v2/upload,回傳 upload_url。
+// buffer 有值 → 整包上傳(可重試);否則 → 串流 LINE 內容直灌(整檔不進記憶體)。
+// 串流 body 不可重放,失敗時重新開一條串流再試(最多 3 次)。
+async function uploadToAssembly({ buffer, audioMessageId, auth }) {
+  if (buffer) {
+    const up = await fetchRetry('https://api.assemblyai.com/v2/upload', { method: 'POST', headers: auth, body: buffer }, { tries: 4, label: 'AssemblyAI upload' });
+    return JSON.parse(await up.text()).upload_url;
+  }
+  if (!audioMessageId || typeof platform.streamLineContent !== 'function') throw new Error('no audio source for AssemblyAI upload');
+  let last;
+  for (let i = 0; i < 3; i += 1) {
+    try {
+      const { stream } = await platform.streamLineContent(audioMessageId);
+      const up = await fetch('https://api.assemblyai.com/v2/upload', { method: 'POST', headers: auth, body: stream, duplex: 'half' });
+      if (!up.ok) throw new Error(`AssemblyAI upload ${up.status}: ${(await up.text()).slice(0, 160)}`);
+      return JSON.parse(await up.text()).upload_url;
+    } catch (e) {
+      last = e;
+      console.warn(`AssemblyAI 串流上傳第 ${i + 1} 次失敗,重試: ${e.message}`);
+      if (i < 2) await new Promise((r) => setTimeout(r, 3000 * (i + 1)));
+    }
+  }
+  throw last;
+}
+
 // ── AssemblyAI 轉寫(預錄音,universal-3-5-pro + 講者分離)───────
-async function transcribeWithAssembly({ buffer, filename, contentType, roster, cfg = GENERIC_MEETINGS_CONFIG }) {
+async function transcribeWithAssembly({ buffer, audioMessageId, filename, contentType, roster, cfg = GENERIC_MEETINGS_CONFIG }) {
   const auth = { Authorization: platform.assemblyKey }; // 原始 key,不加 Bearer
 
-  // 1. 上傳原始位元組(非 multipart);上傳偶發 422/5xx 會自動重試
-  const up = await fetchRetry('https://api.assemblyai.com/v2/upload', { method: 'POST', headers: auth, body: buffer }, { tries: 4, label: 'AssemblyAI upload' });
-  const uploadUrl = JSON.parse(await up.text()).upload_url;
+  // 1. 上傳原始位元組到 AssemblyAI /v2/upload。
+  //    - buffer 路徑(相容):整包上傳,偶發 422/5xx 自動重試。
+  //    - 串流路徑(大檔友善):streamLineContent 邊下載邊灌給 AssemblyAI,整檔不進記憶體。
+  //      串流的 body 不可重放,失敗時重新開一條串流再試(最多 3 次)。
+  const uploadUrl = await uploadToAssembly({ buffer, audioMessageId, auth });
 
   // 2. 提交(keyterms=人名+該租戶的專有名詞;prompt=領域提示+主題+與會者;省略 language_code 讓中英夾雜原生切換)
   const names = roster.speakers.map((s) => s.name);

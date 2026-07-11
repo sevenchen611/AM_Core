@@ -123,20 +123,24 @@ export function createDispatcher({ tenants, modules, platform, logger = console 
           && (contentAudio || (typeof mod.isAudio === 'function' ? mod.isAudio(message) === true : false));
         let handled;
         if (useAudio) {
-          let content;
-          try {
-            content = await ensureBuffer();
-          } catch (dlErr) {
-            // 音檔內容抓不到(LINE 仍在轉檔且重試耗盡,或下載真失敗):明講並請重傳,
-            // 不要靜默丟掉——否則使用者以為已收到,反而把手機原檔刪了。
-            logger.warn(`Audio content download failed (tenant=${tenant.key}, group=${groupId}): ${dlErr.message}`);
-            await platform.pushLineMessage(groupId, '⚠ 沒收到這則語音的內容(LINE 可能還在處理),請稍候再重傳一次。').catch(() => {});
-            break;
+          // 不在此預先下載整個大檔(可能上百 MB,會撐爆記憶體、也拖慢反問)。
+          // 只把 messageId 交給模組:它先發反問,轉寫時才串流下載(邊下載邊上傳 AssemblyAI)。
+          // 相容:若平台未提供 streamLineContent,退回舊的整包下載,行為不變。
+          const streamable = typeof platform.streamLineContent === 'function';
+          let legacyContent = null;
+          if (!streamable) {
+            try { legacyContent = await ensureBuffer(); }
+            catch (dlErr) {
+              logger.warn(`Audio content download failed (tenant=${tenant.key}, group=${groupId}): ${dlErr.message}`);
+              await platform.pushLineMessage(groupId, '⚠ 沒收到這則語音的內容(LINE 可能還在處理),請稍候再重傳一次。').catch(() => {});
+              break;
+            }
           }
           handled = await mod.onAudio({
             ...ctx,
-            buffer: content.buffer,
-            contentType: content.contentType,
+            audioMessageId: String(message.id || ''),
+            buffer: legacyContent ? legacyContent.buffer : undefined,
+            contentType: legacyContent ? legacyContent.contentType : undefined,
             filename: audioFilename,
             ackSent: false,
           });

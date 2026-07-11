@@ -90,6 +90,26 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
     return new ArrayBuffer(0);
   }
 
+  // 串流下載:回傳 response.body(ReadableStream)+ contentType,讓呼叫端把 LINE 內容
+  // 「邊下載邊上傳」給 AssemblyAI,整個大檔(可能上百 MB)不必進記憶體。202=仍在轉檔,耐心重試。
+  async function streamLineContent(messageId, { tries = 8, baseDelay = 3000 } = {}) {
+    if (!channelAccessToken) throw new Error('LINE_CHANNEL_ACCESS_TOKEN is not set.');
+    const url = `https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`;
+    let lastReason = '';
+    for (let attempt = 1; attempt <= tries; attempt += 1) {
+      const response = await fetch(url, { headers: { Authorization: `Bearer ${channelAccessToken}` } });
+      if (response.status === 202) {
+        try { await response.body?.cancel?.(); } catch { /* ignore */ }
+        lastReason = '202 轉檔中';
+        if (attempt < tries) { await new Promise((r) => setTimeout(r, Math.min(baseDelay * attempt, 15000))); continue; }
+        break;
+      }
+      if (!response.ok) throw new Error(`LINE content download failed: ${response.status} ${await response.text()}`);
+      return { stream: response.body, contentType: response.headers.get('content-type') || 'application/octet-stream' };
+    }
+    throw new Error(`LINE 音檔內容尚未就緒(${lastReason};試 ${tries} 次),請稍候重傳。`);
+  }
+
   function resolveLineFilename(message, messageType, messageId, contentType) {
     if (message.fileName) return message.fileName;
     const ext = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif' }[String(contentType).split(';')[0]] || '';
@@ -120,6 +140,7 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
     resolveSenderName,
     downloadLineContent,
     peekLineContent,
+    streamLineContent,
     resolveLineFilename,
     pushLineMessage,
     configured: Boolean(channelAccessToken && channelSecret),

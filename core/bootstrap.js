@@ -54,6 +54,7 @@ export async function bootstrap(env = process.env, overrides = {}) {
     lineGet: line.lineGet,
     downloadLineContent: line.downloadLineContent,
     peekLineContent: line.peekLineContent,
+    streamLineContent: line.streamLineContent,
     resolveSenderName: line.resolveSenderName,
     resolveLineFilename: line.resolveLineFilename,
     // Drive(全域憑證,目標資料夾由租戶決定)
