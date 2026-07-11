@@ -962,6 +962,16 @@ export default {
   provisionMeetingsDb, // (tenant, groupName) 手動預建某群的會議庫(選用)
   publicMeetingUrl,    // (pageId) → 自架公開頁連結(需 publicBaseUrl + publicLinkSecret)
   handlePublicRequest, // (req,res,pathname) GET /m/<id>-<sig> 公開會議頁;回 true=已處理
+  // core/server 的模組路由掛載點(collectRoutes 會蒐集 mod.routes)。公開會議頁免登入、
+  // 租戶無關(靠 id+簽章定位,單一 Notion token 讀取);BuildAM 走自己的 server,不讀此欄,不受影響。
+  routes: [{
+    prefix: '/m',
+    method: 'GET',
+    handler: async (req, res, { pathname }) => {
+      const handled = await handlePublicRequest(req, res, pathname);
+      if (!handled) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Not found'); }
+    },
+  }],
   consumeRoster,       // (ctx) 直接以與會資訊收斂發布(外層已判定 pending 時用)
   processRecording,    // (ctx) 無 AssemblyAI 時的 Gemini 直轉
 };

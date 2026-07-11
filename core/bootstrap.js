@@ -75,6 +75,11 @@ export async function bootstrap(env = process.env, overrides = {}) {
     minimaxBaseUrl: (env.MINIMAX_API_BASE_URL || 'https://api.minimax.io/v1').replace(/\/+$/, ''),
     aiProvider: (env.AMCORE_AI_PROVIDER || env.BUILD_AI_PROVIDER || '').toLowerCase(),
     aiJudgeModel: env.AMCORE_AI_JUDGE_MODEL || env.BUILD_AI_JUDGE_MODEL || '',
+    // 自架「公開會議頁」:免 Notion 帳號、連結可轉傳(GET /m/<id>-<簽章>,由 meetings 模組 routes 提供)。
+    // 沒設 AMCORE_PUBLIC_BASE_URL → publicBaseUrl='' → meetings 不產公開連結(與現況一致,安全)。
+    // 簽章密鑰沿用 queueAccessKey,確保「產連結」與「驗連結」用同一把鑰匙。
+    publicBaseUrl: (env.AMCORE_PUBLIC_BASE_URL || '').trim().replace(/\/+$/, ''),
+    publicLinkSecret: env.AMCORE_QUEUE_ACCESS_KEY || env.BUILD_QUEUE_ACCESS_KEY || '',
   };
 
   const router = createRouter({ tenants, notionRequest: notion.notionRequest, logger });
