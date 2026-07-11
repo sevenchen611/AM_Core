@@ -137,8 +137,8 @@ async function handleQueueRequest(req, res, ctx) {
       return sendJson(res, 200, await listProjects(tenant, scope));
     }
     if (req.method === 'GET' && pathname === '/queue/api/trades') {
-      // 工種清單為工程領域(construction/trades 提供);未提供則回空,前端可自由輸入新工種。
-      const trades = typeof platform.listTrades === 'function' ? await platform.listTrades(tenant) : [];
+      // 工種清單為工程領域(construction/trades 提供);未提供/非工程租戶則回空,前端可自由輸入新工種。
+      const trades = typeof platform.listTrades === 'function' ? await platform.listTrades({ tenant }) : [];
       return sendJson(res, 200, { trades });
     }
     if (req.method === 'POST' && pathname === '/queue/api/confirm') {
@@ -155,7 +155,8 @@ async function handleQueueRequest(req, res, ctx) {
     // 開立回饋單:屬 construction「開單」。queue 不含開單邏輯,只呼叫其提供的能力。
     if (req.method === 'POST' && pathname === '/queue/api/create-ticket') {
       const body = JSON.parse(await readBody(req));
-      if (typeof platform.createFeedbackTicket !== 'function') {
+      // 開單屬 construction:未載入該模組、或此租戶未啟用工程 → 一律 501(非工程租戶不服務開單)。
+      if (typeof platform.createFeedbackTicket !== 'function' || !(tenant.modules || []).includes('construction')) {
         return sendJson(res, 501, { error: '開立回饋單由 construction 模組提供,尚未啟用' });
       }
       return sendJson(res, 200, await platform.createFeedbackTicket({ tenant, ...body }));

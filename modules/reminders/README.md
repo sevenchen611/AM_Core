@@ -8,14 +8,15 @@
 2. `/cron/tick?key=` → 同上。
 3. `/cron/reminders?key=`(本模組 `routes` 專用端點)→ 巡所有啟用 reminders 的租戶(可 `?tenant=key` 指定單一租戶)。
 
-## 五個 pass(行為與 BuildAM 完全等同)
+## pass(通用待辦骨架 + 委派的工程 pass)
 | pass | 節奏 | 內容 |
 |---|---|---|
 | `runTaskTickPass` | 每次巡邏 | 帶時刻待辦「開始前 30 分」提醒(45 分內觸發,`t30` 去重) |
 | `runTaskDailyPass` | 每日 ≥ 提醒時刻,當日一次 | 待辦 明日預告/今日到期/逾期;逾期滿 N 天**升級**內部/總管群並**真 @mention** 負責人 |
 | `runTaskEveningPass` | 每日 ≥20:00,當日一次 | 明天帶時刻行程「前一晚」預告 |
-| `runDueReminders` | 每日 | 回饋單 明日/今日/逾期推播 + 逾期升級(工程領域;真 @mention 對方/我方主管) |
-| `wakeParkedTickets` | 每日 | 擱置回饋單復活(觸發工項開工 / 重提日到)+ **週一擱置盤點**彙總內部群 |
+| `runReminderPasses` | 每日 | **委派** `platform.reminderPasses`(construction 註冊的工程 pass:回饋單到期/升級、擱置復活/週一盤點)。reminders 只迭代呼叫,不自帶工程規則;無回饋單庫的租戶由 pass 自身回 `{ skipped }` 略過。 |
+
+> **通用 vs 領域**:待辦(tasks)三個 pass = 通用,恆在 reminders;回饋單到期/擱置 = 工程領域,恆在 `construction.reminders.js`,經 `platform.reminderPasses` 註冊。行為與 BuildAM 完全等同,只是實作歸屬 construction。
 
 **真 @mention**:推播帶 `{ name, userId }`,`platform.pushLineMessage` 於訊息含該名字時升級為 `textV2` 指名通知。成員對照取自群組綁定的「成員對照」JSON 欄位。
 
@@ -45,10 +46,9 @@ export default {
 ## 狀態隔離
 「當日一次」的日戳以 **`tenant.key`** 為鍵(`lastDailyDate` / `lastEveningDate` 兩個 Map),各租戶各自巡邏、各自累積,互不污染。升級對象(內部/總管群)per 租戶——查該租戶自己的 `groupBindings`,結構上碰不到別租戶。
 
-## 依賴邊界(尚未抽出,先就地讀取以維持行為等同)
-- **tasks 模組**:待辦庫查詢/提醒記錄讀寫(`openTasks` / `taskReminderRecord` / `markTaskReminded`)。tasks 抽出後改呼叫 `tasks.listOpen` / `tasks.markReminded`。
-- **construction 模組**:回饋單(`feedbackTickets`)到期/擱置規則屬工程領域(`runDueReminders` / `wakeParkedTickets`)。construction 上線後,這兩個 pass 可改由 construction 注冊「額外 pass」給 reminders。
-- 兩者目前皆以 `tenant.dataSources.*` 直讀,行為與 BuildAM 完全等同。
+## 依賴邊界
+- **tasks 模組**(尚未對接):待辦庫查詢/提醒記錄讀寫(`openTasks` / `taskReminderRecord` / `markTaskReminded`)仍就地讀取。tasks 抽出後改呼叫 `tasks.listOpen` / `tasks.markReminded`。
+- **construction 模組**(✅ 已對接):回饋單(`feedbackTickets`)到期/擱置規則屬工程領域,已由 construction 以 `platform.reminderPasses` 註冊(`{name, cadence:'daily', run(deps, {cfg, today})}`);reminders 於每日班次 `runReminderPasses` 迭代呼叫,原內嵌的 `runDueReminders` / `wakeParkedTickets` 已移入 `modules/construction/reminders.js`。無回饋單庫的租戶(如森在)由 pass 自身回 `{ skipped }` 略過。
 
 ## BuildAM 生產
 本次**未觸碰** BuildAM。BuildAM 綁定(vendored 複製 + 薄 shim)待平台上線前另行處理,`src/server.js` 對外介面不變、可回退。

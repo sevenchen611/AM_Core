@@ -37,7 +37,29 @@ import {
 } from './tickets.js';
 
 let platform = null;
-function init(injected) { platform = injected; }
+function init(injected) {
+  platform = injected;
+  // 跨模組 register 掛鉤(比照 tasks 掛 platform.tasks、queue 讀 platform.createFeedbackTicket):
+  //   把領域分類器掛到平台共用把手,供 triage(通用初判管線)於 collect 之後呼叫。
+  //   非工程租戶(未啟用 construction)一律回 null,不丟例外 → triage 走通用流程/不分類。
+  platform.classify = async (ctx) => {
+    const tenant = ctx && ctx.tenant;
+    if (!tenant || !(tenant.modules || []).includes('construction')) return null;
+    return classify(fullDeps(tenant), ctx);
+  };
+  // 工程到期/擱置提醒 pass 註冊給 reminders(累加,前向相容其他領域模組日後也註冊)。
+  //   reminders 於每日班次迭代呼叫;pass 對無回饋單庫的租戶(如森在)自身回 { skipped }。
+  platform.reminderPasses = [...(platform.reminderPasses || []), ...reminderPasses];
+  // 開立回饋單掛鉤(給 queue 的 /queue/api/create-ticket 委派)。ctx = { tenant, ...body };
+  //   svcDeps 內含租戶閘門:非工程租戶會拋錯(queue 端另以 501 先擋,見 queue/index.js)。
+  platform.createFeedbackTicket = (ctx) => createTicket(svcDeps(ctx), ctx);
+  // 工種清單掛鉤(給 queue 的 /queue/api/trades)。非工程租戶(如森在)容錯回 [],不丟例外。
+  platform.listTrades = async (ctx) => {
+    const tenant = ctx && ctx.tenant;
+    if (!tenant || !(tenant.modules || []).includes('construction')) return [];
+    return listKnownTrades(fullDeps(tenant));
+  };
+}
 
 // 租戶佇列存取金鑰:per-tenant(<PREFIX>_QUEUE_ACCESS_KEY)否則回退平台級。
 function tenantQueueAccessKey(tenant) {

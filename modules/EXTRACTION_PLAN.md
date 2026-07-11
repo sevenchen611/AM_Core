@@ -55,11 +55,11 @@ BuildAM 端的綁定 `src/meeting.js` + `src/_platform/meetings/`)。
 | 模組 | 類型 | 狀態 | 主要來源檔 | 邊界一句話 |
 |---|---|---|---|---|
 | `collect` | 通用核心 | 已抽出 | `src/server.js`(handleEvent/storeAttachment) | **只收不判**:訊息/照片落庫,把頁 id 交棒給後續 |
-| `triage` | 通用核心 | 待重導 ⚠️ | `src/server.js`(判斷/過濾層) | **通用初判管線**;領域分類吃 `construction.classify` |
+| `triage` | 通用核心 | ✅ 已完成 | `src/server.js`(判斷/過濾層) | **通用初判管線**;領域分類吃 `platform.classify`(construction) |
 | `queue` | 通用核心 | 已完成 | `src/queue.js`(確認佇列的通用部分) | 掛載既有目標/單據;**不含開單** |
 | `meetings` | 通用核心 | ✅ 已完成(範本) | `src/meeting.js` | 會議錄音→轉寫→記錄 |
 | `tasks` | 通用核心 | ✅ 已完成 | 散落(meetings 建、reminders 讀) | 待辦 CRUD 共用服務 |
-| `reminders` | 通用核心 | 已抽出 | `src/server.js`(runAllReminderPasses 等)+ `/cron/reminders` | 通用排程骨架;工程到期規則吃 `construction.reminderPasses` |
+| `reminders` | 通用核心 | ✅ 已完成 | `src/server.js`(runAllReminderPasses 等)+ `/cron/reminders` | 通用排程骨架;工程到期規則吃 `platform.reminderPasses`(construction) |
 | `construction` | 領域(僅工程租戶) | 進行中(8A 整合) | `queue.js` 單據 + `budget/contracts/trades/dashboard` + `server.js` 分類/到期 | 工程專屬**含 dashboard**;拆 8A/8B/8C,整合者 8A |
 
 > **沒有獨立 `dashboard` 模組**(見決策 2)。若見任何 `modules/dashboard/` 資料夾或以 M7 名義開工的 session,一律重導併入 `construction`(8A)。

@@ -8,20 +8,20 @@
 //   • runTaskTickPass   每次:帶時刻待辦「開始前 30 分」提醒
 //   • runTaskDailyPass  每日(≥ 提醒時刻,當日一次):待辦 明日預告/今日到期/逾期 + 逾期升級點名
 //   • runTaskEveningPass 每日(≥20:00,當日一次):明天帶時刻行程「前一晚」預告
-//   • runDueReminders   每日:回饋單 明日/今日/逾期 + 逾期升級(工程領域;讀 construction 的回饋單庫)
-//   • wakeParkedTickets 每日:擱置回饋單復活(觸發工項開工 / 重提日到)+ 週一擱置盤點
+//   • reminderPasses    每日:委派 construction 註冊的工程 pass(回饋單到期/升級、擱置復活/週一盤點)。
+//                       reminders 只迭代呼叫 platform.reminderPasses,不自帶工程領域規則。
 //
 // 多租戶契約(modules/README.md):
 //   - init(platform):注入共用能力(notionRequest / pushLineMessage(含真 @mention))。
 //   - 每次巡邏由 ctx.tenant 帶租戶特定設定:自己的 Notion 資料源與 envPrefix。
 //   - 模組狀態(當日已跑過的日戳)一律以「租戶」為鍵(perTenant Map),各租戶各自巡邏、互不污染。
 //
-// 依賴邊界(尚未抽出,先於本模組內就地讀取,行為與 BuildAM 完全等同):
-//   - tasks 模組:待辦庫的查詢/提醒記錄讀寫(openTasks / taskReminderRecord / markTaskReminded)。
+// 依賴邊界:
+//   - tasks 模組:待辦庫的查詢/提醒記錄讀寫(openTasks / taskReminderRecord / markTaskReminded)——仍就地讀取。
 //     tasks 模組完成後,這些改呼叫 tasks.listOpen / tasks.markReminded。
-//   - construction 模組:回饋單(feedbackTickets)到期/擱置規則屬工程領域(runDueReminders / wakeParkedTickets)。
-//     construction 上線後,這兩個 pass 可改由 construction 注冊「額外 pass」給 reminders。
-//   兩者目前皆以 tenant.dataSources.* 直讀,無此資料源的租戶(如森在)自動略過對應 pass。
+//   - construction 模組:回饋單(feedbackTickets)到期/擱置規則屬工程領域,已由 construction 以 `platform.reminderPasses`
+//     註冊(`{name, cadence:'daily', run(deps, {cfg, today})}`);reminders 於每日班次迭代呼叫,不自帶實作。
+//     無回饋單庫的租戶(如森在)由 pass 自身回 { skipped } 略過。
 //
 // 功能與 BuildAM src/server.js 的提醒引擎完全等同,只是重組成模組形狀、狀態改以租戶為鍵。
 
@@ -32,7 +32,6 @@ function init(injected) { platform = injected; }
 
 // ── 純工具 ──────────────────────────────────────────────────
 const richText = (c) => ({ type: 'text', text: { content: String(c) } });
-const noteBlock = (c) => ({ object: 'block', type: 'paragraph', paragraph: { rich_text: [richText(c)] } });
 const plain = (arr) => (arr || []).map((t) => t.plain_text).join('');
 const taipeiNow = () => new Date(Date.now() + 8 * 3600 * 1000);
 const dayAfter = (day) => new Date(new Date(`${day}T00:00:00Z`).getTime() + 86400000).toISOString().slice(0, 10);
@@ -53,223 +52,30 @@ function tenantConfig(tenant) {
 const lastDailyDate = new Map();    // tenant.key → 'YYYY-MM-DD'
 const lastEveningDate = new Map();  // tenant.key → 'YYYY-MM-DD'
 
-// ══ 回饋單提醒(工程領域;讀 construction 的 feedbackTickets)══════════════
-// 升級邏輯:負責群組 → 逾期滿 N 天再升級該專案內部群/總管群(per 租戶,查該租戶自己的 groupBindings)。
-async function runDueReminders(tenant, cfg, today) {
-  const ds = tenant.dataSources;
-  if (!ds.feedbackTickets || !ds.groupBindings) return { skipped: true, reason: 'no feedbackTickets/groupBindings' };
-  const tomorrow = dayAfter(today);
-
-  const pending = await platform.notionRequest(`/v1/data_sources/${encodeURIComponent(ds.feedbackTickets)}/query`, {
-    method: 'POST',
-    body: {
-      filter: { and: [
-        { or: [
-          { property: '狀態', select: { equals: '開立' } },
-          { property: '狀態', select: { equals: '回覆中' } },
-        ] },
-        { property: '回覆期限', date: { is_not_empty: true } },
-      ] },
-      page_size: 100,
-    },
-  });
-
-  const sent = [];
-  for (const ticket of pending.results || []) {
-    const p = ticket.properties;
-    const deadline = (p['回覆期限']?.date?.start || '').slice(0, 10);
-    const lastRemind = (p['最後提醒日']?.date?.start || '').slice(0, 10);
-    if (!deadline || lastRemind === today) continue;
-
-    let kind = null;
-    if (deadline === tomorrow) kind = '預告';
-    else if (deadline === today) kind = '到期';
-    else if (deadline < today) kind = '逾期';
-    if (!kind) continue;
-
-    const overdueDays = kind === '逾期' ? overdueDaysBetween(today, deadline) : 0;
-    const number = plain(p['編號']?.title);
-    const description = plain(p['問題描述']?.rich_text).slice(0, 80);
-    const level = p['影響等級']?.select?.name || '';
-
-    // 負責群組
-    const bindingId = p['負責群組']?.relation?.[0]?.id;
-    if (!bindingId) { console.warn(`Ticket ${number} has no 負責群組, skip reminder.`); continue; }
-    const binding = await platform.notionRequest(`/v1/pages/${encodeURIComponent(bindingId)}`, { method: 'GET' });
-    const groupId = plain(binding.properties['LINE 群組 ID']?.rich_text);
-    const groupName = plain(binding.properties['群組名稱']?.title);
-    const theirs = plain(binding.properties['對方主管']?.rich_text);
-    const ours = plain(binding.properties['我方主管']?.rich_text);
-    const who = theirs || ours || '負責人';
-    let members = {};
-    try { members = JSON.parse(plain(binding.properties['成員對照']?.rich_text)) || {}; } catch {}
-    const mention = members[who] ? { name: who, userId: members[who] } : null;
-    if (!groupId) { console.warn(`Ticket ${number} binding has no group id, skip.`); continue; }
-
-    const header = kind === '預告' ? `🔔 回饋單明日到期|${number}`
-      : kind === '到期' ? `⏰ 回饋單今日到期|${number}`
-        : `⚠ 回饋單已逾期 ${overdueDays} 天|${number}`;
-    const lines = [header];
-    if (level) lines.push(`等級:${level}`);
-    lines.push(`問題:${description}`, `回覆期限:${deadline}`, `請 ${who} 儘速${kind === '逾期' ? '處理並回覆' : '回覆'}。`);
-
-    // 升級:逾期滿 N 天 → 通知該專案內部管理群/總管群
-    let escalated = false;
-    const shouldEscalate = kind === '逾期' && overdueDays >= cfg.escalationDays;
-    let escalationGroupId = '';
-    if (shouldEscalate) {
-      const projectId = p['專案']?.relation?.[0]?.id;
-      if (projectId) {
-        const internal = await platform.notionRequest(`/v1/data_sources/${encodeURIComponent(ds.groupBindings)}/query`, {
-          method: 'POST',
-          body: {
-            filter: { and: [
-              { property: '專案', relation: { contains: projectId } },
-              { or: [
-                { property: '群組角色', select: { equals: '內部' } },
-                { property: '群組角色', select: { equals: '總管' } },
-              ] },
-              { property: '狀態', select: { equals: '啟用' } },
-            ] },
-            page_size: 1,
-          },
-        });
-        escalationGroupId = plain(internal.results?.[0]?.properties['LINE 群組 ID']?.rich_text);
-      }
-    }
-
+// ══ 工程到期/擱置提醒(委派 construction.reminderPasses)══════════════════
+// reminders 不自帶工程領域規則;construction 於 init 把 pass 註冊到 platform.reminderPasses。
+// 每個 pass:{ name, cadence, run(deps, { cfg, today }) }。此處逐一呼叫「每日」pass,錯誤隔離。
+//   deps 由租戶 + platform 組出:notionRequest 已鎖該租戶 tenantKey;pushLineMessage 為共用 OA。
+//   無回饋單庫的租戶(如森在)由 pass 自身回 { skipped } 略過,reminders 端不需再判租戶。
+async function runReminderPasses(tenant, cfg, today) {
+  const passes = platform.reminderPasses || [];
+  const deps = {
+    tenantKey: tenant.key,
+    dataSources: tenant.dataSources || {},
+    notionRequest: (pathname, opts = {}) => platform.notionRequest(pathname, { ...opts, tenantKey: tenant.key }),
+    pushLineMessage: platform.pushLineMessage,
+  };
+  const out = [];
+  for (const pass of passes) {
+    if (pass.cadence !== 'daily') continue;
     try {
-      if (shouldEscalate && escalationGroupId === groupId) {
-        // 負責群組本身就是內部群:合併為一則升級訊息
-        await platform.pushLineMessage(groupId, `🚨 升級通知|${lines.join('\n')}\n(已逾期 ${overdueDays} 天未處理,請 Seven 介入)`, mention);
-        escalated = true;
-      } else {
-        await platform.pushLineMessage(groupId, lines.join('\n'), mention);
-        if (shouldEscalate && escalationGroupId) {
-          await platform.pushLineMessage(escalationGroupId, `🚨 升級通知|回饋單 ${number} 已逾期 ${overdueDays} 天未處理\n負責群組:${groupName}(${who})\n問題:${description}\n請 Seven 介入。`);
-          escalated = true;
-        }
-      }
+      out.push({ name: pass.name, result: await pass.run(deps, { cfg, today }) });
     } catch (error) {
-      console.warn(`Reminder push failed for ${number}: ${error.message}`);
-      continue;
-    }
-
-    await platform.notionRequest(`/v1/pages/${encodeURIComponent(ticket.id)}`, {
-      method: 'PATCH',
-      body: { properties: {
-        '最後提醒日': { date: { start: today } },
-        '逾期': { checkbox: kind === '逾期' },
-      } },
-    });
-    await platform.notionRequest(`/v1/blocks/${encodeURIComponent(ticket.id)}/children`, {
-      method: 'PATCH',
-      body: { children: [noteBlock(`[提醒] ${today} ${kind}${overdueDays ? `(${overdueDays}天)` : ''} → 推播至「${groupName}」${escalated ? ' + 內部群升級通知' : ''}`)] },
-    });
-    sent.push({ number, kind, overdueDays, group: groupName, escalated });
-  }
-  // 擱置單復活檢查:觸發工項已開工 或 重提日期到期
-  const woken = await wakeParkedTickets(tenant, today);
-
-  console.log(`Reminder run ${today} (tenant=${tenant.key}): ${sent.length} sent, ${woken.length} woken.`);
-  return { ok: true, today, sent, woken };
-}
-
-async function wakeParkedTickets(tenant, today) {
-  const ds = tenant.dataSources;
-  const parked = await platform.notionRequest(`/v1/data_sources/${encodeURIComponent(ds.feedbackTickets)}/query`, {
-    method: 'POST',
-    body: { filter: { property: '狀態', select: { equals: '擱置(待時機)' } }, page_size: 100 },
-  });
-  const woken = [];
-  const stillParked = [];
-
-  for (const ticket of parked.results || []) {
-    const p = ticket.properties;
-    const number = plain(p['編號']?.title);
-    const description = plain(p['問題描述']?.rich_text).slice(0, 60);
-    const resumeDate = (p['重提日期']?.date?.start || '').slice(0, 10);
-    const triggerWorkItemId = p['觸發工項']?.relation?.[0]?.id;
-
-    let reason = '';
-    if (resumeDate && resumeDate <= today) {
-      reason = `重提日期(${resumeDate})已到`;
-    } else if (triggerWorkItemId) {
-      try {
-        const workItem = await platform.notionRequest(`/v1/pages/${encodeURIComponent(triggerWorkItemId)}`, { method: 'GET' });
-        const wiStatus = workItem.properties['狀態']?.select?.name || '';
-        const wiName = plain(workItem.properties['工項']?.title);
-        if (['進行中', '待複驗', '完成'].includes(wiStatus)) {
-          reason = `觸發工項「${wiName}」已${wiStatus}`;
-        }
-      } catch (error) {
-        console.warn(`Trigger work item check failed for ${number}: ${error.message}`);
-      }
-    }
-
-    if (!reason) {
-      stillParked.push({ ticket, number, description });
-      continue;
-    }
-
-    // 復活:轉回開立,通知負責群組,請 PM 重設回覆期限
-    await platform.notionRequest(`/v1/pages/${encodeURIComponent(ticket.id)}`, {
-      method: 'PATCH',
-      body: { properties: {
-        '狀態': { select: { name: '開立' } },
-        '重提日期': { date: null },
-        '最後提醒日': { date: { start: today } },
-      } },
-    });
-    await platform.notionRequest(`/v1/blocks/${encodeURIComponent(ticket.id)}/children`, {
-      method: 'PATCH',
-      body: { children: [noteBlock(`[復活] ${today} ${reason},狀態 → 開立`)] },
-    });
-    const bindingId = p['負責群組']?.relation?.[0]?.id;
-    if (bindingId) {
-      try {
-        const binding = await platform.notionRequest(`/v1/pages/${encodeURIComponent(bindingId)}`, { method: 'GET' });
-        const groupId = plain(binding.properties['LINE 群組 ID']?.rich_text);
-        if (groupId) {
-          await platform.pushLineMessage(groupId, `⏰ 擱置單復活|${number}\n${reason}\n問題:${description}\n此單重新列入追蹤,請安排處理(回覆期限將重新設定)。`);
-        }
-      } catch (error) {
-        console.warn(`Wake push failed for ${number}: ${error.message}`);
-      }
-    }
-    woken.push({ number, reason });
-  }
-
-  // 週一擱置摘要:仍在睡的單彙總推播到各專案內部群,防止遺忘
-  if (stillParked.length && new Date(`${today}T00:00:00Z`).getUTCDay() === 1) {
-    const byProject = new Map();
-    for (const item of stillParked) {
-      const projectId = item.ticket.properties['專案']?.relation?.[0]?.id;
-      if (!projectId) continue;
-      if (!byProject.has(projectId)) byProject.set(projectId, []);
-      byProject.get(projectId).push(item);
-    }
-    for (const [projectId, items] of byProject) {
-      try {
-        const internal = await platform.notionRequest(`/v1/data_sources/${encodeURIComponent(ds.groupBindings)}/query`, {
-          method: 'POST',
-          body: { filter: { and: [
-            { property: '專案', relation: { contains: projectId } },
-            { property: '群組角色', select: { equals: '內部' } },
-            { property: '狀態', select: { equals: '啟用' } },
-          ] }, page_size: 1 },
-        });
-        const groupId = plain(internal.results?.[0]?.properties['LINE 群組 ID']?.rich_text);
-        if (groupId) {
-          const lines = items.map((x) => `・${x.number} ${x.description}`);
-          await platform.pushLineMessage(groupId, `📌 每週擱置單盤點(${items.length} 張仍待時機)\n${lines.join('\n')}\n如時機已到,請將對應工項改為「進行中」或直接處理。`);
-        }
-      } catch (error) {
-        console.warn(`Weekly parked summary failed: ${error.message}`);
-      }
+      console.warn(`reminderPass "${pass.name}" failed (tenant=${tenant.key}): ${error.message}`);
+      out.push({ name: pass.name, result: { error: error.message } });
     }
   }
-  return woken;
+  return out;
 }
 
 // ══ 待辦任務提醒(原群組推播/逾期升級 Seven/行程前一晚+30 分)══════════
@@ -451,9 +257,11 @@ async function runPassesForTenant(tenant) {
 
   if (hour >= cfg.reminderHour && lastDailyDate.get(tenant.key) !== today) {
     lastDailyDate.set(tenant.key, today);
-    const tickets = await runDueReminders(tenant, cfg, today).catch((e) => ({ error: e.message }));
+    // 工程回饋單到期/擱置 pass:委派 construction.reminderPasses(每日)。sent 數彙總各 pass。
+    const passes = await runReminderPasses(tenant, cfg, today).catch((e) => { console.warn(`reminder passes failed (tenant=${tenant.key}):`, e.message); return []; });
     const tasks = await runTaskDailyPass(tenant, cfg, today).catch((e) => { console.warn(`task daily failed (tenant=${tenant.key}):`, e.message); return 0; });
-    result.daily = { tickets: tickets?.sent?.length ?? 0, tasks };
+    const tickets = passes.reduce((n, p) => n + (p.result?.sent?.length ?? 0), 0);
+    result.daily = { tickets, tasks };
   }
   if (hour >= 20 && lastEveningDate.get(tenant.key) !== today) {
     lastEveningDate.set(tenant.key, today);
@@ -504,6 +312,6 @@ export default {
 
 // 測試用內部匯出(不影響正式流程)
 export const __test = {
-  tenantConfig, runPassesForTenant, runDueReminders, wakeParkedTickets,
+  tenantConfig, runPassesForTenant, runReminderPasses,
   runTaskDailyPass, runTaskEveningPass, runTaskTickPass, taskGroupInfo, openTasks,
 };

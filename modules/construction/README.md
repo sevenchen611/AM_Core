@@ -55,6 +55,11 @@ construction 拆 **三個 session**,**整合者 = 8A**:
 
 ## `index.js` 整合現況(已完成)
 - **已 import 並匯出 `classify`(給 triage)與 `reminderPasses`(給 reminders,決策 4)**;`reminderSource(ctx)` 保留為內部低階資料把手(供 reminders 自組時用)。
+- **register 掛鉤**:`init(platform)` 掛兩個平台共用把手(比照 tasks 掛 `platform.tasks`):
+  - `platform.classify`(triage 的取用把手)——非工程租戶(未啟用 construction)呼叫時容錯回 `null`,不丟例外 → triage 走通用流程/不分類。
+  - `platform.reminderPasses`(reminders 的取用把手)——累加式註冊工程 pass(`feedbackDue`);reminders 每日班次迭代呼叫,無回饋單庫的租戶由 pass 自身回 `{ skipped }` 略過。
+  - `platform.createFeedbackTicket`(queue 開單的取用把手)——`(ctx={tenant,...body}) => createTicket`;租戶閘門在 `svcDeps`,queue 另以 501 先擋非工程租戶。
+  - `platform.listTrades`(queue 工種清單的取用把手)——`({tenant}) => 工種陣列`;非工程租戶容錯回 `[]`。
 - **routes**:`/dashboard`、`/budget`、`/contracts`、`/tickets/api/*`,皆經內聯的 `webRoute`(core.portal 授權 → 重算並注入 budget/contract/scope → 委派子 handler `(req,res,pathname,url,deps)`)。
 - **授權殼內聯於 `index.js`**(不依賴外部共用檔):`resolveAuth` 走 `core.portal`,權限鍵 per-tenant(`am-<tenant>-budget/-contract/-<館別代碼>`);`fullDeps(tenant)` 逐呼叫組出隔離 deps。
 

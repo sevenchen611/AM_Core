@@ -33,7 +33,8 @@ export default {
 ## 與 construction 的接縫(不含開單)
 - **掛到回饋單(mount)**屬本模組:掛上『既有』單據。
 - **開立回饋單(create)**屬 construction:`POST /queue/api/create-ticket` 委派 `platform.createFeedbackTicket({ tenant, ...body })`;
-  未提供時回 `501`。construction 上線後於其 `init` 設 `platform.createFeedbackTicket`(及選用 `platform.listTrades`)即接上。
+  未載入 construction **或**此租戶未啟用工程 → 回 `501`(非工程租戶不服務開單)。✅ construction 已於 `init` 掛上 `platform.createFeedbackTicket`。
+- **工種清單**:`GET /queue/api/trades` 委派 `platform.listTrades({ tenant })`(注意傳 ctx 物件,非裸 tenant);✅ construction 已於 `init` 掛上,非工程租戶容錯回 `[]`,前端可自由輸入新工種。
 - `/queue/api/options` 的回饋單清單、`loadOptions` 的 tickets:僅當 `tenant.dataSources.feedbackTickets` 存在才查(非工程租戶自動略過)。
 - 回饋單/變更單「單據管理」分頁、`ticketAction`/`createChangeOrder`/`listTickets`/`listChangeOrders`/開單編號 → **未搬入**(留給 construction)。
 
