@@ -33,6 +33,7 @@ BuildAM 端的綁定 `src/meeting.js` + `src/_platform/meetings/`)。
 - **領域分類器由 `construction` 提供 `classify(ctx)`**(空間/工項詞彙,**僅工程租戶**)。
   triage 有 `construction.classify` 時用之取得 judgement;沒有該分類器的租戶走通用流程/不分類。
 - **`collect` = 純收集**(訊息/照片落庫),**不含任何判斷**。
+- **「收編 `platform.llm`」的歸屬與時機(2026-07-11 補記):** 把 LLM 呼叫從手刻 fetch 換成 `platform.llm`,**家在 `construction/classify.js`(8C 擁有),不是 triage**。triage 的內嵌分類器已刪、已 redirect 到 `platform.classify`(commit `0a82d28`);`classify.js` 目前仍手刻 `callAiJudge`,改用 `platform.llm` 是**行為中性**(`cheap` profile = minimax 當頭 = 今天行為),**不需量測**。MiniMax 短 prompt 失敗率量測與任何鏈序調整,**延到 triage/classify 真上線、有短 prompt 流量再做**(今天量的 1/3~2/3 是長逐字稿,不能外推)。triage 目前零租戶啟用。
 
 **決策 2 — dashboard 併入 `construction`(非獨立模組):**
 - 工程儀表板是 `construction` 的一部分(由整合者 8A 擁有),**不再是獨立 `modules/dashboard/`**。
