@@ -194,5 +194,31 @@ export async function classify(deps, { text, senderName, binding }) {
   };
 }
 
+// ── 照片領域掛載(media 孤兒照片的空間相簿判定)──────────────
+// 以視覺判讀的標籤/主題對「該專案的空間/工項清單」做詞彙比對(無 LLM,便宜)。
+// 有事件的照片不走這裡(media 已把它接到事件,由事件的分類決定歸屬);這裡只服務「找不到事件」的孤兒。
+export function matchPhotoToContext(photo, context) {
+  const terms = [photo?.topic, photo?.caption, ...(photo?.tags || [])].filter(Boolean).join(' ');
+  if (!terms) return { space: null, work_item: null };
+  const space = (context.spaces || []).find((s) => (s.name && terms.includes(s.name)) || (s.alias && terms.includes(s.alias))) || null;
+  const workItem = (context.workItems || []).find((w) => w.name && terms.includes(w.name)) || null;
+  return { space, work_item: workItem };
+}
+
+// ctx: { tenant, binding, photo:{topic,caption,tags,isEvidence}, event }
+// 回傳 { space, work_item, ticket_suggested } | null。非工程/無空間脈絡/無專案 → null(media 走通用日期相簿)。
+export async function classifyPhoto(deps, ctx = {}) {
+  if (!enabledFor(deps.dataSources)) return null;
+  const projectPageId = ctx.binding?.projectPageId;
+  if (!projectPageId) return null;
+  const context = await loadProjectContext(deps, projectPageId);
+  const { space, work_item: workItem } = matchPhotoToContext(ctx.photo || {}, context);
+  return {
+    space: space ? { id: space.id, name: space.name } : null,
+    work_item: workItem ? { id: workItem.id, name: workItem.name } : null,
+    ticket_suggested: Boolean(ctx.photo?.isEvidence && space),
+  };
+}
+
 // 測試用內部匯出(不影響正式流程)
-export const __test = { buildJudgePrompt, extractJudgeJson, MESSAGE_TYPES, CONFIDENCE_LEVELS };
+export const __test = { buildJudgePrompt, extractJudgeJson, MESSAGE_TYPES, CONFIDENCE_LEVELS, matchPhotoToContext };

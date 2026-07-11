@@ -29,7 +29,7 @@ import { handleBudgetRequest } from './budget.js';
 import { handleContractsRequest } from './contracts.js';
 import { SOP_STAGES, readSopState, writeSopCheck } from './sop.js';
 import { handleDashboardRequest } from './dashboard.js';
-import { classify } from './classify.js';
+import { classify, classifyPhoto } from './classify.js';
 import { reminderPasses } from './reminders.js';
 import {
   handleTicketsRequest, createTicket, linkMessageToTicket, ticketAction, createChangeOrder,
@@ -46,6 +46,12 @@ function init(injected) {
     const tenant = ctx && ctx.tenant;
     if (!tenant || !(tenant.modules || []).includes('construction')) return null;
     return classify(fullDeps(tenant), ctx);
+  };
+  // 照片領域掛載(給 media 的孤兒照片決定空間相簿)。非工程租戶一律回 null → media 走通用日期相簿。
+  platform.classifyPhoto = async (ctx) => {
+    const tenant = ctx && ctx.tenant;
+    if (!tenant || !(tenant.modules || []).includes('construction')) return null;
+    return classifyPhoto(fullDeps(tenant), ctx);
   };
   // 工程到期/擱置提醒 pass 註冊給 reminders(累加,前向相容其他領域模組日後也註冊)。
   //   reminders 於每日班次迭代呼叫;pass 對無回饋單庫的租戶(如森在)自身回 { skipped }。
@@ -252,6 +258,7 @@ export default {
 
   // 供 triage 的 AI 初判分類器(空間/工項);非工程/未配置金鑰 → 回 null
   classify: (ctx) => classify(svcDeps(ctx), ctx),
+  classifyPhoto: (ctx) => classifyPhoto(svcDeps(ctx), ctx),
 
   // 供 dashboard 呈現用的資料(SOP/單據)
   sopStages: SOP_STAGES,

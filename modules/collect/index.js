@@ -112,9 +112,12 @@ async function onMessage(ctx) {
   const attachmentsDs = tenant?.dataSources?.attachments;
   if (['image', 'file'].includes(message.type) && attachmentsDs && !isMeetingAudio(message)) {
     try {
-      const attachmentPage = await storeAttachment({ ctx, messagePage, messageId, messageType, eventTime });
-      // 交棒給 media:附件頁 id 掛回 ctx(media 用它把照片接到所屬事件)
-      if (attachmentPage?.id) ctx.attachmentPageId = attachmentPage.id;
+      const stored = await storeAttachment({ ctx, messagePage, messageId, messageType, eventTime });
+      // 交棒給 media:附件頁 id + 圖片 buffer(供視覺判讀)掛回 ctx
+      if (stored?.attachmentPage?.id) ctx.attachmentPageId = stored.attachmentPage.id;
+      if (stored?.content && message.type === 'image') {
+        ctx.media = { buffer: stored.content.buffer, contentType: stored.content.contentType };
+      }
     } catch (error) {
       console.warn(`Store attachment failed for ${messageId}: ${error.message}`);
     }
@@ -184,7 +187,7 @@ async function storeAttachment({ ctx, messagePage, messageId, messageType, event
     body: { parent: { type: 'data_source_id', data_source_id: tenant.dataSources.attachments }, properties },
   });
   console.log(`[collect] stored attachment ${filename} from ${senderName}.`);
-  return attachmentPage;
+  return { attachmentPage, content };
 }
 
 // ── 模組契約:預設匯出 ─────────────────────────────────────
