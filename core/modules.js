@@ -14,6 +14,20 @@ const AUDIO_EXT = /\.(m4a|mp3|aac|wav|amr|ogg|mp4)$/i;
 function isAudioCandidate(message) {
   return message.type === 'audio' || (message.type === 'file' && AUDIO_EXT.test(message.fileName || ''));
 }
+// 檔頭 magic bytes 辨識音檔:分享進 LINE 的錄音常掉副檔名,LINE content-type 又常回 octet-stream,
+// 光看檔名/類型會漏接;下載後看前幾個 byte 才可靠。
+function looksLikeAudioBuffer(arrayBuffer) {
+  const b = Buffer.from(arrayBuffer);
+  if (b.length < 12) return false;
+  const at = (i, n) => b.slice(i, i + n).toString('latin1');
+  if (at(4, 4) === 'ftyp') return true;                          // MP4 / M4A(含音訊的 mp4 亦可轉寫)
+  if (at(0, 3) === 'ID3') return true;                           // MP3(帶 ID3 標頭)
+  if (b[0] === 0xff && (b[1] & 0xe0) === 0xe0) return true;      // MP3 / AAC-ADTS frame sync
+  if (at(0, 4) === 'RIFF' && at(8, 4) === 'WAVE') return true;   // WAV
+  if (at(0, 4) === 'OggS') return true;                          // OGG
+  if (at(0, 5) === '#!AMR') return true;                         // AMR
+  return false;
+}
 
 // 載入所有租戶需要的模組(去重),呼叫其 init(platform)。回傳 name → module 實例。
 export async function loadModules({ tenants, platform, logger = console }) {
@@ -81,11 +95,26 @@ export function createDispatcher({ tenants, modules, platform, logger = console 
       return bufferPromise;
     };
 
-    const audio = isAudioCandidate(message);
+    const nameAudio = isAudioCandidate(message);
+    // 檔名沒命中的 file,且此租戶有能吃音檔的模組 → 下載後用檔頭補判(分享進 LINE 常掉副檔名)。
+    let contentAudio = false;
+    if (!nameAudio && message.type === 'file' && tenantModules(tenant).some((m) => typeof m.onAudio === 'function')) {
+      try {
+        const sniff = await ensureBuffer();
+        contentAudio = looksLikeAudioBuffer(sniff.buffer);
+        if (contentAudio) logger.log(`Audio detected by header (tenant=${tenant.key}, file="${message.fileName || ''}").`);
+      } catch (e) {
+        logger.warn(`Audio header sniff download failed (tenant=${tenant.key}, group=${groupId}): ${e.message}`);
+      }
+    }
+    const audio = nameAudio || contentAudio;
+    // 下游轉寫/存檔要吃得到副檔名;檔名掉了副檔名(或 type=audio 無檔名)時補一個 .m4a。
+    const audioFilename = AUDIO_EXT.test(message.fileName || '') ? message.fileName : `audio-${message.id}.m4a`;
     for (const mod of tenantModules(tenant)) {
       try {
+        // 檔頭判定為音檔 → 交給任何有 onAudio 的模組(現況即 meetings);檔名判定 → 由模組自己的 isAudio 決定。
         const useAudio = audio && typeof mod.onAudio === 'function'
-          && (typeof mod.isAudio === 'function' ? mod.isAudio(message) === true : false);
+          && (contentAudio || (typeof mod.isAudio === 'function' ? mod.isAudio(message) === true : false));
         let handled;
         if (useAudio) {
           let content;
@@ -102,7 +131,7 @@ export function createDispatcher({ tenants, modules, platform, logger = console 
             ...ctx,
             buffer: content.buffer,
             contentType: content.contentType,
-            filename: message.fileName || `audio-${message.id}.m4a`,
+            filename: audioFilename,
             ackSent: false,
           });
         } else if (typeof mod.onMessage === 'function') {
