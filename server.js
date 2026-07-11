@@ -26,7 +26,7 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, {
       ok: true,
       platform: 'am-core',
-      build: 'audio-header-sniff-2026-07-11', // 部署版本標記:用來確認正式站跑的是哪一版
+      build: 'audio-range-sniff-2026-07-11b', // 部署版本標記:用來確認正式站跑的是哪一版
       lineConfigured: line.configured,
       driveConfigured: platform.driveConfigured,
       llm: { available: llm.available, chain: llm.backends },
