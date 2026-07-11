@@ -112,7 +112,9 @@ async function onMessage(ctx) {
   const attachmentsDs = tenant?.dataSources?.attachments;
   if (['image', 'file'].includes(message.type) && attachmentsDs && !isMeetingAudio(message)) {
     try {
-      await storeAttachment({ ctx, messagePage, messageId, messageType, eventTime });
+      const attachmentPage = await storeAttachment({ ctx, messagePage, messageId, messageType, eventTime });
+      // 交棒給 media:附件頁 id 掛回 ctx(media 用它把照片接到所屬事件)
+      if (attachmentPage?.id) ctx.attachmentPageId = attachmentPage.id;
     } catch (error) {
       console.warn(`Store attachment failed for ${messageId}: ${error.message}`);
     }
@@ -177,11 +179,12 @@ async function storeAttachment({ ctx, messagePage, messageId, messageType, event
     properties['Drive 連結'] = { url: driveFile.webViewLink };
   }
 
-  await notionRequest('/v1/pages', {
+  const attachmentPage = await notionRequest('/v1/pages', {
     method: 'POST',
     body: { parent: { type: 'data_source_id', data_source_id: tenant.dataSources.attachments }, properties },
   });
   console.log(`[collect] stored attachment ${filename} from ${senderName}.`);
+  return attachmentPage;
 }
 
 // ── 模組契約:預設匯出 ─────────────────────────────────────
