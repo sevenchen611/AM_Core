@@ -69,7 +69,7 @@ BuildAM 端的綁定 `src/meeting.js` + `src/_platform/meetings/`)。
 | `meetings` | 通用核心 | ✅ 已完成(範本) | `src/meeting.js` | 會議錄音→轉寫→記錄 |
 | `tasks` | 通用核心 | ✅ 已完成 | 散落(meetings 建、reminders 讀) | 待辦 CRUD 共用服務 |
 | `reminders` | 通用核心 | ✅ 已完成 | `src/server.js`(runAllReminderPasses 等)+ `/cron/reminders` | 通用排程骨架;工程到期規則吃 `platform.reminderPasses`(construction) |
-| `media` | 通用核心 | 階段1-3已實作·未掛租戶(待 go-live) | `modules/media/`(SPEC.md) | **圖片/檔案理解+事件關聯+視覺判讀**;領域掛載吃 `platform.classifyPhoto`(construction),無則降級相簿 |
+| `media` | 通用核心 | 階段1-3完成;BuildAM 已 go-live(vendored `2898ff8`,照片走它);平台 engineering/forest 待接手 | `modules/media/`(SPEC.md) | **圖片/檔案理解+事件關聯+視覺判讀**;領域掛載吃 `platform.classifyPhoto`(construction),無則降級相簿 |
 | `construction` | 領域(僅工程租戶) | 進行中(8A 整合) | `queue.js` 單據 + `budget/contracts/trades/dashboard` + `server.js` 分類/到期 | 工程專屬**含 dashboard**;拆 8A/8B/8C,整合者 8A |
 
 > **沒有獨立 `dashboard` 模組**(見決策 2)。若見任何 `modules/dashboard/` 資料夾或以 M7 名義開工的 session,一律重導併入 `construction`(8A)。
