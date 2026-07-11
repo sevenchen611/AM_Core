@@ -100,11 +100,14 @@ export function createDispatcher({ tenants, modules, platform, logger = console 
     let contentAudio = false;
     if (!nameAudio && message.type === 'file' && tenantModules(tenant).some((m) => typeof m.onAudio === 'function')) {
       try {
-        const sniff = await ensureBuffer();
-        contentAudio = looksLikeAudioBuffer(sniff.buffer);
+        // 只抓開頭 64 byte 驗檔頭(Range),不必為了辨識就把整個大檔(可能上百 MB)下載進記憶體。
+        const head = typeof platform.peekLineContent === 'function'
+          ? await platform.peekLineContent(String(message.id || ''), 64)
+          : (await ensureBuffer()).buffer;
+        contentAudio = looksLikeAudioBuffer(head);
         if (contentAudio) logger.log(`Audio detected by header (tenant=${tenant.key}, file="${message.fileName || ''}").`);
       } catch (e) {
-        logger.warn(`Audio header sniff download failed (tenant=${tenant.key}, group=${groupId}): ${e.message}`);
+        logger.warn(`Audio header sniff failed (tenant=${tenant.key}, group=${groupId}): ${e.message}`);
       }
     }
     const audio = nameAudio || contentAudio;

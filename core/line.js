@@ -69,6 +69,26 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
     throw new Error(`LINE 音檔內容尚未就緒(${lastReason};試 ${tries} 次仍為空),請稍候重傳。`);
   }
 
+  // 只抓開頭若干 byte(HTTP Range)以辨識檔頭,不必為了看 12 個 byte 下載整個大檔。
+  // LINE content API 支援 Range(回 206)。202=仍在轉檔,重試幾次;真失敗回空 ArrayBuffer,交呼叫端走退路。
+  async function peekLineContent(messageId, bytes = 64, { tries = 4, baseDelay = 2000 } = {}) {
+    if (!channelAccessToken) throw new Error('LINE_CHANNEL_ACCESS_TOKEN is not set.');
+    const url = `https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`;
+    for (let attempt = 1; attempt <= tries; attempt += 1) {
+      const response = await fetch(url, { headers: { Authorization: `Bearer ${channelAccessToken}`, Range: `bytes=0-${Math.max(0, bytes - 1)}` } });
+      if (response.status === 206) return response.arrayBuffer();
+      if (response.status === 202) { // 仍在轉檔,稍候再試
+        try { await response.body?.cancel?.(); } catch { /* ignore */ }
+        if (attempt < tries) { await new Promise((r) => setTimeout(r, Math.min(baseDelay * attempt, 12000))); continue; }
+        return new ArrayBuffer(0);
+      }
+      // Range 未被接受(理論上不會)或其它非 2xx:別誤抓整包大檔,取消並回空。
+      try { await response.body?.cancel?.(); } catch { /* ignore */ }
+      return new ArrayBuffer(0);
+    }
+    return new ArrayBuffer(0);
+  }
+
   function resolveLineFilename(message, messageType, messageId, contentType) {
     if (message.fileName) return message.fileName;
     const ext = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif' }[String(contentType).split(';')[0]] || '';
@@ -98,6 +118,7 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
     lineGet,
     resolveSenderName,
     downloadLineContent,
+    peekLineContent,
     resolveLineFilename,
     pushLineMessage,
     configured: Boolean(channelAccessToken && channelSecret),
