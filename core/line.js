@@ -45,13 +45,28 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
     }
   }
 
-  async function downloadLineContent(messageId) {
+  // 下載音檔/影片內容。LINE 對媒體訊息若後端仍在轉檔,會回 202 或 2xx 空 body,
+  // 此時 response.ok 仍為 true —— 舊版直接回傳空 buffer,害下游(AssemblyAI upload 422、
+  // Gemini upload 400「No file found」)全部拿到空檔而失敗。故對「未就緒(202 或空 body)」
+  // 退避重試,仍為空才誠實丟錯(讓上層能通知使用者重傳,而非靜靜產出空白)。
+  async function downloadLineContent(messageId, { tries = 6, baseDelay = 2500 } = {}) {
     if (!channelAccessToken) throw new Error('LINE_CHANNEL_ACCESS_TOKEN is not set.');
-    const response = await fetch(`https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`, {
-      headers: { Authorization: `Bearer ${channelAccessToken}` },
-    });
-    if (!response.ok) throw new Error(`LINE content download failed: ${response.status} ${await response.text()}`);
-    return { buffer: await response.arrayBuffer(), contentType: response.headers.get('content-type') || 'application/octet-stream' };
+    const url = `https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`;
+    let lastReason = '';
+    for (let attempt = 1; attempt <= tries; attempt += 1) {
+      const response = await fetch(url, { headers: { Authorization: `Bearer ${channelAccessToken}` } });
+      // 202 = 內容仍在準備;其它非 2xx 才是真失敗,直接丟錯。
+      if (response.status !== 202 && !response.ok) {
+        throw new Error(`LINE content download failed: ${response.status} ${await response.text()}`);
+      }
+      const buffer = response.status === 202 ? new ArrayBuffer(0) : await response.arrayBuffer();
+      if (buffer.byteLength > 0) {
+        return { buffer, contentType: response.headers.get('content-type') || 'application/octet-stream' };
+      }
+      lastReason = response.status === 202 ? '202 轉檔中' : '2xx 空 body';
+      if (attempt < tries) await new Promise((r) => setTimeout(r, Math.min(baseDelay * attempt, 15000)));
+    }
+    throw new Error(`LINE 音檔內容尚未就緒(${lastReason};試 ${tries} 次仍為空),請稍候重傳。`);
   }
 
   function resolveLineFilename(message, messageType, messageId, contentType) {
