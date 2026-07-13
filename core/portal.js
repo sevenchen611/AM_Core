@@ -38,5 +38,5 @@ export function createPortal({ queueAccessKey, portalPin, meEndpoint = 'https://
     }
   }
 
-  return { pinCookieValue, pinAuthed, checkPin, userAuthed };
+  return { pinCookieValue, pinAuthed, checkPin, userAuthed, pinConfigured: Boolean(portalPin) };
 }

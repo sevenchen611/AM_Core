@@ -16,6 +16,7 @@
 // 因為 llm.js 不吃音訊。
 
 import crypto from 'node:crypto';
+import { parseLegend, speakerWidgetHtml, handleSpeakerSave } from './speaker-fix.js';
 
 let platform = null;
 function init(injected) { platform = injected; }
@@ -738,6 +739,12 @@ async function renderPublicMeetingHtml(pageId) {
   const { legend, sections } = await buildPublicSections(pageId);
   const body = sections.map((s) => `<details${s.key === 'summary' ? ' open' : ''}><summary>${esc(s.title)}</summary>`
     + `<div class="sec">${blocksToHtml(s.blocks) || '<p class="dim">(無內容)</p>'}</div></details>`).join('');
+  // 「修正講者」小工具:辨識錯人時直接在頁面上改名/對調/合併,存回 Notion(存檔需管理 PIN)。
+  // 只有 PIN 已設定(能驗證)時才顯示,避免給一個永遠存不了的介面。
+  const { speakers } = parseLegend(legend);
+  const editor = (speakers.length && platform.portal?.pinConfigured && platform.publicLinkSecret)
+    ? speakerWidgetHtml(speakers, { savePath: `/m/${normId(pageId)}-${meetingSig(pageId)}` })
+    : '';
   return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
@@ -770,18 +777,40 @@ async function renderPublicMeetingHtml(pageId) {
 <div class="meta">${[date, type, who && `與會:${who}`].filter(Boolean).map(esc).join(' ・ ')}</div>
 ${legend ? `<div class="meta">${esc(legend)}</div>` : ''}
 </header>
+${editor}
 ${body || '<p class="dim">(此會議尚無內容)</p>'}
 <footer>🐌 葉小蝸自動整理 ・ <a href="${esc(page.url)}" target="_blank" rel="noopener">在 Notion 開啟(需帳號)</a></footer>
 </div></body></html>`;
 }
 
-// GET /m/<32碼id>-<16碼簽章> → 公開會議頁。回傳 true=已處理。
+// GET  /m/<32碼id>-<16碼簽章> → 公開會議頁(免帳號)
+// POST /m/<32碼id>-<16碼簽章> → 修正講者存回 Notion(需管理 PIN;簽章擋掉亂猜頁 id)
+// 回傳 true=已處理。
 async function handlePublicRequest(req, res, pathname) {
   const m = String(pathname).match(/^\/m\/([0-9a-f]{32})-([0-9a-f]{16})$/i);
   if (!m) return false;
   const [, id, sig] = m;
   const deny = () => { res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end('<meta charset="utf-8"><p style="font-family:system-ui;padding:40px;text-align:center">找不到這份會議記錄(連結可能失效)。</p>'); };
   if (!platform.publicLinkSecret || meetingSig(id) !== sig.toLowerCase()) { deny(); return true; }
+
+  // 存檔:修正講者。讀 body → 委派 speaker-fix(內部驗 PIN)→ 回 JSON。
+  if (req.method === 'POST') {
+    const sendJson = (status, obj) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(obj)); };
+    try {
+      const body = await readJsonBody(req);
+      const result = await handleSpeakerSave({
+        pageId: id,
+        body,
+        deps: { notionRequest: platform.notionRequest, checkPin: (p) => Boolean(platform.portal?.checkPin?.(p)) },
+      });
+      sendJson(result.status, result.json);
+    } catch (e) {
+      console.warn(`speaker-fix save failed: ${e.message}`);
+      sendJson(500, { error: '儲存失敗:' + e.message });
+    }
+    return true;
+  }
+
   try {
     const html = await renderPublicMeetingHtml(id);
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' });
@@ -791,6 +820,16 @@ async function handlePublicRequest(req, res, pathname) {
     deny();
   }
   return true;
+}
+
+// 讀 POST 的 JSON body(上限 256KB,避免被灌爆)
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', (c) => { data += c; if (data.length > 262144) { reject(new Error('body too large')); req.destroy(); } });
+    req.on('end', () => { try { resolve(data ? JSON.parse(data) : {}); } catch (e) { reject(new Error('invalid JSON body')); } });
+    req.on('error', reject);
+  });
 }
 
 // ── 落地 + 發布 ────────────────────────────────────────────
@@ -999,12 +1038,12 @@ export default {
   onMessage,           // (ctx) 每則訊息;若在等與會資訊則收斂,回傳 true=已處理
   provisionMeetingsDb, // (tenant, groupName) 手動預建某群的會議庫(選用)
   publicMeetingUrl,    // (pageId) → 自架公開頁連結(需 publicBaseUrl + publicLinkSecret)
-  handlePublicRequest, // (req,res,pathname) GET /m/<id>-<sig> 公開會議頁;回 true=已處理
+  handlePublicRequest, // (req,res,pathname) GET 公開會議頁 / POST 修正講者;回 true=已處理
   // core/server 的模組路由掛載點(collectRoutes 會蒐集 mod.routes)。公開會議頁免登入、
   // 租戶無關(靠 id+簽章定位,單一 Notion token 讀取);BuildAM 走自己的 server,不讀此欄,不受影響。
+  // 不限 method:GET=看,POST=修正講者存回 Notion(handler 內自行分流,POST 另需管理 PIN)。
   routes: [{
     prefix: '/m',
-    method: 'GET',
     handler: async (req, res, { pathname }) => {
       const handled = await handlePublicRequest(req, res, pathname);
       if (!handled) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Not found'); }
