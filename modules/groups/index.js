@@ -21,8 +21,10 @@ const text = (value) => value ? [{ type: 'text', text: { content: String(value).
 
 function pageModel(page) {
   const p = page.properties || {};
-  let memberCount = 0;
-  try { memberCount = Object.keys(JSON.parse(plain(p['成員對照'])) || {}).length; } catch {}
+  let members = {};
+  try { members = JSON.parse(plain(p['成員對照'])) || {}; } catch {}
+  if (!members || Array.isArray(members) || typeof members !== 'object') members = {};
+  const memberNames = Object.keys(members).filter((name) => members[name]).sort((a, b) => a.localeCompare(b, 'zh-Hant'));
   return {
     id: page.id,
     name: plain(p['群組名稱'], 'title'),
@@ -35,7 +37,8 @@ function pageModel(page) {
     goal: plain(p['所屬目標']),
     statusUpdatePolicy: select(p['狀態更新權限']),
     reminderTargets: plain(p['預設提醒對象']),
-    memberCount,
+    memberNames,
+    memberCount: memberNames.length,
     editedAt: p['最後設定時間']?.date?.start || '',
     editedBy: plain(p['最後設定者']),
   };
@@ -109,16 +112,31 @@ function selectInput(field, value, options) {
   const list = value && !options.includes(value) ? [value, ...options] : options;
   return `<select data-field="${field}">${list.map((option) => `<option value="${esc(option)}"${option === value ? ' selected' : ''}>${esc(option)}</option>`).join('')}</select>`;
 }
+function splitNames(value) {
+  return String(value || '').split(/[、,，\n]/).map((name) => name.trim()).filter(Boolean);
+}
+function memberSelect(field, value, members, { multiple = false, placeholder = '請選擇群組成員' } = {}) {
+  const selected = new Set(multiple ? splitNames(value) : [String(value || '').trim()]);
+  const available = [...members];
+  for (const name of selected) if (name && !available.includes(name)) available.unshift(name);
+  const noMembers = available.length === 0;
+  const options = [
+    !multiple ? `<option value="">${esc(noMembers ? '請先同步群組成員' : placeholder)}</option>` : '',
+    ...available.map((name) => `<option value="${esc(name)}"${selected.has(name) ? ' selected' : ''}>${esc(name)}</option>`),
+  ].join('');
+  return `<select data-field="${field}"${multiple ? ' multiple size="4"' : ''}${noMembers ? ' disabled' : ''}>${options}</select>`;
+}
 function renderRow(row, disabled) {
+  const memberControlsDisabled = disabled || !row.groupId;
   return `<tr data-page-id="${esc(row.id)}" data-group-id="${esc(row.groupId)}">
 <td>${input('name', row.name, '群組名稱')}<small>${esc(row.groupId || '尚未取得 LINE 群組 ID')}</small></td>
 <td>${input('purpose', row.purpose, '這個群主要處理什麼？')}</td>
-<td>${input('owner', row.owner, '主要負責人')}</td>
+<td>${memberSelect('owner', row.owner, row.memberNames)}<small>從此群成員中選擇。</small></td>
 <td>${input('capabilities', row.capabilities.join('、'), '待辦、案件狀態')}</td>
 <td>${input('goal', row.goal, '所屬專案或目標')}</td>
-<td>${selectInput('statusUpdatePolicy', row.statusUpdatePolicy || STATUS_POLICIES[0], STATUS_POLICIES)}${input('reminderTargets', row.reminderTargets, '預設提醒對象')}</td>
+<td>${selectInput('statusUpdatePolicy', row.statusUpdatePolicy || STATUS_POLICIES[0], STATUS_POLICIES)}${memberSelect('reminderTargets', row.reminderTargets, row.memberNames, { multiple: true })}<small>可複選提醒對象。</small></td>
 <td>${selectInput('status', row.status || '啟用', ['啟用', '停用'])}<small>角色：${esc(row.role || '未設定')}<br>成員對照：${row.memberCount} 人</small></td>
-<td><button type="button" class="save"${disabled ? ' disabled' : ''}>儲存</button><small class="result">${esc(row.editedAt ? `最近設定：${row.editedAt}` : '')}</small></td></tr>`;
+<td><button type="button" class="sync-members"${memberControlsDisabled ? ' disabled' : ''}>同步成員</button><button type="button" class="save"${disabled ? ' disabled' : ''}>儲存</button><small class="result">${esc(row.editedAt ? `最近設定：${row.editedAt}` : '')}</small></td></tr>`;
 }
 
 function renderGroups(tenant, rows, missing) {
@@ -126,12 +144,14 @@ function renderGroups(tenant, rows, missing) {
   const key = encodeURIComponent(tenant.key);
   return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>群組設定｜${esc(tenant.displayName)}</title>
 <style>body{font-family:system-ui,'Noto Sans TC',sans-serif;margin:0;background:#f5f7f6;color:#22302a}main{max-width:1560px;margin:auto;padding:25px 18px}a{color:#246d46}h1{font-size:25px;margin:0}.sub{margin:7px 0 16px;color:#65756c}.notice{padding:12px 14px;border-radius:9px;margin:12px 0;background:#fff4e6;color:#88520a}.ok{padding:12px 14px;border-radius:9px;margin:12px 0;background:#edf7f0;color:#2d6541}.wrap{overflow:auto;background:#fff;border:1px solid #dce5df;border-radius:12px}table{border-collapse:collapse;width:100%;min-width:1350px}th,td{border-bottom:1px solid #e6ece8;vertical-align:top;padding:10px;text-align:left;font-size:13px}th{position:sticky;top:0;background:#eff5f1;color:#456054;white-space:nowrap}input,select{box-sizing:border-box;width:100%;padding:7px;border:1px solid #cfdad4;border-radius:6px;background:#fff;font:inherit}input:focus,select:focus{outline:2px solid #a8d3b6;border-color:#4b9b68}small{display:block;color:#77867d;font-size:11px;line-height:1.45;margin-top:5px}.save{border:0;border-radius:7px;padding:8px 11px;background:#2d7b4e;color:#fff;font-weight:700;cursor:pointer}.save:disabled{background:#aebbb3;cursor:not-allowed}.result.ok{padding:0;background:transparent;color:#267347}.result.err{padding:0;background:transparent;color:#a23d32}</style></head><body><main>
-<p><a href="/admin?tenant=${key}">← ${esc(tenant.displayName)} 後臺</a></p><h1>LINE 群組設定</h1><p class="sub">設定會立即影響這個租戶的群組路由與功能；LINE 群組 ID 與成員對照由系統管理，這裡不開放手動改動。</p>
+<p><a href="/admin?tenant=${key}">← ${esc(tenant.displayName)} 後臺</a></p><h1>LINE 群組設定</h1><p class="sub">設定會立即影響這個租戶的群組路由與功能；請先按「同步成員」，再從下拉選單精準選擇主要負責人與提醒對象。</p>
 ${disabled ? `<p class="notice">此租戶的群組表尚缺少欄位：${esc(missing.join('、'))}。請先套用群組綁定 v2 結構，避免用不完整資料開始管理。</p>` : '<p class="ok">群組綁定 v2 已就緒。每次儲存後，群組路由快取會立即更新。</p>'}
 <div class="wrap"><table><thead><tr><th>群組</th><th>用途</th><th>主要負責人</th><th>啟用功能<br><small>以「、」分隔</small></th><th>所屬目標</th><th>案件狀態／提醒</th><th>啟用狀態</th><th></th></tr></thead><tbody>${rows.map((row) => renderRow(row, disabled)).join('') || '<tr><td colspan="8">尚未建立群組綁定。</td></tr>'}</tbody></table></div>
 </main><script>
 const tenant=${JSON.stringify(tenant.key)};
-for(const button of document.querySelectorAll('.save'))button.addEventListener('click',async()=>{const row=button.closest('tr'),result=row.querySelector('.result');const values={};row.querySelectorAll('[data-field]').forEach(el=>values[el.dataset.field]=el.value);button.disabled=true;result.className='result';result.textContent='儲存中…';try{const r=await fetch('/groups/api/update?tenant='+encodeURIComponent(tenant),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({pageId:row.dataset.pageId,...values})});const j=await r.json();if(!r.ok)throw Error(j.error||'儲存失敗');result.className='result ok';result.textContent='已儲存，設定已生效。'}catch(e){result.className='result err';result.textContent=e.message||'儲存失敗';}finally{button.disabled=false;}});
+function valuesFor(row){const values={};row.querySelectorAll('[data-field]').forEach(el=>{values[el.dataset.field]=el.multiple?[...el.selectedOptions].map(o=>o.value).filter(Boolean).join('、'):el.value;});return values;}
+for(const button of document.querySelectorAll('.save'))button.addEventListener('click',async()=>{const row=button.closest('tr'),result=row.querySelector('.result'),values=valuesFor(row);button.disabled=true;result.className='result';result.textContent='儲存中…';try{const r=await fetch('/groups/api/update?tenant='+encodeURIComponent(tenant),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({pageId:row.dataset.pageId,...values})});const j=await r.json();if(!r.ok)throw Error(j.error||'儲存失敗');result.className='result ok';result.textContent='已儲存，設定已生效。'}catch(e){result.className='result err';result.textContent=e.message||'儲存失敗';}finally{button.disabled=false;}});
+for(const button of document.querySelectorAll('.sync-members'))button.addEventListener('click',async()=>{const row=button.closest('tr'),result=row.querySelector('.result');button.disabled=true;result.className='result';result.textContent='同步群組成員中…';try{const r=await fetch('/groups/api/sync-members?tenant='+encodeURIComponent(tenant),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({pageId:row.dataset.pageId})});const j=await r.json();if(!r.ok)throw Error(j.error||'同步失敗');result.className='result ok';result.textContent='已同步 '+j.memberCount+' 位成員，重新載入選單…';setTimeout(()=>location.reload(),400);}catch(e){result.className='result err';result.textContent=e.message||'同步失敗';button.disabled=false;}});
 </script></body></html>`;
 }
 
@@ -163,6 +183,39 @@ function updateProperties(body, schema, actor) {
   add('最後設定時間', { date: { start: new Date().toISOString() } });
   add('最後設定者', { rich_text: text(actor) });
   return props;
+}
+
+function memberMapFromProfiles(profiles) {
+  const counts = new Map();
+  for (const profile of profiles) counts.set(profile.name, (counts.get(profile.name) || 0) + 1);
+  const members = {};
+  for (const { name, userId } of profiles) {
+    const uniqueName = counts.get(name) > 1 ? `${name}（${userId.slice(-6)}）` : name;
+    members[uniqueName] = userId;
+  }
+  return members;
+}
+
+async function syncMembers(tenant, pageId) {
+  // 先在本租戶的資料源內定位頁面，不接受前端任意 groupId，避免跨租戶讀取群組資訊。
+  const binding = (await listBindings(tenant)).find((row) => row.id === pageId);
+  if (!binding) throw new Error('找不到此租戶的群組綁定，無法同步成員。');
+  if (!binding.groupId) throw new Error('此群尚未取得 LINE 群組 ID。');
+  if (typeof platformRef.listGroupMemberIds !== 'function' || typeof platformRef.resolveGroupMemberName !== 'function') {
+    throw new Error('LINE 成員同步尚未設定。');
+  }
+  const ids = await platformRef.listGroupMemberIds(binding.groupId);
+  const profiles = await Promise.all(ids.map(async (userId) => ({
+    userId,
+    name: String(await platformRef.resolveGroupMemberName(binding.groupId, userId) || 'LINE 使用者').trim() || 'LINE 使用者',
+  })));
+  const members = memberMapFromProfiles(profiles);
+  await platformRef.notionRequest(`/v1/pages/${encodeURIComponent(pageId)}`, {
+    method: 'PATCH', tenantKey: tenant.key,
+    body: { properties: { '成員對照': { rich_text: text(JSON.stringify(members)) } } },
+  });
+  platformRef.router?.invalidate?.(binding.groupId);
+  return Object.keys(members).length;
 }
 
 async function handleGroups(req, res, rctx) {
@@ -201,6 +254,15 @@ async function handleGroups(req, res, rctx) {
       platformRef.router?.invalidate?.(String(body.groupId || '').trim());
       return sendJson(res, 200, { ok: true });
     }
+    if (pathname === '/groups/api/sync-members' && req.method === 'POST') {
+      if (missing.length) return sendJson(res, 409, { error: `群組表尚缺少欄位：${missing.join('、')}` });
+      let body;
+      try { body = JSON.parse(await readBody(req)); } catch { return sendJson(res, 400, { error: '資料格式不正確。' }); }
+      const pageId = String(body?.pageId || '').trim();
+      if (!pageId) return sendJson(res, 400, { error: '缺少群組綁定頁識別。' });
+      const memberCount = await syncMembers(tenant, pageId);
+      return sendJson(res, 200, { ok: true, memberCount });
+    }
     return sendJson(res, 404, { error: 'Not found' });
   } catch (error) {
     platformRef.logger?.warn?.(`Groups admin failed (tenant=${tenant.key}): ${error.message}`);
@@ -228,4 +290,4 @@ export default {
   ],
 };
 
-export const __test = { normaliseCapabilities, pageModel, missingSchemaFields, updateProperties };
+export const __test = { normaliseCapabilities, pageModel, missingSchemaFields, updateProperties, memberMapFromProfiles };

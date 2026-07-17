@@ -71,6 +71,8 @@ export async function bootstrap(env = process.env, overrides = {}) {
     // LINE(共用 OA)
     pushLineMessage: line.pushLineMessage,
     lineGet: line.lineGet,
+    listGroupMemberIds: line.listGroupMemberIds,
+    resolveGroupMemberName: line.resolveGroupMemberName,
     downloadLineContent: line.downloadLineContent,
     peekLineContent: line.peekLineContent,
     streamLineContent: line.streamLineContent,

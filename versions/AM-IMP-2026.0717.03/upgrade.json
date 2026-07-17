@@ -1,0 +1,25 @@
+{
+  "id": "AM-IMP-2026.0717.03",
+  "name": "Group member picker and refresh",
+  "type": "Shared platform module / Portal SSO handoff",
+  "portable": true,
+  "installTargets": ["AM_PLATFORM", "HOZO_AM", "SEVEN_AM", "FOREST_AM"],
+  "requiresDatabases": ["群組綁定 v2"],
+  "requiresEnv": ["LINE_CHANNEL_ACCESS_TOKEN", "NOTION_TOKEN", "<PREFIX>_GROUP_BINDINGS_DATA_SOURCE_ID"],
+  "requiresScripts": ["tools/dryrun-groups.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "A member refresh resolves pageId only from the active tenant's group-binding data source and PATCHes through tenantKey isolation."
+  },
+  "definitionOfDone": [
+    "Groups page renders an owner dropdown and a multi-select reminder dropdown from that row's member map",
+    "Member refresh retrieves LINE group members and writes only the active tenant's binding page",
+    "Duplicate LINE display names remain distinguishable",
+    "Groups dry-run and node syntax checks pass",
+    "Portal project entry verifies its existing am-tenant permission before issuing a short-lived handoff"
+  ],
+  "status": "Ready"
+}

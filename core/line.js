@@ -45,6 +45,27 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
     }
   }
 
+  // 後臺同步群組成員用。LINE 會員清單一次最多 100 人，須依 next 續頁。
+  // 此 API 僅適用驗證／進階 OA；權限不足時讓管理端清楚回報，不靜默回空清單。
+  async function listGroupMemberIds(groupId) {
+    if (!groupId) throw new Error('LINE groupId is required.');
+    const ids = [];
+    let start = '';
+    do {
+      const query = start ? `?start=${encodeURIComponent(start)}` : '';
+      const page = await lineGet(`/v2/bot/group/${encodeURIComponent(groupId)}/members/ids${query}`);
+      ids.push(...(Array.isArray(page.memberIds) ? page.memberIds : []));
+      start = page.next || '';
+    } while (start);
+    return [...new Set(ids)];
+  }
+
+  async function resolveGroupMemberName(groupId, userId) {
+    if (!groupId || !userId) return 'LINE 使用者';
+    const profile = await lineGet(`/v2/bot/group/${encodeURIComponent(groupId)}/member/${encodeURIComponent(userId)}`);
+    return profile.displayName || 'LINE 使用者';
+  }
+
   // 下載音檔/影片內容。LINE 對媒體訊息若後端仍在轉檔,會回 202 或 2xx 空 body,
   // 此時 response.ok 仍為 true —— 舊版直接回傳空 buffer,害下游(AssemblyAI upload 422、
   // Gemini upload 400「No file found」)全部拿到空檔而失敗。故對「未就緒(202 或空 body)」
@@ -142,6 +163,8 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
     isValidSignature,
     lineGet,
     resolveSenderName,
+    listGroupMemberIds,
+    resolveGroupMemberName,
     downloadLineContent,
     peekLineContent,
     streamLineContent,

@@ -28,7 +28,13 @@ function projectKeys(tenant) {
   return [...new Set([tenant.key, ...list(portalConfig(tenant).projectAliases)])];
 }
 
-export function createPortal({ queueAccessKey, portalPin, meEndpoint = 'https://rental.hozorental.com/api/me', logger = console }) {
+export function createPortal({
+  queueAccessKey,
+  portalPin,
+  meEndpoint = 'https://rental.hozorental.com/api/me',
+  handoffEndpoint = 'https://rental.hozorental.com/api/am-sso/consume',
+  logger = console,
+}) {
   const meCache = new Map();
 
   const tenantSecret = (tenant) => tenant?.queueAccessKey || queueAccessKey || '';
@@ -47,6 +53,39 @@ export function createPortal({ queueAccessKey, portalPin, meEndpoint = 'https://
 
   function pinCookieHeader(tenant) {
     return `${pinCookieName(tenant)}=${pinCookieValue(tenant)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`;
+  }
+
+  function ssoCookieValue(user) {
+    if (!queueAccessKey || !user) return '';
+    const safeUser = {
+      id: String(user.id || ''), username: String(user.username || ''), displayName: String(user.displayName || user.username || ''),
+      role: String(user.role || ''), projectIds: Array.isArray(user.projectIds) ? user.projectIds : [],
+      allowedFeatures: Array.isArray(user.allowedFeatures) ? user.allowedFeatures : [], active: user.active !== false,
+    };
+    const payload = Buffer.from(JSON.stringify(safeUser)).toString('base64url');
+    const signature = crypto.createHmac('sha256', queueAccessKey).update(`portal-sso-v1:${payload}`).digest('base64url');
+    return `${payload}.${signature}`;
+  }
+
+  function ssoCookieHeader(user) {
+    const value = ssoCookieValue(user);
+    if (!value) return '';
+    return `amcore_portal_sso=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 8}`;
+  }
+
+  function ssoAuthed(req) {
+    if (!queueAccessKey) return null;
+    const value = parseCookies(req).amcore_portal_sso || '';
+    const [payload, signature] = value.split('.');
+    if (!payload || !signature) return null;
+    const expected = crypto.createHmac('sha256', queueAccessKey).update(`portal-sso-v1:${payload}`).digest('base64url');
+    try {
+      if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+      const user = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+      return user?.active === false || !user?.id ? null : user;
+    } catch {
+      return null;
+    }
   }
 
   function pinAuthed(req, tenant = null) {
@@ -70,7 +109,7 @@ export function createPortal({ queueAccessKey, portalPin, meEndpoint = 'https://
   // 驗 hozo_session → 回傳 user 物件(未登入/無效回 null)。租戶授權另由 tenantAuthorized 判斷。
   async function userAuthed(req) {
     const match = String(req?.headers?.cookie || '').match(/hozo_session=([^;]+)/);
-    if (!match) return null;
+    if (!match) return ssoAuthed(req);
     const sessionKey = match[1];
     const cached = meCache.get(sessionKey);
     if (cached && Date.now() < cached.exp) return cached.user;
@@ -83,6 +122,23 @@ export function createPortal({ queueAccessKey, portalPin, meEndpoint = 'https://
       return user;
     } catch (error) {
       logger.warn(`Portal /api/me failed: ${error.message}`);
+      return null;
+    }
+  }
+
+  async function consumeHandoff(token, tenant) {
+    if (!token || !tenant?.key) return null;
+    try {
+      const response = await fetch(handoffEndpoint, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token, tenant: tenant.key }),
+      });
+      if (!response.ok) return null;
+      const result = await response.json();
+      const user = result?.user;
+      return user && tenantAuthorized(user, tenant) ? user : null;
+    } catch (error) {
+      logger.warn(`Portal SSO handoff failed: ${error.message}`);
       return null;
     }
   }
@@ -123,9 +179,11 @@ export function createPortal({ queueAccessKey, portalPin, meEndpoint = 'https://
     pinCookieName,
     pinCookieValue,
     pinCookieHeader,
+    ssoCookieHeader,
     pinAuthed,
     checkPin,
     userAuthed,
+    consumeHandoff,
     tenantAuthorized,
     tenantScope,
     featureGranted,

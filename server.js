@@ -53,7 +53,7 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, {
       ok: true,
       platform: 'am-core',
-      build: 'group-governance-2026-07-17a',
+      build: 'group-member-picker-2026-07-17b',
       lineConfigured: line.configured,
       driveConfigured: platform.driveConfigured,
       llm: { available: llm.available, chain: llm.backends },
@@ -88,6 +88,19 @@ const server = http.createServer(async (req, res) => {
     }
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
     return res.end(renderLoginPage(tenant));
+  }
+
+  // Portal 跨網域登入交接：短效 token 只能由 Portal 已登入帳號取得；
+  // 平台消費後簽發自己的 HttpOnly session cookie，再導向乾淨網址。
+  if (req.method === 'GET' && pathname === '/portal/sso') {
+    const tenant = tenants.find((t) => t.key === url.searchParams.get('tenant')) || null;
+    const token = String(url.searchParams.get('token') || '');
+    if (!tenant || !token) return sendJson(res, 400, { error: 'Invalid Portal SSO handoff.' });
+    const user = await portal.consumeHandoff(token, tenant);
+    const cookie = user ? portal.ssoCookieHeader(user) : '';
+    if (!user || !cookie) return sendJson(res, 401, { error: 'Portal authorization failed.' });
+    res.writeHead(302, { Location: homeLocation(tenant), 'Set-Cookie': cookie, 'Cache-Control': 'no-store' });
+    return res.end();
   }
 
   if (req.method === 'POST' && pathname === '/auth') {

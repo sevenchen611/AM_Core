@@ -10,6 +10,8 @@ const tenant = { key: 'forest', displayName: '森在', modules: ['groups', 'queu
 const portal = { pinAuthed: (_req, item) => item.key === 'forest', userAuthed: async () => null, tenantAuthorized: () => false };
 groups.init({
   logger: { warn: () => {} }, router: { invalidate: (groupId) => invalidated.push(groupId) }, portal,
+  listGroupMemberIds: async (groupId) => groupId === 'gFOREST' ? ['U1', 'U2', 'U3'] : [],
+  resolveGroupMemberName: async (_groupId, userId) => ({ U1: '葉小蝸', U2: '王小美', U3: '王小美' }[userId]),
   notionRequest: async (pathname, opts = {}) => {
     calls.push({ pathname, opts });
     if (pathname === '/v1/data_sources/forest-groups' && opts.method === 'GET') return { properties: GROUP_BINDING_V2_PROPERTIES };
@@ -34,6 +36,9 @@ await check('群組頁只查 Forest 的群組資料源', async () => {
   await route.handler(request('GET'), res, { tenant, portal, pathname: '/groups' });
   assert.equal(res.status, 200);
   assert.match(res.body, /茲心園工務群/);
+  assert.match(res.body, /<select data-field="owner">/);
+  assert.match(res.body, /<select data-field="reminderTargets" multiple size="4">/);
+  assert.match(res.body, /同步成員/);
   assert.ok(calls.every((call) => call.opts.tenantKey === 'forest'));
 });
 
@@ -47,6 +52,18 @@ await check('儲存群組設定以 tenantKey 更新既有頁並清快取', async
   const update = calls.find((call) => call.pathname === '/v1/pages/binding-1');
   assert.equal(update.opts.tenantKey, 'forest');
   assert.deepEqual(invalidated, ['gFOREST']);
+});
+
+await check('同步成員只讀 Forest 綁定並寫回 Forest 的成員對照', async () => {
+  const res = response();
+  await route.handler(request('POST', JSON.stringify({ pageId: 'binding-1' })), res, { tenant, portal, pathname: '/groups/api/sync-members' });
+  assert.equal(res.status, 200);
+  assert.equal(JSON.parse(res.body).memberCount, 3);
+  const update = calls.filter((call) => call.pathname === '/v1/pages/binding-1').at(-1);
+  assert.equal(update.opts.tenantKey, 'forest');
+  const map = JSON.parse(update.opts.body.properties['成員對照'].rich_text[0].text.content);
+  assert.deepEqual(map, { '葉小蝸': 'U1', '王小美（U2）': 'U2', '王小美（U3）': 'U3' });
+  assert.ok(invalidated.includes('gFOREST'));
 });
 
 await check('未知功能不會寫入群組綁定', async () => {
