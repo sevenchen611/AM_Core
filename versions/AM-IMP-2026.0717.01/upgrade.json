@@ -1,0 +1,35 @@
+{
+  "id": "AM-IMP-2026.0717.01",
+  "name": "Engineering AM convergence into AM Platform",
+  "type": "Platform architecture / Runtime convergence",
+  "portable": false,
+  "installTargets": ["AM_PLATFORM"],
+  "excludedTargets": ["HOZO_AM", "SEVEN_AM", "FOREST_AM", "BUILD_AM"],
+  "requiresDatabases": [
+    "工程專案", "空間", "工項", "群組綁定", "訊息", "附件",
+    "回饋單", "變更單", "會議記錄", "待辦任務", "預算", "發包合約"
+  ],
+  "requiresEnv": [
+    "LINE_CHANNEL_ACCESS_TOKEN", "LINE_CHANNEL_SECRET", "NOTION_TOKEN",
+    "ENG_NOTION_PARENT_PAGE_ID", "ENG_*_DATA_SOURCE_ID", "ENG_DRIVE_ROOT_FOLDER_ID",
+    "ENG_QUEUE_ACCESS_KEY", "ENG_PORTAL_PIN", "AMCORE_QUEUE_ACCESS_KEY",
+    "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_OAUTH_REFRESH_TOKEN"
+  ],
+  "requiresScripts": ["tools/dryrun-engineering-convergence.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Every Notion call is tenant-keyed and target data sources must be declared under the tenant parent page."
+  },
+  "definitionOfDone": [
+    "Engineering requests all eight platform modules in the approved order",
+    "Legacy Portal aliases are scoped to engineering only",
+    "Construction ticket UI and legacy API redirects are available",
+    "Syntax and dryrun verification pass",
+    "Production LINE webhook is switched to AM Platform and verified",
+    "Legacy engineering service is suspended after the observation window"
+  ],
+  "status": "Ready"
+}

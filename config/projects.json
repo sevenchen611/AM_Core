@@ -18,11 +18,14 @@
     },
     {
       "projectKey": "BUILD_AM",
-      "displayName": "BuildAM",
+      "displayName": "工程 AM（舊服務回退）",
+      "active": false,
+      "lifecycle": "Deprecated — rollback only until AM Platform cutover observation completes",
+      "supersededBy": "AM_PLATFORM:engineering",
       "localPath": "D:\\Codex_project\\BuildAM\\line-oa-webhook",
       "manifestPath": "D:\\Codex_project\\BuildAM\\line-oa-webhook\\docs\\project-improvement-manifest.md",
       "upgradeRecordsPath": "D:\\Codex_project\\BuildAM\\line-oa-webhook\\docs\\upgrades",
-      "dataBoundary": "BuildAM owns its own LINE, Notion, Render, GitHub, and environment values. Minimal-seed project: only foundational AM_Core packages are installed; engineering-module features are project-local."
+      "dataBoundary": "Legacy runtime only. Engineering data remains in its existing Notion parent but is served by AM Platform tenant engineering; no new feature work is installed here."
     },
     {
       "projectKey": "FOREST_AM",
@@ -36,4 +39,3 @@
   "sharedRegistryPath": "D:\\Codex_project\\AM_SHARED_VERSION_UPGRADES\\SHARED_IMPROVEMENT_REGISTRY.md",
   "sharedUpgradePackageRoot": "D:\\Codex_project\\AM_Core\\versions"
 }
-

@@ -17,13 +17,12 @@
 //   - 模組狀態(當日已跑過的日戳)一律以「租戶」為鍵(perTenant Map),各租戶各自巡邏、互不污染。
 //
 // 依賴邊界:
-//   - tasks 模組:待辦庫的查詢/提醒記錄讀寫(openTasks / taskReminderRecord / markTaskReminded)——仍就地讀取。
-//     tasks 模組完成後,這些改呼叫 tasks.listOpen / tasks.markReminded。
+//   - tasks 模組:待辦庫的查詢/提醒記錄目前仍由本模組就地執行；後續可收斂到 tasks.listOpen / tasks.markReminded。
 //   - construction 模組:回饋單(feedbackTickets)到期/擱置規則屬工程領域,已由 construction 以 `platform.reminderPasses`
 //     註冊(`{name, cadence:'daily', run(deps, {cfg, today})}`);reminders 於每日班次迭代呼叫,不自帶實作。
 //     無回饋單庫的租戶(如森在)由 pass 自身回 { skipped } 略過。
 //
-// 功能與 BuildAM src/server.js 的提醒引擎完全等同,只是重組成模組形狀、狀態改以租戶為鍵。
+// 保留舊工程提醒語意,重組成平台模組形狀,狀態改以租戶為鍵。
 
 import { sendJson } from '../../core/util.js';
 
@@ -37,15 +36,9 @@ const taipeiNow = () => new Date(Date.now() + 8 * 3600 * 1000);
 const dayAfter = (day) => new Date(new Date(`${day}T00:00:00Z`).getTime() + 86400000).toISOString().slice(0, 10);
 const overdueDaysBetween = (today, deadline) => Math.round((new Date(`${today}T00:00:00Z`) - new Date(`${deadline}T00:00:00Z`)) / 86400000);
 
-// 租戶提醒設定:優先 <PREFIX>_、其次平台級 AMCORE_、再退回 BUILD_(相容原 BuildAM 全域設定)。
+// 租戶提醒設定由 core/tenants.js 從 <PREFIX>_* 載入。
 function tenantConfig(tenant) {
-  const p = tenant.envPrefix;
-  const env = process.env;
-  return {
-    escalationDays: Number(env[`${p}_ESCALATION_DAYS`] || env.AMCORE_ESCALATION_DAYS || env.BUILD_ESCALATION_DAYS || 2),
-    reminderHour: Number(env[`${p}_REMINDER_HOUR`] || env.AMCORE_REMINDER_HOUR || env.BUILD_REMINDER_HOUR || 9),
-    escalationOwner: env[`${p}_ESCALATION_OWNER`] || env.AMCORE_ESCALATION_OWNER || env.BUILD_ESCALATION_OWNER || 'Seven陳聖文',
-  };
+  return tenant.reminders || { escalationDays: 2, reminderHour: 9, escalationOwner: 'Seven陳聖文' };
 }
 
 // ── 每租戶巡邏狀態(當日一次的日戳,以 tenant.key 為鍵)────────
@@ -278,9 +271,10 @@ async function tick(ctx) {
 
 // /cron/reminders 端點:外部 cron(GitHub Actions)以 ?key= 觸發;可 ?tenant=key 指定單一租戶。
 // 未指定則巡邏所有「啟用 reminders」的租戶。授權沿用平台佇列金鑰(與 server.js /cron/tick 一致)。
-function cronAuthorized(url) {
-  const key = process.env.AMCORE_QUEUE_ACCESS_KEY || process.env.BUILD_QUEUE_ACCESS_KEY || '';
-  return Boolean(key) && url.searchParams.get('key') === key;
+function cronAuthorized(url, targets) {
+  const supplied = url.searchParams.get('key') || '';
+  const accepted = new Set([platform.queueAccessKey, ...(targets || []).map((t) => t.queueAccessKey)].filter(Boolean));
+  return Boolean(supplied) && accepted.has(supplied);
 }
 
 const routes = [
@@ -288,9 +282,9 @@ const routes = [
     prefix: '/cron/reminders',
     async handler(req, res, ctx) {
       const { url, tenants } = ctx;
-      if (!cronAuthorized(url)) return sendJson(res, 401, { error: 'Unauthorized' });
       const requested = url.searchParams.get('tenant');
       const targets = (tenants || []).filter((t) => (t.modules || []).includes('reminders') && (!requested || t.key === requested));
+      if (!cronAuthorized(url, targets)) return sendJson(res, 401, { error: 'Unauthorized' });
       try {
         const results = [];
         for (const t of targets) results.push(await runPassesForTenant(t));

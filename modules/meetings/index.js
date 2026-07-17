@@ -1,5 +1,5 @@
 // AM Platform 模組:meetings
-// ⚠️ 此檔有下游 vendored 複製品(BuildAM)。改完請依 AM_Core/VENDORED.md 重抄,或至少在 commit 點名 BuildAM 需 re-vendor——否則下游靜默沿用舊版。
+// 工程 AM 已直接使用本平台模組；不再維護正式下游 vendored 複製品（見 VENDORED.md）。
 // ─────────────────────────────────────────────────────────────────────────
 // 會議錄音 → 反問「與會者(含發言順序)/主題」→ AssemblyAI 轉寫+講者分離
 //   → 依發言順序對齊真名 → platform.llm 收斂署名摘要 → 建會議記錄(三分頁)+待辦 → 發布。
@@ -20,6 +20,12 @@ import { parseLegend, speakerWidgetHtml, handleSpeakerSave } from './speaker-fix
 
 let platform = null;
 function init(injected) { platform = injected; }
+const aiForTenant = (tenant) => platform?.aiForTenant?.(tenant) || {
+  assemblyKey: platform?.assemblyKey || '',
+  geminiKey: platform?.geminiKey || '',
+  meetingModel: platform?.geminiModel || 'gemini-2.5-flash',
+};
+const llmForTenant = (tenant) => platform?.llmForTenant?.(tenant) || platform?.llm;
 
 // ── 純工具(無外部相依)──────────────────────────────────────
 const stamp = () => new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 16).replace('T', ' ');
@@ -217,7 +223,7 @@ async function onAudio(ctx) {
   const { tenant, buffer, audioMessageId, filename, binding, senderName, groupId, ackSent } = ctx;
   let contentType = ctx.contentType;
   // 無 AssemblyAI 金鑰 → Gemini 直讀備援(需要 buffer;串流路徑未帶 buffer 就下載一次)。
-  if (!platform.assemblyKey) {
+  if (!aiForTenant(tenant).assemblyKey) {
     let buf = buffer;
     if (!buf && audioMessageId) buf = (await platform.downloadLineContent(audioMessageId)).buffer;
     return processRecording({ tenant, buffer: buf, filename, contentType, binding, senderName, groupId });
@@ -225,8 +231,8 @@ async function onAudio(ctx) {
   if (contentType && (/x-m4a|m4a/i.test(contentType) || /\.(m4a|mp4)$/i.test(filename))) contentType = 'audio/mp4';
 
   // 串流路徑(平台,大檔友善):先發反問、只存 messageId,轉寫時才「邊下載邊上傳」;
-  //   不在此下載整包、不在此存 Drive,避免上百 MB 撐爆 512MB 機器、也讓反問即刻送出。
-  // buffer 路徑(相容):有 buffer(舊呼叫)才先存 Drive 留底。
+  //   Drive 留底改為「背景串流上傳」——收到錄音當下就開始備份,不擋反問、整檔不進記憶體。
+  // buffer 路徑(相容):有 buffer(舊呼叫)維持原地存 Drive。
   let audioDriveUrl = '';
   if (buffer) {
     try { audioDriveUrl = await archiveAudio(buffer, filename, contentType, tenant); }
@@ -236,6 +242,12 @@ async function onAudio(ctx) {
   const key = pkey(tenant, groupId);
   clearPending(key); // 同(租戶,群)若有上一份待補會議,以新錄音取代
   const entry = { tenant, buffer, audioMessageId, filename, contentType, binding, senderName, groupId, audioDriveUrl, createdAt: Date.now() };
+  if (!buffer && audioMessageId) {
+    // 背景留底:即刻開始(不等與會回覆——就算沒人回、或伺服器中途重啟,原檔已在 Drive)。
+    // 結果掛在 entry 上,finalize 發布前再收割;.catch 確保這個 promise 永不 reject。
+    entry.drivePromise = streamArchiveAudio(tenant, audioMessageId, filename)
+      .catch((e) => { console.warn(`Meeting audio Drive backup (stream) failed: ${e.message}`); return ''; });
+  }
   entry.timer = setTimeout(() => {
     finalizeMeeting(key, '').catch((e) => console.warn(`meeting auto-finalize failed: ${e.message}`));
   }, ROSTER_TIMEOUT_MS);
@@ -271,11 +283,13 @@ async function finalizeMeeting(key, rosterAnswer, answeredBy) {
   const entry = pending.get(key);
   if (!entry) return;
   clearPending(key);
-  const { tenant, buffer, audioMessageId, filename, contentType, binding, senderName, audioDriveUrl, groupId } = entry;
+  const { tenant, buffer, audioMessageId, filename, contentType, binding, senderName, groupId } = entry;
+  // Drive 留底:buffer 路徑在 onAudio 就存好;串流路徑在背景跑,發布/回報前限時收割。
+  let audioDriveUrl = entry.audioDriveUrl || '';
   const cfg = meetingsCfg(tenant);
   try {
     // 1. 解析與會資訊(主題/與會者/發言順序/專有詞/所屬專案)
-    const roster = await parseRoster(rosterAnswer, cfg);
+    const roster = await parseRoster(rosterAnswer, cfg, tenant);
     // 專案歸屬:預設綁定專案,與會回覆若指名 ZS/HZ/SYS 則改掛
     let projectPageId = binding?.projectPageId || '';
     if (roster.projectCode) {
@@ -285,24 +299,26 @@ async function finalizeMeeting(key, rosterAnswer, answeredBy) {
     // 2-4. 優先 AssemblyAI 轉寫+講者分離 → Gemini 署名整理;失敗則自動改 Gemini 直讀備援
     let parsed, diarized = '', legend = new Map();
     try {
-      const tr = await transcribeWithAssembly({ buffer, audioMessageId, filename, contentType, roster, cfg });
+      const tr = await transcribeWithAssembly({ tenant, buffer, audioMessageId, filename, contentType, roster, cfg });
       legend = buildSpeakerLegend(tr.utterances, roster.speakers);
       diarized = renderDiarized(tr, legend);
-      parsed = await summarize({ diarized, roster, legend, cfg });
+      parsed = await summarize({ tenant, diarized, roster, legend, cfg });
     } catch (assemblyErr) {
       console.warn(`AssemblyAI path failed, fallback to Gemini-direct: ${assemblyErr.message}`);
       await platform.pushLineMessage(groupId, '⚠ 逐字轉寫服務忙線,改用備援方式整理(這次不附署名逐字稿),稍候發布。').catch(() => {});
       // 備援需要完整 buffer;串流路徑此時才下載一次(僅在 AssemblyAI 失敗的少見情況)。
       let buf = buffer;
       if (!buf && audioMessageId) buf = (await platform.downloadLineContent(audioMessageId)).buffer;
-      parsed = await geminiTranscribeParsed({ buffer: buf, filename, contentType, roster, cfg });
+      parsed = await geminiTranscribeParsed({ tenant, buffer: buf, filename, contentType, roster, cfg });
     }
     if (roster.topic) parsed.title = roster.topic; // 使用者主題優先
-    // 5. 落地 + 發布
+    // 5. 落地 + 發布(轉寫已花了幾分鐘,背景 Drive 備份通常早就完成;最多再等 2 分鐘)
+    if (!audioDriveUrl && entry.drivePromise) audioDriveUrl = await raceTimeout(entry.drivePromise, 120000, '');
     await publishMeeting({ parsed, diarized, legend, roster, projectPageId, groupId, senderName, answeredBy, filename, audioDriveUrl, tenant, binding });
   } catch (error) {
     console.warn(`Meeting finalize failed (key=${key}): ${error.message}`);
     // 只有真的備份成功才敢說「已存 Drive」——沒留底時要明講,否則使用者會以為原檔還在而刪掉手機裡的錄音。
+    if (!audioDriveUrl && entry.drivePromise) audioDriveUrl = await raceTimeout(entry.drivePromise, 10000, '');
     const note = audioDriveUrl
       ? '錄音原檔已存 Drive,可重傳再試或聯絡 Seven。'
       : '⚠ 這次錄音「沒有」留底(此租戶未啟用 Drive 備份或備份失敗),請保留手機原檔並重新上傳。';
@@ -326,11 +342,12 @@ const ROSTER_SCHEMA = (codes) => ({
   },
 });
 
-async function parseRoster(answer, cfg = GENERIC_MEETINGS_CONFIG) {
+async function parseRoster(answer, cfg = GENERIC_MEETINGS_CONFIG, tenant = null) {
   const empty = { topic: '', speakers: [], keyterms: [], projectCode: '', kind: 'work' };
   if (!answer || !answer.trim()) return empty;
   const fallbackKind = kindFromText(answer) || 'work';
-  if (!platform.llm?.available) return { topic: answer.trim().slice(0, 40), speakers: [], keyterms: [], projectCode: '', kind: fallbackKind };
+  const llm = llmForTenant(tenant);
+  if (!llm?.available) return { topic: answer.trim().slice(0, 40), speakers: [], keyterms: [], projectCode: '', kind: fallbackKind };
   // 專案代碼是租戶特有的(工程租戶有 ZS/HZ/SYS 館別;森在沒有)→ 沒設定就整條規則不出現。
   const codes = Object.keys(cfg.projectCodes);
   const projectField = codes.length ? `"project":"${codes.join('|')} 或空字串",` : '';
@@ -339,7 +356,7 @@ async function parseRoster(answer, cfg = GENERIC_MEETINGS_CONFIG) {
     : '';
   try {
     // 與會名單是短 prompt,走預設鏈就好(不指名 profile),別為了一行名單去燒 gateway 的錢。
-    const j = await platform.llm.completeJson({
+    const j = await llm.completeJson({
       system: `以下是使用者提供的一場會議/聚會的與會資訊。請抽取成 JSON:
 {"kind":"work|share","topic":"主題(15字內)",${projectField}"speakers":[{"order":1,"name":"姓名","role":"職務/角色","gender":"男|女|"}],"keyterms":["需要被正確辨識的人名或專有名詞",...]}
 規則:
@@ -424,8 +441,8 @@ async function uploadToAssembly({ buffer, audioMessageId, auth }) {
 }
 
 // ── AssemblyAI 轉寫(預錄音,universal-3-5-pro + 講者分離)───────
-async function transcribeWithAssembly({ buffer, audioMessageId, filename, contentType, roster, cfg = GENERIC_MEETINGS_CONFIG }) {
-  const auth = { Authorization: platform.assemblyKey }; // 原始 key,不加 Bearer
+async function transcribeWithAssembly({ tenant, buffer, audioMessageId, filename, contentType, roster, cfg = GENERIC_MEETINGS_CONFIG }) {
+  const auth = { Authorization: aiForTenant(tenant).assemblyKey }; // 原始 key,不加 Bearer
 
   // 1. 上傳原始位元組到 AssemblyAI /v2/upload。
   //    - buffer 路徑(相容):整包上傳,偶發 422/5xx 自動重試。
@@ -515,9 +532,9 @@ const SUMMARY_SCHEMA = {
 // profile:'quality' → assemblyai gateway 領銜、直連 gemini 接手。實測 27,000 字逐字稿:
 // gateway 三模型 9/9 成功、輸出上看 12,718 tokens(故 maxTokens 不得低於 16000);
 // MiniMax-M3 直連只有 1/3~2/3 吐得出 JSON。
-async function summarize({ diarized, roster, legend, cfg = GENERIC_MEETINGS_CONFIG }) {
+async function summarize({ tenant, diarized, roster, legend, cfg = GENERIC_MEETINGS_CONFIG }) {
   const who = [...legend.values()].join('、');
-  const j = await platform.llm.completeJson({
+  const j = await llmForTenant(tenant).completeJson({
     system: meetingPrompt({ who, topic: roster.topic, today: todayStr(), kind: roster.kind, cfg }),
     userContent: `逐字稿:\n${diarized}`,
     schema: SUMMARY_SCHEMA,
@@ -629,7 +646,7 @@ async function provisionMeetingsDb(tenant, groupName) {
 
 // 決定這則會議寫進哪個會議庫:
 //  per-group 模式(tenant.meetingsParentPageId 有值 + 有 binding.pageId):每群一個獨立庫,第一次開會自動建、id 記回綁定頁「會議資料庫」欄。
-//  否則:租戶預設庫(現行行為;未設 meetingsParentPageId 的租戶=BuildAM 現況,完全不受影響)。
+//  否則:租戶預設庫(例如目前的 engineering 設定)。
 async function resolveMeetingsTarget(tenant, binding) {
   const fallback = { dbId: tenant?.dataSources?.meetings, perGroup: false };
   if (!tenant?.meetingsParentPageId || !binding?.pageId) return fallback;
@@ -671,9 +688,10 @@ const normId = (id) => String(id || '').replace(/-/g, '').toLowerCase();
 function meetingSig(pageId) {
   return crypto.createHmac('sha256', platform.publicLinkSecret || '').update(`meeting:${normId(pageId)}`).digest('hex').slice(0, 16);
 }
-function publicMeetingUrl(pageId) {
-  if (!platform.publicBaseUrl || !platform.publicLinkSecret) return '';
-  return `${String(platform.publicBaseUrl).replace(/\/+$/, '')}/m/${normId(pageId)}-${meetingSig(pageId)}`;
+function publicMeetingUrl(pageId, tenant = null) {
+  const baseUrl = platform.publicBaseUrlForTenant?.(tenant) || platform.publicBaseUrl;
+  if (!baseUrl || !platform.publicLinkSecret) return '';
+  return `${String(baseUrl).replace(/\/+$/, '')}/m/${normId(pageId)}-${meetingSig(pageId)}`;
 }
 
 async function readChildren(blockId) {
@@ -903,7 +921,7 @@ async function publishMeeting({ parsed, diarized, legend, roster, projectPageId,
 
   // LINE 推完整會議記錄(不含逐字稿),過長自動分段;附「自架公開頁(免帳號)」+「Notion 連結」
   const url = await shareableUrl(meeting.id, meeting.url);
-  await sendMeetingToLine(groupId, parsed, { legendLine, date: today, type: meetingType, url, publicUrl: publicMeetingUrl(meeting.id), defaultTitle });
+  await sendMeetingToLine(groupId, parsed, { legendLine, date: today, type: meetingType, url, publicUrl: publicMeetingUrl(meeting.id, tenant), defaultTitle });
   console.log(`Meeting published (AssemblyAI): ${parsed.title}, ${todos.length} todos.`);
 }
 
@@ -916,13 +934,39 @@ async function archiveAudio(buffer, filename, contentType, tenant) {
   return uploaded.webViewLink || '';
 }
 
+// 錄音原檔「串流」存 Drive(大檔友善):LINE 下載串流直灌 Drive resumable 上傳,整檔不進記憶體。
+async function streamArchiveAudio(tenant, audioMessageId, filename) {
+  if (!tenant?.driveConfigured) return '';
+  if (typeof platform.streamLineContent !== 'function' || typeof platform.uploadDriveStream !== 'function') return '';
+  const folder = await platform.ensureDriveFolder('會議錄音', tenant.driveRootFolderId);
+  const dayFolder = await platform.ensureDriveFolder(todayStr(), folder);
+  const { stream, contentType, contentLength } = await platform.streamLineContent(audioMessageId);
+  if (!contentLength) { try { await stream?.cancel?.(); } catch { /* ignore */ } throw new Error('LINE 未回 content-length,無法串流留底'); }
+  const uploaded = await platform.uploadDriveStream(stream, filename, contentType, dayFolder, contentLength);
+  console.log(`Meeting audio Drive backup (stream): ${filename}, ${contentLength} bytes.`);
+  return uploaded.webViewLink || '';
+}
+
+// promise 限時收割:逾時回 fallback(不讓 Drive 備份的慢尾巴擋住發布)。
+function raceTimeout(promise, ms, fallback) {
+  return new Promise((resolve) => {
+    const t = setTimeout(() => resolve(fallback), ms);
+    Promise.resolve(promise).then(
+      (v) => { clearTimeout(t); resolve(v); },
+      () => { clearTimeout(t); resolve(fallback); },
+    );
+  });
+}
+
 // ── Gemini 直讀音檔(唯一還沒被 platform.llm 取代的路徑)──────
 // llm.js 不吃音訊,所以這條備援仍自己打 Gemini Files API,也自己解析 JSON。
 // Gemini 免費配額是「每分鐘」限流,故三個呼叫都必須帶 fetchRetry。
 //
 // Gemini 直接讀音檔 → 整理成 parsed(供「無 AssemblyAI key」與「AssemblyAI 失敗備援」共用)。
 // 走 Google 網路(從雲端主機穩定),但無講者分離,故不產署名逐字稿。
-async function geminiTranscribeParsed({ buffer, filename, contentType, roster, cfg = GENERIC_MEETINGS_CONFIG }) {
+async function geminiTranscribeParsed({ tenant, buffer, filename, contentType, roster, cfg = GENERIC_MEETINGS_CONFIG }) {
+  const ai = aiForTenant(tenant);
+  if (!ai.geminiKey) throw new Error('Gemini API key not configured for tenant');
   if (/x-m4a|m4a/i.test(contentType) || /\.(m4a|mp4)$/i.test(filename)) contentType = 'audio/mp4';
   const boundary = `mtg${Date.now()}`;
   const meta = JSON.stringify({ file: { display_name: filename } });
@@ -933,14 +977,14 @@ async function geminiTranscribeParsed({ buffer, filename, contentType, roster, c
   ]);
   // 這是「備援的備援」(AssemblyAI 全掛時的唯一活路),三個呼叫都必須耐得住暫時性失敗。
   const up = await fetchRetry('https://generativelanguage.googleapis.com/upload/v1beta/files?uploadType=multipart', {
-    method: 'POST', headers: { 'x-goog-api-key': platform.geminiKey, 'Content-Type': `multipart/related; boundary=${boundary}` }, body,
+    method: 'POST', headers: { 'x-goog-api-key': ai.geminiKey, 'Content-Type': `multipart/related; boundary=${boundary}` }, body,
   }, { tries: 3, label: 'Gemini upload', baseDelay: 5000 });
   let file = JSON.parse(await up.text()).file;
   for (let i = 0; i < 60 && file.state === 'PROCESSING'; i++) {
     await new Promise((r) => setTimeout(r, 10000));
     // 輪詢也要過 fetchRetry:否則一次 429 會讓 file.state 變 undefined、直接跳出迴圈當成失敗。
     const poll = await fetchRetry(`https://generativelanguage.googleapis.com/v1beta/${file.name}`, {
-      headers: { 'x-goog-api-key': platform.geminiKey },
+      headers: { 'x-goog-api-key': ai.geminiKey },
     }, { tries: 3, label: 'Gemini file state' });
     file = await poll.json();
   }
@@ -948,8 +992,8 @@ async function geminiTranscribeParsed({ buffer, filename, contentType, roster, c
   const who = (roster?.speakers || []).map((s) => `${s.name}${s.role ? `(${s.role})` : ''}`).join('、');
   const prompt = meetingPrompt({ who: '', topic: roster?.topic || '', today: todayStr(), kind: roster?.kind, cfg })
     + (who ? `\n與會者(供人名辨識,依發言順序):${who}` : '');
-  const gen = await fetchRetry(`https://generativelanguage.googleapis.com/v1beta/models/${platform.geminiModel}:generateContent`, {
-    method: 'POST', headers: { 'x-goog-api-key': platform.geminiKey, 'Content-Type': 'application/json' },
+  const gen = await fetchRetry(`https://generativelanguage.googleapis.com/v1beta/models/${ai.meetingModel || 'gemini-2.5-flash'}:generateContent`, {
+    method: 'POST', headers: { 'x-goog-api-key': ai.geminiKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({ contents: [{ parts: [{ file_data: { mime_type: contentType, file_uri: file.uri } }, { text: prompt }] }] }),
   }, { tries: 5, label: 'Gemini generate', baseDelay: 6000 });
   const genJson = await gen.json();
@@ -970,7 +1014,7 @@ async function processRecording({ tenant, buffer, filename, contentType, binding
   const minutes = Math.round(buffer.byteLength / 1024 / 1024);
   await platform.pushLineMessage(groupId, `🎙 收到會議錄音「${filename}」,葉小蝸整理中(${minutes > 60 ? '較長錄音約 5-10 分鐘' : '約 3-5 分鐘'}),完成後在此發布。`);
 
-  const parsed = await geminiTranscribeParsed({ buffer, filename, contentType, roster: {}, cfg });
+  const parsed = await geminiTranscribeParsed({ tenant, buffer, filename, contentType, roster: {}, cfg });
   const today = todayStr();
   let audioDriveUrl = '';
   if (tenant?.driveConfigured) {
@@ -1023,7 +1067,7 @@ async function processRecording({ tenant, buffer, filename, contentType, binding
   }
 
   const url = await shareableUrl(meeting.id, meeting.url);
-  await sendMeetingToLine(groupId, parsed, { legendLine: '', date: today, type: meetingType, url, publicUrl: publicMeetingUrl(meeting.id), defaultTitle: cfg.defaultTitle });
+  await sendMeetingToLine(groupId, parsed, { legendLine: '', date: today, type: meetingType, url, publicUrl: publicMeetingUrl(meeting.id, tenant), defaultTitle: cfg.defaultTitle });
   console.log(`Meeting processed (Gemini fallback): ${parsed.title}, ${todos.length} todos.`);
 }
 
@@ -1040,7 +1084,7 @@ export default {
   publicMeetingUrl,    // (pageId) → 自架公開頁連結(需 publicBaseUrl + publicLinkSecret)
   handlePublicRequest, // (req,res,pathname) GET 公開會議頁 / POST 修正講者;回 true=已處理
   // core/server 的模組路由掛載點(collectRoutes 會蒐集 mod.routes)。公開會議頁免登入、
-  // 租戶無關(靠 id+簽章定位,單一 Notion token 讀取);BuildAM 走自己的 server,不讀此欄,不受影響。
+  // 路徑不帶租戶(靠 id+簽章定位,由平台共用 Notion token 讀取);所有租戶都由此唯一入口掛載。
   // 不限 method:GET=看,POST=修正講者存回 Notion(handler 內自行分流,POST 另需管理 PIN)。
   routes: [{
     prefix: '/m',

@@ -50,6 +50,12 @@ globalThis.fetch = async (input, options = {}) => {
     if (dsm) { guardMetadataHits++; return jsonResponse({ parent: { database_id: dsToDb[dsm[1]] }, archived: false, in_trash: false }); }
     const dbm = p.match(/^\/v1\/databases\/([^/]+)$/);
     if (dbm) return jsonResponse({ parent: { page_id: dbToPage[dbm[1]] }, archived: false, in_trash: false });
+    const pageMatch = p.match(/^\/v1\/pages\/([^/]+)$/);
+    if (pageMatch) {
+      const id = pageMatch[1];
+      const ds = id === 'forest_binding_page' ? DS.senBindings : DS.engBindings;
+      return jsonResponse({ id, parent: { type: 'data_source_id', data_source_id: ds } });
+    }
   }
   // ── Notion 群組綁定查詢 ──
   if (u.host === 'api.notion.com' && method === 'POST') {
@@ -81,6 +87,7 @@ globalThis.fetch = async (input, options = {}) => {
       return jsonResponse({ id: `page_${stored.length}` });
     }
   }
+  if (u.host === 'api.notion.com' && method === 'PATCH' && /^\/v1\/pages\//.test(p)) return jsonResponse({ id: p.split('/').pop() });
   return jsonResponse({ error: `unmocked ${method} ${urlStr}` }, false, 500);
 };
 
@@ -165,6 +172,19 @@ await check('守衛擋下跨租戶存取', async () => {
 // 6) 守衛真的驗證過母頁(有打 metadata)
 await check('守衛驗證資料源母頁歸屬', () => {
   assert.ok(guardMetadataHits > 0, 'guard did not verify any data source metadata');
+});
+
+// 7) 網頁後臺更新既有頁時，也不能用 page id 跨租戶。
+await check('守衛擋下跨租戶既有頁更新', async () => {
+  await assert.rejects(
+    () => platform.notionRequest('/v1/pages/forest_binding_page', { method: 'PATCH', tenantKey: 'engineering', body: { properties: {} } }),
+    /Cross-tenant Notion access blocked/,
+  );
+});
+
+// 8) 同租戶的既有群組綁定頁可被後臺安全更新。
+await check('守衛允許同租戶既有頁更新', async () => {
+  await platform.notionRequest('/v1/pages/engineering_binding_page', { method: 'PATCH', tenantKey: 'engineering', body: { properties: {} } });
 });
 
 // ── 報告 ──

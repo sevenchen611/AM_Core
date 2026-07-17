@@ -200,7 +200,11 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 
 async function tasksPage(req, res, rctx) {
   const { tenant, portal } = rctx;
-  const authed = portal && (portal.pinAuthed(req) || (await portal.userAuthed(req)));
+  const pin = Boolean(portal?.pinAuthed?.(req, tenant));
+  const user = pin ? null : await portal?.userAuthed?.(req);
+  const authed = pin || Boolean(user && (typeof portal?.tenantAuthorized === 'function'
+    ? portal.tenantAuthorized(user, tenant)
+    : true));
   if (!authed) {
     res.writeHead(401, { 'content-type': 'text/plain; charset=utf-8' });
     return res.end('需要登入(Portal PIN 或 hozo_session)。');

@@ -1,6 +1,8 @@
 # 模組拆解計畫（唯一源頭 · SINGLE SOURCE OF TRUTH）
 
 > 📌 **本檔為模組拆解的唯一權威源頭。** 早期草稿 `PLATFORM_TASKS.md` 已退役,任何分歧一律以本檔為準。
+>
+> ✅ **2026-07-17 收斂完成：** 工程 AM 已直接使用 AM Platform；下文的 BuildAM／vendored 敘述是拆解歷史，不再是運行或協作方式。現行契約以 `PLATFORM.md`、`modules/README.md`、`tenants/engineering.json` 為準。
 
 把 BuildAM(`D:\Codex_project\BuildAM\line-oa-webhook\src\`)的功能,依 `modules/README.md` 契約,
 逐一抽成平台共用模組。**`meetings` 已完成**,可當作範本(參見 `modules/meetings/index.js` 與
@@ -13,7 +15,7 @@ BuildAM 端的綁定 `src/meeting.js` + `src/_platform/meetings/`)。
 2. **共用能力**(所有租戶相同)由 `init(platform)` 注入:`notionRequest / pushLineMessage / drive 助手 / AI 金鑰`。
 3. **租戶特定設定**(自己的 Notion 資料源、Drive 資料夾、金鑰網頁 key…)一律由每次呼叫的 `ctx.tenant` 提供。
 4. **模組內任何狀態一律以 `(租戶, 群組)` 或 `(租戶, …)` 為鍵**(見 meetings 的 `pkey()`)。
-5. BuildAM 綁定:**vendored 複製** 到 `BuildAM/src/_platform/<name>/` + 一層薄 shim(把舊 deps 拆成 platform + 固定 `buildam` tenant,函式名照舊 re-export),**server.js 不動**。
+5. 工程 AM 直接由平台載入 `modules/<name>/index.js`；不再 vendored、不再維護薄 shim。
 6. 驗證:`node --check` 通過、行為等同(mock 網路的等同性測試,見 meetings 的測法)。
 
 ## 什麼「不是」模組(留在平台底座 core/)
@@ -69,8 +71,8 @@ BuildAM 端的綁定 `src/meeting.js` + `src/_platform/meetings/`)。
 | `meetings` | 通用核心 | ✅ 已完成(範本) | `src/meeting.js` | 會議錄音→轉寫→記錄 |
 | `tasks` | 通用核心 | ✅ 已完成 | 散落(meetings 建、reminders 讀) | 待辦 CRUD 共用服務 |
 | `reminders` | 通用核心 | ✅ 已完成 | `src/server.js`(runAllReminderPasses 等)+ `/cron/reminders` | 通用排程骨架;工程到期規則吃 `platform.reminderPasses`(construction) |
-| `media` | 通用核心 | 階段1-3完成;BuildAM 已 go-live(vendored `2898ff8`,照片走它);平台 engineering/forest 待接手 | `modules/media/`(SPEC.md) | **圖片/檔案理解+事件關聯+視覺判讀**;領域掛載吃 `platform.classifyPhoto`(construction),無則降級相簿 |
-| `construction` | 領域(僅工程租戶) | 進行中(8A 整合) | `queue.js` 單據 + `budget/contracts/trades/dashboard` + `server.js` 分類/到期 | 工程專屬**含 dashboard**;拆 8A/8B/8C,整合者 8A |
+| `media` | 通用核心 | ✅ 已完成；engineering 已啟用 | `modules/media/`(SPEC.md) | **圖片/檔案理解+事件關聯+視覺判讀**;領域掛載吃 `platform.classifyPhoto`(construction),無則降級相簿 |
+| `construction` | 領域(僅工程租戶) | ✅ 已完成；含 `/tickets` 操作頁 | `queue.js` 單據 + `budget/contracts/trades/dashboard` + `server.js` 分類/到期 | 工程專屬**含 dashboard**;拆 8A/8B/8C,整合者 8A |
 
 > **沒有獨立 `dashboard` 模組**(見決策 2)。若見任何 `modules/dashboard/` 資料夾或以 M7 名義開工的 session,一律重導併入 `construction`(8A)。
 
@@ -101,5 +103,5 @@ BuildAM 端的綁定 `src/meeting.js` + `src/_platform/meetings/`)。
 - **通用骨架先、領域後**:`collect`、`queue`、`tasks`、`reminders`(通用骨架)可平行;`construction` 依賴前四者介面。
 - **一個檔一次一個 session 改**:要動 `server.js` 或 `queue.js` 的兩個 session,先在此檔簽名 + 講好切法。建議把要搬走的函式**整段圈出**再各自搬。
 - **construction 內部**:8B/8C 只交領域檔 + register 掛鉤;**8A 擁有 `index.js` 並做最終整合**。8B/8C 不得各自改 `index.js`。
-- **不動 BuildAM 部署**:一律 vendored 複製 + 薄 shim,`server.js` 對外介面不變(或改動極小且雙方講好)。
+- **舊工程部署只作回退**:不再接新功能；正式切換依 `docs/ENGINEERING_PLATFORM_CUTOVER.md` 執行。
 - **每個模組完成回報**:模組檔、BuildAM 綁定方式、`node --check`＋等同性測試結果(照 meetings 的回報格式)。

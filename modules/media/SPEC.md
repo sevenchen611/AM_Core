@@ -117,4 +117,4 @@
 1. **關聯解析器**(時間鄰近 + LINE 回覆),不含視覺 → 先讓照片會跟事件跑(解 8 成 orphan)。
 2. **視覺判讀**(MiniMax)當消歧義 + caption + slug + 判讀欄位。
 3. **construction.classifyPhoto** hook + orphan 相簿降級。
-4. BuildAM 以 vendored 帶入;移除治標的會議噪音過濾(`3c03258`)。
+4. 由 `engineering` 租戶直接啟用；不保留 vendored copy，並由正式 media 管線取代舊服務的會議噪音治標規則。

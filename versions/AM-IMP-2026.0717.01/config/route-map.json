@@ -1,0 +1,19 @@
+{
+  "tenant": "engineering",
+  "routes": {
+    "/": "/?tenant=engineering",
+    "/dashboard": "/dashboard?tenant=engineering",
+    "/queue": "/queue?tenant=engineering",
+    "legacy queue ticket tabs": "/tickets?tenant=engineering",
+    "/budget": "/budget?tenant=engineering",
+    "/contracts": "/contracts?tenant=engineering",
+    "/cron/reminders": "/cron/reminders?tenant=engineering",
+    "/webhook/line": "/webhook/line"
+  },
+  "legacyApiRedirects": {
+    "/queue/api/tickets": "/tickets/api/list",
+    "/queue/api/change-orders": "/tickets/api/change-orders",
+    "/queue/api/create-co": "/tickets/api/create-co",
+    "/queue/api/ticket-action": "/tickets/api/action"
+  }
+}

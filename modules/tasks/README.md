@@ -73,12 +73,12 @@ export default {
 tasks 只管「資料 CRUD」(建立/查詢/更新/提醒記錄);**「什麼時候提醒、推播文案」屬 `reminders`**。
 `reminders` 呼叫 `listOpen` 取未完成待辦、用 `reminderRecord`/`markReminded` 記狀態。
 
-## ⚠️ 收斂(follow-up,本 session 不動 BuildAM/meetings)
+## 後續服務收斂
 
 抽出後,應回頭把既有「自己建待辦/查待辦」的地方改成呼叫本模組:
 - `modules/meetings/`:`publishMeeting`/`processRecording` 內建待辦那段 → `platform.tasks.expandTasks(ctx, parsed.todos, { source:'會議', projectPageId, meetingId })`。
 - `construction`(回饋單開待辦)→ `platform.tasks.createTask(ctx, { source:'回饋單', feedbackId })`。
-- `reminders`(BuildAM `openTasks`/`markTaskReminded`)→ `listOpen`/`markReminded`。
+- `reminders` 內由舊工程服務沿用的 `openTasks`/`markTaskReminded` 邏輯 → `listOpen`/`markReminded`。
 
 > 這些改動屬各自模組的 session;本模組已提供等價介面,收斂時行為不變。
 

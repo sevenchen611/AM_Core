@@ -8,6 +8,8 @@
     "start": "node server.js",
     "dev": "node --env-file=.env --watch server.js",
     "check": "node --check server.js",
-    "dryrun": "node --experimental-vm-modules tools/dryrun-core.mjs"
+    "dryrun": "node --experimental-vm-modules tools/dryrun-core.mjs",
+    "dryrun:engineering": "node tools/dryrun-engineering-convergence.mjs",
+    "dryrun:groups": "node tools/dryrun-groups.mjs"
   }
 }

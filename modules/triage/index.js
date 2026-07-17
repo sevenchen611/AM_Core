@@ -25,7 +25,8 @@ const textItem = (content) => ({ type: 'text', text: { content: String(content) 
 const nr = (tenant, pathname, opts = {}) => platform.notionRequest(pathname, { ...opts, tenantKey: tenant.key });
 
 // ── 過濾層 1:系統通知的轉貼/測試訊息 → 直接歸檔為一般對話 ──
-const SYSTEM_ECHO_RE = /^(⏰|🔔|📣|🚨|📋|✅)?\s*(回饋單|催辦|升級通知|會議記錄|擱置單)|真標記測試|^測試$/;
+// 含原工程服務的會議周邊排除語意：會議成品、機器人反問與 roster 答覆都不再進 AI 佇列。
+const SYSTEM_ECHO_RE = /^(⏰|🔔|📣|🚨|📋|✅)?\s*(回饋單|催辦|升級通知|會議記錄|擱置單)|真標記測試|^測試$|會議[記紀]錄|收到會議錄音|參與者有誰|這次會議的主題/;
 function looksLikeSystemEcho(text) {
   return SYSTEM_ECHO_RE.test(text.trim());
 }

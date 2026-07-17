@@ -89,13 +89,14 @@ function buildSlug({ dateStr, place, topic }) {
 // 視覺判讀:寫暫存檔 → platform.llm(imagePaths)→ 清檔。任何失敗回 null(不擋關聯)。
 async function visionJudge(ctx) {
   const media = ctx.media;
-  if (!media?.buffer || !platform?.llm?.available) return null;
+  const llm = platform?.llmForTenant?.(ctx.tenant) || platform?.llm;
+  if (!media?.buffer || !llm?.available) return null;
   const ct = media.contentType || '';
   const ext = ct.includes('png') ? '.png' : ct.includes('webp') ? '.webp' : '.jpg';
   const tmp = path.join(os.tmpdir(), `media-${crypto.randomBytes(8).toString('hex')}${ext}`);
   try {
     fs.writeFileSync(tmp, Buffer.from(media.buffer));
-    const v = await platform.llm.completeJson({
+    const v = await llm.completeJson({
       system: VISION_SYSTEM, userContent: '判讀這張照片。', schema: VISION_SCHEMA,
       imagePaths: [tmp], profile: 'cheap', maxTokens: 800, budgetMs: 60_000,
     });

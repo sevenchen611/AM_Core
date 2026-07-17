@@ -477,6 +477,58 @@ export async function openTicketsForProject(deps, projectId) {
   }));
 }
 
+// ── 工程單據管理頁 ─────────────────────────────────────────
+// 原工程服務把單據分頁塞在確認佇列內；平台化後由 construction 自己擁有 /tickets，
+// queue 只負責訊息確認。功能仍涵蓋回覆、銷項、催辦、擱置、變更核准/退回/公告與新建變更單。
+function renderTicketsPage(tenantKey) {
+  const tenant = JSON.stringify(tenantKey);
+  const tenantQs = encodeURIComponent(tenantKey);
+  return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>工程單據管理</title><style>
+:root{--g:#2e7d52;--bg:#f5f7f6;--line:#dfe7e3;--dim:#68776f;--red:#a03e33}*{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:system-ui,'Noto Sans TC',sans-serif;color:#22302a;padding-bottom:60px}
+header{background:var(--g);color:#fff;padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:5}header h1{font-size:17px;margin:0}header a{color:#fff;text-decoration:none;border:1px solid #ffffff88;border-radius:7px;padding:5px 8px;font-size:13px}.op{margin-left:auto;font-size:13px}.op input{width:92px;padding:5px 7px;border:0;border-radius:6px}
+.tabs{display:flex;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:49px;z-index:4}.tabs button{flex:1;border:0;background:#fff;padding:12px;color:var(--dim);font-size:14px}.tabs button.active{color:var(--g);font-weight:700;border-bottom:2px solid var(--g)}
+.tools{padding:10px 14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.tools select,.tools button{padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff}.tools .new{margin-left:auto;background:var(--g);color:#fff;border-color:var(--g)}#count{font-size:13px;color:var(--dim)}
+.list{padding:0 12px;display:grid;gap:10px}.card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:13px}.meta{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12px;color:var(--dim)}.chip{background:#eef2f0;border-radius:20px;padding:2px 8px}.chip.proj,.chip.ok{background:#e3efe8;color:#17643c}.chip.warn{background:#fdf3dc;color:#806313}.chip.bad{background:#fbe5e2;color:var(--red)}
+.desc{white-space:pre-wrap;line-height:1.55;margin:8px 0;font-size:14px}.note{font-size:12px;color:var(--dim);line-height:1.6}.photos{display:flex;gap:6px;flex-wrap:wrap;margin:7px 0}.photos img{width:92px;height:92px;object-fit:cover;border-radius:8px;border:1px solid var(--line)}.actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.actions button,.actions a{padding:7px 11px;border:1px solid var(--line);border-radius:8px;background:#fff;color:#22302a;text-decoration:none;font-size:13px}.actions .primary{background:var(--g);border-color:var(--g);color:#fff}.actions .danger{background:var(--red);border-color:var(--red);color:#fff}.empty{text-align:center;color:var(--dim);padding:50px 0}
+.toast{position:fixed;left:50%;bottom:14px;transform:translateX(-50%);background:#22302a;color:#fff;padding:9px 16px;border-radius:20px;font-size:13px;opacity:0;transition:.2s;z-index:20}.toast.show{opacity:.96}
+</style></head><body>
+<header><h1>🐌 工程單據管理</h1><a href="/dashboard?tenant=${tenantQs}">工程儀表板</a><a href="/queue?tenant=${tenantQs}">確認佇列</a><div class="op">操作人 <input id="operator" placeholder="姓名"></div></header>
+<div class="tabs"><button id="ticketTab" class="active">回饋單</button><button id="coTab">變更單</button></div>
+<div class="tools"><select id="status"></select><span id="count"></span><button id="reload">重新整理</button><button id="newCo" class="new" style="display:none">＋ 新增變更單</button></div>
+<main class="list" id="list"><div class="empty">載入中…</div></main><div class="toast" id="toast"></div>
+<script>
+const TENANT=${tenant};let mode='tickets',items=[];
+const op=document.getElementById('operator');op.value=localStorage.getItem('queueOperator')||'';op.addEventListener('change',()=>localStorage.setItem('queueOperator',op.value.trim()));
+function operator(){const v=op.value.trim();if(!v){alert('請先填操作人姓名');op.focus();throw new Error('no operator')}localStorage.setItem('queueOperator',v);return v}
+function esc(v){return String(v||'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]))}
+function toast(v){const e=document.getElementById('toast');e.textContent=v;e.classList.add('show');setTimeout(()=>e.classList.remove('show'),2600)}
+async function api(path,opts){const sep=path.includes('?')?'&':'?';const r=await fetch('/tickets/api/'+path+sep+'tenant='+encodeURIComponent(TENANT),opts);const j=await r.json();if(!r.ok)throw new Error(j.error||r.status);return j}
+async function queueApi(path){const sep=path.includes('?')?'&':'?';const r=await fetch('/queue/api/'+path+sep+'tenant='+encodeURIComponent(TENANT));const j=await r.json();if(!r.ok)throw new Error(j.error||r.status);return j}
+function chip(s){const c=['已銷項','已核准'].includes(s)?'ok':['逾期','退回'].includes(s)?'bad':'warn';return '<span class="chip '+c+'">'+esc(s)+'</span>'}
+function ticketCard(i){
+ const photos=(i.photoLinks||[]).map(p=>p.fileId?'<a href="'+esc(p.url)+'" target="_blank"><img src="/queue/api/photo?file='+encodeURIComponent(p.fileId)+'&tenant='+encodeURIComponent(TENANT)+'"></a>':'<a href="'+esc(p.url)+'" target="_blank">照片</a>').join('');
+ const actions=i.status==='已銷項'?'':'<div class="actions"><button data-do="act" data-id="'+esc(i.id)+'" data-action="reply">填回覆</button><button class="primary" data-do="act" data-id="'+esc(i.id)+'" data-action="close">銷項（需佐證）</button><button class="danger" data-do="push" data-id="'+esc(i.id)+'" data-action="urge">📣 催辦</button>'+(i.status!=='擱置(待時機)'?'<button data-do="park" data-id="'+esc(i.id)+'" data-project="'+esc(i.projectId||'')+'">擱置</button>':'')+'</div>';
+ return '<article class="card"><div class="meta"><span class="chip proj">'+esc(i.projectName)+'</span><b>'+esc(i.number)+'</b>'+chip(i.status)+(i.level?'<span class="chip">'+esc(i.level)+'</span>':'')+(i.overdue?'<span class="chip bad">逾期</span>':'')+'</div><div class="desc">'+esc(i.description)+'</div><div class="photos">'+photos+'</div><div class="note">空間：'+esc(i.spaceName||'—')+' ・期限：'+esc(i.deadline||'未設')+(i.reply?'<br>回覆：'+esc(i.reply):'')+(i.status==='擱置(待時機)'?'<br>復活條件：'+esc([i.triggerWorkItemName,i.resumeDate].filter(Boolean).join(' 或 ')||'未設'):'')+'</div><div class="actions"><a href="'+esc(i.notionUrl)+'" target="_blank">開啟完整單據</a></div>'+actions+'</article>'
+}
+function coCard(i){
+ let actions='';if(i.status==='待核准')actions='<div class="actions"><button class="primary" data-do="act" data-id="'+esc(i.id)+'" data-action="approve">核准</button><button data-do="act" data-id="'+esc(i.id)+'" data-action="reject">退回</button></div>';else if(i.status==='已核准')actions='<div class="actions"><button class="danger" data-do="push" data-id="'+esc(i.id)+'" data-action="announce-co">📢 變更公告</button></div>';
+ return '<article class="card"><div class="meta"><span class="chip proj">'+esc(i.projectName)+'</span><b>'+esc(i.number)+'</b>'+chip(i.status)+(i.workable?'<span class="chip ok">可施作</span>':'<span class="chip bad">不可施作</span>')+'</div><div class="desc">'+esc(i.content)+'</div><div class="note">原因：'+esc(i.reason||'—')+' ・費用：'+esc(i.costImpact||'—')+' ・工期：'+esc(i.scheduleImpact||'—')+(i.approver?'<br>'+esc(i.approver)+' 於 '+esc(i.approvedAt)+' 處理':'')+'</div><div class="actions"><a href="'+esc(i.notionUrl)+'" target="_blank">開啟完整單據</a></div>'+actions+'</article>'
+}
+function statuses(){return mode==='tickets'?['全部','開立','回覆中','擱置(待時機)','已銷項']:['全部','待核准','已核准','退回']}
+function draw(){const f=document.getElementById('status').value;const shown=items.filter(i=>!f||f==='全部'||i.status===f);document.getElementById('count').textContent='共 '+shown.length+' 筆';document.getElementById('list').innerHTML=shown.length?shown.map(mode==='tickets'?ticketCard:coCard).join(''):'<div class="empty">沒有符合的單據</div>'}
+async function load(){document.getElementById('list').innerHTML='<div class="empty">載入中…</div>';const data=await api(mode==='tickets'?'list':'change-orders');items=data.items||[];const s=document.getElementById('status');s.innerHTML=statuses().map(x=>'<option>'+x+'</option>').join('');document.getElementById('newCo').style.display=mode==='co'?'':'none';draw()}
+async function act(id,action){try{const who=operator();let text='';if(action==='reply')text=prompt('回覆內容：')||'';if(action==='close')text=prompt('銷項佐證（至少 5 字）：')||'';if(action==='reject')text=prompt('退回原因：')||'';if(['reply','close','reject'].includes(action)&&!text.trim())return;if(action==='approve'&&!confirm('確定核准並標記可施作？'))return;const r=await api('action',{method:'POST',body:JSON.stringify({ticketId:id,action,text,operator:who})});toast('完成：'+r.status);load()}catch(e){if(e.message!=='no operator')toast('失敗：'+e.message)}}
+async function pushDoc(id,kind){try{const who=operator();let text=kind==='announce-co'?(prompt('生效日（留空＝即日起）：')||''):'';const p=await api('action',{method:'POST',body:JSON.stringify({ticketId:id,action:kind,text,operator:who})});if(!confirm('將發送至：'+p.targets.join('、')+'\\n\\n'+p.preview+'\\n\\n確定發送？'))return;const r=await api('action',{method:'POST',body:JSON.stringify({ticketId:id,action:kind+'-send',text,operator:who})});toast('已推播至 '+r.sent.join('、'));load()}catch(e){if(e.message!=='no operator')toast('失敗：'+e.message)}}
+async function park(id,projectId){try{const who=operator();const reason=prompt('擱置原因：')||'';if(!reason.trim())return;const opts=projectId?await queueApi('options?project='+encodeURIComponent(projectId)):{workItems:[]};const choices=(opts.workItems||[]).map((x,n)=>(n+1)+'. '+x.name).join('\\n');const pick=choices?(prompt('觸發工項（輸入編號；可留空改用日期）：\\n'+choices)||''):'';const wi=/^\d+$/.test(pick)?opts.workItems[Number(pick)-1]:null;const date=prompt('重提日期 YYYY-MM-DD（已有觸發工項可留空）：')||'';if(!wi&&!date)throw new Error('觸發工項或重提日期至少填一項');const r=await api('action',{method:'POST',body:JSON.stringify({ticketId:id,action:'park',text:reason,operator:who,workItemId:wi?.id||null,resumeDate:date||null})});toast('已擱置：'+r.status);load()}catch(e){if(e.message!=='no operator')toast('失敗：'+e.message)}}
+async function createCo(){try{const who=operator();const data=await api('projects');if(!data.projects.length)throw new Error('沒有可用專案');const menu=data.projects.map((x,n)=>(n+1)+'. '+x.name+' ('+x.code+')').join('\\n');const pick=Number(prompt('選擇專案：\\n'+menu)||0);const p=data.projects[pick-1];if(!p)return;const content=prompt('變更內容：')||'';if(!content.trim())return;const reason=prompt('原因（設計變更／現場條件／業主需求…）：')||'';const costImpact=prompt('費用影響（可留空）：')||'';const scheduleImpact=prompt('工期影響（可留空）：')||'';const r=await api('create-co',{method:'POST',body:JSON.stringify({projectId:p.id,content,reason,costImpact,scheduleImpact,operator:who})});toast('已建立 '+r.number);load()}catch(e){if(e.message!=='no operator')toast('失敗：'+e.message)}}
+document.getElementById('ticketTab').onclick=()=>{mode='tickets';document.getElementById('ticketTab').classList.add('active');document.getElementById('coTab').classList.remove('active');load()};
+document.getElementById('coTab').onclick=()=>{mode='co';document.getElementById('coTab').classList.add('active');document.getElementById('ticketTab').classList.remove('active');load()};
+document.getElementById('status').onchange=draw;document.getElementById('reload').onclick=load;document.getElementById('newCo').onclick=createCo;load().catch(e=>document.getElementById('list').innerHTML='<div class="empty">載入失敗：'+esc(e.message)+'</div>');
+document.getElementById('list').addEventListener('click',e=>{const b=e.target.closest('button[data-do]');if(!b)return;if(b.dataset.do==='act')act(b.dataset.id,b.dataset.action);if(b.dataset.do==='push')pushDoc(b.dataset.id,b.dataset.action);if(b.dataset.do==='park')park(b.dataset.id,b.dataset.project)});
+</script></body></html>`;
+}
+
 // ── 單據 API(/tickets/api/*)——沿用 BuildAM 原簽名 handler(req,res,pathname,url,deps)。
 // scope 由 index.js 的 webRoute 依 Portal 授權注入 URL(單據操作僅需已認證,不看 budget/contract)。
 // 掛載 UI(選空間/工項)屬 queue;此處只負責開單與單據狀態機,供 queue 前端呼叫。
@@ -484,6 +536,10 @@ export async function handleTicketsRequest(req, res, pathname, url, deps) {
   // 授權已在 index.webRoute(core.portal)完成;此處只讀 webRoute 重算後注入的 scope,不再自檢 key。
   const scope = parseScope(url);
   try {
+    if (req.method === 'GET' && pathname === '/tickets') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end(renderTicketsPage(deps.tenantKey));
+    }
     if (req.method === 'GET' && pathname === '/tickets/api/list') {
       return sendJson(res, 200, await listTickets(deps, scope));
     }

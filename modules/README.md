@@ -35,18 +35,21 @@ export default {
   uploadFileToNotion(buffer, filename, contentType),
   // LINE(共用同一支 OA)
   pushLineMessage(to, text, mention?), lineGet(pathname),
-  downloadLineContent(messageId), resolveSenderName(source), resolveLineFilename(...),
+  downloadLineContent(messageId), peekLineContent(messageId), streamLineContent(messageId),
+  resolveSenderName(source), resolveLineFilename(...),
   // Google Drive(全域憑證；目標資料夾用 ctx.tenant.driveRootFolderId)
   drive, driveConfigured, ensureDriveFolder(name, parentId), uploadToDrive(...), getDriveAccessToken(),
   // Portal 授權(web routes 用)
   portal: { pinAuthed(req), userAuthed(req), checkPin(pin) },
   // LLM(統一備援鏈)← 呼叫 AI 一律用這個
-  llm: {
+  llm: {                         // 平台預設
     completeJson({ system, userContent, schema, maxTokens, imagePaths, profile, chain }),  // → 解析後的物件
     completeText({ system, userContent, maxTokens, imagePaths, profile, chain }),          // → 純文字
     complete(...),        // → { data, backend, attempts }：想知道實際是誰答的
     available, backends, allBackends, profiles, selfTest(),
   },
+  llmForTenant(tenant),          // 租戶覆寫 AI 金鑰時使用；模組優先取這個
+  aiForTenant(tenant),           // 非 LLM 服務（AssemblyAI、音訊 Gemini）所需的租戶 AI 設定
   // AI 金鑰(共用)⚠️ 逐步退場——留給尚未遷移的模組與非 LLM 服務(AssemblyAI)
   anthropicApiKey, assemblyKey, geminiKey, geminiModel, minimaxApiKey, minimaxBaseUrl, aiProvider, aiJudgeModel,
 }
@@ -55,17 +58,17 @@ export default {
 ### `ctx` — 每次呼叫(帶「現在服務哪個租戶」的脈絡)
 
 - **共同**：`{ tenant, binding, groupId, isMaster, senderName, event, message }`
-  - `tenant`：`{ key, displayName, envPrefix, modules, parentPageId, dataSources, driveConfigured, driveRootFolderId }`
-  - `binding`：該群的綁定 `{ pageId, projectPageId, role, trade, members }`(未綁定不會進到模組)
+  - `tenant`：`{ key, displayName, envPrefix, modules, parentPageId, dataSources, driveConfigured, driveRootFolderId, queueAccessKey, calendars, reminders, ai }`
+- `binding`：該群的綁定 `{ pageId, groupId, groupName, projectPageId, projectName, role, trade, purpose, owner, capabilities, statusUpdatePolicy, defaultReminderTargets, members }`(未綁定不會進到模組)
   - `isMaster`：`binding.role === '總管'`(總管群跨專案，模組據此決定是否自動判掛)
   - `ctx.notionRequest` / `ctx.pushLineMessage`：便利句柄(`notionRequest` 已鎖定本租戶 `tenantKey`)
 - **`onMessage`** 另帶：`text`(文字訊息內容，非文字為 `''`)
-- **`onAudio`** 另帶：`buffer`、`contentType`、`filename`、`ackSent`
+- **`onAudio`** 另帶：`audioMessageId`、`filename`、`ackSent`；平台支援串流時不預先下載整檔。舊呼叫才會另帶 `buffer`／`contentType`。
 
 ### 分派規則(core 決定)
 
 1. 依 `tenant.modules` 清單順序逐一呼叫；任一回傳 `true` 即短路後續模組。
-2. 音檔候選(type=audio，或 file 且副檔名為音檔)且某模組 `isAudio(message)===true` → 走該模組 `onAudio`(core 延遲下載 buffer 一次)；否則走 `onMessage`。
+2. 音檔候選(type=audio，或 file 且副檔名／檔頭為音檔)且某模組 `isAudio(message)===true` → 走 `onAudio`；優先傳 `audioMessageId` 讓模組串流處理，舊平台才延遲下載一次 buffer。
 3. **未綁定群**：core 直接忽略(不落庫、不回話，照 BuildAM)。
 
 ### `routes`(web) — 形狀
@@ -82,8 +85,7 @@ routes: [
 
 - **寫 Notion 一律經 `platform.notionRequest`**：守衛只放行「某租戶宣告過、且位於該租戶母頁下」的資料源；目標 id 一律取自 `ctx.tenant.dataSources.*`，模組因此碰不到別租戶的庫。
 - **模組內任何狀態(例如會議待補 pending)必須以「(租戶, 群組)」為鍵**(`${tenant.key}::${groupId}`)，避免跨租戶污染。
-- **vendored 的薄 shim 也必須供給 `tenant.config`，否則模組會退回通用預設。**
-  BuildAM 那類 shim 是自己組 `TENANT` 物件的（`{ key, dataSources, driveConfigured, … }`），漏掉 `config` 不會崩潰——它會**安靜地**退回模組內建的通用設定，把該租戶的詞彙、術語、時刻表全部洗掉。這種失敗沒有錯誤訊息，只有「AI 突然變笨了」。
+- **租戶設定只有 `tenants/*.json` 一份。** 模組不得手抄 tenant 物件或另維護 shim；否則詞彙、術語、權限與排程會漂移。
 - **呼叫 AI 一律經 `platform.llm`**，不要自己 `fetch` 任何供應商、不要自己寫備援。備援鏈與成本策略集中在 `core/llm.js`(鏈序由 `AMCORE_LLM_CHAIN` 決定，預設 `minimax,gemini,anthropic`)。需要看圖就傳 `imagePaths`——抽象層只會把它交給**看得見圖的後端**，而不是讓瞎子瞎掰。
 - 視覺能力是**型號**的屬性、不是廠商的屬性：MiniMax-M3 看得見圖，M2 看不見。換型號後請跑 `node scripts/check-llm.mjs`(會送一張自製彩圖實測每個宣告支援圖片的後端)。
 - **依「這通呼叫要什麼」挑 profile，不要改全域鏈**：
@@ -104,9 +106,13 @@ routes: [
 | `collect` | 通用核心 | 訊息/照片落庫、群組路由（**只收不判**） |
 | `triage` | 通用核心 | AI 初判**通用管線**（過濾層+寫回+進佇列/歸檔）；領域分類吃 `construction.classify` |
 | `queue` | 通用核心 | 確認佇列（掛載既有目標/單據；開單委派 construction） |
-| `meetings` | 通用核心 | 會議錄音→轉寫→記錄（**由平行 session 從 BuildAM 搬入**） |
+| `meetings` | 通用核心 | 會議錄音→轉寫→記錄；逐租戶使用 AI、Drive、Notion 與 pending 狀態 |
+| `media` | 通用核心 | 圖片理解、事件關聯、附件歸檔；工程空間判斷委派 `construction.classifyPhoto` |
 | `tasks` | 通用核心 | 待辦 CRUD 共用服務 |
 | `reminders` | 通用核心 | 到期/逾期/行程提醒（工程到期規則吃 `construction.reminderPasses`） |
+| `groups` | 通用後臺 | 租戶後臺首頁與「群組設定」表；編輯群組用途／負責人／功能，不處理 LINE 訊息 |
 | `construction` | 領域 | 工程專屬：回饋單/工項/預算/發包/**dashboard**/`classify`/`reminderPasses`（只有「工程」租戶啟用；拆 8A/8B/8C，整合者 8A） |
 
 > **無獨立 `dashboard` 模組**：工程儀表板併入 `construction`（8A）。
+
+工程租戶的定版順序是 `collect → meetings → media → triage → queue → tasks → reminders → construction`。`meetings` 必須先於 `triage`，避免與會資訊答覆被 AI 初判短路；全部模組完成 `init` 後才開始收事件，因此 `construction` 可在清單末端註冊跨模組能力。

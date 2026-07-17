@@ -8,7 +8,7 @@ import { sendJson, sendText, readBody } from './core/util.js';
 
 const ctx = await bootstrap(process.env);
 const { tenants, line, router, dispatcher, portal, modules, platform, llm, logger } = ctx;
-const queueAccessKey = process.env.AMCORE_QUEUE_ACCESS_KEY || process.env.BUILD_QUEUE_ACCESS_KEY || '';
+const queueAccessKey = process.env.AMCORE_QUEUE_ACCESS_KEY || '';
 
 if (!line.configured) logger.warn('Missing LINE_CHANNEL_ACCESS_TOKEN or LINE_CHANNEL_SECRET — webhook signature will fail.');
 for (const t of tenants) {
@@ -17,16 +17,43 @@ for (const t of tenants) {
 
 const routes = dispatcher.collectRoutes();
 
+const html = (value) => String(value || '').replace(/[&<>"']/g, (c) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+}[c]));
+function homeTenant(url) {
+  const requested = url.searchParams.get('tenant') || process.env.AMCORE_HOME_TENANT || '';
+  return tenants.find((t) => t.key === requested)
+    || tenants.find((t) => (t.modules || []).includes('construction'))
+    || tenants[0]
+    || null;
+}
+function homeLocation(tenant) {
+  const configured = String(tenant?.config?.homeRoute || '').trim();
+  const route = configured.startsWith('/') ? configured : (tenant?.modules || []).includes('construction') ? '/dashboard' : '/queue';
+  return `${route}${route.includes('?') ? '&' : '?'}tenant=${encodeURIComponent(tenant.key)}`;
+}
+function renderLoginPage(tenant, error = false) {
+  return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${html(tenant.displayName)}｜AM Platform</title><style>
+body{font-family:system-ui,'Noto Sans TC',sans-serif;background:#f5f7f6;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;color:#22302a}
+form{background:#fff;border:1px solid #e0e6e3;border-radius:16px;padding:28px;text-align:center;width:300px;box-shadow:0 8px 30px rgba(20,50,35,.08)}
+h1{font-size:19px;color:#2e7d52;margin:0 0 5px}.sub{font-size:12px;color:#6b7a72;margin:0 0 16px}input{width:100%;box-sizing:border-box;padding:12px;border:1px solid #d8e1dd;border-radius:10px;font-size:16px;text-align:center}
+button{width:100%;margin-top:12px;padding:12px;background:#2e7d52;color:#fff;border:0;border-radius:10px;font-size:15px;font-weight:700}.err{color:#a03e33;font-size:13px;margin-top:9px}</style></head>
+<body><form method="POST" action="/auth"><h1>🐌 ${html(tenant.displayName)}</h1><p class="sub">AM Platform 統一入口</p>
+<input type="hidden" name="tenant" value="${html(tenant.key)}"><input name="pin" type="password" placeholder="輸入通行碼" autofocus><button>進入</button>
+${error ? '<div class="err">通行碼不正確</div>' : ''}</form></body></html>`;
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const pathname = url.pathname.replace(/\/+$/, '') || '/';
 
   // ── 健康檢查:平台 + 各租戶設定狀態 ──
-  if (req.method === 'GET' && (pathname === '/health' || pathname === '/')) {
+  if (req.method === 'GET' && pathname === '/health') {
     return sendJson(res, 200, {
       ok: true,
       platform: 'am-core',
-      build: 'audio-streaming-2026-07-11d', // 部署版本標記:用來確認正式站跑的是哪一版
+      build: 'group-governance-2026-07-17a',
       lineConfigured: line.configured,
       driveConfigured: platform.driveConfigured,
       llm: { available: llm.available, chain: llm.backends },
@@ -39,10 +66,40 @@ const server = http.createServer(async (req, res) => {
         dataSources: Object.keys(t.dataSources),
         modulesRequested: t.modules,
         modulesLoaded: t.modules.filter((m) => modules.has(m)),
+        homeRoute: t.config?.homeRoute || null,
+        aiJudgeEnabled: Boolean(t.ai?.provider && t.ai?.judgeModel
+          && (t.ai?.minimaxApiKey || t.ai?.anthropicApiKey)),
+        llmAvailable: Boolean(platform.llmForTenant?.(t)?.available),
       })),
       dataIsolationGuardEnabled: true,
       webRoutes: routes.map((r) => `${r.tenantKey}:${r.moduleName}`),
     });
+  }
+
+  // ── 平台首頁：承接原工程後台網址，同時保留 tenant-aware 登入 ──
+  if (req.method === 'GET' && pathname === '/') {
+    const tenant = homeTenant(url);
+    if (!tenant) return sendJson(res, 503, { error: 'No tenant configured' });
+    const pin = portal.pinAuthed(req, tenant);
+    const user = pin ? null : await portal.userAuthed(req);
+    if (pin || portal.tenantAuthorized(user, tenant)) {
+      res.writeHead(302, { Location: homeLocation(tenant), 'Cache-Control': 'no-store' });
+      return res.end();
+    }
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    return res.end(renderLoginPage(tenant));
+  }
+
+  if (req.method === 'POST' && pathname === '/auth') {
+    const form = new URLSearchParams(await readBody(req));
+    const tenant = tenants.find((t) => t.key === form.get('tenant')) || homeTenant(url);
+    if (!tenant) return sendJson(res, 503, { error: 'No tenant configured' });
+    if (portal.checkPin(String(form.get('pin') || '').trim(), tenant)) {
+      res.writeHead(302, { Location: homeLocation(tenant), 'Set-Cookie': portal.pinCookieHeader(tenant), 'Cache-Control': 'no-store' });
+      return res.end();
+    }
+    res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    return res.end(renderLoginPage(tenant, true));
   }
 
   // ── 巡邏排程觸發(外部 cron 呼叫)──
@@ -79,7 +136,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ── 模組 web routes(佇列 / 儀表板 …)──
-  for (const { tenantKey, route } of routes) {
+  for (const { tenantKey, moduleName, route } of routes) {
     const matched = typeof route.match === 'function' ? route.match(pathname)
       : route.prefix ? (pathname === route.prefix || pathname.startsWith(`${route.prefix}/`))
         : false;
@@ -88,6 +145,7 @@ const server = http.createServer(async (req, res) => {
     // 租戶:以 ?tenant=key 指定(需在登記內),否則用該 route 的擁有租戶。
     const requested = url.searchParams.get('tenant');
     const tenant = tenants.find((t) => t.key === (requested || tenantKey)) || null;
+    if (tenant && !(tenant.modules || []).includes(moduleName)) continue;
     return route.handler(req, res, { pathname, url, tenant, tenants, portal, platform });
   }
 
@@ -107,9 +165,10 @@ async function handleEvent(event) {
 }
 
 // 巡邏排程:每 10 分鐘跑一次 tick(模組如 reminders 用)。
-setInterval(() => {
+const tickTimer = setInterval(() => {
   dispatcher.runTicks().catch((error) => logger.warn('Scheduled tick failed:', error.message));
 }, 10 * 60 * 1000);
+tickTimer.unref?.();
 
 const port = Number(process.env.PORT || 3000);
 server.listen(port, () => {

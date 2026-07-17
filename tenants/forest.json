@@ -3,9 +3,10 @@
   "displayName": "森在",
   "aka": "經營單位（非工程）",
   "envPrefix": "FOREST",
-  "modules": ["collect", "queue", "meetings", "tasks", "reminders"],
+  "modules": ["collect", "queue", "meetings", "tasks", "reminders", "groups"],
   "status": "Notion「AI」頁（39851c68…）；integration 待連接、schema 待建",
   "config": {
+    "homeRoute": "/admin",
     "meetings": {
       "domain": "營運會議",
       "transcriptionHint": "台灣的營運會議,繁體中文為主。",

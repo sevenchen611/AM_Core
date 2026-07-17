@@ -23,6 +23,35 @@ function readLineOverride(env, prefix) {
   return { accessToken, secret };
 }
 
+function prefixed(env, prefix, name, fallback = '') {
+  return env[`${prefix}_${name}`] || fallback || '';
+}
+
+function readCalendars(env, prefix) {
+  const calendars = {};
+  const re = new RegExp(`^${prefix}_CAL_(.+)$`);
+  for (const [key, value] of Object.entries(env)) {
+    const match = key.match(re);
+    if (match && value) calendars[match[1].toUpperCase()] = value;
+  }
+  return calendars;
+}
+
+// AI 可由租戶覆寫；沒有 <PREFIX>_* 時才回退平台共用金鑰。
+// 機密只存在執行期 tenant 物件，不會寫回 tenants/*.json 或 /health。
+function readAi(env, prefix) {
+  return {
+    provider: prefixed(env, prefix, 'AI_PROVIDER', env.AMCORE_AI_PROVIDER).toLowerCase(),
+    judgeModel: prefixed(env, prefix, 'AI_JUDGE_MODEL', env.AMCORE_AI_JUDGE_MODEL),
+    meetingModel: prefixed(env, prefix, 'MEETING_MODEL', env.AMCORE_MEETING_MODEL || 'gemini-2.5-flash'),
+    anthropicApiKey: prefixed(env, prefix, 'ANTHROPIC_API_KEY', env.ANTHROPIC_API_KEY),
+    assemblyKey: prefixed(env, prefix, 'ASSEMBLYAI_API_KEY', env.ASSEMBLYAI_API_KEY),
+    geminiKey: prefixed(env, prefix, 'GEMINI_API_KEY', env.GEMINI_API_KEY),
+    minimaxApiKey: prefixed(env, prefix, 'MINIMAX_API_KEY', env.MINIMAX_API_KEY),
+    minimaxBaseUrl: prefixed(env, prefix, 'MINIMAX_API_BASE_URL', env.MINIMAX_API_BASE_URL || 'https://api.minimax.io/v1').replace(/\/+$/, ''),
+  };
+}
+
 // 讀所有 tenants/*.json(略過 _ 開頭與 README),組成執行期 tenant 陣列。
 export function loadTenants(env = process.env, logger = console) {
   const files = fs.readdirSync(TENANTS_DIR)
@@ -55,6 +84,12 @@ export function loadTenants(env = process.env, logger = console) {
     }
 
     const driveRootFolderId = env[`${prefix}_DRIVE_ROOT_FOLDER_ID`] || '';
+    const queueAccessKey = prefixed(env, prefix, 'QUEUE_ACCESS_KEY', env.AMCORE_QUEUE_ACCESS_KEY);
+    const portalPin = prefixed(env, prefix, 'PORTAL_PIN', env.AMCORE_PORTAL_PIN);
+    const line = readLineOverride(env, prefix);
+    if (line && (line.accessToken !== (env.LINE_CHANNEL_ACCESS_TOKEN || '') || line.secret !== (env.LINE_CHANNEL_SECRET || ''))) {
+      logger.warn(`Tenant ${raw.key} has a ${prefix}_LINE_* override that differs from the shared OA; AM Platform ignores tenant LINE overrides and uses global LINE_* only.`);
+    }
     const tenant = {
       key: raw.key,
       displayName: raw.displayName || raw.key,
@@ -69,7 +104,17 @@ export function loadTenants(env = process.env, logger = console) {
       dataSources,                  // { messages, groupBindings, meetings, tasks, projects, ... }
       driveRootFolderId,
       driveConfigured: Boolean(driveRootFolderId && driveGlobalConfigured(env)),
-      line: readLineOverride(env, prefix),
+      queueAccessKey,
+      portalPin,
+      publicBaseUrl: prefixed(env, prefix, 'PUBLIC_BASE_URL', env.AMCORE_PUBLIC_BASE_URL).trim().replace(/\/+$/, ''),
+      calendars: readCalendars(env, prefix),
+      reminders: {
+        escalationDays: Number(prefixed(env, prefix, 'ESCALATION_DAYS', env.AMCORE_ESCALATION_DAYS) || 2),
+        reminderHour: Number(prefixed(env, prefix, 'REMINDER_HOUR', env.AMCORE_REMINDER_HOUR) || 9),
+        escalationOwner: prefixed(env, prefix, 'ESCALATION_OWNER', env.AMCORE_ESCALATION_OWNER || 'Seven陳聖文'),
+      },
+      ai: readAi(env, prefix),
+      line,                          // 只供設定盤點；正式收送仍由平台全域同一支 OA 負責
       // Notion 是否可用(至少要有母頁 + 訊息庫 + 群組綁定庫才能路由與落庫)
       notionConfigured: Boolean(parentPageId && dataSources.messages && dataSources.groupBindings),
     };

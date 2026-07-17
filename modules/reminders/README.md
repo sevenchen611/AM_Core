@@ -1,6 +1,6 @@
 # modules/reminders — 到期/逾期/行程提醒(通用排程骨架)
 
-> 狀態:**✅ 已抽出**(自 BuildAM `src/server.js` 提醒引擎)。範本見 `modules/meetings/`。
+> 狀態:**✅ 平台正式模組**。提醒語意源自舊工程服務，現由 AM Platform 逐租戶執行。
 
 ## 這個模組做什麼
 週期性巡邏,對「一個租戶」跑所有提醒 pass。同一入口 `tick(ctx)`,三處觸發:
@@ -34,14 +34,14 @@ export default {
 - `tenant`:`{ key, envPrefix, modules, dataSources: { tasks, feedbackTickets, groupBindings, projects } }`
 - 無 `feedbackTickets` 的租戶(如森在)自動略過回饋單相關 pass。
 
-### 提醒設定(env,優先序:租戶前綴 → 平台級 → 相容 BuildAM)
+### 提醒設定(env,優先序:租戶前綴 → 平台級 → 預設)
 | 設定 | 來源 | 預設 |
 |---|---|---|
-| 逾期升級門檻(天) | `<PREFIX>_ESCALATION_DAYS` → `AMCORE_ESCALATION_DAYS` → `BUILD_ESCALATION_DAYS` | 2 |
-| 每日提醒時刻(台北時) | `<PREFIX>_REMINDER_HOUR` → `AMCORE_REMINDER_HOUR` → `BUILD_REMINDER_HOUR` | 9 |
-| 升級點名對象 | `<PREFIX>_ESCALATION_OWNER` → `AMCORE_ESCALATION_OWNER` → `BUILD_ESCALATION_OWNER` | Seven陳聖文 |
+| 逾期升級門檻(天) | `<PREFIX>_ESCALATION_DAYS` → `AMCORE_ESCALATION_DAYS` | 2 |
+| 每日提醒時刻(台北時) | `<PREFIX>_REMINDER_HOUR` → `AMCORE_REMINDER_HOUR` | 9 |
+| 升級點名對象 | `<PREFIX>_ESCALATION_OWNER` → `AMCORE_ESCALATION_OWNER` | Seven陳聖文 |
 
-`/cron/reminders` 授權:`AMCORE_QUEUE_ACCESS_KEY` 或 `BUILD_QUEUE_ACCESS_KEY`(與 `/cron/tick` 一致)。
+`/cron/reminders` 授權接受 `AMCORE_QUEUE_ACCESS_KEY`，或本次目標租戶自己的 `<PREFIX>_QUEUE_ACCESS_KEY`；指定 `?tenant=` 時不會接受其他租戶的金鑰。
 
 ## 狀態隔離
 「當日一次」的日戳以 **`tenant.key`** 為鍵(`lastDailyDate` / `lastEveningDate` 兩個 Map),各租戶各自巡邏、各自累積,互不污染。升級對象(內部/總管群)per 租戶——查該租戶自己的 `groupBindings`,結構上碰不到別租戶。
@@ -50,8 +50,9 @@ export default {
 - **tasks 模組**(尚未對接):待辦庫查詢/提醒記錄讀寫(`openTasks` / `taskReminderRecord` / `markTaskReminded`)仍就地讀取。tasks 抽出後改呼叫 `tasks.listOpen` / `tasks.markReminded`。
 - **construction 模組**(✅ 已對接):回饋單(`feedbackTickets`)到期/擱置規則屬工程領域,已由 construction 以 `platform.reminderPasses` 註冊(`{name, cadence:'daily', run(deps, {cfg, today})}`);reminders 於每日班次 `runReminderPasses` 迭代呼叫,原內嵌的 `runDueReminders` / `wakeParkedTickets` 已移入 `modules/construction/reminders.js`。無回饋單庫的租戶(如森在)由 pass 自身回 `{ skipped }` 略過。
 
-## BuildAM 生產
-本次**未觸碰** BuildAM。BuildAM 綁定(vendored 複製 + 薄 shim)待平台上線前另行處理,`src/server.js` 對外介面不變、可回退。
+## 平台運行
+
+工程提醒由 `engineering` 租戶直接執行；舊工程 runtime 不再接收功能更新，只在正式 webhook 切換的觀察期保留回退能力。
 
 ## 驗證
 - `node --check modules/reminders/index.js` 通過。

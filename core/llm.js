@@ -1,5 +1,5 @@
 // AM Platform core — LLM 抽象層(可插拔後端 + 統一備援鏈)
-// ⚠️ 此檔有下游 vendored 複製品(BuildAM)。改完請依 AM_Core/VENDORED.md 重抄,或至少在 commit 點名 BuildAM 需 re-vendor——否則下游靜默沿用舊版。
+// 工程 AM 已直接使用本平台來源；不再維護正式下游 vendored 複製品（見 VENDORED.md）。
 // ─────────────────────────────────────────────────────────────────────────
 // 為什麼放 core 不放 modules:每個模組都要呼叫 AI。以前各模組自己接(meetings 手工
 // 串了一段 MiniMax→Gemini),結果是「備援策略散在各處、fallback 路徑從沒被走過」。
@@ -340,7 +340,7 @@ export function createLlm({
   const all = [
     minimaxBackend({
       apiKey: env.MINIMAX_API_KEY || '',
-      model: env.MINIMAX_MODEL || env.AMCORE_AI_JUDGE_MODEL || env.BUILD_AI_JUDGE_MODEL || 'MiniMax-M2',
+      model: env.MINIMAX_MODEL || env.AMCORE_AI_JUDGE_MODEL || 'MiniMax-M2',
       baseUrl: env.MINIMAX_API_BASE_URL || env.MINIMAX_BASE_URL || 'https://api.minimax.io/v1',
       // 換型號時若自動偵測判錯,用 AMCORE_LLM_MINIMAX_VISION=1/0 手動覆寫。
       visionOverride: env.AMCORE_LLM_MINIMAX_VISION || '',

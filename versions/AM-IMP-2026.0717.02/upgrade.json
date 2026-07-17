@@ -1,0 +1,25 @@
+{
+  "id": "AM-IMP-2026.0717.02",
+  "name": "Tenant group governance and admin entry",
+  "type": "Shared platform module / Notion schema",
+  "portable": true,
+  "installTargets": ["AM_PLATFORM", "HOZO_AM", "SEVEN_AM", "FOREST_AM"],
+  "requiresDatabases": ["群組綁定"],
+  "requiresEnv": ["NOTION_TOKEN", "<PREFIX>_NOTION_PARENT_PAGE_ID", "<PREFIX>_GROUP_BINDINGS_DATA_SOURCE_ID"],
+  "requiresScripts": ["tools/apply-group-binding-v2-schema.mjs", "tools/dryrun-groups.mjs", "tools/dryrun-core.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Each query, schema update and row PATCH is tenant-keyed; group-binding rows must belong to the tenant's declared data source under its Notion parent page."
+  },
+  "definitionOfDone": [
+    "Tenant has the groups module enabled",
+    "Its own group-binding data source contains all v2 fields",
+    "The backend can read and save only that tenant's group rows",
+    "A saved group change invalidates that group route cache",
+    "Core and groups dry-runs pass"
+  ],
+  "status": "Ready"
+}

@@ -36,12 +36,31 @@ export async function bootstrap(env = process.env, overrides = {}) {
     logger,
   });
   const portal = overrides.portal || createPortal({
-    queueAccessKey: env.AMCORE_QUEUE_ACCESS_KEY || env.BUILD_QUEUE_ACCESS_KEY || '',
+    queueAccessKey: env.AMCORE_QUEUE_ACCESS_KEY || '',
     portalPin: env.AMCORE_PORTAL_PIN || '',
     logger,
   });
   // LLM 抽象層:可插拔後端 + 統一備援鏈(鏈序見 AMCORE_LLM_CHAIN)。
   const llm = overrides.llm || createLlm({ env, logger });
+  const tenantLlms = new Map();
+  if (!overrides.llm) {
+    for (const tenant of tenants) {
+      const ai = tenant.ai || {};
+      tenantLlms.set(tenant.key, createLlm({
+        env: {
+          ...env,
+          ANTHROPIC_API_KEY: ai.anthropicApiKey || '',
+          ASSEMBLYAI_API_KEY: ai.assemblyKey || '',
+          GEMINI_API_KEY: ai.geminiKey || '',
+          MINIMAX_API_KEY: ai.minimaxApiKey || '',
+          MINIMAX_API_BASE_URL: ai.minimaxBaseUrl || env.MINIMAX_API_BASE_URL,
+          AMCORE_AI_PROVIDER: ai.provider || env.AMCORE_AI_PROVIDER,
+          AMCORE_AI_JUDGE_MODEL: ai.judgeModel || env.AMCORE_AI_JUDGE_MODEL,
+        },
+        logger,
+      }));
+    }
+  }
 
   // 注入模組 init(platform) 的共用能力包(比照 BuildAM 各 init 的聯集,平台級一份)。
   const platform = {
@@ -62,29 +81,45 @@ export async function bootstrap(env = process.env, overrides = {}) {
     driveConfigured: drive.configured,
     ensureDriveFolder: drive.ensureFolder,
     uploadToDrive: drive.upload,
+    uploadDriveStream: drive.uploadStream, // (stream, filename, contentType, folderId, size) 大檔串流留底
     getDriveAccessToken: drive.getAccessToken,
     // Portal 授權(web routes 用)
     portal,
+    queueAccessKey: env.AMCORE_QUEUE_ACCESS_KEY || '',
     // LLM(統一備援鏈)。新模組一律用這個,不要自己接 AI 供應商。
     llm,
+    llmForTenant: (tenant) => tenantLlms.get(tenant?.key) || llm,
+    aiForTenant: (tenant) => tenant?.ai || {
+      provider: (env.AMCORE_AI_PROVIDER || '').toLowerCase(),
+      judgeModel: env.AMCORE_AI_JUDGE_MODEL || '',
+      anthropicApiKey: env.ANTHROPIC_API_KEY || '',
+      assemblyKey: env.ASSEMBLYAI_API_KEY || '',
+      geminiKey: env.GEMINI_API_KEY || '',
+      meetingModel: env.AMCORE_MEETING_MODEL || 'gemini-2.5-flash',
+      minimaxApiKey: env.MINIMAX_API_KEY || '',
+      minimaxBaseUrl: (env.MINIMAX_API_BASE_URL || 'https://api.minimax.io/v1').replace(/\/+$/, ''),
+    },
     // AI 金鑰(共用;meetings 等模組於 init 取用)
     // ⚠️ 逐步退場:新程式請改用 platform.llm,金鑰只留給尚未遷移的模組與非 LLM 服務(AssemblyAI)。
     anthropicApiKey: env.ANTHROPIC_API_KEY || '',
     assemblyKey: env.ASSEMBLYAI_API_KEY || '',
     geminiKey: env.GEMINI_API_KEY || '',
-    geminiModel: env.BUILD_MEETING_MODEL || env.AMCORE_MEETING_MODEL || 'gemini-2.5-flash',
+    geminiModel: env.AMCORE_MEETING_MODEL || 'gemini-2.5-flash',
     minimaxApiKey: env.MINIMAX_API_KEY || '',
     minimaxBaseUrl: (env.MINIMAX_API_BASE_URL || 'https://api.minimax.io/v1').replace(/\/+$/, ''),
-    aiProvider: (env.AMCORE_AI_PROVIDER || env.BUILD_AI_PROVIDER || '').toLowerCase(),
-    aiJudgeModel: env.AMCORE_AI_JUDGE_MODEL || env.BUILD_AI_JUDGE_MODEL || '',
+    aiProvider: (env.AMCORE_AI_PROVIDER || '').toLowerCase(),
+    aiJudgeModel: env.AMCORE_AI_JUDGE_MODEL || '',
     // 自架「公開會議頁」:免 Notion 帳號、連結可轉傳(GET /m/<id>-<簽章>,由 meetings 模組 routes 提供)。
     // 沒設 AMCORE_PUBLIC_BASE_URL → publicBaseUrl='' → meetings 不產公開連結(與現況一致,安全)。
     // 簽章密鑰沿用 queueAccessKey,確保「產連結」與「驗連結」用同一把鑰匙。
     publicBaseUrl: (env.AMCORE_PUBLIC_BASE_URL || '').trim().replace(/\/+$/, ''),
-    publicLinkSecret: env.AMCORE_QUEUE_ACCESS_KEY || env.BUILD_QUEUE_ACCESS_KEY || '',
+    publicBaseUrlForTenant: (tenant) => tenant?.publicBaseUrl || (env.AMCORE_PUBLIC_BASE_URL || '').trim().replace(/\/+$/, ''),
+    publicLinkSecret: env.AMCORE_QUEUE_ACCESS_KEY || '',
   };
 
   const router = createRouter({ tenants, notionRequest: notion.notionRequest, logger });
+  // 網頁管理模組更新群組設定後可立即使路由快取失效；router 本身仍是 core 唯一擁有者。
+  platform.router = router;
   const modules = await loadModules({ tenants, platform, logger });
   const dispatcher = createDispatcher({ tenants, modules, platform, logger });
 

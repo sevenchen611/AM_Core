@@ -37,7 +37,7 @@
 
 型別不對的欄位會靜默退回預設,一個手誤的 json 不會讓整條會議路徑爆掉。分享型(share)格式本來就中性,不受此設定影響。
 
-> ⚠️ **綁定端必須把 config 帶進來。** `tenant` 物件若少了 `config`,該租戶就拿到中性預設 —— 對工程租戶而言等於掉了工程詞庫與「工地檢討」類型。vendored 綁定(BuildAM shim)請把 `tenants/engineering.json` 的 `config` 一併注入。唯一源頭是 `engineering.json`;shim 那份是手抄拷貝、會漂移,防漂移機制見 `tenants/README.md`。
+> ⚠️ **租戶載入器必須把 config 帶進來。** `tenant` 物件若少了 `config`,該租戶就拿到中性預設 —— 對工程租戶而言等於掉了工程詞庫與「工地檢討」類型。唯一源頭是 `tenants/engineering.json`，平台不得另做手抄設定。
 
 ## 契約(預設匯出)
 ```js
@@ -54,13 +54,13 @@ export default {
 };
 ```
 
-### init(platform) — 共用能力(所有租戶相同)
-`{ notionRequest, pushLineMessage, llm, assemblyKey, geminiKey, geminiModel, ensureDriveFolder, uploadToDrive, publicBaseUrl, publicLinkSecret }`
+### init(platform) — 共用能力
+`{ notionRequest, pushLineMessage, llmForTenant, aiForTenant, ensureDriveFolder, uploadToDrive, uploadDriveStream, streamLineContent, publicBaseUrlForTenant, publicLinkSecret, portal }`
 
-`llm` 是 `core/llm.js` 的 `createLlm()`。摘要用 `profile:'quality'`(assemblyai gateway 領銜、直連 gemini 接手)、`maxTokens:16000`;與會名單走預設鏈。**「聽」音檔不經 llm**(llm.js 不吃音訊),仍直接打 AssemblyAI / Gemini Files API。
+`llmForTenant(tenant)` 回傳該租戶自己的 `core/llm.js` 備援鏈；`aiForTenant(tenant)` 提供該租戶的 AssemblyAI/Gemini 設定。摘要用 `profile:'quality'`、`maxTokens:16000`;與會名單走預設鏈。**「聽」音檔不經 llm**(llm.js 不吃音訊),仍直接打該租戶設定的 AssemblyAI / Gemini Files API。
 
 ### ctx — 每次呼叫(帶租戶脈絡)
-- `tenant`:`{ key, dataSources: { meetings, tasks, projects }, driveConfigured, driveRootFolderId }`
+- `tenant`:`{ key, config, ai, dataSources: { meetings, tasks, projects }, driveConfigured, driveRootFolderId, publicBaseUrl }`
 - 音檔類:`{ tenant, buffer, filename, contentType, binding, senderName, groupId, ackSent }`
 - 訊息類:`{ tenant, groupId, text, senderName }`
 
@@ -78,14 +78,16 @@ LINE 訊息尾端同時附**兩條連結**:
 ## 每群一個獨立會議庫(選用,真隔離)
 若 `tenant.meetingsParentPageId` 有值(母頁 id),就啟用「**每個 LINE 群一個獨立會議記錄庫**」:
 - 某群第一次開會、綁定頁的「會議資料庫」欄還空著 → 在母頁下**自動建一個會議庫**(欄位:會議/類型/日期/參與者/專案),把 data source id **回填該群綁定頁的「會議資料庫」欄**;之後這群的會議都寫進去。
-- 沒設 `meetingsParentPageId`(如 BuildAM 現況)→ 一律寫租戶預設庫 `tenant.dataSources.meetings`,**行為完全不變**。
+- 沒設 `meetingsParentPageId`(工程租戶目前的設定)→ 一律寫租戶預設庫 `tenant.dataSources.meetings`。
 - per-group 時,待辦仍進租戶待辦庫,但**略過「會議記錄」關聯**(Notion 關聯只能指向單一目標庫,per-group 會議頁不在其中)。
 - **前置**:綁定庫需有「會議資料庫」rich_text 欄;可用 `mod.provisionMeetingsDb(tenant, groupName)` 手動預建某群的庫。
 - ⚠️ **權限隔離靠 Notion 分享**:系統能自動「建庫、分流」,但「只給該組的人看」需管理員在 Notion 手動分享各庫/母頁(API 無法設定分享對象)。
-- ⚠️ **與工程儀表板的取捨**:dashboard/reminders 目前讀「單一預設會議庫」;啟用 per-group 後,新會議進各群的庫,**不會出現在讀預設庫的儀表板**,除非後續讓那些功能跨庫彙總。故 BuildAM 暫不啟用。
+- ⚠️ **與工程儀表板的取捨**:dashboard/reminders 目前讀「單一預設會議庫」;啟用 per-group 後,新會議進各群的庫,**不會出現在讀預設庫的儀表板**,除非後續讓那些功能跨庫彙總。因此 engineering 暫不啟用此選項。
 
 ## 狀態隔離
 會議「待補 pending」以 **`${tenant.key}::${groupId}`** 為鍵,不同租戶不互相污染(見 `pkey()`)。
 
 ## 現行使用者
-- **BuildAM**(工程租戶):以 vendored 複製方式綁定(`BuildAM/line-oa-webhook/src/_platform/meetings/` + 薄 shim `src/meeting.js`),行為與抽模組前完全等同。
+
+- **engineering**：由 AM Platform 直接載入，使用工程詞庫與預設工程會議庫。
+- **forest**：由同一平台載入，使用自己的租戶設定與資料來源；pending 狀態鍵包含 tenant，不會和 engineering 互相污染。

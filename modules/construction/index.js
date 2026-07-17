@@ -67,26 +67,14 @@ function init(injected) {
   };
 }
 
-// 租戶佇列存取金鑰:per-tenant(<PREFIX>_QUEUE_ACCESS_KEY)否則回退平台級。
+// 租戶設定已由 core/tenants.js 從 <PREFIX>_* 載入；模組不再直接讀 process.env。
 function tenantQueueAccessKey(tenant) {
-  const p = tenant.envPrefix || '';
-  return (p && process.env[`${p}_QUEUE_ACCESS_KEY`])
-    || process.env.AMCORE_QUEUE_ACCESS_KEY
-    || process.env.BUILD_QUEUE_ACCESS_KEY
-    || '';
+  return tenant.queueAccessKey || platform.queueAccessKey || '';
 }
 
-// 各專案 Google 行事曆(dashboard 內嵌用):掃 <PREFIX>_CAL_<館別代碼>(如 ENG_CAL_ZS)。
+// 各專案 Google 行事曆(dashboard 內嵌用):由 core 掃 <PREFIX>_CAL_<館別代碼>。
 function tenantCalendars(tenant) {
-  const p = tenant.envPrefix || '';
-  const out = {};
-  if (!p) return out;
-  const re = new RegExp(`^${p}_CAL_(.+)$`);
-  for (const [k, v] of Object.entries(process.env)) {
-    const m = k.match(re);
-    if (m && v) out[m[1].toUpperCase()] = v;
-  }
-  return out;
+  return tenant.calendars || {};
 }
 
 // LINE 推播配額(dashboard 首屏用),以平台共用 lineGet 組出(比照 BuildAM)。
@@ -103,6 +91,7 @@ function makeGetLineQuota() {
 // 依「現在服務的租戶」+ 平台共用能力,組出這次呼叫用的 deps(逐呼叫產生,無模組級全域)。
 //   notionRequest 已鎖定該租戶 tenantKey(隔離守衛在 core);dataSources 取自 ctx.tenant。
 function fullDeps(tenant) {
+  const tenantAi = platform.aiForTenant?.(tenant) || tenant.ai || {};
   const deps = {
     tenantKey: tenant.key,
     notionRequest: (pathname, opts = {}) => platform.notionRequest(pathname, { ...opts, tenantKey: tenant.key }),
@@ -118,11 +107,11 @@ function fullDeps(tenant) {
     getLineQuota: makeGetLineQuota(),
     // classify(AI 初判)用;非工程/未配置金鑰時 classify 自動 no-op
     ai: {
-      provider: platform.aiProvider,
-      anthropicApiKey: platform.anthropicApiKey,
-      minimaxApiKey: platform.minimaxApiKey,
-      minimaxBaseUrl: platform.minimaxBaseUrl,
-      judgeModel: platform.aiJudgeModel,
+      provider: tenantAi.provider || platform.aiProvider,
+      anthropicApiKey: tenantAi.anthropicApiKey || platform.anthropicApiKey,
+      minimaxApiKey: tenantAi.minimaxApiKey || platform.minimaxApiKey,
+      minimaxBaseUrl: tenantAi.minimaxBaseUrl || platform.minimaxBaseUrl,
+      judgeModel: tenantAi.judgeModel || platform.aiJudgeModel,
     },
   };
   deps.listTrades = () => listKnownTrades(deps);
@@ -145,31 +134,30 @@ function svcDeps(ctx) {
 //   scope:null=全部;'none'=無;否則逗號分隔的館別代碼(am-<key>-<code>)。PIN/owner=全部。
 async function resolveAuth(portal, tenant, req) {
   const k = tenant.key;
-  const pin = portal.pinAuthed(req);
+  const pin = portal.pinAuthed(req, tenant);
   const user = pin ? null : await portal.userAuthed(req);
   const feats = Array.isArray(user?.allowedFeatures) ? user.allowedFeatures : [];
   const projectIds = Array.isArray(user?.projectIds) ? user.projectIds : [];
   const userOwner = user?.role === 'owner';       // Portal owner(真身分)
   const isOwner = pin || userOwner;                // 「看全部專案」:PIN 或 owner
   // 基本存取:owner / PIN,或此租戶授權(am-<key> 或 projectIds 含 key)
-  const hasBase = isOwner || feats.includes(`am-${k}`) || projectIds.includes(k);
+  const hasBase = isOwner || (typeof portal.tenantAuthorized === 'function'
+    ? portal.tenantAuthorized(user, tenant)
+    : feats.includes(`am-${k}`) || projectIds.includes(k));
   const authed = Boolean(pin) || Boolean(user && hasBase);
 
   let scope = null;
   if (user && !isOwner) {
-    const prefix = `am-${k}-`;
-    const codes = feats
-      .filter((f) => f.startsWith(prefix))
-      .map((f) => f.slice(prefix.length).toUpperCase())
-      .filter((c) => c && c !== 'BUDGET' && c !== 'CONTRACT');
-    scope = codes.join(',') || 'none';
+    scope = typeof portal.tenantScope === 'function' ? portal.tenantScope(user, tenant) : 'none';
   }
   return {
     authed,
     isOwner,
     // 預算/合約權限特別分開:PIN 通行碼一律看不到,僅 Portal owner 或被授者(比照 BuildAM)。
-    canBudget: userOwner || feats.includes(`am-${k}-budget`),
-    canContract: userOwner || feats.includes(`am-${k}-contract`),
+    canBudget: userOwner || (typeof portal.featureGranted === 'function'
+      ? portal.featureGranted(user, tenant, 'budget') : feats.includes(`am-${k}-budget`)),
+    canContract: userOwner || (typeof portal.featureGranted === 'function'
+      ? portal.featureGranted(user, tenant, 'contract') : feats.includes(`am-${k}-contract`)),
     scope,
   };
 }

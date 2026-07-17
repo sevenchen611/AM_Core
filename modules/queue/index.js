@@ -96,10 +96,12 @@ async function handleQueueRequest(req, res, ctx) {
   if (req.method === 'POST' && pathname === '/queue/api/login') {
     let body = {};
     try { body = JSON.parse((await readBody(req)) || '{}'); } catch {}
-    if (portal?.checkPin?.(body.pin)) {
+    if (portal?.checkPin?.(body.pin, tenant)) {
       res.writeHead(200, {
         'Content-Type': 'application/json; charset=utf-8',
-        'Set-Cookie': `amcore_auth=${portal.pinCookieValue()}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`,
+        'Set-Cookie': portal.pinCookieHeader
+          ? portal.pinCookieHeader(tenant)
+          : `amcore_auth=${portal.pinCookieValue()}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`,
       });
       return res.end(JSON.stringify({ ok: true }));
     }
@@ -107,7 +109,12 @@ async function handleQueueRequest(req, res, ctx) {
   }
 
   // 授權:core Portal(PIN cookie 或 hozo SSO)。未授權 → GET /queue 出登入頁,API 回 401。
-  const authed = Boolean(portal?.pinAuthed?.(req)) || Boolean(await portal?.userAuthed?.(req));
+  const pin = Boolean(portal?.pinAuthed?.(req, tenant));
+  const user = pin ? null : await portal?.userAuthed?.(req);
+  const userAllowed = Boolean(user) && (typeof portal?.tenantAuthorized === 'function'
+    ? portal.tenantAuthorized(user, tenant)
+    : true);
+  const authed = pin || userAllowed;
   if (!authed) {
     if (req.method === 'GET' && pathname === '/queue') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -116,7 +123,25 @@ async function handleQueueRequest(req, res, ctx) {
     return sendJson(res, 401, { error: 'Unauthorized' });
   }
 
-  const scope = parseScope(url);
+  // scope 一律由 Portal 授權重算，不信任網址上的 ?scope=。
+  const authorizedUrl = new URL(url.href);
+  authorizedUrl.searchParams.delete('scope');
+  if (user && user.role !== 'owner') {
+    authorizedUrl.searchParams.set('scope', portal?.tenantScope?.(user, tenant) || 'none');
+  }
+  const scope = parseScope(authorizedUrl);
+
+  // 舊工程服務 API 名稱的短期相容層；307 保留原 method/body，實作仍由 construction 擁有。
+  const legacyTicketRoutes = {
+    '/queue/api/tickets': '/tickets/api/list',
+    '/queue/api/change-orders': '/tickets/api/change-orders',
+    '/queue/api/create-co': '/tickets/api/create-co',
+    '/queue/api/ticket-action': '/tickets/api/action',
+  };
+  if (legacyTicketRoutes[pathname]) {
+    res.writeHead(307, { Location: `${legacyTicketRoutes[pathname]}${url.search}` });
+    return res.end();
+  }
   try {
     if (req.method === 'GET' && pathname === '/queue') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -609,6 +634,7 @@ async function login(e){
 // ── 佇列頁(待確認 / 已確認;開單/單據管理屬 construction,不在此)──
 function renderQueuePage(tenant) {
   const TENANT = JSON.stringify(tenant.key);
+  const tenantParam = encodeURIComponent(tenant.key);
   return `<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
@@ -621,6 +647,7 @@ function renderQueuePage(tenant) {
   body { font-family:system-ui,-apple-system,'Noto Sans TC',sans-serif; background:var(--bg); color:#22302a; padding-bottom:60px; }
   header { background:var(--green); color:#fff; padding:12px 16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap; position:sticky; top:0; z-index:5; }
   header h1 { font-size:17px; font-weight:700; }
+  header a { color:#fff; font-size:13px; text-decoration:none; border:1px solid rgba(255,255,255,.55); border-radius:7px; padding:5px 8px; }
   header .op { margin-left:auto; display:flex; align-items:center; gap:6px; font-size:13px; }
   header input { border:none; border-radius:6px; padding:5px 8px; width:90px; font-size:13px; }
   .tabs { display:flex; background:var(--card); border-bottom:1px solid var(--line); position:sticky; top:48px; z-index:4; }
@@ -661,6 +688,8 @@ function renderQueuePage(tenant) {
 <body>
 <header>
   <h1>🐌 葉小蝸確認佇列</h1>
+  <a href="/tickets?tenant=${tenantParam}">回饋單／變更單</a>
+  <a href="/dashboard?tenant=${tenantParam}">工程儀表板</a>
   <div class="op">操作人 <input id="operator" placeholder="姓名"></div>
 </header>
 <div class="tabs">

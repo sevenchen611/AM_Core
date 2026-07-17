@@ -105,7 +105,11 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
         break;
       }
       if (!response.ok) throw new Error(`LINE content download failed: ${response.status} ${await response.text()}`);
-      return { stream: response.body, contentType: response.headers.get('content-type') || 'application/octet-stream' };
+      return {
+        stream: response.body,
+        contentType: response.headers.get('content-type') || 'application/octet-stream',
+        contentLength: Number(response.headers.get('content-length')) || 0, // 串流上傳 Drive 需要已知大小
+      };
     }
     throw new Error(`LINE 音檔內容尚未就緒(${lastReason};試 ${tries} 次),請稍候重傳。`);
   }

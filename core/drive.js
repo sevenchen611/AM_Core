@@ -71,5 +71,43 @@ export function createDrive({ clientId, clientSecret, refreshToken, logger = con
     return json;
   }
 
-  return { configured, getAccessToken, ensureFolder, upload };
+  // 串流上傳(resumable):把來源 ReadableStream 直接灌進 Drive,整個大檔不進記憶體。
+  // size(bytes)必填才走串流單發 PUT(Google 要 Content-Length);LINE 下載回應都帶 content-length。
+  async function uploadStream(stream, filename, contentType, parentId, size) {
+    if (!Number.isFinite(size) || size <= 0) throw new Error('uploadStream needs a known size (bytes)');
+    const token = await getAccessToken();
+    const init = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,webViewLink', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json; charset=UTF-8',
+        ...(contentType ? { 'X-Upload-Content-Type': contentType } : {}),
+        'X-Upload-Content-Length': String(size),
+      },
+      body: JSON.stringify({ name: filename, parents: [parentId] }),
+    });
+    if (!init.ok) throw new Error(`Drive resumable init failed: ${init.status} ${(await init.text()).slice(0, 200)}`);
+    const session = init.headers.get('location');
+    if (!session) throw new Error('Drive resumable init: no session URL');
+    const put = await fetch(session, {
+      method: 'PUT',
+      headers: { ...(contentType ? { 'Content-Type': contentType } : {}), 'Content-Length': String(size) },
+      body: stream,
+      duplex: 'half',
+    });
+    const text = await put.text();
+    if (!put.ok) throw new Error(`Drive stream upload failed: ${put.status} ${text.slice(0, 200)}`);
+    let json = {};
+    try { json = JSON.parse(text); } catch { /* Google 偶回空 body */ }
+    // 補齊 webViewLink(resumable 完成回應不一定帶 fields)
+    if (json.id && !json.webViewLink) {
+      const meta = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(json.id)}?fields=id,webViewLink,size`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (meta.ok) json = { ...json, ...(await meta.json()) };
+    }
+    return json; // { id, webViewLink, size? }
+  }
+
+  return { configured, getAccessToken, ensureFolder, upload, uploadStream };
 }

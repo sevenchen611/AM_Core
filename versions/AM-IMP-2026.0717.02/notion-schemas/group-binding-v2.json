@@ -1,0 +1,24 @@
+{
+  "name": "AM Platform 群組綁定 v2",
+  "baseFieldsRequired": {
+    "群組名稱": "title",
+    "LINE 群組 ID": "rich_text",
+    "狀態": "select",
+    "群組角色": "select",
+    "成員對照": "rich_text"
+  },
+  "properties": {
+    "群組用途": { "type": "rich_text" },
+    "主要負責人": { "type": "rich_text" },
+    "啟用功能": { "type": "multi_select", "options": ["訊息收集", "待辦", "會議", "案件狀態", "照片", "提醒"] },
+    "所屬目標": { "type": "rich_text" },
+    "狀態更新權限": { "type": "select", "options": ["所有成員", "主要負責人", "總管"] },
+    "預設提醒對象": { "type": "rich_text" },
+    "最後設定時間": { "type": "date" },
+    "最後設定者": { "type": "rich_text" }
+  },
+  "notes": [
+    "工程租戶可保留既有「專案」relation；跨產業的共用目標欄位使用「所屬目標」。",
+    "LINE 群組 ID 與成員對照由系統管理，不在後臺表格中手動編輯。"
+  ]
+}

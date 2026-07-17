@@ -1,11 +1,18 @@
 {
   "key": "engineering",
-  "displayName": "工程",
-  "aka": "原 BuildAM（旅宿工程管理）",
+  "displayName": "工程 AM",
+  "aka": "AM Platform 工程租戶（旅宿工程管理）",
   "envPrefix": "ENG",
-  "modules": ["collect", "queue", "meetings", "tasks", "reminders", "construction"],
-  "status": "現行 BuildAM 生產中；平台上線後以此租戶承接，Notion 頁不變、資料不搬",
+  "modules": ["collect", "meetings", "media", "triage", "queue", "tasks", "reminders", "construction", "groups"],
+  "status": "AM Platform 已完成工程功能承接；正式上線以 LINE webhook 切換為準；沿用既有 Notion 頁與資料來源，不搬資料",
   "config": {
+    "homeRoute": "/dashboard",
+    "portal": {
+      "featureAliases": ["am-buildam"],
+      "projectAliases": ["buildam"],
+      "legacyPinCookies": ["buildam_auth"],
+      "acceptLegacyGlobalPinCookie": true
+    },
     "meetings": {
       "domain": "台灣旅宿室內裝修工程會議",
       "transcriptionHint": "台灣旅宿室內裝修工程會議,繁體中文為主、夾雜英文工程術語。",

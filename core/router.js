@@ -5,6 +5,9 @@
 // resolveGroupBinding 放在 core(路由器要用);模組從 ctx.binding 取,不必自己查。
 
 const BINDING_CACHE_TTL_MS = 5 * 60 * 1000;
+const plain = (prop, kind = 'rich_text') => (prop?.[kind] || []).map((t) => t.plain_text || t.text?.content || '').join('');
+const selected = (prop) => prop?.select?.name || '';
+const selectedMany = (prop) => (prop?.multi_select || []).map((x) => x.name).filter(Boolean);
 
 export function createRouter({ tenants, notionRequest, logger = console }) {
   // groupId → { tenant, binding, at }。binding 可為 null(已查過、確定未綁定)以避免重複打 Notion。
@@ -34,10 +37,18 @@ export function createRouter({ tenants, notionRequest, logger = console }) {
     try { members = JSON.parse((page.properties?.['成員對照']?.rich_text || []).map((t) => t.plain_text).join('')) || {}; } catch {}
     return {
       pageId: page.id,
+      groupId: plain(page.properties?.['LINE 群組 ID']),
+      groupName: plain(page.properties?.['群組名稱'], 'title'),
       projectPageId: page.properties?.['專案']?.relation?.[0]?.id || '',
-      projectName: '',
-      role: page.properties?.['群組角色']?.select?.name || '',
-      trade: page.properties?.['工種']?.select?.name || '',
+      projectName: plain(page.properties?.['所屬目標']) || '',
+      role: selected(page.properties?.['群組角色']),
+      trade: selected(page.properties?.['工種']),
+      // v2 群組治理欄位。欄位尚未升級的租戶會安全地取得空值；不影響既有路由。
+      purpose: plain(page.properties?.['群組用途']),
+      owner: plain(page.properties?.['主要負責人']) || plain(page.properties?.['我方主管']) || plain(page.properties?.['對方主管']),
+      capabilities: selectedMany(page.properties?.['啟用功能']),
+      statusUpdatePolicy: selected(page.properties?.['狀態更新權限']),
+      defaultReminderTargets: plain(page.properties?.['預設提醒對象']),
       members,
     };
   }

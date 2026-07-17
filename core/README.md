@@ -13,6 +13,7 @@
 | `drive.js` | Google Drive client(token / ensureFolder / upload) |
 | `portal.js` | Portal 授權(PIN cookie;`hozo_session` → `rental.hozorental.com/api/me`) |
 | `router.js` | `resolveGroupBinding`:對各租戶群組綁定庫查群 → `{ tenant, binding }`,快取(TTL) |
+| `group-binding-schema.js` | 群組綁定 v2 的可攜欄位契約與安全 schema patch |
 | `modules.js` | 模組載入(`modules/<name>/index.js`)、建 `ctx`、依序分派 `onMessage/onAudio`、蒐集 `routes`、跑 `tick` |
 | `bootstrap.js` | 從 env 組裝以上一切(可注入 mock 供測試) |
 | `util.js` | 共用小工具(id 正規化、http 基礎、env→camel) |
@@ -26,7 +27,7 @@
 
 ## 資料隔離(A 租戶不可碰 B 租戶庫)
 
-1. 每個資料源 id 在登記表自我識別「屬哪個租戶」;寫入前守衛驗證它位於**該租戶母頁**下,否則拒絕。
+1. 每個資料源 id 在登記表自我識別「屬哪個租戶」;寫入前守衛驗證它位於**該租戶母頁**下,否則拒絕；更新既有頁面時也會核對其 data source。
 2. 模組拿到的資料源 id 一律來自 `ctx.tenant.dataSources.*`,結構上碰不到別租戶。
 3. core 內部呼叫可加 `tenantKey` 做嚴格綁定(路由器查群組綁定即用此擋跨租戶)。
 
