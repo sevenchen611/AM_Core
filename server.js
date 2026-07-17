@@ -83,10 +83,11 @@ const server = http.createServer(async (req, res) => {
       const portalConfig = tenant.config?.portal || {};
       const aliases = Array.isArray(portalConfig.featureAliases) ? portalConfig.featureAliases : [];
       const featureKey = aliases.find((key) => /^am-[a-z0-9_-]+$/i.test(key)) || `am-${tenant.key}`;
+      const displayName = String(tenant.displayName || tenant.key);
       return {
         key: tenant.key,
         featureKey,
-        label: String(portalConfig.label || `${tenant.displayName} AM`).slice(0, 120),
+        label: String(portalConfig.label || (displayName.includes('AM') ? displayName : `${displayName} AM`)).slice(0, 120),
       };
     });
     res.writeHead(200, {
