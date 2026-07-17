@@ -76,6 +76,27 @@ const server = http.createServer(async (req, res) => {
     });
   }
 
+  // Portal 帳號管理用的公開租戶目錄：只提供非機密的 key／顯示名稱／權限鍵。
+  // 工程租戶可指定既有 feature alias，避免 BuildAM 與工程 AM 在權限清單重複出現。
+  if (req.method === 'GET' && pathname === '/portal/tenants') {
+    const directory = tenants.map((tenant) => {
+      const portalConfig = tenant.config?.portal || {};
+      const aliases = Array.isArray(portalConfig.featureAliases) ? portalConfig.featureAliases : [];
+      const featureKey = aliases.find((key) => /^am-[a-z0-9_-]+$/i.test(key)) || `am-${tenant.key}`;
+      return {
+        key: tenant.key,
+        featureKey,
+        label: String(portalConfig.label || `${tenant.displayName} AM`).slice(0, 120),
+      };
+    });
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Access-Control-Allow-Origin': 'https://rental.hozorental.com',
+      'Cache-Control': 'no-store',
+    });
+    return res.end(JSON.stringify({ tenants: directory }));
+  }
+
   // ── 平台首頁：承接原工程後台網址，同時保留 tenant-aware 登入 ──
   if (req.method === 'GET' && pathname === '/') {
     const tenant = homeTenant(url);
