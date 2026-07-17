@@ -11,6 +11,7 @@ const CORE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const MODULES_DIR = path.resolve(CORE_DIR, '..', 'modules');
 
 const AUDIO_EXT = /\.(m4a|mp3|aac|wav|amr|ogg|mp4)$/i;
+const ROUTE_ACCESS_KINDS = new Set(['public', 'machine', 'tenant', 'group']);
 function isAudioCandidate(message) {
   return message.type === 'audio' || (message.type === 'file' && AUDIO_EXT.test(message.fileName || ''));
 }
@@ -32,7 +33,10 @@ function looksLikeAudioBuffer(arrayBuffer) {
 // 載入所有租戶需要的模組(去重),呼叫其 init(platform)。回傳 name → module 實例。
 export async function loadModules({ tenants, platform, logger = console }) {
   const needed = new Set();
-  for (const tenant of tenants) for (const name of tenant.modules) needed.add(name);
+  for (const tenant of tenants) {
+    if (tenant.runtimeEnabled === false) continue;
+    for (const name of tenant.modules) needed.add(name);
+  }
 
   const registry = new Map();
   for (const name of needed) {
@@ -58,6 +62,7 @@ export async function loadModules({ tenants, platform, logger = console }) {
 export function createDispatcher({ tenants, modules, platform, logger = console }) {
   // 依租戶 modules 清單順序取出「已載入」的模組實例。
   function tenantModules(tenant) {
+    if (tenant.runtimeEnabled === false) return [];
     return tenant.modules.map((name) => modules.get(name)).filter(Boolean);
   }
 
@@ -72,6 +77,7 @@ export function createDispatcher({ tenants, modules, platform, logger = console 
       event,
       message,
       text,
+      principal: { kind: 'system', source: 'line-webhook' },
       // 便利句柄(選用):tenant-locked notionRequest;模組也可直接用 platform.notionRequest。
       notionRequest: (pathname, opts = {}) => platform.notionRequest(pathname, { ...opts, tenantKey: tenant.key }),
       pushLineMessage: platform.pushLineMessage,
@@ -160,6 +166,10 @@ export function createDispatcher({ tenants, modules, platform, logger = console 
     for (const tenant of tenants) {
       for (const mod of tenantModules(tenant)) {
         for (const route of mod.routes || []) {
+          if (!route?.access || !ROUTE_ACCESS_KINDS.has(route.access.kind)) {
+            logger.warn(`Module "${mod.name}" route "${route?.prefix || '(custom)'}" has no valid access declaration — skipped (fail closed).`);
+            continue;
+          }
           routes.push({ tenantKey: tenant.key, moduleName: mod.name, route });
         }
       }
@@ -173,7 +183,11 @@ export function createDispatcher({ tenants, modules, platform, logger = console 
       for (const mod of tenantModules(tenant)) {
         if (typeof mod.tick !== 'function') continue;
         try {
-          await mod.tick({ tenant, notionRequest: (p, o = {}) => platform.notionRequest(p, { ...o, tenantKey: tenant.key }) });
+          await mod.tick({
+            tenant,
+            principal: { kind: 'system', source: 'scheduler' },
+            notionRequest: (p, o = {}) => platform.notionRequest(p, { ...o, tenantKey: tenant.key }),
+          });
         } catch (error) {
           logger.warn(`Module "${mod.name}" tick failed (tenant=${tenant.key}): ${error.message}`);
         }

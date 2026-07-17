@@ -1,0 +1,7 @@
+{
+  "users": [
+    { "id": "u-forest", "username": "forest-user", "role": "user", "allowedFeatures": ["am-forest"], "amAccess": {} },
+    { "id": "u-engineering", "username": "engineering-user", "role": "user", "allowedFeatures": ["am-buildam-zs"], "amAccess": {} },
+    { "id": "u-owner", "username": "owner", "role": "owner", "allowedFeatures": [], "amAccess": {} }
+  ]
+}

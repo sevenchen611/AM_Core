@@ -94,6 +94,9 @@ export function loadTenants(env = process.env, logger = console) {
       key: raw.key,
       displayName: raw.displayName || raw.key,
       envPrefix: prefix,
+      // 遷移中租戶可先出現在 Portal 目錄，但不得參與 webhook、模組路由或排程。
+      runtimeEnabled: raw.runtimeEnabled !== false,
+      authorizationReady: raw.authorizationReady !== false,
       modules: Array.isArray(raw.modules) ? raw.modules : [],
       // 「行業味」設定:詞彙、報告時刻表、欄位映射…等非機密的租戶特性。
       // 模組一律從 ctx.tenant.config 讀,不可硬寫進程式(見 modules/HOZO_EXTRACTION_PLAN.md §0)。

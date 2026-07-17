@@ -43,6 +43,16 @@ function packageMetadata(packageId) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'));
 }
 
+function projectIsTargeted(project, metadata) {
+  // 已由 AM Platform 租戶取代的 rollback clone 不再安裝新功能。
+  if (project.active === false) return false;
+  if (Array.isArray(metadata?.excludedTargets) && metadata.excludedTargets.includes(project.projectKey)) return false;
+  if (Array.isArray(metadata?.installTargets) && metadata.installTargets.length) {
+    return metadata.installTargets.includes(project.projectKey);
+  }
+  return true;
+}
+
 function isAllowedInactiveForPackage(status, projectKey, metadata) {
   if (status !== 'Blocked' || !metadata) return false;
   if (Array.isArray(metadata.excludedTargets) && metadata.excludedTargets.includes(projectKey)) return true;
@@ -50,15 +60,41 @@ function isAllowedInactiveForPackage(status, projectKey, metadata) {
   return false;
 }
 
-function compareArrays(label, leftName, left, rightName, right) {
+function compareArrays(label, leftName, left, rightName, right, findings = errors) {
   const leftSet = new Set(left);
   const rightSet = new Set(right);
   for (const item of leftSet) {
-    if (!rightSet.has(item)) errors.push(`${label}: ${rightName} missing ${item} from ${leftName}.`);
+    if (!rightSet.has(item)) findings.push(`${label}: ${rightName} missing ${item} from ${leftName}.`);
   }
   for (const item of rightSet) {
-    if (!leftSet.has(item)) errors.push(`${label}: ${leftName} missing ${item} from ${rightName}.`);
+    if (!leftSet.has(item)) findings.push(`${label}: ${leftName} missing ${item} from ${rightName}.`);
   }
+}
+
+function normalizeMetadataStatus(value) {
+  const text = String(value || '').trim();
+  if (PASS_STATUSES.has(text)) return text;
+  if (['未列入', 'Not Applicable', 'N/A', 'Excluded'].includes(text)) return 'Blocked';
+  return '';
+}
+
+function metadataProjectStatus(metadata, projectKey) {
+  return normalizeMetadataStatus(metadata?.projectStatus?.[projectKey]
+    || metadata?.backfill?.projectStatus?.[projectKey]);
+}
+
+function expandManifestRanges(manifest, packages) {
+  for (const [version, row] of [...manifest.entries()]) {
+    const match = version.match(/^(AM-IMP-\d{4}\.\d{4}\.\d{2})[–—-]+(AM-IMP-\d{4}\.\d{4}\.\d{2})$/);
+    if (!match) continue;
+    const start = packages.indexOf(match[1]);
+    const end = packages.indexOf(match[2]);
+    if (start < 0 || end < start) continue;
+    for (const packageId of packages.slice(start, end + 1)) {
+      if (!manifest.has(packageId)) manifest.set(packageId, { ...row, expandedFrom: version });
+    }
+  }
+  return manifest;
 }
 
 function runNodeCheck(filePath) {
@@ -105,7 +141,7 @@ function main() {
   }
 
   const projects = config.projects.map((project) => {
-    const manifest = parseManifestTable(readText(project.manifestPath));
+    const manifest = expandManifestRanges(parseManifestTable(readText(project.manifestPath)), packages);
     const packageJsonPath = path.join(project.localPath, 'package.json');
     const packageJson = JSON.parse(readText(packageJsonPath));
     const scripts = Object.keys(packageJson.scripts || {}).sort();
@@ -113,31 +149,40 @@ function main() {
   });
 
   if (projects.length >= 2) {
-    compareArrays('npm scripts', projects[0].project.projectKey, projects[0].scripts, projects[1].project.projectKey, projects[1].scripts);
+    // 專案可有自己的 Calendar、B-case 等腳本；差異要被看見，但不是共享契約失敗。
+    compareArrays('npm scripts', projects[0].project.projectKey, projects[0].scripts, projects[1].project.projectKey, projects[1].scripts, warnings);
   }
 
   for (const packageId of packages) {
     const metadata = packageMetadata(packageId);
-    const statuses = projects.map(({ project, manifest }) => ({
-      projectKey: project.projectKey,
-      status: manifest.get(packageId)?.status || 'Missing',
-    }));
+    const statuses = projects.filter(({ project }) => projectIsTargeted(project, metadata)).map(({ project, manifest }) => {
+      const row = manifest.get(packageId);
+      const fallback = metadataProjectStatus(metadata, project.projectKey);
+      if (!row && fallback) warnings.push(`${project.projectKey} uses ${packageId} package metadata status ${fallback}; add an explicit manifest row when next editing that project.`);
+      return {
+        projectKey: project.projectKey,
+        status: row?.status || fallback || 'Missing',
+        fromMetadata: !row && Boolean(fallback),
+      };
+    });
     for (const item of statuses) {
       if (item.status === 'Missing') errors.push(`${item.projectKey} missing manifest row for ${packageId}.`);
       else if (!PASS_STATUSES.has(item.status)) errors.push(`${item.projectKey} has unknown status for ${packageId}: ${item.status}`);
     }
 
     const active = statuses.filter((item) => ACTIVE_STATUSES.has(item.status));
-    if (active.length > 0 && active.length < projects.length) {
+    if (active.length > 0 && active.length < statuses.length) {
       const inactive = statuses.filter((item) => !ACTIVE_STATUSES.has(item.status));
-      const invalidInactive = inactive.filter((item) => !isAllowedInactiveForPackage(item.status, item.projectKey, metadata));
+      const invalidInactive = inactive.filter((item) => !item.fromMetadata
+        && metadataProjectStatus(metadata, item.projectKey) !== item.status
+        && !isAllowedInactiveForPackage(item.status, item.projectKey, metadata));
       if (invalidInactive.length) {
         errors.push(`${packageId} is active in only some projects: ${statuses.map((item) => `${item.projectKey}=${item.status}`).join(', ')}`);
       }
     }
   }
 
-  for (const { project } of projects) {
+  for (const { project } of projects.filter(({ project }) => project.active !== false)) {
     for (const filePath of walkFiles(project.localPath, (file) => file.endsWith('.js'))) runNodeCheck(filePath);
   }
   for (const filePath of walkFiles(root, (file) => file.endsWith('.js'))) runNodeCheck(filePath);

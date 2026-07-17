@@ -32,7 +32,18 @@ collect → meetings → media → triage → queue → tasks → reminders → 
 2. 事件先用 `groupId` 查每個租戶自己的「群組綁定」資料來源；狀態必須為啟用。
 3. 命中後建立 tenant-locked `ctx`。所有 Notion 請求必須帶 `tenantKey`。
 4. Core 只放行該租戶宣告過、且實際位於該租戶母頁下的資料來源；跨租戶存取直接拒絕。
-5. Portal PIN cookie 以租戶為範圍；SSO 也需通過該租戶的 feature／project 授權。
+5. Portal 個人帳號先通過租戶 `amAccess`，再以群組綁定 Page ID 限縮群組設定、佇列、待辦與案件；任何 Notion 寫入仍需再通過第 4 點的租戶守衛。
+
+## 個人帳號與群組授權
+
+授權鏈固定為：`個人帳號 → 租戶 → 對話群組 → 功能操作 → 租戶 Notion 隔離守衛`。
+
+- Portal `admin_users.am_access` 是群組權限唯一來源。`mode=all` 包含該租戶未來新增群組；`mode=selected` 只包含列出的群組綁定 Page ID。
+- Core 的後臺 route 只接受 `public | machine | tenant | group` 四種授權宣告，未宣告即不掛載。
+- `group` route 的清單、單筆、批次、附件與寫入都要逐筆核對 relation；直接竄改 `tenant`、`pageId`、附件 ID 或待辦 ID 不得繞過。
+- Portal SSO cookie 只存 opaque session handle。Core 每次後臺請求向 Portal `/api/am-sso/verify` 讀最新帳號，因此停用或撤權下一次請求立即生效。
+- 日常租戶 PIN 預設停用。緊急入口只有在 `AMCORE_ENABLE_EMERGENCY_PIN=1` 時可用，最長 15 分鐘且只代表緊急最高管理者。
+- Webhook 與排程使用 `system principal`，不受個人群組清單限制，但永遠受 per-tenant Notion 守衛。
 
 ## 群組治理與後臺
 

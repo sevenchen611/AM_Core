@@ -10,6 +10,8 @@
 | `displayName` | 顯示名（中文） |
 | `envPrefix` | 平台 `.env` 以此前綴存該租戶機密（**不進 git**）：Notion、Drive、Portal、行事曆、AI；舊 `<PREFIX>_LINE_*` 可被載入盤點，但正式入口固定使用全域同一支 OA |
 | `modules` | 啟用的模組清單 |
+| `runtimeEnabled` | 預設 `true`；遷移中租戶設為 `false`，只出現在 Portal 遷移清單，不參與 webhook、route 或 tick |
+| `authorizationReady` | 預設 `true`；設為 `false` 時 Portal 必須顯示但禁止分派權限 |
 | `config` | **「行業味」設定**（非機密）：詞彙、報告時刻表、欄位映射…模組從 `ctx.tenant.config` 讀 |
 
 ## `config` — 讓模組保持通用的關鍵
@@ -38,3 +40,4 @@ Notion 頁 ID、資料來源 ID、LINE/AI 金鑰**一律放平台的 `.env`（gi
 
 - **工程 AM**（`engineering.json`）＝ AM Platform 的旅宿工程管理租戶
 - **森在**（`forest.json`）＝ Notion「AI」頁；平台首頁為 `/admin?tenant=forest`，群組對照表為 `/groups?tenant=forest`
+- **HOZO AM**（`hozoam.json`）與 **7AM**（`7am.json`）目前為遷移中登記：既有獨立入口維持，群組綁定與 Core 相容層完成前一律 fail closed，不啟動任何平台模組。

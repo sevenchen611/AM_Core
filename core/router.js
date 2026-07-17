@@ -64,6 +64,7 @@ export function createRouter({ tenants, notionRequest, logger = console }) {
     let hit = { tenant: null, binding: null };
     // 依 tenants 載入順序決定優先權;命中即短路(一群只屬一個租戶)。
     for (const tenant of tenants) {
+      if (tenant.runtimeEnabled === false || !tenant.notionConfigured) continue;
       try {
         const binding = await queryTenantBinding(tenant, groupId);
         if (binding) { hit = { tenant, binding }; break; }

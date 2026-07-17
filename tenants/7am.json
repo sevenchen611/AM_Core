@@ -1,0 +1,17 @@
+{
+  "key": "7am",
+  "displayName": "7AM",
+  "envPrefix": "SEVEN",
+  "runtimeEnabled": false,
+  "authorizationReady": false,
+  "modules": [],
+  "status": "遷移中：目前仍由 SevenAM 獨立服務；群組綁定與 Core 相容層完成後才啟用",
+  "config": {
+    "portal": {
+      "label": "7AM 助理",
+      "featureAliases": ["am-7am"],
+      "authorizationNote": "7AM 尚未完成群組綁定與 Core 相容層；既有入口維持，完成遷移前不可新增群組權限。"
+    }
+  }
+}
+

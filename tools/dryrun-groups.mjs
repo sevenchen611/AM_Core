@@ -3,11 +3,18 @@ import assert from 'node:assert';
 import { Readable } from 'node:stream';
 import groups from '../modules/groups/index.js';
 import { GROUP_BINDING_V2_PROPERTIES } from '../core/group-binding-schema.js';
+import { createAccessContext } from '../core/access.js';
 
 const calls = [];
 const invalidated = [];
 const tenant = { key: 'forest', displayName: '森在', modules: ['groups', 'queue', 'tasks'], dataSources: { groupBindings: 'forest-groups' } };
-const portal = { pinAuthed: (_req, item) => item.key === 'forest', userAuthed: async () => null, tenantAuthorized: () => false };
+const portal = { userAuthed: async () => null, tenantAuthorized: () => false };
+const access = createAccessContext({
+  user: { id: 'forest-admin', displayName: '森在管理者', role: 'user', authzVersion: 3, amAccess: { forest: { mode: 'all', groupBindingIds: [] } } },
+  tenant,
+  authzMode: 'enforce',
+});
+const routeContext = (pathname) => ({ tenant, portal, access, pathname });
 groups.init({
   logger: { warn: () => {} }, router: { invalidate: (groupId) => invalidated.push(groupId) }, portal,
   listGroupMemberIds: async (groupId) => groupId === 'gFOREST' ? ['U1', 'U2', 'U3'] : [],
@@ -33,7 +40,7 @@ async function check(name, fn) { try { await fn(); results.push([true, name]); }
 
 await check('群組頁只查 Forest 的群組資料源', async () => {
   const res = response();
-  await route.handler(request('GET'), res, { tenant, portal, pathname: '/groups' });
+  await route.handler(request('GET'), res, routeContext('/groups'));
   assert.equal(res.status, 200);
   assert.match(res.body, /茲心園工務群/);
   assert.match(res.body, /<select data-field="owner">/);
@@ -45,9 +52,9 @@ await check('群組頁只查 Forest 的群組資料源', async () => {
 await check('儲存群組設定以 tenantKey 更新既有頁並清快取', async () => {
   const res = response();
   await route.handler(request('POST', JSON.stringify({
-    pageId: 'binding-1', groupId: 'gFOREST', name: '茲心園工務群', purpose: '工務協調', owner: '葉小蝸',
+    pageId: 'binding-1', name: '茲心園工務群', purpose: '工務協調', owner: '葉小蝸',
     capabilities: '訊息收集、待辦、案件狀態', goal: '茲心園營運', statusUpdatePolicy: '主要負責人', reminderTargets: '葉小蝸', status: '啟用',
-  })), res, { tenant, portal, pathname: '/groups/api/update' });
+  })), res, routeContext('/groups/api/update'));
   assert.equal(res.status, 200);
   const update = calls.find((call) => call.pathname === '/v1/pages/binding-1');
   assert.equal(update.opts.tenantKey, 'forest');
@@ -56,7 +63,7 @@ await check('儲存群組設定以 tenantKey 更新既有頁並清快取', async
 
 await check('同步成員只讀 Forest 綁定並寫回 Forest 的成員對照', async () => {
   const res = response();
-  await route.handler(request('POST', JSON.stringify({ pageId: 'binding-1' })), res, { tenant, portal, pathname: '/groups/api/sync-members' });
+  await route.handler(request('POST', JSON.stringify({ pageId: 'binding-1' })), res, routeContext('/groups/api/sync-members'));
   assert.equal(res.status, 200);
   assert.equal(JSON.parse(res.body).memberCount, 3);
   const update = calls.filter((call) => call.pathname === '/v1/pages/binding-1').at(-1);
@@ -70,7 +77,7 @@ await check('未知功能不會寫入群組綁定', async () => {
   const res = response();
   await route.handler(request('POST', JSON.stringify({
     pageId: 'binding-1', groupId: 'gFOREST', name: '茲心園工務群', capabilities: '偷渡功能', statusUpdatePolicy: '所有成員', status: '啟用',
-  })), res, { tenant, portal, pathname: '/groups/api/update' });
+  })), res, routeContext('/groups/api/update'));
   assert.equal(res.status, 500);
   assert.equal(calls.some((call) => call.pathname === '/v1/pages/binding-1' && call.opts.body?.properties?.['啟用功能']?.multi_select?.some((x) => x.name === '偷渡功能')), false);
 });

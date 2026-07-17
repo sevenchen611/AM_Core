@@ -1,11 +1,10 @@
-// modules/meetings 的 /m 路由「修正講者」接線 — 離線驗證(不打真 API)。
+// modules/meetings 的 /m 公開唯讀路由 — 離線驗證(不打真 API)。
 // 執行:node tools/dryrun-speaker-fix-route.mjs
 //
-// 與 dryrun-speaker-fix.mjs 互補:那支測「引擎」,這支測「接線+閘門」——
-//   · GET  公開頁要出現「修正講者」小工具(且未設 PIN 時不顯示,免給死介面)
-//   · POST 無/錯 PIN → 403 且一個 block 都不改
-//   · POST 對 PIN → 真的把整頁對調改寫
-//   · 壞簽章的 POST → 404,不進 save(免拿別的頁 id 亂寫)
+// 與 dryrun-speaker-fix.mjs 互補:那支只測內部改寫引擎,這支測公開路由閘門——
+//   · GET 公開頁永遠唯讀,不顯示 PIN 或改寫工具
+//   · POST 無論 PIN 正誤都拒絕,且一個 block 都不改
+//   · 壞簽章的 POST → 404,不進任何寫入流程
 
 import crypto from 'node:crypto';
 import assert from 'node:assert';
@@ -60,22 +59,22 @@ const SWAP = [{ label: 'A', full: '其勳(現場工務主任)' }, { label: 'B', 
 const tests = [];
 const check = (name, fn) => tests.push([name, fn]);
 
-check('GET:頁面含小工具 + 預填 + save 指向同路徑', async () => {
+check('GET:有效簽章可讀,但不含 PIN 或改寫工具', async () => {
   const { platform } = makePlatform(); mod.init(platform);
   const res = mockRes();
   assert.equal(await mod.handlePublicRequest(mockReq('GET'), res, PATH), true);
   assert.equal(res._r.status, 200);
-  assert.ok(res._r.body.includes('修正講者'), '缺小工具');
-  assert.ok(res._r.body.includes('data-label="A"') && res._r.body.includes('data-label="B"'), '缺輸入框');
-  assert.ok(res._r.body.includes('Seven(負責人)') && res._r.body.includes('其勳(現場工務主任)'), '未預填');
-  assert.ok(res._r.body.includes(PATH), 'save 路徑不符');
+  assert.ok(res._r.body.includes('Seven(負責人)') && res._r.body.includes('其勳(現場工務主任)'), '公開內容缺漏');
+  assert.ok(!res._r.body.includes('修正講者'), '公開頁不應顯示改寫工具');
+  assert.ok(!res._r.body.includes('data-label="A"') && !res._r.body.includes('name="pin"'), '公開頁不應含編輯欄位');
 });
 
-check('GET:未設 PIN → 不顯示工具', async () => {
+check('GET:PIN 是否設定都不改變唯讀狀態', async () => {
   const { platform } = makePlatform({ pinConfigured: false }); mod.init(platform);
   const res = mockRes();
   await mod.handlePublicRequest(mockReq('GET'), res, PATH);
-  assert.ok(!res._r.body.includes('修正講者'), '不該顯示');
+  assert.equal(res._r.status, 200);
+  assert.ok(!res._r.body.includes('修正講者'), '不該顯示改寫工具');
 });
 
 check('POST 錯 PIN → 403,不改寫', async () => {
@@ -86,18 +85,13 @@ check('POST 錯 PIN → 403,不改寫', async () => {
   assert.equal(Object.keys(patched.blocks).length, 0);
 });
 
-check('POST 對 PIN → 整頁對調改寫', async () => {
+check('POST 對 PIN → 仍為 403,不改寫', async () => {
   const { platform, patched } = makePlatform(); mod.init(platform);
   const res = mockRes();
   await mod.handlePublicRequest(mockReq('POST', { fixes: SWAP, pin: '1234' }), res, PATH);
-  assert.equal(res._r.status, 200);
-  const j = JSON.parse(res._r.body);
-  assert.ok(j.ok && !j.noop);
-  assert.equal(patched.blocks['lg'], '【講者對照】講者A=其勳(現場工務主任)  講者B=Seven(負責人)');
-  assert.equal(patched.blocks['s1'], '其勳確認做法,Seven提議');
-  assert.equal(patched.blocks['tr1'], '其勳(現場工務主任):好。Seven(負責人):嗯。');
-  assert.equal(patched.blocks['t1'], '確認進入點(Seven)');
-  assert.equal(patched.props['參與者'].rich_text[0].text.content, '其勳(現場工務主任)、Seven(負責人)');
+  assert.equal(res._r.status, 403);
+  assert.equal(Object.keys(patched.blocks).length, 0);
+  assert.equal(Object.keys(patched.props).length, 0);
 });
 
 check('POST 壞簽章 → 404,不進 save', async () => {

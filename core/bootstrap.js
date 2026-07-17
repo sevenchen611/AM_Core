@@ -38,6 +38,13 @@ export async function bootstrap(env = process.env, overrides = {}) {
   const portal = overrides.portal || createPortal({
     queueAccessKey: env.AMCORE_QUEUE_ACCESS_KEY || '',
     portalPin: env.AMCORE_PORTAL_PIN || '',
+    meEndpoint: env.AMCORE_PORTAL_ME_ENDPOINT || 'https://rental.hozorental.com/api/me',
+    handoffEndpoint: env.AMCORE_PORTAL_HANDOFF_ENDPOINT || 'https://rental.hozorental.com/api/am-sso/consume',
+    verifyEndpoint: env.AMCORE_PORTAL_VERIFY_ENDPOINT || 'https://rental.hozorental.com/api/am-sso/verify',
+    portalServiceToken: env.AMCORE_PORTAL_SERVICE_TOKEN || '',
+    groupAuthzMode: env.AMCORE_GROUP_AUTHZ_MODE || 'shadow',
+    emergencyPinEnabled: env.AMCORE_ENABLE_EMERGENCY_PIN === '1',
+    emergencyPinTtlSeconds: env.AMCORE_EMERGENCY_PIN_TTL_SECONDS || 15 * 60,
     logger,
   });
   // LLM 抽象層:可插拔後端 + 統一備援鏈(鏈序見 AMCORE_LLM_CHAIN)。
@@ -87,6 +94,7 @@ export async function bootstrap(env = process.env, overrides = {}) {
     getDriveAccessToken: drive.getAccessToken,
     // Portal 授權(web routes 用)
     portal,
+    authzMode: portal.authzMode,
     queueAccessKey: env.AMCORE_QUEUE_ACCESS_KEY || '',
     // LLM(統一備援鏈)。新模組一律用這個,不要自己接 AI 供應商。
     llm,

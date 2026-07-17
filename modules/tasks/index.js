@@ -70,6 +70,22 @@ function lastTask(tenant, groupId) {
   return lastCreated.get(pkey(tenant, groupId)) || null;
 }
 
+const relationId = (page, property = '負責群組') => page?.properties?.[property]?.relation?.[0]?.id || '';
+
+async function bindingStatus(ctx, bindingId) {
+  // 群組狀態是授權資料；每次讀取以便停用後下一次請求立即失效。
+  const page = await reqFor(ctx)(`/v1/pages/${encodeURIComponent(bindingId)}`, { method: 'GET' });
+  return page?.properties?.['狀態']?.select?.name || '';
+}
+
+async function assertTaskAccess(ctx, taskPage, action = 'tasks.read') {
+  const access = ctx?.access;
+  if (!access) return true; // system/module calls remain tenant-scoped by notionRequest.
+  const groupBindingId = relationId(taskPage);
+  if (!groupBindingId) return access.assert(action.includes('read') ? 'unassigned.read' : 'unassigned.manage');
+  return access.assert(action, groupBindingId, { status: await bindingStatus(ctx, groupBindingId) });
+}
+
 // ── 建立一筆待辦 ───────────────────────────────────────────
 // ctx : { tenant, notionRequest?, groupId? }        ← 租戶脈絡(tenant.dataSources.tasks 為目標庫)
 // task: { content, owner?, due?, source?, status?,  ← 通用欄位
@@ -91,7 +107,16 @@ async function createTask(ctx, task = {}) {
   if (task.projectPageId) properties['專案'] = { relation: [{ id: task.projectPageId }] };
   if (task.meetingId) properties['會議記錄'] = { relation: [{ id: task.meetingId }] };
   if (task.feedbackId) properties['回饋單'] = { relation: [{ id: task.feedbackId }] };
-  if (task.groupBindingId) properties['負責群組'] = { relation: [{ id: task.groupBindingId }] };
+  // LINE/webhook 建立的待辦一律承接 router 已解析的綁定頁，避免產生無法歸屬的資料。
+  const groupBindingId = task.groupBindingId || ctx.binding?.pageId || '';
+  if (groupBindingId) {
+    if (ctx.access) {
+      ctx.access.assert('tasks.create', groupBindingId, { status: await bindingStatus(ctx, groupBindingId) });
+    }
+    properties['負責群組'] = { relation: [{ id: groupBindingId }] };
+  } else if (ctx.access) {
+    ctx.access.assert('unassigned.manage');
+  }
 
   const page = await reqFor(ctx)('/v1/pages', {
     method: 'POST',
@@ -132,6 +157,12 @@ async function expandTasks(ctx, todos = [], common = {}) {
 async function setStatus(ctx, taskOrId, status) {
   const id = typeof taskOrId === 'string' ? taskOrId : taskOrId?.id;
   if (!id) throw new Error('setStatus 需要 task id');
+  if (ctx.access) {
+    const taskPage = typeof taskOrId === 'string'
+      ? await reqFor(ctx)(`/v1/pages/${encodeURIComponent(id)}`, { method: 'GET' })
+      : taskOrId;
+    await assertTaskAccess(ctx, taskPage, 'tasks.update');
+  }
   const name = normStatus(status);
   await reqFor(ctx)(`/v1/pages/${encodeURIComponent(id)}`, {
     method: 'PATCH',
@@ -145,22 +176,37 @@ async function setStatus(ctx, taskOrId, status) {
 async function listOpen(ctx) {
   const tasksDs = ctx.tenant?.dataSources?.tasks;
   if (!tasksDs) return [];
+  if (ctx.access && !ctx.access.isTenantAll && !(ctx.access.groupBindingIds || []).length) return [];
+  const baseFilters = [
+    { or: [
+      { property: '狀態', select: { equals: '待辦' } },
+      { property: '狀態', select: { equals: '進行中' } },
+    ] },
+    { property: '期限', date: { is_not_empty: true } },
+  ];
+  if (ctx.access && !ctx.access.isTenantAll) {
+    baseFilters.push({
+      or: ctx.access.groupBindingIds.map((id) => ({ property: '負責群組', relation: { contains: id } })),
+    });
+  }
   const result = await reqFor(ctx)(`/v1/data_sources/${encodeURIComponent(tasksDs)}/query`, {
     method: 'POST',
     body: {
-      filter: {
-        and: [
-          { or: [
-            { property: '狀態', select: { equals: '待辦' } },
-            { property: '狀態', select: { equals: '進行中' } },
-          ] },
-          { property: '期限', date: { is_not_empty: true } },
-        ],
-      },
+      filter: { and: baseFilters },
       page_size: 100,
     },
   });
-  return result.results || [];
+  const rows = result.results || [];
+  if (!ctx.access) return rows;
+  const checked = await Promise.all(rows.map(async (page) => {
+    try {
+      await assertTaskAccess(ctx, page, 'tasks.read');
+      return page;
+    } catch {
+      return null;
+    }
+  }));
+  return checked.filter(Boolean);
 }
 
 // ── 提醒記錄(JSON 存在「提醒記錄」rich_text)────────────────
@@ -173,6 +219,7 @@ function reminderRecord(task) {
   }
 }
 async function markReminded(ctx, task, key, value) {
+  if (ctx.access) await assertTaskAccess(ctx, task, 'tasks.update');
   const record = reminderRecord(task);
   record[key] = value;
   await reqFor(ctx)(`/v1/pages/${encodeURIComponent(task.id)}`, {
@@ -189,6 +236,8 @@ function taskRow(task) {
   const p = task.properties || {};
   const due = p['期限']?.date?.start || '';
   return {
+    id: task.id,
+    groupBindingId: relationId(task),
     content: plain(p['內容'], 'title'),
     owner: plain(p['負責人'], 'rich_text'),
     due: due.includes('T') ? `${due.slice(0, 10)} ${due.slice(11, 16)}` : due.slice(0, 10),
@@ -200,20 +249,16 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 
 async function tasksPage(req, res, rctx) {
   const { tenant, portal } = rctx;
-  const pin = Boolean(portal?.pinAuthed?.(req, tenant));
-  const user = pin ? null : await portal?.userAuthed?.(req);
-  const authed = pin || Boolean(user && (typeof portal?.tenantAuthorized === 'function'
-    ? portal.tenantAuthorized(user, tenant)
-    : true));
-  if (!authed) {
-    res.writeHead(401, { 'content-type': 'text/plain; charset=utf-8' });
-    return res.end('需要登入(Portal PIN 或 hozo_session)。');
+  const access = rctx.access || await portal?.resolveAccess?.(req, tenant);
+  if (!access?.allowed) {
+    res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' });
+    return res.end('沒有此租戶或對話群組的權限。');
   }
   if (!tenant?.dataSources?.tasks) {
     res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
     return res.end('此租戶未設定 tasks 資料源。');
   }
-  const rows = (await listOpen({ tenant })).map(taskRow);
+  const rows = (await listOpen({ tenant, access })).map(taskRow);
   const body = [
     `<!doctype html><meta charset="utf-8"><title>待辦｜${esc(tenant.displayName)}</title>`,
     '<style>body{font-family:sans-serif;margin:24px}table{border-collapse:collapse;width:100%}',
@@ -228,7 +273,7 @@ async function tasksPage(req, res, rctx) {
 }
 
 const routes = [
-  { prefix: '/tasks', method: 'GET', handler: tasksPage },
+  { prefix: '/tasks', method: 'GET', access: { kind: 'group', capability: 'tasks.read' }, handler: tasksPage },
 ];
 
 // ── 模組契約:預設匯出 ─────────────────────────────────────

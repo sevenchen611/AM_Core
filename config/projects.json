@@ -29,11 +29,14 @@
     },
     {
       "projectKey": "FOREST_AM",
-      "displayName": "ForestAM",
+      "displayName": "ForestAM（舊服務回退）",
+      "active": false,
+      "lifecycle": "Deprecated — superseded by AM Platform tenant forest",
+      "supersededBy": "AM_PLATFORM:forest",
       "localPath": "D:\\Codex_project\\ForestAM\\line-oa-webhook",
       "manifestPath": "D:\\Codex_project\\ForestAM\\line-oa-webhook\\docs\\project-improvement-manifest.md",
       "upgradeRecordsPath": "D:\\Codex_project\\ForestAM\\line-oa-webhook\\docs\\upgrades",
-      "dataBoundary": "ForestAM is a verbatim clone of BuildAM's architecture (display name 葉小蝸 AI 小助手). Shares Seven's Notion integration token and AI API keys with BuildAM by explicit instruction; data isolation is enforced by parent-page verification against its own Notion 'AI' page. Owns its own Render/GitHub. Minimal-seed, no project bindings yet. LINE OA channel: pending decision."
+      "dataBoundary": "Legacy rollback clone only. Forest data is served by AM Platform tenant forest; no new feature or authorization work is installed in this standalone clone."
     }
   ],
   "sharedRegistryPath": "D:\\Codex_project\\AM_SHARED_VERSION_UPGRADES\\SHARED_IMPROVEMENT_REGISTRY.md",

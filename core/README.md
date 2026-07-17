@@ -11,7 +11,9 @@
 | `notion.js` | `notionRequest` + **per-tenant 資料隔離守衛**(只放行該租戶宣告、且位於其母頁下的資料源) |
 | `line.js` | LINE 簽章驗證 / 取成員名 / 下載內容 / `pushLineMessage`(共用同一支 OA) |
 | `drive.js` | Google Drive client(token / ensureFolder / upload) |
-| `portal.js` | Portal 授權(PIN cookie;`hozo_session` → `rental.hozorental.com/api/me`) |
+| `access.js` | 統一 `AccessContext`：帳號 → 租戶 → 群組 → action，含 all/selected、停用群組與待分派規則 |
+| `access-directory.js` | Portal 伺服器專用租戶／群組目錄；只回群組綁定 Page ID 與顯示欄位，遷移中租戶 fail closed |
+| `portal.js` | opaque session + Portal 即時驗證；日常 PIN 停用，選用緊急最高管理 session 最長 15 分鐘 |
 | `router.js` | `resolveGroupBinding`:對各租戶群組綁定庫查群 → `{ tenant, binding }`,快取(TTL) |
 | `group-binding-schema.js` | 群組綁定 v2 的可攜欄位契約與安全 schema patch |
 | `modules.js` | 模組載入(`modules/<name>/index.js`)、建 `ctx`、依序分派 `onMessage/onAudio`、蒐集 `routes`、跑 `tick` |
@@ -21,6 +23,7 @@
 ## 端點(`../server.js`)
 
 - `GET /health` — 平台 + 各租戶設定狀態
+- `GET /portal/admin/access-directory` — 服務金鑰保護的 Portal 群組目錄，不回 LINE ID／成員／秘密
 - `POST /webhook/line` — 唯一入口:驗簽 → 解析租戶 → 分派模組(未綁定即忽略)
 - `GET /cron/tick?key=…` — 觸發模組 `tick` 巡邏
 - 其餘 → 各模組 `routes`
@@ -30,6 +33,7 @@
 1. 每個資料源 id 在登記表自我識別「屬哪個租戶」;寫入前守衛驗證它位於**該租戶母頁**下,否則拒絕；更新既有頁面時也會核對其 data source。
 2. 模組拿到的資料源 id 一律來自 `ctx.tenant.dataSources.*`,結構上碰不到別租戶。
 3. core 內部呼叫可加 `tenantKey` 做嚴格綁定(路由器查群組綁定即用此擋跨租戶)。
+4. 個人後臺請求再經 `AccessContext` 核對資料的群組 relation；Webhook／排程使用 system principal，但仍不能越過租戶 Notion 守衛。
 
 ## 驗證
 

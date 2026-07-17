@@ -1,0 +1,29 @@
+{
+  "id": "AM-IMP-2026.0717.04",
+  "name": "Tenant-to-conversation-group authorization",
+  "type": "Shared Core authorization / Portal identity / module data guards",
+  "portable": true,
+  "installTargets": ["AM_PLATFORM", "PORTAL", "HOZO_AM", "SEVEN_AM"],
+  "requiresDatabases": ["Portal admin_users", "Portal am_authz_audit", "tenant group bindings", "tasks responsible-group relation", "messages group-binding relation"],
+  "requiresEnv": ["AMCORE_PORTAL_SERVICE_TOKEN", "AMCORE_GROUP_AUTHZ_MODE", "AM_PLATFORM_SERVICE_TOKEN", "AM_GROUP_AUTHZ_MODE"],
+  "requiresScripts": ["tools/dryrun-group-authorization.mjs", "tools/dryrun-portal-access.mjs", "tools/dryrun-access-directory.mjs", "tools/audit-module-authorization.mjs", "tools/verify-portal-group-authz.mjs", "versions/AM-IMP-2026.0717.04/scripts/plan-account-review.mjs", "versions/AM-IMP-2026.0717.04/scripts/plan-group-backfill.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Every backend request is tenant-locked by notionRequest and every Portal-owned record is additionally checked against its group-binding relation before read, PATCH, batch processing, or attachment access."
+  },
+  "definitionOfDone": [
+    "Portal stores reviewed amAccess mode all or selected group-binding page IDs and authzVersion 3 without new-account defaults",
+    "Permission changes are validated against the server-side AM directory and appended to am_authz_audit",
+    "Core accepts only public, machine, tenant, or group module routes and creates a live AccessContext for tenant/group routes",
+    "Groups, queue, tasks, and group-owned construction tickets enforce per-record group relations",
+    "Every enabled module is covered by public, machine, tenant, group, or system-principal policy and meeting-created tasks retain their source group",
+    "Migrating AM systems remain visible in the Portal directory but cannot be assigned until their group-binding and isolation setup is verifiably ready",
+    "Opaque AM sessions reload the active Portal user on every Core request",
+    "Cross-group page ID, attachment ID, and batch dry-runs produce no unauthorized Notion PATCH",
+    "Forest, engineering, HOZO_AM, and SevenAM are reviewed and verified separately before enforce mode"
+  ],
+  "status": "Ready"
+}

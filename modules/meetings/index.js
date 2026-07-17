@@ -16,7 +16,7 @@
 // 因為 llm.js 不吃音訊。
 
 import crypto from 'node:crypto';
-import { parseLegend, speakerWidgetHtml, handleSpeakerSave } from './speaker-fix.js';
+import { parseLegend } from './speaker-fix.js';
 
 let platform = null;
 function init(injected) { platform = injected; }
@@ -757,12 +757,9 @@ async function renderPublicMeetingHtml(pageId) {
   const { legend, sections } = await buildPublicSections(pageId);
   const body = sections.map((s) => `<details${s.key === 'summary' ? ' open' : ''}><summary>${esc(s.title)}</summary>`
     + `<div class="sec">${blocksToHtml(s.blocks) || '<p class="dim">(無內容)</p>'}</div></details>`).join('');
-  // 「修正講者」小工具:辨識錯人時直接在頁面上改名/對調/合併,存回 Notion(存檔需管理 PIN)。
-  // 只有 PIN 已設定(能驗證)時才顯示,避免給一個永遠存不了的介面。
-  const { speakers } = parseLegend(legend);
-  const editor = (speakers.length && platform.portal?.pinConfigured && platform.publicLinkSecret)
-    ? speakerWidgetHtml(speakers, { savePath: `/m/${normId(pageId)}-${meetingSig(pageId)}` })
-    : '';
+  // 公開簽章頁只讀。原「管理 PIN」寫入已停用，避免繞過 Portal 個人帳號與群組授權；
+  // 後續若恢復編輯，必須另掛 group route 並以 AccessContext 驗證來源群組。
+  const editor = '';
   return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
@@ -802,7 +799,7 @@ ${body || '<p class="dim">(此會議尚無內容)</p>'}
 }
 
 // GET  /m/<32碼id>-<16碼簽章> → 公開會議頁(免帳號)
-// POST /m/<32碼id>-<16碼簽章> → 修正講者存回 Notion(需管理 PIN;簽章擋掉亂猜頁 id)
+// POST /m/<32碼id>-<16碼簽章> → 403（公開頁唯讀；寫入必須另走 group route）
 // 回傳 true=已處理。
 async function handlePublicRequest(req, res, pathname) {
   const m = String(pathname).match(/^\/m\/([0-9a-f]{32})-([0-9a-f]{16})$/i);
@@ -811,21 +808,10 @@ async function handlePublicRequest(req, res, pathname) {
   const deny = () => { res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end('<meta charset="utf-8"><p style="font-family:system-ui;padding:40px;text-align:center">找不到這份會議記錄(連結可能失效)。</p>'); };
   if (!platform.publicLinkSecret || meetingSig(id) !== sig.toLowerCase()) { deny(); return true; }
 
-  // 存檔:修正講者。讀 body → 委派 speaker-fix(內部驗 PIN)→ 回 JSON。
+  // 公開頁不接受寫入；日常 PIN 已停用，不能用短效簽章連結繞過群組權限。
   if (req.method === 'POST') {
     const sendJson = (status, obj) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(obj)); };
-    try {
-      const body = await readJsonBody(req);
-      const result = await handleSpeakerSave({
-        pageId: id,
-        body,
-        deps: { notionRequest: platform.notionRequest, checkPin: (p) => Boolean(platform.portal?.checkPin?.(p)) },
-      });
-      sendJson(result.status, result.json);
-    } catch (e) {
-      console.warn(`speaker-fix save failed: ${e.message}`);
-      sendJson(500, { error: '儲存失敗:' + e.message });
-    }
+    sendJson(403, { error: '公開會議連結為唯讀；請從具群組權限的 AM 後臺修改。' });
     return true;
   }
 
@@ -838,16 +824,6 @@ async function handlePublicRequest(req, res, pathname) {
     deny();
   }
   return true;
-}
-
-// 讀 POST 的 JSON body(上限 256KB,避免被灌爆)
-function readJsonBody(req) {
-  return new Promise((resolve, reject) => {
-    let data = '';
-    req.on('data', (c) => { data += c; if (data.length > 262144) { reject(new Error('body too large')); req.destroy(); } });
-    req.on('end', () => { try { resolve(data ? JSON.parse(data) : {}); } catch (e) { reject(new Error('invalid JSON body')); } });
-    req.on('error', reject);
-  });
 }
 
 // ── 落地 + 發布 ────────────────────────────────────────────
@@ -912,6 +888,8 @@ async function publishMeeting({ parsed, diarized, legend, roster, projectPageId,
           '期限': /^\d{4}-\d{2}-\d{2}$/.test(t.due || '') ? { date: { start: t.due } } : { date: null },
           '來源': { select: { name: '會議' } },
           '狀態': { select: { name: '待辦' } },
+          // LINE 群組中的會議待辦必須保留來源群組；Portal 指定群組權限才能正確看見。
+          ...(binding?.pageId ? { '負責群組': { relation: [{ id: binding.pageId }] } } : {}),
           // 待辦庫的「會議記錄」關聯指向預設會議庫;per-group 庫的會議頁不在其目標庫內,故略過關聯
           ...(perGroup ? {} : { '會議記錄': { relation: [{ id: meeting.id }] } }),
         },
@@ -1060,6 +1038,7 @@ async function processRecording({ tenant, buffer, filename, contentType, binding
           '期限': /^\d{4}-\d{2}-\d{2}$/.test(t.due || '') ? { date: { start: t.due } } : { date: null },
           '來源': { select: { name: '會議' } },
           '狀態': { select: { name: '待辦' } },
+          ...(binding?.pageId ? { '負責群組': { relation: [{ id: binding.pageId }] } } : {}),
           ...(perGroup ? {} : { '會議記錄': { relation: [{ id: meeting.id }] } }),
         },
       },
@@ -1082,12 +1061,13 @@ export default {
   onMessage,           // (ctx) 每則訊息;若在等與會資訊則收斂,回傳 true=已處理
   provisionMeetingsDb, // (tenant, groupName) 手動預建某群的會議庫(選用)
   publicMeetingUrl,    // (pageId) → 自架公開頁連結(需 publicBaseUrl + publicLinkSecret)
-  handlePublicRequest, // (req,res,pathname) GET 公開會議頁 / POST 修正講者;回 true=已處理
+  handlePublicRequest, // (req,res,pathname) GET 公開會議頁 / POST 固定拒絕;回 true=已處理
   // core/server 的模組路由掛載點(collectRoutes 會蒐集 mod.routes)。公開會議頁免登入、
   // 路徑不帶租戶(靠 id+簽章定位,由平台共用 Notion token 讀取);所有租戶都由此唯一入口掛載。
-  // 不限 method:GET=看,POST=修正講者存回 Notion(handler 內自行分流,POST 另需管理 PIN)。
+  // 不限 method:GET=看,POST=明確拒絕；公開簽章不能取代 Portal / 群組授權。
   routes: [{
     prefix: '/m',
+    access: { kind: 'public', scope: 'signed-link' },
     handler: async (req, res, { pathname }) => {
       const handled = await handlePublicRequest(req, res, pathname);
       if (!handled) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Not found'); }

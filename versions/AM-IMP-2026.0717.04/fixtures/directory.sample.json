@@ -1,0 +1,22 @@
+{
+  "tenants": [
+    {
+      "key": "forest",
+      "featureKey": "am-forest",
+      "label": "森在 AM / Forest AM",
+      "groups": [
+        { "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "name": "群組 A", "status": "啟用" },
+        { "id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "name": "群組 B", "status": "啟用" }
+      ]
+    },
+    {
+      "key": "engineering",
+      "featureKey": "am-buildam",
+      "label": "工程 AM",
+      "groups": [
+        { "id": "cccccccccccccccccccccccccccccccc", "name": "茲心園工務群", "status": "啟用" },
+        { "id": "dddddddddddddddddddddddddddddddd", "name": "其他工務群", "status": "啟用" }
+      ]
+    }
+  ]
+}

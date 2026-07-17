@@ -1,0 +1,7 @@
+{
+  "records": [
+    { "id": "task-with-source", "sourceMessageBindingIds": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"] },
+    { "id": "task-conflict", "meetingBindingIds": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"], "feedbackBindingIds": ["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"] },
+    { "id": "task-unassigned" }
+  ]
+}

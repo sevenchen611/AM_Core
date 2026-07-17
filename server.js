@@ -3,16 +3,19 @@
 // core 只做底座 + 路由 + 租戶解析 + 隔離;功能邏輯全在 modules/。
 
 import http from 'node:http';
+import crypto from 'node:crypto';
 import { bootstrap } from './core/bootstrap.js';
+import { createAccessDirectory } from './core/access-directory.js';
 import { sendJson, sendText, readBody } from './core/util.js';
 
 const ctx = await bootstrap(process.env);
 const { tenants, line, router, dispatcher, portal, modules, platform, llm, logger } = ctx;
 const queueAccessKey = process.env.AMCORE_QUEUE_ACCESS_KEY || '';
+const portalServiceToken = process.env.AMCORE_PORTAL_SERVICE_TOKEN || '';
 
 if (!line.configured) logger.warn('Missing LINE_CHANNEL_ACCESS_TOKEN or LINE_CHANNEL_SECRET — webhook signature will fail.');
 for (const t of tenants) {
-  if (!t.notionConfigured) logger.warn(`Tenant "${t.key}" not Notion-ready (need <${t.envPrefix}>_NOTION_PARENT_PAGE_ID + messages + groupBindings data source ids).`);
+  if (t.runtimeEnabled !== false && !t.notionConfigured) logger.warn(`Tenant "${t.key}" not Notion-ready (need <${t.envPrefix}>_NOTION_PARENT_PAGE_ID + messages + groupBindings data source ids).`);
 }
 
 const routes = dispatcher.collectRoutes();
@@ -22,27 +25,39 @@ const html = (value) => String(value || '').replace(/[&<>"']/g, (c) => ({
 }[c]));
 function homeTenant(url) {
   const requested = url.searchParams.get('tenant') || process.env.AMCORE_HOME_TENANT || '';
-  return tenants.find((t) => t.key === requested)
-    || tenants.find((t) => (t.modules || []).includes('construction'))
-    || tenants[0]
+  const active = tenants.filter((t) => t.runtimeEnabled !== false);
+  return active.find((t) => t.key === requested)
+    || active.find((t) => (t.modules || []).includes('construction'))
+    || active[0]
     || null;
 }
-function homeLocation(tenant) {
+function homeLocation(tenant, access = null) {
   const configured = String(tenant?.config?.homeRoute || '').trim();
-  const route = configured.startsWith('/') ? configured : (tenant?.modules || []).includes('construction') ? '/dashboard' : '/queue';
+  let route = configured.startsWith('/') ? configured : (tenant?.modules || []).includes('construction') ? '/dashboard' : '/queue';
+  if (access && !access.isTenantAll && ['/dashboard', '/budget', '/contracts'].includes(route.split('?')[0])) {
+    route = (tenant?.modules || []).includes('queue') ? '/queue' : '/admin';
+  }
   return `${route}${route.includes('?') ? '&' : '?'}tenant=${encodeURIComponent(tenant.key)}`;
 }
 function renderLoginPage(tenant, error = false) {
+  const emergency = portal.pinConfigured;
   return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${html(tenant.displayName)}｜AM Platform</title><style>
 body{font-family:system-ui,'Noto Sans TC',sans-serif;background:#f5f7f6;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;color:#22302a}
 form{background:#fff;border:1px solid #e0e6e3;border-radius:16px;padding:28px;text-align:center;width:300px;box-shadow:0 8px 30px rgba(20,50,35,.08)}
 h1{font-size:19px;color:#2e7d52;margin:0 0 5px}.sub{font-size:12px;color:#6b7a72;margin:0 0 16px}input{width:100%;box-sizing:border-box;padding:12px;border:1px solid #d8e1dd;border-radius:10px;font-size:16px;text-align:center}
 button{width:100%;margin-top:12px;padding:12px;background:#2e7d52;color:#fff;border:0;border-radius:10px;font-size:15px;font-weight:700}.err{color:#a03e33;font-size:13px;margin-top:9px}</style></head>
-<body><form method="POST" action="/auth"><h1>🐌 ${html(tenant.displayName)}</h1><p class="sub">AM Platform 統一入口</p>
-<input type="hidden" name="tenant" value="${html(tenant.key)}"><input name="pin" type="password" placeholder="輸入通行碼" autofocus><button>進入</button>
-${error ? '<div class="err">通行碼不正確</div>' : ''}</form></body></html>`;
+<body><form method="POST" action="/auth"><h1>🐌 ${html(tenant.displayName)}</h1><p class="sub">請由 HOZO Portal 以個人帳號進入</p>
+${emergency ? `<input type="hidden" name="tenant" value="${html(tenant.key)}"><input name="pin" type="password" placeholder="緊急最高管理通行碼" autofocus><button>緊急進入（15 分鐘）</button>` : '<a href="https://rental.hozorental.com/portal">回到 HOZO Portal</a>'}
+${error ? '<div class="err">緊急通行碼不正確</div>' : ''}</form></body></html>`;
 }
+
+function safeSecretEqual(left, right) {
+  const a = Buffer.from(String(left || ''));
+  const b = Buffer.from(String(right || ''));
+  return a.length > 0 && a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+const accessDirectory = createAccessDirectory({ tenants, notionRequest: platform.notionRequest, logger });
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
@@ -53,13 +68,15 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, {
       ok: true,
       platform: 'am-core',
-      build: 'group-member-picker-2026-07-17b',
+      build: 'group-access-control-2026-07-17',
       lineConfigured: line.configured,
       driveConfigured: platform.driveConfigured,
       llm: { available: llm.available, chain: llm.backends },
       tenants: tenants.map((t) => ({
         key: t.key,
         displayName: t.displayName,
+        runtimeEnabled: t.runtimeEnabled,
+        authorizationReady: t.authorizationReady,
         notionConfigured: t.notionConfigured,
         groupRoutingEnabled: Boolean(t.dataSources.groupBindings),
         driveConfigured: t.driveConfigured,
@@ -72,8 +89,27 @@ const server = http.createServer(async (req, res) => {
         llmAvailable: Boolean(platform.llmForTenant?.(t)?.available),
       })),
       dataIsolationGuardEnabled: true,
+      groupAuthorization: {
+        mode: portal.authzMode,
+        portalServiceConfigured: portal.portalServiceConfigured,
+        emergencyPinEnabled: portal.pinConfigured,
+      },
       webRoutes: routes.map((r) => `${r.tenantKey}:${r.moduleName}`),
     });
+  }
+
+  // Portal 伺服器專用群組目錄：不可由瀏覽器公開讀取，不回 LINE groupId 或成員資料。
+  if (req.method === 'GET' && pathname === '/portal/admin/access-directory') {
+    if (!portalServiceToken) return sendJson(res, 503, { error: 'Portal directory service is not configured.' });
+    if (!safeSecretEqual(req.headers['x-am-platform-token'], portalServiceToken)) {
+      return sendJson(res, 401, { error: 'Unauthorized' });
+    }
+    try {
+      return sendJson(res, 200, await accessDirectory());
+    } catch (error) {
+      logger.warn(`Portal access directory failed: ${error.message}`);
+      return sendJson(res, 502, { error: 'Unable to load AM access directory.' });
+    }
   }
 
   // Portal 帳號管理用的公開租戶目錄：只提供非機密的 key／顯示名稱／權限鍵。
@@ -88,6 +124,7 @@ const server = http.createServer(async (req, res) => {
         key: tenant.key,
         featureKey,
         label: String(portalConfig.label || (displayName.includes('AM') ? displayName : `${displayName} AM`)).slice(0, 120),
+        assignable: tenant.runtimeEnabled !== false && tenant.authorizationReady !== false && tenant.notionConfigured,
       };
     });
     res.writeHead(200, {
@@ -102,10 +139,9 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && pathname === '/') {
     const tenant = homeTenant(url);
     if (!tenant) return sendJson(res, 503, { error: 'No tenant configured' });
-    const pin = portal.pinAuthed(req, tenant);
-    const user = pin ? null : await portal.userAuthed(req);
-    if (pin || portal.tenantAuthorized(user, tenant)) {
-      res.writeHead(302, { Location: homeLocation(tenant), 'Cache-Control': 'no-store' });
+    const access = await portal.resolveAccess(req, tenant);
+    if (access.allowed) {
+      res.writeHead(302, { Location: homeLocation(tenant, access), 'Cache-Control': 'no-store' });
       return res.end();
     }
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -118,19 +154,27 @@ const server = http.createServer(async (req, res) => {
     const tenant = tenants.find((t) => t.key === url.searchParams.get('tenant')) || null;
     const token = String(url.searchParams.get('token') || '');
     if (!tenant || !token) return sendJson(res, 400, { error: 'Invalid Portal SSO handoff.' });
-    const user = await portal.consumeHandoff(token, tenant);
-    const cookie = user ? portal.ssoCookieHeader(user) : '';
-    if (!user || !cookie) return sendJson(res, 401, { error: 'Portal authorization failed.' });
-    res.writeHead(302, { Location: homeLocation(tenant), 'Set-Cookie': cookie, 'Cache-Control': 'no-store' });
+    const handoff = await portal.consumeHandoff(token, tenant);
+    const cookie = handoff ? portal.ssoCookieHeader(handoff) : '';
+    if (!handoff || !cookie) return sendJson(res, 401, { error: 'Portal authorization failed.' });
+    const access = portal.accessForUser(handoff.user, tenant);
+    res.writeHead(302, { Location: homeLocation(tenant, access), 'Set-Cookie': cookie, 'Cache-Control': 'no-store' });
     return res.end();
   }
 
   if (req.method === 'POST' && pathname === '/auth') {
+    if (!portal.pinConfigured) return sendJson(res, 404, { error: 'Emergency login is disabled.' });
     const form = new URLSearchParams(await readBody(req));
     const tenant = tenants.find((t) => t.key === form.get('tenant')) || homeTenant(url);
     if (!tenant) return sendJson(res, 503, { error: 'No tenant configured' });
     if (portal.checkPin(String(form.get('pin') || '').trim(), tenant)) {
-      res.writeHead(302, { Location: homeLocation(tenant), 'Set-Cookie': portal.pinCookieHeader(tenant), 'Cache-Control': 'no-store' });
+      logger.warn(JSON.stringify({
+        event: 'am_emergency_owner_session_issued',
+        tenantKey: tenant.key,
+        issuedAt: new Date().toISOString(),
+        maxTtlSeconds: Math.min(900, Math.max(60, Number(process.env.AMCORE_EMERGENCY_PIN_TTL_SECONDS) || 900)),
+      }));
+      res.writeHead(302, { Location: homeLocation(tenant, { isTenantAll: true }), 'Set-Cookie': portal.pinCookieHeader(tenant), 'Cache-Control': 'no-store' });
       return res.end();
     }
     res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
@@ -181,7 +225,13 @@ const server = http.createServer(async (req, res) => {
     const requested = url.searchParams.get('tenant');
     const tenant = tenants.find((t) => t.key === (requested || tenantKey)) || null;
     if (tenant && !(tenant.modules || []).includes(moduleName)) continue;
-    return route.handler(req, res, { pathname, url, tenant, tenants, portal, platform });
+    const access = ['tenant', 'group'].includes(route.access?.kind) && tenant
+      ? await portal.resolveAccess(req, tenant)
+      : null;
+    if (['tenant', 'group'].includes(route.access?.kind) && !access?.allowed) {
+      return sendJson(res, access?.user ? 403 : 401, { error: '沒有此租戶或對話群組的權限。' });
+    }
+    return route.handler(req, res, { pathname, url, tenant, tenants, portal, platform, access, routeAccess: route.access || null });
   }
 
   return sendJson(res, 404, { error: 'Not found' });

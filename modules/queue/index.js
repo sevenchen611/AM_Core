@@ -85,6 +85,72 @@ async function inScope(tenant, scope, projectId) {
   return scope.has(map[projectId] || '');
 }
 
+async function bindingMeta(tenant, bindingId) {
+  if (!bindingId) return null;
+  // 授權資料不得做跨請求 TTL 快取；停用／撤權要在下一次請求立即生效。
+  const page = await nreq(tenant, `/v1/pages/${encodeURIComponent(bindingId)}`, { method: 'GET' });
+  return {
+    id: page.id,
+    status: page.properties?.['狀態']?.select?.name || '停用',
+    role: page.properties?.['群組角色']?.select?.name || '',
+    projectId: page.properties?.['專案']?.relation?.[0]?.id || '',
+  };
+}
+
+async function bindingAllowed(tenant, access, bindingId, action = 'queue.read') {
+  if (!bindingId) return Boolean(access?.can?.('unassigned.read'));
+  const meta = await bindingMeta(tenant, bindingId);
+  return Boolean(access?.can?.(action, bindingId, { status: meta?.status || '停用' }));
+}
+
+async function assertMessagePageAccess(tenant, access, page, action = 'queue.manage') {
+  const bindingId = page?.properties?.['群組綁定']?.relation?.[0]?.id || '';
+  if (bindingId) {
+    const meta = await bindingMeta(tenant, bindingId);
+    access.assert(action, bindingId, { status: meta?.status || '停用' });
+  } else {
+    access.assert('unassigned.manage');
+  }
+  return bindingId;
+}
+
+async function accessibleBindingSummary(tenant, access) {
+  if (access?.isTenantAll) return { allProjects: true, projectIds: new Set() };
+  const projectIds = new Set();
+  let allProjects = false;
+  for (const id of access?.groupBindingIds || []) {
+    try {
+      const meta = await bindingMeta(tenant, id);
+      if (!access.can('queue.read', id, { status: meta?.status || '停用' })) continue;
+      if (meta.role === '總管') allProjects = true;
+      if (meta.projectId) projectIds.add(meta.projectId);
+    } catch {}
+  }
+  return { allProjects, projectIds };
+}
+
+async function assertProjectAccess(tenant, access, projectId) {
+  if (access?.isTenantAll) return true;
+  const summary = await accessibleBindingSummary(tenant, access);
+  if (summary.allProjects || summary.projectIds.has(projectId)) return true;
+  throw Object.assign(new Error('找不到可存取的專案。'), { statusCode: 404 });
+}
+
+async function fallbackAccess(req, tenant, portal) {
+  if (typeof portal?.resolveAccess === 'function') return portal.resolveAccess(req, tenant);
+  const user = await portal?.userAuthed?.(req, tenant);
+  const allowed = Boolean(user && (typeof portal?.tenantAuthorized === 'function' ? portal.tenantAuthorized(user, tenant) : true));
+  return {
+    user,
+    allowed,
+    actor: String(user?.displayName || user?.username || 'Portal 使用者'),
+    isTenantAll: allowed,
+    groupBindingIds: [],
+    can: () => allowed,
+    assert: () => { if (!allowed) throw Object.assign(new Error('Unauthorized'), { statusCode: 401 }); },
+  };
+}
+
 // ── 路由(routes handler)────────────────────────────────
 // server.js 以 { prefix:'/queue', handler } 登記;此 handler 自行依 method+pathname 分派。
 // ctx: { pathname, url, tenant, tenants, portal, platform }
@@ -92,44 +158,15 @@ async function handleQueueRequest(req, res, ctx) {
   const { pathname, url, tenant, portal } = ctx;
   if (!tenant) return sendJson(res, 400, { error: 'unknown tenant' });
 
-  // 登入(以 core Portal 的 PIN 核對 → 種平台級 cookie);無需事前授權。
-  if (req.method === 'POST' && pathname === '/queue/api/login') {
-    let body = {};
-    try { body = JSON.parse((await readBody(req)) || '{}'); } catch {}
-    if (portal?.checkPin?.(body.pin, tenant)) {
-      res.writeHead(200, {
-        'Content-Type': 'application/json; charset=utf-8',
-        'Set-Cookie': portal.pinCookieHeader
-          ? portal.pinCookieHeader(tenant)
-          : `amcore_auth=${portal.pinCookieValue()}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 30}`,
-      });
-      return res.end(JSON.stringify({ ok: true }));
-    }
-    return sendJson(res, 401, { error: 'PIN 錯誤' });
-  }
-
-  // 授權:core Portal(PIN cookie 或 hozo SSO)。未授權 → GET /queue 出登入頁,API 回 401。
-  const pin = Boolean(portal?.pinAuthed?.(req, tenant));
-  const user = pin ? null : await portal?.userAuthed?.(req);
-  const userAllowed = Boolean(user) && (typeof portal?.tenantAuthorized === 'function'
-    ? portal.tenantAuthorized(user, tenant)
-    : true);
-  const authed = pin || userAllowed;
-  if (!authed) {
-    if (req.method === 'GET' && pathname === '/queue') {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-      return res.end(renderLoginPage(tenant));
-    }
+  // 授權由 Core 統一完成；模組不提供日常 PIN 或自己的登入 cookie。
+  const access = ctx.access || await fallbackAccess(req, tenant, portal);
+  if (!access.allowed) {
     return sendJson(res, 401, { error: 'Unauthorized' });
   }
 
-  // scope 一律由 Portal 授權重算，不信任網址上的 ?scope=。
-  const authorizedUrl = new URL(url.href);
-  authorizedUrl.searchParams.delete('scope');
-  if (user && user.role !== 'owner') {
-    authorizedUrl.searchParams.set('scope', portal?.tenantScope?.(user, tenant) || 'none');
-  }
-  const scope = parseScope(authorizedUrl);
+  // 群組 relation 已是主要資料範圍；舊工程館別 suffix 不能把合法群組資料濾掉，也不能擴權。
+  // 專案選單另由 accessibleBindingSummary 限縮。
+  const scope = null;
 
   // 舊工程服務 API 名稱的短期相容層；307 保留原 method/body，實作仍由 construction 擁有。
   const legacyTicketRoutes = {
@@ -145,21 +182,22 @@ async function handleQueueRequest(req, res, ctx) {
   try {
     if (req.method === 'GET' && pathname === '/queue') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-      return res.end(renderQueuePage(tenant));
+      return res.end(renderQueuePage(tenant, access));
     }
     if (req.method === 'GET' && pathname === '/queue/api/pending') {
-      return sendJson(res, 200, await listMessages(tenant, ['AI初判待確認', '未掛載'], 100, scope));
+      return sendJson(res, 200, await listMessages(tenant, ['AI初判待確認', '未掛載'], 100, scope, access));
     }
     if (req.method === 'GET' && pathname === '/queue/api/confirmed') {
-      return sendJson(res, 200, await listMessages(tenant, ['已確認', '一般對話'], 30, scope));
+      return sendJson(res, 200, await listMessages(tenant, ['已確認', '一般對話'], 30, scope, access));
     }
     if (req.method === 'GET' && pathname === '/queue/api/options') {
       const projectId = url.searchParams.get('project');
       if (!projectId) return sendJson(res, 400, { error: 'project required' });
-      return sendJson(res, 200, await loadOptions(tenant, projectId));
+      await assertProjectAccess(tenant, access, projectId);
+      return sendJson(res, 200, await loadOptions(tenant, projectId, access));
     }
     if (req.method === 'GET' && pathname === '/queue/api/projects') {
-      return sendJson(res, 200, await listProjects(tenant, scope));
+      return sendJson(res, 200, await listProjects(tenant, scope, access));
     }
     if (req.method === 'GET' && pathname === '/queue/api/trades') {
       // 工種清單為工程領域(construction/trades 提供);未提供/非工程租戶則回空,前端可自由輸入新工種。
@@ -168,37 +206,51 @@ async function handleQueueRequest(req, res, ctx) {
     }
     if (req.method === 'POST' && pathname === '/queue/api/confirm') {
       const body = JSON.parse(await readBody(req));
-      return sendJson(res, 200, await confirmMessage(tenant, body));
+      body.operator = access.actor;
+      return sendJson(res, 200, await confirmMessage(tenant, body, access));
     }
     if (req.method === 'POST' && pathname === '/queue/api/batch-confirm') {
       const body = JSON.parse(await readBody(req));
-      return sendJson(res, 200, await batchConfirm(tenant, body));
+      body.operator = access.actor;
+      return sendJson(res, 200, await batchConfirm(tenant, body, access));
     }
     if (req.method === 'GET' && pathname === '/queue/api/photo') {
-      return servePhoto(res, url);
+      return await servePhoto(tenant, res, url, access);
     }
     // 開立回饋單:屬 construction「開單」。queue 不含開單邏輯,只呼叫其提供的能力。
     if (req.method === 'POST' && pathname === '/queue/api/create-ticket') {
       const body = JSON.parse(await readBody(req));
+      const sourcePage = await nreq(tenant, `/v1/pages/${encodeURIComponent(body.pageId || '')}`, { method: 'GET' });
+      await assertMessagePageAccess(tenant, access, sourcePage, 'queue.manage');
+      for (const extraId of Array.isArray(body.alsoMount) ? body.alsoMount.slice(0, 20) : []) {
+        const extraPage = await nreq(tenant, `/v1/pages/${encodeURIComponent(extraId)}`, { method: 'GET' });
+        await assertMessagePageAccess(tenant, access, extraPage, 'queue.manage');
+      }
+      body.operator = access.actor;
       // 開單屬 construction:未載入該模組、或此租戶未啟用工程 → 一律 501(非工程租戶不服務開單)。
       if (typeof platform.createFeedbackTicket !== 'function' || !(tenant.modules || []).includes('construction')) {
         return sendJson(res, 501, { error: '開立回饋單由 construction 模組提供,尚未啟用' });
       }
-      return sendJson(res, 200, await platform.createFeedbackTicket({ tenant, ...body }));
+      return sendJson(res, 200, await platform.createFeedbackTicket({ tenant, access, ...body }));
     }
     return sendJson(res, 404, { error: 'Not found' });
   } catch (error) {
-    console.error('Queue error:', error);
-    return sendJson(res, 500, { error: error.message });
+    if (!error.statusCode || error.statusCode >= 500) console.error('Queue error:', error);
+    return sendJson(res, error.statusCode || 500, { error: error.message });
   }
 }
 
 // ── 資料查詢 ────────────────────────────────────────────
-async function listMessages(tenant, statuses, pageSize = 100, scope = null) {
+async function listMessages(tenant, statuses, pageSize = 100, scope = null, access = null) {
+  const statusFilter = { or: statuses.map((s) => ({ property: '掛載狀態', select: { equals: s } })) };
+  const selectedIds = !access?.isTenantAll ? (access?.groupBindingIds || []) : [];
+  const filter = selectedIds.length
+    ? { and: [statusFilter, { or: selectedIds.map((id) => ({ property: '群組綁定', relation: { contains: id } })) }] }
+    : statusFilter;
   const result = await nreq(tenant, `/v1/data_sources/${encodeURIComponent(ds(tenant).messages)}/query`, {
     method: 'POST',
     body: {
-      filter: { or: statuses.map((s) => ({ property: '掛載狀態', select: { equals: s } })) },
+      filter,
       sorts: [{ timestamp: 'created_time', direction: 'descending' }],
       page_size: pageSize,
     },
@@ -212,6 +264,7 @@ async function listMessages(tenant, statuses, pageSize = 100, scope = null) {
     const projectId = p['專案']?.relation?.[0]?.id || null;
     if (!(await inScope(tenant, scope, projectId))) continue;
     const bindingId = p['群組綁定']?.relation?.[0]?.id || null;
+    if (access && !(await bindingAllowed(tenant, access, bindingId, 'queue.read'))) continue;
     const item = {
       id: page.id,
       title: plain(p['訊息']?.title),
@@ -223,6 +276,7 @@ async function listMessages(tenant, statuses, pageSize = 100, scope = null) {
       aiType: p['AI 訊息類型']?.select?.name || null,
       aiConfidence: p['AI 信心度']?.select?.name || null,
       judgement,
+      groupBindingId: bindingId,
       projectId,
       projectName: projectId ? await pageName(tenant, projectId) : '',
       groupName: bindingId ? await pageName(tenant, bindingId) : '',
@@ -251,7 +305,7 @@ async function attachmentPhotos(tenant, messagePageId) {
       .map((page) => {
         const url = page.properties['Drive 連結']?.url || '';
         const fileId = (url.match(/\/file\/d\/([^/]+)/) || [])[1] || '';
-        return fileId ? { url, fileId } : null;
+        return fileId ? { url, attachmentId: page.id } : null;
       })
       .filter(Boolean);
   } catch {
@@ -260,8 +314,16 @@ async function attachmentPhotos(tenant, messagePageId) {
 }
 
 // 縮圖代理:瀏覽器不需登入 Google,由伺服器以自己的授權取 Drive 縮圖回傳
-async function servePhoto(res, url) {
-  const fileId = url.searchParams.get('file') || '';
+async function servePhoto(tenant, res, url, access) {
+  const attachmentId = url.searchParams.get('attachment') || '';
+  if (!/^[0-9a-f-]{32,36}$/i.test(attachmentId)) return sendJson(res, 400, { error: 'bad attachment id' });
+  const attachment = await nreq(tenant, `/v1/pages/${encodeURIComponent(attachmentId)}`, { method: 'GET' });
+  const messageId = attachment.properties?.['訊息']?.relation?.[0]?.id || '';
+  if (!messageId) return sendJson(res, 404, { error: 'Attachment message not found' });
+  const message = await nreq(tenant, `/v1/pages/${encodeURIComponent(messageId)}`, { method: 'GET' });
+  await assertMessagePageAccess(tenant, access, message, 'queue.read');
+  const driveUrl = attachment.properties?.['Drive 連結']?.url || '';
+  const fileId = (driveUrl.match(/\/file\/d\/([^/]+)/) || [])[1] || '';
   if (!/^[\w-]+$/.test(fileId) || !platform.driveConfigured) {
     return sendJson(res, 400, { error: 'bad file id' });
   }
@@ -288,7 +350,7 @@ async function servePhoto(res, url) {
   res.end(buffer);
 }
 
-async function loadOptions(tenant, projectId) {
+async function loadOptions(tenant, projectId, access) {
   const load = async (dataSourceId, titleProperty) => {
     const items = [];
     let cursor;
@@ -321,10 +383,16 @@ async function loadOptions(tenant, projectId) {
         page_size: 100,
       },
     });
-    tickets = (ticketsResult.results || []).map((page) => ({
-      id: page.id,
-      label: `${plain(page.properties['編號']?.title)} ${plain(page.properties['問題描述']?.rich_text).slice(0, 20)}`,
-    }));
+    const visible = [];
+    for (const page of ticketsResult.results || []) {
+      const bindingId = page.properties?.['負責群組']?.relation?.[0]?.id || '';
+      if (access && !(await bindingAllowed(tenant, access, bindingId, 'queue.read'))) continue;
+      visible.push({
+        id: page.id,
+        label: `${plain(page.properties['編號']?.title)} ${plain(page.properties['問題描述']?.rich_text).slice(0, 20)}`,
+      });
+    }
+    tickets = visible;
   }
 
   return {
@@ -334,24 +402,28 @@ async function loadOptions(tenant, projectId) {
   };
 }
 
-async function listProjects(tenant, scope = null) {
+async function listProjects(tenant, scope = null, access = null) {
   const result = await nreq(tenant, `/v1/data_sources/${encodeURIComponent(ds(tenant).projects)}/query`, {
     method: 'POST', body: { page_size: 100 },
   });
+  const summary = access ? await accessibleBindingSummary(tenant, access) : { allProjects: true, projectIds: new Set() };
   return {
     projects: (result.results || []).map((page) => ({
       id: page.id,
       name: plain(page.properties['專案名稱']?.title),
       code: plain(page.properties['館別代碼']?.rich_text),
-    })).filter((x) => x.name && (!scope || scope.has(x.code))),
+    })).filter((x) => x.name
+      && (!scope || scope.has(x.code))
+      && (summary.allProjects || summary.projectIds.has(x.id))),
   };
 }
 
 // ── 確認動作(掛載)────────────────────────────────────────
-async function confirmMessage(tenant, { pageId, action, spaceId, workItemId, messageType, operator, isCorrection, newWorkItem, alsoMount, ticketId, projectId }) {
+async function confirmMessage(tenant, { pageId, action, spaceId, workItemId, messageType, operator, isCorrection, newWorkItem, alsoMount, ticketId, projectId }, access) {
   if (!pageId || !action || !operator) throw new Error('pageId/action/operator required');
   const now = new Date().toISOString();
   const page = await nreq(tenant, `/v1/pages/${encodeURIComponent(pageId)}`, { method: 'GET' });
+  await assertMessagePageAccess(tenant, access, page, 'queue.manage');
   let judgement = null;
   try { judgement = JSON.parse(plain(page.properties['AI 初判結果']?.rich_text)); } catch {}
 
@@ -373,6 +445,7 @@ async function confirmMessage(tenant, { pageId, action, spaceId, workItemId, mes
     finalWorkItemId = workItemId !== undefined ? workItemId : (judgement?.work_item?.id || null);
     // 總管群訊息原本無專案:掛載時由佇列選定的專案補上(一般群沿用訊息既有專案)
     const mountProjectId = page.properties['專案']?.relation?.[0]?.id || projectId || null;
+    if (projectId) await assertProjectAccess(tenant, access, projectId);
     // 佇列內直接新增工項:名稱+工種,自動帶入空間與專案
     if (newWorkItem?.name) {
       const created = await nreq(tenant, '/v1/pages', {
@@ -431,7 +504,7 @@ async function confirmMessage(tenant, { pageId, action, spaceId, workItemId, mes
         pageId: extraId, action: 'confirm',
         spaceId: finalSpaceId, workItemId: finalWorkItemId,
         messageType: finalType, operator,
-      }).catch((error) => {
+      }, access).catch((error) => {
         console.warn(`alsoMount failed for ${extraId}: ${error.message}`);
         return null;
       })
@@ -445,7 +518,7 @@ async function confirmMessage(tenant, { pageId, action, spaceId, workItemId, mes
   let linkedTicket = null;
   if (action === 'confirm' && ticketId) {
     try {
-      linkedTicket = await linkMessageToTicket(tenant, { messagePageId: pageId, messagePage: page, ticketId, operator, alsoMountIds: Array.isArray(alsoMount) ? alsoMount.slice(0, 20) : [] });
+      linkedTicket = await linkMessageToTicket(tenant, { messagePageId: pageId, messagePage: page, ticketId, operator, alsoMountIds: Array.isArray(alsoMount) ? alsoMount.slice(0, 20) : [] }, access);
     } catch (error) {
       console.warn(`linkMessageToTicket failed: ${error.message}`);
     }
@@ -454,13 +527,20 @@ async function confirmMessage(tenant, { pageId, action, spaceId, workItemId, mes
 }
 
 // 把訊息(含連帶照片)掛上『既有』回饋單:文字→設計師回覆(開立→回覆中);照片→單據照片。
-async function linkMessageToTicket(tenant, { messagePageId, messagePage, ticketId, operator, alsoMountIds }) {
+async function linkMessageToTicket(tenant, { messagePageId, messagePage, ticketId, operator, alsoMountIds }, access) {
   const now = new Date().toISOString();
   const p = messagePage.properties;
   const text = plain(p['內容']?.rich_text) || (p['訊息類型']?.select?.name === '文字' ? plain(p['訊息']?.title) : '');
   const sender = plain(p['發送者']?.rich_text);
 
   const ticket = await nreq(tenant, `/v1/pages/${encodeURIComponent(ticketId)}`, { method: 'GET' });
+  const ticketBindingId = ticket.properties?.['負責群組']?.relation?.[0]?.id || '';
+  if (ticketBindingId) {
+    const meta = await bindingMeta(tenant, ticketBindingId);
+    access.assert('queue.manage', ticketBindingId, { status: meta?.status || '停用' });
+  } else {
+    access.assert('unassigned.manage');
+  }
   const number = plain(ticket.properties['編號']?.title);
   const currentStatus = ticket.properties['狀態']?.select?.name || '';
 
@@ -584,57 +664,27 @@ async function moveDriveFile(fileId, newParentId) {
   if (!response.ok) throw new Error(`Drive move failed: ${response.status} ${await response.text()}`);
 }
 
-async function batchConfirm(tenant, { operator }) {
+async function batchConfirm(tenant, { operator }, access) {
   if (!operator) throw new Error('operator required');
-  const pending = await listMessages(tenant, ['AI初判待確認']);
+  const pending = await listMessages(tenant, ['AI初判待確認'], 100, null, access);
   const targets = pending.items.filter((item) => item.aiConfidence === '高');
   let confirmed = 0;
   for (const item of targets) {
     const action = (item.judgement?.message_type || item.aiType) === '一般對話' ? 'general' : 'confirm';
-    await confirmMessage(tenant, { pageId: item.id, action, operator });
+    await confirmMessage(tenant, { pageId: item.id, action, operator }, access);
     confirmed++;
   }
   return { ok: true, confirmed };
 }
 
-// ── 登入頁(PIN;core Portal 核對)──────────────────────────
-function renderLoginPage(tenant) {
-  const t = JSON.stringify(tenant.key);
-  return `<!DOCTYPE html>
-<html lang="zh-Hant"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>葉小蝸確認佇列 · 登入</title>
-<style>
-  body { font-family:system-ui,-apple-system,'Noto Sans TC',sans-serif; background:#f5f7f6; color:#22302a; display:flex; min-height:100vh; align-items:center; justify-content:center; margin:0; }
-  .box { background:#fff; border:1px solid #e0e6e3; border-radius:16px; padding:26px 22px; width:min(340px,92vw); text-align:center; }
-  h1 { font-size:18px; color:#2e7d52; margin:0 0 16px; }
-  input { width:100%; box-sizing:border-box; border:1px solid #e0e6e3; border-radius:8px; padding:11px; font-size:16px; margin-bottom:12px; }
-  button { width:100%; background:#2e7d52; color:#fff; border:none; border-radius:8px; padding:11px; font-size:15px; font-weight:600; }
-  .msg { color:#a03e33; font-size:13px; min-height:18px; margin-top:8px; }
-</style></head><body>
-<form class="box" onsubmit="return login(event)">
-  <h1>🐌 葉小蝸確認佇列</h1>
-  <input id="pin" type="password" placeholder="通行碼 PIN" autocomplete="current-password">
-  <button type="submit">登入</button>
-  <div class="msg" id="msg"></div>
-</form>
-<script>
-const TENANT = ${t};
-async function login(e){
-  e.preventDefault();
-  const pin = document.getElementById('pin').value;
-  const r = await fetch('/queue/api/login?tenant=' + encodeURIComponent(TENANT), { method:'POST', body: JSON.stringify({ pin }) });
-  if (r.ok) { location.href = '/queue?tenant=' + encodeURIComponent(TENANT); }
-  else { document.getElementById('msg').textContent = '通行碼錯誤'; }
-  return false;
-}
-</script></body></html>`;
-}
-
 // ── 佇列頁(待確認 / 已確認;開單/單據管理屬 construction,不在此)──
-function renderQueuePage(tenant) {
+function renderQueuePage(tenant, access) {
   const TENANT = JSON.stringify(tenant.key);
+  const ACTOR = JSON.stringify(access?.actor || 'Portal 使用者');
   const tenantParam = encodeURIComponent(tenant.key);
+  const constructionEnabled = (tenant.modules || []).includes('construction');
+  const ticketsLink = constructionEnabled ? `<a href="/tickets?tenant=${tenantParam}">回饋單／變更單</a>` : '';
+  const dashboardLink = constructionEnabled && access?.isTenantAll ? `<a href="/dashboard?tenant=${tenantParam}">工程儀表板</a>` : '';
   return `<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
@@ -649,7 +699,7 @@ function renderQueuePage(tenant) {
   header h1 { font-size:17px; font-weight:700; }
   header a { color:#fff; font-size:13px; text-decoration:none; border:1px solid rgba(255,255,255,.55); border-radius:7px; padding:5px 8px; }
   header .op { margin-left:auto; display:flex; align-items:center; gap:6px; font-size:13px; }
-  header input { border:none; border-radius:6px; padding:5px 8px; width:90px; font-size:13px; }
+  header .actor { border-radius:6px; padding:5px 8px; background:rgba(255,255,255,.16); font-weight:600; }
   .tabs { display:flex; background:var(--card); border-bottom:1px solid var(--line); position:sticky; top:48px; z-index:4; }
   .tabs button { flex:1; padding:11px; border:none; background:none; font-size:14px; color:var(--dim); border-bottom:2px solid transparent; }
   .tabs button.active { color:var(--green); border-bottom-color:var(--green); font-weight:700; }
@@ -688,9 +738,9 @@ function renderQueuePage(tenant) {
 <body>
 <header>
   <h1>🐌 葉小蝸確認佇列</h1>
-  <a href="/tickets?tenant=${tenantParam}">回饋單／變更單</a>
-  <a href="/dashboard?tenant=${tenantParam}">工程儀表板</a>
-  <div class="op">操作人 <input id="operator" placeholder="姓名"></div>
+  ${ticketsLink}
+  ${dashboardLink}
+  <div class="op">操作人 <span class="actor" id="operatorLabel"></span></div>
 </header>
 <div class="tabs">
   <button id="tabPending" class="active">待確認</button>
@@ -705,13 +755,12 @@ function renderQueuePage(tenant) {
 <div class="toast" id="toast"></div>
 <script>
 const TENANT = ${TENANT};
+const ACTOR = ${ACTOR};
 let tab = 'pending';
 const optionsCache = {};
 let projectsList = null;
 async function ensureProjects() { if (!projectsList) { const d = await api('projects'); projectsList = d.projects || []; } return projectsList; }
-const opInput = document.getElementById('operator');
-opInput.value = localStorage.getItem('queueOperator') || '';
-opInput.addEventListener('change', () => localStorage.setItem('queueOperator', opInput.value.trim()));
+document.getElementById('operatorLabel').textContent = ACTOR;
 
 function toast(msg) {
   const el = document.getElementById('toast');
@@ -719,9 +768,7 @@ function toast(msg) {
   setTimeout(() => el.classList.remove('show'), 2200);
 }
 function operator() {
-  const name = opInput.value.trim();
-  if (!name) { toast('請先填操作人姓名'); opInput.focus(); throw new Error('no operator'); }
-  return name;
+  return ACTOR;
 }
 async function api(path, opts) {
   const sep = path.includes('?') ? '&' : '?';
@@ -766,7 +813,7 @@ function render(i) {
   const time = (i.time || '').replace('T',' ').slice(5,16);
   const typeChip = i.aiType ? '<span class="chip' + (i.aiType==='問題反映'?' type-issue':'') + '">' + esc(i.aiType) + '</span>' : '';
   const photoLinks = (i.photos||[]).map(p =>
-    '<a href="' + esc(p.url) + '" target="_blank"><img loading="lazy" src="/queue/api/photo?file=' + encodeURIComponent(p.fileId) + '&tenant=' + encodeURIComponent(TENANT) + '" alt="照片"></a>'
+    '<a href="' + esc(p.url) + '" target="_blank"><img loading="lazy" src="/queue/api/photo?attachment=' + encodeURIComponent(p.attachmentId) + '&tenant=' + encodeURIComponent(TENANT) + '" alt="照片"></a>'
   ).join('');
   const ai = (i.judgement || i.aiType) ? \`<div class="ai">AI 初判:空間 <b>\${esc(j.space?.name || '—')}</b> ・ 工項 <b>\${esc(j.work_item?.name || '—')}</b> \${j.reason ? '<br>' + esc(j.reason) : ''}</div>\` : '';
   const adjParts = [];
@@ -978,7 +1025,7 @@ export default {
   name: 'queue',
   init,
   routes: [
-    { prefix: '/queue', handler: handleQueueRequest }, // /queue、/queue/api/*
+    { prefix: '/queue', access: { kind: 'group', capability: 'queue.manage' }, handler: handleQueueRequest }, // /queue、/queue/api/*
   ],
 };
 

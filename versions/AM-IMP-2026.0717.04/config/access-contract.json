@@ -1,0 +1,14 @@
+{
+  "authzVersion": 3,
+  "routeAccessKinds": ["public", "machine", "tenant", "group"],
+  "portalUserField": "amAccess",
+  "tenantModes": ["all", "selected"],
+  "groupPermissionKey": "group binding Notion page id",
+  "unassignedPolicy": "platform-owner-or-tenant-all-only",
+  "masterGroupExpandsAccess": false,
+  "operatorSource": "verified AccessContext.actor",
+  "eventPrincipal": "system",
+  "moduleCoverageAudit": "tools/audit-module-authorization.mjs",
+  "sessionModel": "opaque-handle-live-portal-verification",
+  "emergencyOwnerTtlSecondsMax": 900
+}

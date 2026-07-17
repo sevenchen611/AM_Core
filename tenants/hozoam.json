@@ -1,0 +1,17 @@
+{
+  "key": "hozoam",
+  "displayName": "HOZO AM",
+  "envPrefix": "HOZO",
+  "runtimeEnabled": false,
+  "authorizationReady": false,
+  "modules": [],
+  "status": "遷移中：目前仍由 HOZO_AM 獨立服務；群組綁定庫與 Core 模組收編完成後才啟用",
+  "config": {
+    "portal": {
+      "label": "HOZO AM 助理",
+      "featureAliases": ["am-hozoam"],
+      "authorizationNote": "HOZO AM 尚未完成群組綁定庫與 Core 模組收編；既有入口維持，完成遷移前不可新增群組權限。"
+    }
+  }
+}
+

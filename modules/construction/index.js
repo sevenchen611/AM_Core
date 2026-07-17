@@ -58,7 +58,7 @@ function init(injected) {
   platform.reminderPasses = [...(platform.reminderPasses || []), ...reminderPasses];
   // 開立回饋單掛鉤(給 queue 的 /queue/api/create-ticket 委派)。ctx = { tenant, ...body };
   //   svcDeps 內含租戶閘門:非工程租戶會拋錯(queue 端另以 501 先擋,見 queue/index.js)。
-  platform.createFeedbackTicket = (ctx) => createTicket(svcDeps(ctx), ctx);
+  platform.createFeedbackTicket = (ctx) => createTicket(svcDeps(ctx), withVerifiedActor(ctx));
   // 工種清單掛鉤(給 queue 的 /queue/api/trades)。非工程租戶(如森在)容錯回 [],不丟例外。
   platform.listTrades = async (ctx) => {
     const tenant = ctx && ctx.tenant;
@@ -126,25 +126,27 @@ function assertTenant(tenant) {
 }
 
 function svcDeps(ctx) {
-  return fullDeps(assertTenant(ctx && ctx.tenant));
+  const deps = fullDeps(assertTenant(ctx && ctx.tenant));
+  deps.access = ctx?.access || null;
+  deps.actor = ctx?.access?.actor || '';
+  return deps;
+}
+
+function withVerifiedActor(ctx = {}) {
+  return ctx.access ? { ...ctx, operator: ctx.access.actor } : ctx;
 }
 
 // ── web 授權(走 core.portal;權限鍵 per-tenant)────────────────
 // 回傳 { authed, isOwner, canBudget, canContract, scope }。
 //   scope:null=全部;'none'=無;否則逗號分隔的館別代碼(am-<key>-<code>)。PIN/owner=全部。
-async function resolveAuth(portal, tenant, req) {
+async function resolveAuth(portal, tenant, req, providedAccess = null) {
   const k = tenant.key;
-  const pin = portal.pinAuthed(req, tenant);
-  const user = pin ? null : await portal.userAuthed(req);
+  const access = providedAccess || await portal.resolveAccess(req, tenant);
+  const user = access?.user || null;
   const feats = Array.isArray(user?.allowedFeatures) ? user.allowedFeatures : [];
-  const projectIds = Array.isArray(user?.projectIds) ? user.projectIds : [];
   const userOwner = user?.role === 'owner';       // Portal owner(真身分)
-  const isOwner = pin || userOwner;                // 「看全部專案」:PIN 或 owner
-  // 基本存取:owner / PIN,或此租戶授權(am-<key> 或 projectIds 含 key)
-  const hasBase = isOwner || (typeof portal.tenantAuthorized === 'function'
-    ? portal.tenantAuthorized(user, tenant)
-    : feats.includes(`am-${k}`) || projectIds.includes(k));
-  const authed = Boolean(pin) || Boolean(user && hasBase);
+  const isOwner = Boolean(access?.isPlatformOwner);
+  const authed = Boolean(access?.allowed);
 
   let scope = null;
   if (user && !isOwner) {
@@ -159,6 +161,7 @@ async function resolveAuth(portal, tenant, req) {
     canContract: userOwner || (typeof portal.featureGranted === 'function'
       ? portal.featureGranted(user, tenant, 'contract') : feats.includes(`am-${k}-contract`)),
     scope,
+    access,
   };
 }
 
@@ -178,13 +181,22 @@ function webRoute(handler) {
     if (!tenant || !(tenant.modules || []).includes('construction')) {
       return sendJson(res, 404, { error: 'Not found' });
     }
-    const auth = await resolveAuth(ctx.portal, tenant, req);
+    const auth = await resolveAuth(ctx.portal, tenant, req, ctx.access);
     if (!auth.authed) {
       if (/\/api\//.test(ctx.pathname)) return sendJson(res, 401, { error: '需登入' });
       res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(unauthPage());
     }
+    // 工程儀表板同時彙整附件、會議、待辦、變更單等專案級資料；在各資料表全面補齊
+    // 負責群組 relation 前，只允許租戶全群組／最高管理者，避免指定群組帳號旁路讀取。
+    if (ctx.routeAccess?.capability === 'construction.read' && !auth.access?.isTenantAll) {
+      if (/\/api\//.test(ctx.pathname)) return sendJson(res, 403, { error: '工程儀表板僅開放租戶全群組管理者。' });
+      res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end(unauthPage().replace('需登入', '權限不足').replace('請透過 AM Portal 登入後再進入本頁。', '工程儀表板包含租戶全域資料，目前僅開放租戶全群組管理者。'));
+    }
     const deps = fullDeps(tenant);
+    deps.access = auth.access;
+    deps.actor = auth.access?.actor || '';
     // 一律以 portal 重算的授權覆蓋 URL(不信任前端傳入的 key/budget/contract/scope)。
     const url = new URL(ctx.url.href);
     url.searchParams.set('key', deps.queueAccessKey || '');
@@ -193,7 +205,8 @@ function webRoute(handler) {
     url.searchParams.delete('scope');
     if (auth.canBudget) url.searchParams.set('budget', '1');
     if (auth.canContract) url.searchParams.set('contract', '1');
-    if (auth.scope != null) url.searchParams.set('scope', auth.scope);
+    const projectScopedCapability = ['construction.budget', 'construction.contracts'].includes(ctx.routeAccess?.capability);
+    if (projectScopedCapability && auth.scope != null) url.searchParams.set('scope', auth.scope);
     return handler(req, res, ctx.pathname, url, deps);
   };
 }
@@ -230,17 +243,17 @@ export default {
   name: 'construction',
   init,
   routes: [
-    { prefix: '/dashboard', handler: webRoute(handleDashboardRequest) },
-    { prefix: '/budget', handler: webRoute(handleBudgetRequest) },
-    { prefix: '/contracts', handler: webRoute(handleContractsRequest) },
-    { prefix: '/tickets', handler: webRoute(handleTicketsRequest) },
+    { prefix: '/dashboard', access: { kind: 'tenant', capability: 'construction.read' }, handler: webRoute(handleDashboardRequest) },
+    { prefix: '/budget', access: { kind: 'tenant', capability: 'construction.budget' }, handler: webRoute(handleBudgetRequest) },
+    { prefix: '/contracts', access: { kind: 'tenant', capability: 'construction.contracts' }, handler: webRoute(handleContractsRequest) },
+    { prefix: '/tickets', access: { kind: 'group', capability: 'construction.tickets' }, handler: webRoute(handleTicketsRequest) },
   ],
 
   // 供 queue 的「開回饋單」與單據狀態機(ctx 帶 { tenant, ...body })
-  createTicket: (ctx) => createTicket(svcDeps(ctx), ctx),
-  linkMessageToTicket: (ctx) => linkMessageToTicket(svcDeps(ctx), ctx),
-  ticketAction: (ctx) => ticketAction(svcDeps(ctx), ctx),
-  createChangeOrder: (ctx) => createChangeOrder(svcDeps(ctx), ctx),
+  createTicket: (ctx) => createTicket(svcDeps(ctx), withVerifiedActor(ctx)),
+  linkMessageToTicket: (ctx) => linkMessageToTicket(svcDeps(ctx), withVerifiedActor(ctx)),
+  ticketAction: (ctx) => ticketAction(svcDeps(ctx), withVerifiedActor(ctx)),
+  createChangeOrder: (ctx) => createChangeOrder(svcDeps(ctx), withVerifiedActor(ctx)),
   openTicketsForProject: (ctx) => openTicketsForProject(svcDeps(ctx), ctx.projectId),
   listTrades: (ctx) => listKnownTrades(svcDeps(ctx)),
 

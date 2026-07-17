@@ -280,6 +280,7 @@ function cronAuthorized(url, targets) {
 const routes = [
   {
     prefix: '/cron/reminders',
+    access: { kind: 'machine', scope: 'tenant', capability: 'reminders.run' },
     async handler(req, res, ctx) {
       const { url, tenants } = ctx;
       const requested = url.searchParams.get('tenant');

@@ -17,7 +17,7 @@ PM 用的「確認佇列」網頁與 API。由舊工程服務的 `src/queue.js` 
 export default {
   name: 'queue',
   init(platform),                               // 注入共用能力
-  routes: [{ prefix: '/queue', handler }],      // /queue、/queue/api/*
+  routes: [{ prefix: '/queue', access: { kind: 'group' }, handler }], // /queue、/queue/api/*
 };
 ```
 - **共用能力**(`init(platform)`):`notionRequest`(帶 tenantKey 隔離)、`pushLineMessage`、
@@ -26,9 +26,11 @@ export default {
 - **狀態隔離**:名稱快取以 page id(全域唯一)為鍵;館別代碼快取以**租戶**為鍵;所有查詢走 `tenant.dataSources` + `tenantKey` 隔離守衛。
 
 ## Web 授權(走 core Portal)
-- `handler` 由 core 傳入 `portal`。授權 = `portal.pinAuthed(req, tenant)`(租戶 PIN cookie)或 `portal.userAuthed(req)` 後再通過 `portal.tenantAuthorized(user, tenant)`。
-- 未授權:`GET /queue` 出 PIN 登入頁 → `POST /queue/api/login` 以 `portal.checkPin(pin, tenant)` 核對 → 種 `amcore_auth_<tenant>` cookie。
-- **per-tenant**:頁面嵌 `TENANT`,所有 API 帶 `?tenant=`;scope 一律由 Portal 身分重算，忽略前端傳入的 `?scope=`，避免越權跨專案。
+- Core 先為每次請求建立最新 `AccessContext`；模組沒有 PIN 登入路由，也不簽自己的長效 cookie。
+- 清單以「群組綁定」relation 過濾，單筆／批次／連帶照片／掛載／開單／關聯既有案件都會重新讀來源頁並逐筆 `access.assert(...)`。
+- 照片代理只接受附件頁 ID，依「附件 → 訊息 → 群組綁定」追溯成功後才讀 Drive；不接受前端直接提供 Drive fileId。
+- 操作者固定為 `access.actor`，瀏覽器傳來的 operator 會被覆寫。
+- **per-tenant**:頁面嵌 `TENANT`,所有 API 帶 `?tenant=`；忽略前端傳入的舊 `?scope=`，可選專案改由授權群組的專案 relation 推導。總管群可選目的專案，但不會因此讀到其他群組資料。
 
 ## 與 construction 的接縫(不含開單)
 - **掛到回饋單(mount)**屬本模組:掛上『既有』單據。
