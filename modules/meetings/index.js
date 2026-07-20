@@ -741,13 +741,74 @@ function hasRequiredTodoFields(t) {
   return Boolean(String(t.content || '').trim() && String(t.owner || '').trim() && /^\d{4}-\d{2}-\d{2}$/.test(String(t.due || '').trim()));
 }
 
-function memberOptions(binding) {
-  const members = binding?.members && typeof binding.members === 'object' ? binding.members : {};
+function initialMemberMap(binding) {
+  return binding?.members && typeof binding.members === 'object' ? { ...binding.members } : {};
+}
+
+function memberOptions(session) {
+  const members = session?.memberMap && typeof session.memberMap === 'object' ? session.memberMap : initialMemberMap(session?.binding);
   return Object.keys(members).filter(Boolean).sort((a, b) => a.localeCompare(b, 'zh-Hant'));
 }
 
-function memberUserId(binding, name) {
-  return binding?.members?.[name] || '';
+function memberUserId(session, name) {
+  const members = session?.memberMap && typeof session.memberMap === 'object' ? session.memberMap : initialMemberMap(session?.binding);
+  return members?.[name] || '';
+}
+
+function reviewLiffId(session) {
+  return String(session?.tenant?.config?.meetings?.liffId || '').trim();
+}
+
+function reviewRequiresLineLogin(session) {
+  return Boolean(reviewLiffId(session));
+}
+
+async function lineProfileFromAccessToken(accessToken) {
+  const token = String(accessToken || '').trim();
+  if (!token) return null;
+  const response = await fetch('https://api.line.me/v2/profile', {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw Object.assign(new Error('LINE 登入驗證失敗，請重新開啟頁面。'), { statusCode: 401 });
+  const profile = await response.json();
+  return {
+    userId: String(profile.userId || '').trim(),
+    displayName: String(profile.displayName || '').trim(),
+  };
+}
+
+async function resolveReviewActor(session, body) {
+  let actorUserId = String(body.actorUserId || '').trim();
+  let actorName = String(body.actorName || session.hostName || '主持人').trim();
+  if (reviewRequiresLineLogin(session)) {
+    const profile = await lineProfileFromAccessToken(body.liffAccessToken);
+    if (!profile?.userId) throw Object.assign(new Error('請先用 LINE 登入後再操作。'), { statusCode: 401 });
+    actorUserId = profile.userId;
+    actorName = profile.displayName || actorName || 'LINE 使用者';
+  }
+  return { actorUserId, actorName };
+}
+
+async function persistSessionMemberMap(session) {
+  if (!session?.binding?.pageId) return;
+  const members = session.memberMap && typeof session.memberMap === 'object' ? session.memberMap : {};
+  if (session.binding) session.binding.members = { ...members };
+  await platform.notionRequest(`/v1/pages/${encodeURIComponent(session.binding.pageId)}`, {
+    method: 'PATCH',
+    body: { properties: { '成員對照': { rich_text: [text(JSON.stringify(members).slice(0, 1900))] } } },
+  });
+}
+
+async function ensureSessionMember(session, actorName, actorUserId) {
+  const name = String(actorName || '').trim();
+  const userId = String(actorUserId || '').trim();
+  if (!session || !name || !userId) return false;
+  if (!session.memberMap || typeof session.memberMap !== 'object') session.memberMap = initialMemberMap(session.binding);
+  if (session.memberMap[name] === userId) return false;
+  session.memberMap[name] = userId;
+  if (session.binding) session.binding.members = { ...(session.binding.members || {}), [name]: userId };
+  await persistSessionMemberMap(session);
+  return true;
 }
 
 function createReviewSession(payload) {
@@ -758,6 +819,7 @@ function createReviewSession(payload) {
     status: 'awaiting_host_choice',
     tenant: payload.tenant,
     binding: payload.binding,
+    memberMap: initialMemberMap(payload.binding),
     groupId: payload.groupId,
     hostName: payload.hostName || '',
     hostUserId: payload.hostUserId || '',
@@ -786,6 +848,9 @@ function clearReviewTimer(session) {
 function assertHostActor(session, actorUserId) {
   const expected = String(session?.hostUserId || '');
   const actor = String(actorUserId || '');
+  if (expected && !actor && reviewRequiresLineLogin(session)) {
+    throw Object.assign(new Error('主持人操作需要先用 LINE 登入。'), { statusCode: 401 });
+  }
   if (expected && actor && expected !== actor) {
     throw Object.assign(new Error('只有會議主持人可以執行此操作。'), { statusCode: 403 });
   }
@@ -1038,9 +1103,9 @@ function meetingReviewLineText(session) {
 }
 
 function renderReviewHtml(session) {
-  const members = memberOptions(session.binding);
+  const members = memberOptions(session);
   const s = reviewSummary(session);
-  const liffId = String(session.tenant?.config?.meetings?.liffId || '').trim();
+  const liffId = reviewLiffId(session);
   const sessionJson = JSON.stringify({
     id: session.id,
     status: session.status,
@@ -1050,6 +1115,7 @@ function renderReviewHtml(session) {
     publicUrl: session.publicUrl,
     members,
     liffId,
+    requireLineLogin: reviewRequiresLineLogin(session),
     todos: session.todos,
     summary: s,
   }).replace(/</g, '\\u003c');
@@ -1062,10 +1128,10 @@ function renderReviewHtml(session) {
 <section id="tasks"></section>
 <section class="panel"><div class="actions"><button id="finalize" class="danger">主持人最終確認並建立待辦</button></div><p class="meta">只有所有任務具備任務名稱、負責人、截止日期，且已由負責人確認後，才能最終建立正式待辦。</p></section>
 <div class="toast" id="toast"></div>${liffId ? '<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"><\\/script>' : ''}<script>
-const DATA=${sessionJson};let lineUserId='',lineName='';
-const api=(body)=>fetch(location.pathname,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...body,actorUserId:lineUserId,actorName:lineName})}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'操作失敗');return j});
+const DATA=${sessionJson};let lineUserId='',lineName='',lineAccessToken='';
+const api=(body)=>fetch(location.pathname,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...body,actorUserId:lineUserId,actorName:lineName,liffAccessToken:lineAccessToken})}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'操作失敗');return j});
 function show(msg){const el=document.getElementById('toast');el.textContent=msg;el.style.display='block';setTimeout(()=>el.style.display='none',2800)}
-async function initLiff(){if(!DATA.liffId||!window.liff)return;try{await liff.init({liffId:DATA.liffId});if(liff.isLoggedIn()){const p=await liff.getProfile();lineUserId=p.userId||'';lineName=p.displayName||''}}catch(e){console.warn(e)}}
+async function initLiff(){if(!DATA.liffId||!window.liff)return;try{await liff.init({liffId:DATA.liffId});if(!liff.isLoggedIn()){show('請先用 LINE 登入');liff.login({redirectUri:location.href});return}const p=await liff.getProfile();lineUserId=p.userId||'';lineName=p.displayName||'';lineAccessToken=liff.getAccessToken?.()||'';if(DATA.requireLineLogin&&lineAccessToken){const j=await api({action:'identify'});Object.assign(DATA,j.session);}}catch(e){console.warn(e);show(e.message||'LINE 登入失敗，請從 LINE 重新開啟')}}
 function optionHtml(value){return '<option value="">選擇負責人</option>'+DATA.members.map(n=>'<option '+(n===value?'selected':'')+'>'+esc(n)+'</option>').join('')}
 function esc(s){return String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 function render(){
@@ -1088,6 +1154,7 @@ initLiff().finally(render);
 function reviewClientSession(session) {
   return {
     status: session.status,
+    members: memberOptions(session),
     todos: session.todos,
     summary: reviewSummary(session),
   };
@@ -1112,9 +1179,13 @@ async function handleMeetingReviewRequest(req, res, { pathname }) {
   try {
     const body = JSON.parse(await readBody(req));
     const action = String(body.action || '');
-    const actorName = String(body.actorName || session.hostName || '主持人').trim();
-    const actorUserId = String(body.actorUserId || '');
+    const { actorName, actorUserId } = await resolveReviewActor(session, body);
+    if (action === 'identify') {
+      await ensureSessionMember(session, actorName, actorUserId).catch((e) => console.warn(`meeting review member update failed: ${e.message}`));
+      return sendJson(res, 200, { ok: true, session: reviewClientSession(session) }), true;
+    }
     if (action === 'start') {
+      await ensureSessionMember(session, actorName, actorUserId).catch((e) => console.warn(`meeting review member update failed: ${e.message}`));
       assertHostActor(session, actorUserId);
       if (session.status !== 'awaiting_host_choice') throw Object.assign(new Error('此會議已經選擇過確認流程。'), { statusCode: 409 });
       session.status = 'reviewing';
@@ -1122,6 +1193,7 @@ async function handleMeetingReviewRequest(req, res, { pathname }) {
       return sendJson(res, 200, { ok: true, session: reviewClientSession(session) }), true;
     }
     if (action === 'complete') {
+      await ensureSessionMember(session, actorName, actorUserId).catch((e) => console.warn(`meeting review member update failed: ${e.message}`));
       assertHostActor(session, actorUserId);
       if (session.status !== 'awaiting_host_choice') throw Object.assign(new Error('此會議已進入確認流程，不能直接完成。'), { statusCode: 409 });
       await completeWithoutReview(session, actorName);
@@ -1144,8 +1216,10 @@ async function handleMeetingReviewRequest(req, res, { pathname }) {
       }
       if (action === 'confirm-todo') {
         if (!hasRequiredTodoFields(todo)) throw Object.assign(new Error('任務名稱、負責人、截止日期都填完後才能確認。'), { statusCode: 409 });
-        const expectedUserId = memberUserId(session.binding, todo.owner);
-        if (expectedUserId && actorUserId && expectedUserId !== actorUserId) throw Object.assign(new Error('只有目前負責人可以確認這筆任務。'), { statusCode: 403 });
+        await ensureSessionMember(session, actorName, actorUserId).catch((e) => console.warn(`meeting review member update failed: ${e.message}`));
+        if (reviewRequiresLineLogin(session) && !actorUserId) throw Object.assign(new Error('確認任務需要先用 LINE 登入。'), { statusCode: 401 });
+        const expectedUserId = memberUserId(session, todo.owner);
+        if (expectedUserId && actorUserId !== expectedUserId) throw Object.assign(new Error('只有目前負責人可以確認這筆任務。'), { statusCode: 403 });
         todo.ownerConfirmed = true;
         todo.ownerConfirmedBy = actorName || todo.owner;
         todo.ownerConfirmedAt = stamp();
@@ -1153,6 +1227,7 @@ async function handleMeetingReviewRequest(req, res, { pathname }) {
       return sendJson(res, 200, { ok: true, session: reviewClientSession(session) }), true;
     }
     if (action === 'finalize') {
+      await ensureSessionMember(session, actorName, actorUserId).catch((e) => console.warn(`meeting review member update failed: ${e.message}`));
       assertHostActor(session, actorUserId);
       await finishReviewSession(session, actorName);
       return sendJson(res, 200, { ok: true, session: reviewClientSession(session) }), true;

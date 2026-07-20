@@ -52,6 +52,17 @@ function readAi(env, prefix) {
   };
 }
 
+function readConfig(rawConfig, env, prefix) {
+  const config = (rawConfig && typeof rawConfig === 'object')
+    ? JSON.parse(JSON.stringify(rawConfig))
+    : {};
+  const meetingsLiffId = prefixed(env, prefix, 'MEETINGS_LIFF_ID', env.AMCORE_MEETINGS_LIFF_ID).trim();
+  if (meetingsLiffId) {
+    config.meetings = { ...(config.meetings || {}), liffId: meetingsLiffId };
+  }
+  return config;
+}
+
 // 讀所有 tenants/*.json(略過 _ 開頭與 README),組成執行期 tenant 陣列。
 export function loadTenants(env = process.env, logger = console) {
   const files = fs.readdirSync(TENANTS_DIR)
@@ -104,7 +115,7 @@ export function loadTenants(env = process.env, logger = console) {
       // 「行業味」設定:詞彙、報告時刻表、欄位映射…等非機密的租戶特性。
       // 模組一律從 ctx.tenant.config 讀,不可硬寫進程式(見 modules/HOZO_EXTRACTION_PLAN.md §0)。
       // 機密(頁 ID/資料源 ID/金鑰)不放這裡——那些走 .env 的 <PREFIX>_*。
-      config: (raw.config && typeof raw.config === 'object') ? raw.config : {},
+      config: readConfig(raw.config, env, prefix),
       // ── 機密(來自平台 .env,不進 git)──
       parentPageId,                 // 資料隔離母頁:此租戶所有庫必須位於其下
       meetingsParentPageId,         // 每群獨立會議庫的建立母頁；預設為租戶母頁
