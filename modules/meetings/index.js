@@ -717,6 +717,47 @@ function reviewUrl(sessionId, tenant = null) {
   return `${String(baseUrl).replace(/\/+$/, '')}${reviewPath(sessionId)}`;
 }
 
+async function pushMeetingReviewNotification(session, message, event, { attempts = 3, delayMs = 500 } = {}) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      await platform.pushLineMessage(session.groupId, message);
+      console.log(`Meeting review LINE push succeeded event=${event} session=${session.id.slice(0, 8)} attempt=${attempt}`);
+      return true;
+    } catch (error) {
+      lastError = error;
+      console.warn(`Meeting review LINE push failed event=${event} session=${session.id.slice(0, 8)} attempt=${attempt}/${attempts}: ${error?.message || error}`);
+      if (attempt < attempts && delayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs * attempt));
+      }
+    }
+  }
+  const error = Object.assign(
+    new Error('LINE 群組通知暫時送不出去，已保留「尚未開啟」狀態，請稍後再按一次。'),
+    { statusCode: 502, cause: lastError },
+  );
+  throw error;
+}
+
+async function beginMeetingReview(session, options = {}) {
+  if (session.status !== 'awaiting_host_choice') {
+    throw Object.assign(new Error('此會議已經選擇過確認流程。'), { statusCode: 409 });
+  }
+  session.status = 'opening_review';
+  try {
+    await pushMeetingReviewNotification(
+      session,
+      `🧾 會議待辦確認已開啟。\n請各負責人進入頁面修正並確認自己的任務：${reviewUrl(session.id, session.tenant)}`,
+      'review-opened',
+      options,
+    );
+    session.status = 'reviewing';
+  } catch (error) {
+    session.status = 'awaiting_host_choice';
+    throw error;
+  }
+}
+
 function sendJson(res, status, obj) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(JSON.stringify(obj));
@@ -1208,9 +1249,7 @@ async function handleMeetingReviewRequest(req, res, { pathname, url }) {
     if (action === 'start') {
       await ensureSessionMember(session, actorName, actorUserId).catch((e) => console.warn(`meeting review member update failed: ${e.message}`));
       assertHostActor(session, actorUserId);
-      if (session.status !== 'awaiting_host_choice') throw Object.assign(new Error('此會議已經選擇過確認流程。'), { statusCode: 409 });
-      session.status = 'reviewing';
-      await platform.pushLineMessage(session.groupId, `🧾 會議待辦確認已開啟。\n請各負責人進入頁面修正並確認自己的任務：${reviewUrl(session.id, session.tenant)}`).catch(() => {});
+      await beginMeetingReview(session);
       return sendJson(res, 200, { ok: true, session: reviewClientSession(session) }), true;
     }
     if (action === 'complete') {
@@ -1517,4 +1556,4 @@ export default {
 };
 
 // 測試用內部匯出(不影響正式流程)
-export const __test = { meetingPrompt, normalizeParsed, withNextMeetingTodo, summarize, summaryTabBlocks, notesTabBlocks, publishMeeting, resolveMeetingsTarget, provisionMeetingsDb, normalizeTodo, hasRequiredTodoFields, reviewSummary, renderReviewHtml };
+export const __test = { meetingPrompt, normalizeParsed, withNextMeetingTodo, summarize, summaryTabBlocks, notesTabBlocks, publishMeeting, resolveMeetingsTarget, provisionMeetingsDb, normalizeTodo, hasRequiredTodoFields, reviewSummary, renderReviewHtml, pushMeetingReviewNotification, beginMeetingReview };
