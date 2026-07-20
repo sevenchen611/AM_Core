@@ -74,6 +74,9 @@ export function loadTenants(env = process.env, logger = console) {
 
     const prefix = raw.envPrefix;
     const parentPageId = normalizeId(env[`${prefix}_NOTION_PARENT_PAGE_ID`] || '');
+    // 會議可選擇依群組分庫。未指定專用母頁時，使用租戶母頁，
+    // 讓所有租戶預設遵守「每個群組一個會議庫」的隔離規則。
+    const meetingsParentPageId = normalizeId(env[`${prefix}_MEETINGS_PARENT_PAGE_ID`] || parentPageId);
 
     // 掃描 <PREFIX>_<NAME>_DATA_SOURCE_ID → dataSources[name]。每個租戶宣告自己有哪些庫。
     const dataSources = {};
@@ -104,6 +107,7 @@ export function loadTenants(env = process.env, logger = console) {
       config: (raw.config && typeof raw.config === 'object') ? raw.config : {},
       // ── 機密(來自平台 .env,不進 git)──
       parentPageId,                 // 資料隔離母頁:此租戶所有庫必須位於其下
+      meetingsParentPageId,         // 每群獨立會議庫的建立母頁；預設為租戶母頁
       dataSources,                  // { messages, groupBindings, meetings, tasks, projects, ... }
       driveRootFolderId,
       driveConfigured: Boolean(driveRootFolderId && driveGlobalConfigured(env)),

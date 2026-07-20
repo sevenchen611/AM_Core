@@ -189,7 +189,9 @@ function workType(aiType, cfg) {
 // ── 待補資訊的會議(記憶體暫存,鍵=（租戶,群組）)──────────────
 // 錄音已即時存 Drive 留底;若伺服器於等待中重啟,原檔仍在 Drive,重傳即可再觸發。
 const pending = new Map();
+const reviewSessions = new Map();
 const ROSTER_TIMEOUT_MS = 30 * 60 * 1000;
+const REVIEW_DECISION_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 const pkey = (tenant, groupId) => `${(tenant && tenant.key) || 'default'}::${groupId}`;
 
 function hasPending(tenant, groupId) {
@@ -221,12 +223,13 @@ function rosterPrompt(filename) {
 // ackSent=true 表示外層已先送過反問訊息(大檔先回覆再處理),這裡就不重送。
 async function onAudio(ctx) {
   const { tenant, buffer, audioMessageId, filename, binding, senderName, groupId, ackSent } = ctx;
+  const senderUserId = ctx.event?.source?.userId || '';
   let contentType = ctx.contentType;
   // 無 AssemblyAI 金鑰 → Gemini 直讀備援(需要 buffer;串流路徑未帶 buffer 就下載一次)。
   if (!aiForTenant(tenant).assemblyKey) {
     let buf = buffer;
     if (!buf && audioMessageId) buf = (await platform.downloadLineContent(audioMessageId)).buffer;
-    return processRecording({ tenant, buffer: buf, filename, contentType, binding, senderName, groupId });
+    return processRecording({ tenant, buffer: buf, filename, contentType, binding, senderName, groupId, senderUserId });
   }
   if (contentType && (/x-m4a|m4a/i.test(contentType) || /\.(m4a|mp4)$/i.test(filename))) contentType = 'audio/mp4';
 
@@ -241,7 +244,7 @@ async function onAudio(ctx) {
 
   const key = pkey(tenant, groupId);
   clearPending(key); // 同(租戶,群)若有上一份待補會議,以新錄音取代
-  const entry = { tenant, buffer, audioMessageId, filename, contentType, binding, senderName, groupId, audioDriveUrl, createdAt: Date.now() };
+  const entry = { tenant, buffer, audioMessageId, filename, contentType, binding, senderName, senderUserId, groupId, audioDriveUrl, createdAt: Date.now() };
   if (!buffer && audioMessageId) {
     // 背景留底:即刻開始(不等與會回覆——就算沒人回、或伺服器中途重啟,原檔已在 Drive)。
     // 結果掛在 entry 上,finalize 發布前再收割;.catch 確保這個 promise 永不 reject。
@@ -283,7 +286,7 @@ async function finalizeMeeting(key, rosterAnswer, answeredBy) {
   const entry = pending.get(key);
   if (!entry) return;
   clearPending(key);
-  const { tenant, buffer, audioMessageId, filename, contentType, binding, senderName, groupId } = entry;
+  const { tenant, buffer, audioMessageId, filename, contentType, binding, senderName, senderUserId, groupId } = entry;
   // Drive 留底:buffer 路徑在 onAudio 就存好;串流路徑在背景跑,發布/回報前限時收割。
   let audioDriveUrl = entry.audioDriveUrl || '';
   const cfg = meetingsCfg(tenant);
@@ -314,7 +317,7 @@ async function finalizeMeeting(key, rosterAnswer, answeredBy) {
     if (roster.topic) parsed.title = roster.topic; // 使用者主題優先
     // 5. 落地 + 發布(轉寫已花了幾分鐘,背景 Drive 備份通常早就完成;最多再等 2 分鐘)
     if (!audioDriveUrl && entry.drivePromise) audioDriveUrl = await raceTimeout(entry.drivePromise, 120000, '');
-    await publishMeeting({ parsed, diarized, legend, roster, projectPageId, groupId, senderName, answeredBy, filename, audioDriveUrl, tenant, binding });
+    await publishMeeting({ parsed, diarized, legend, roster, projectPageId, groupId, senderName, senderUserId, answeredBy, filename, audioDriveUrl, tenant, binding });
   } catch (error) {
     console.warn(`Meeting finalize failed (key=${key}): ${error.message}`);
     // 只有真的備份成功才敢說「已存 Drive」——沒留底時要明講,否則使用者會以為原檔還在而刪掉手機裡的錄音。
@@ -640,6 +643,8 @@ async function provisionMeetingsDb(tenant, groupName) {
   });
   const dsId = created.data_sources?.[0]?.id;
   if (!dsId) throw new Error('provision meetings db: no data source id');
+  // 新建資料庫不是 .env 中的固定資料源；登記前先由 Core 驗證它仍在此租戶母頁下。
+  await platform.registerTenantDataSource?.(tenant, dsId);
   console.log(`Provisioned per-group meetings DB「${groupName}」→ ${dsId}`);
   return dsId;
 }
@@ -692,6 +697,95 @@ function publicMeetingUrl(pageId, tenant = null) {
   const baseUrl = platform.publicBaseUrlForTenant?.(tenant) || platform.publicBaseUrl;
   if (!baseUrl || !platform.publicLinkSecret) return '';
   return `${String(baseUrl).replace(/\/+$/, '')}/m/${normId(pageId)}-${meetingSig(pageId)}`;
+}
+function reviewSig(sessionId) {
+  return crypto.createHmac('sha256', platform.publicLinkSecret || '').update(`meeting-review:${sessionId}`).digest('hex').slice(0, 16);
+}
+function reviewUrl(sessionId, tenant = null) {
+  const baseUrl = platform.publicBaseUrlForTenant?.(tenant) || platform.publicBaseUrl;
+  if (!baseUrl || !platform.publicLinkSecret) return '';
+  return `${String(baseUrl).replace(/\/+$/, '')}/meetings/review/${sessionId}-${reviewSig(sessionId)}`;
+}
+
+function sendJson(res, status, obj) {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end(JSON.stringify(obj));
+}
+
+async function readBody(req, limit = 1_000_000) {
+  let out = '';
+  for await (const chunk of req) {
+    out += chunk;
+    if (out.length > limit) throw Object.assign(new Error('Request body too large'), { statusCode: 413 });
+  }
+  return out;
+}
+
+function normalizeTodo(t, index = 0) {
+  return {
+    id: t.id || `todo-${index + 1}`,
+    content: String(t.content || '').trim(),
+    owner: String(t.owner || '').trim(),
+    due: String(t.due || '').trim(),
+    ownerConfirmed: Boolean(t.ownerConfirmed),
+    ownerConfirmedBy: String(t.ownerConfirmedBy || ''),
+    ownerConfirmedAt: String(t.ownerConfirmedAt || ''),
+    version: Number(t.version || 1),
+  };
+}
+
+function hasRequiredTodoFields(t) {
+  return Boolean(String(t.content || '').trim() && String(t.owner || '').trim() && /^\d{4}-\d{2}-\d{2}$/.test(String(t.due || '').trim()));
+}
+
+function memberOptions(binding) {
+  const members = binding?.members && typeof binding.members === 'object' ? binding.members : {};
+  return Object.keys(members).filter(Boolean).sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+}
+
+function memberUserId(binding, name) {
+  return binding?.members?.[name] || '';
+}
+
+function createReviewSession(payload) {
+  const sessionId = crypto.randomBytes(10).toString('hex');
+  const todos = (payload.todos || []).slice(0, 30).map(normalizeTodo);
+  const session = {
+    id: sessionId,
+    status: 'awaiting_host_choice',
+    tenant: payload.tenant,
+    binding: payload.binding,
+    groupId: payload.groupId,
+    hostName: payload.hostName || '',
+    hostUserId: payload.hostUserId || '',
+    meetingId: payload.meetingId,
+    meetingUrl: payload.meetingUrl || '',
+    publicUrl: payload.publicUrl || '',
+    projectPageId: payload.projectPageId || '',
+    perGroup: Boolean(payload.perGroup),
+    createdAt: Date.now(),
+    todos,
+    taskPageIds: [],
+    timer: null,
+  };
+  session.timer = setTimeout(() => {
+    autoCompleteReviewSession(sessionId).catch((e) => console.warn(`meeting review auto-complete failed: ${e.message}`));
+  }, REVIEW_DECISION_TIMEOUT_MS);
+  reviewSessions.set(sessionId, session);
+  return session;
+}
+
+function clearReviewTimer(session) {
+  if (session?.timer) clearTimeout(session.timer);
+  if (session) session.timer = null;
+}
+
+function assertHostActor(session, actorUserId) {
+  const expected = String(session?.hostUserId || '');
+  const actor = String(actorUserId || '');
+  if (expected && actor && expected !== actor) {
+    throw Object.assign(new Error('只有會議主持人可以執行此操作。'), { statusCode: 403 });
+  }
 }
 
 async function readChildren(blockId) {
@@ -826,8 +920,229 @@ async function handlePublicRequest(req, res, pathname) {
   return true;
 }
 
+async function createMeetingTasksFromTodos(session) {
+  if (!session || session.taskPageIds?.length) return session?.taskPageIds || [];
+  const ctx = { tenant: session.tenant, groupId: session.groupId, binding: session.binding };
+  const common = {
+    source: '會議',
+    status: '待辦',
+    projectPageId: session.projectPageId,
+    meetingId: session.perGroup ? '' : session.meetingId,
+    groupBindingId: session.binding?.pageId || '',
+    limit: 30,
+  };
+  if (platform.tasks?.expandTasks) {
+    session.taskPageIds = await platform.tasks.expandTasks(ctx, session.todos, common);
+    return session.taskPageIds;
+  }
+  const ids = [];
+  for (const t of session.todos.slice(0, 30)) {
+    try {
+      const page = await platform.notionRequest('/v1/pages', {
+        method: 'POST',
+        body: {
+          parent: { type: 'data_source_id', data_source_id: session.tenant.dataSources.tasks },
+          properties: {
+            '內容': { title: [text(t.content)] },
+            ...(session.projectPageId ? { '專案': { relation: [{ id: session.projectPageId }] } } : {}),
+            '負責人': { rich_text: t.owner ? [text(t.owner)] : [] },
+            '期限': /^\d{4}-\d{2}-\d{2}$/.test(t.due || '') ? { date: { start: t.due } } : { date: null },
+            '來源': { select: { name: '會議' } },
+            '狀態': { select: { name: '待辦' } },
+            ...(session.binding?.pageId ? { '負責群組': { relation: [{ id: session.binding.pageId }] } } : {}),
+            ...(session.perGroup ? {} : { '會議記錄': { relation: [{ id: session.meetingId }] } }),
+          },
+        },
+      });
+      ids.push(page.id);
+    } catch (e) {
+      console.warn(`todo create failed: ${e.message}`);
+    }
+  }
+  session.taskPageIds = ids;
+  return ids;
+}
+
+function reviewSummary(session) {
+  const total = session.todos.length;
+  const requiredReady = session.todos.filter(hasRequiredTodoFields).length;
+  const confirmed = session.todos.filter((t) => t.ownerConfirmed).length;
+  return { total, requiredReady, confirmed, allReady: total > 0 && requiredReady === total, allConfirmed: total > 0 && confirmed === total };
+}
+
+async function autoCompleteReviewSession(sessionId) {
+  const session = reviewSessions.get(sessionId);
+  if (!session || session.status !== 'awaiting_host_choice') return;
+  session.status = 'completed_without_review';
+  clearReviewTimer(session);
+  await createMeetingTasksFromTodos(session);
+  await platform.pushLineMessage(session.groupId, `⏱ 會議待辦確認超過 24 小時未選擇，已依原流程直接建立 ${session.taskPageIds.length} 筆待辦。\n會議記錄：${session.publicUrl || session.meetingUrl}`).catch(() => {});
+}
+
+async function finishReviewSession(session, actor = '主持人') {
+  const s = reviewSummary(session);
+  if (!s.allReady) throw Object.assign(new Error('仍有待辦缺少任務名稱、負責人或截止日期。'), { statusCode: 409 });
+  if (!s.allConfirmed) throw Object.assign(new Error('仍有待辦尚未由負責人確認。'), { statusCode: 409 });
+  session.status = 'finalized';
+  session.finalizedBy = actor;
+  session.finalizedAt = new Date().toISOString();
+  clearReviewTimer(session);
+  await createMeetingTasksFromTodos(session);
+  await platform.pushLineMessage(session.groupId, `✅ 會議待辦已完成確認，正式建立 ${session.taskPageIds.length} 筆待辦。\n會議記錄：${session.publicUrl || session.meetingUrl}`).catch(() => {});
+}
+
+async function completeWithoutReview(session, actor = '主持人') {
+  session.status = 'completed_without_review';
+  session.finalizedBy = actor;
+  session.finalizedAt = new Date().toISOString();
+  clearReviewTimer(session);
+  await createMeetingTasksFromTodos(session);
+  await platform.pushLineMessage(session.groupId, `✅ 主持人選擇不進行待辦確認，已依原流程建立 ${session.taskPageIds.length} 筆待辦。\n會議記錄：${session.publicUrl || session.meetingUrl}`).catch(() => {});
+}
+
+function meetingReviewLineText(session) {
+  const url = reviewUrl(session.id, session.tenant);
+  return [
+    '🧾 會議記錄已完成。',
+    '',
+    `主持人：${session.hostName || '錄音上傳者'}`,
+    `候選待辦：${session.todos.length} 筆`,
+    '',
+    '請主持人選擇是否開啟「待辦事項確認」。',
+    '選擇不需要時，系統會依原流程直接建立待辦；選擇需要時，負責人可在頁面中修正並確認自己的任務。',
+    '',
+    url ? `待辦確認頁：${url}` : '待辦確認頁尚未啟用：缺少 publicBaseUrl 或 publicLinkSecret，已改走原流程。',
+  ].join('\n');
+}
+
+function renderReviewHtml(session) {
+  const members = memberOptions(session.binding);
+  const s = reviewSummary(session);
+  const liffId = String(session.tenant?.config?.meetings?.liffId || '').trim();
+  const sessionJson = JSON.stringify({
+    id: session.id,
+    status: session.status,
+    hostName: session.hostName,
+    hostUserId: session.hostUserId,
+    meetingUrl: session.meetingUrl,
+    publicUrl: session.publicUrl,
+    members,
+    liffId,
+    todos: session.todos,
+    summary: s,
+  }).replace(/</g, '\\u003c');
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>會議待辦確認</title>
+<style>
+:root{--bg:#f5f7f6;--card:#fff;--line:#dfe8e3;--ink:#1e2b25;--muted:#6f7e76;--green:#0f4b35;--soft:#e7f3ed;--danger:#a62b25}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,'Noto Sans TC',sans-serif;line-height:1.55}.wrap{max-width:920px;margin:0 auto;padding:18px 14px 48px}header{position:sticky;top:0;background:rgba(245,247,246,.96);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:12px 0;z-index:2}h1{font-size:22px;margin:0 0 4px}.meta{color:var(--muted);font-size:14px}.panel,.task{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:16px;margin:14px 0}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}button{border:0;border-radius:8px;background:var(--green);color:white;font-weight:700;font-size:16px;padding:12px 16px;cursor:pointer}button.secondary{background:var(--soft);color:var(--green)}button.danger{background:var(--danger)}button:disabled{opacity:.45;cursor:not-allowed}label{display:block;font-weight:700;margin:12px 0 6px}input,select,textarea{width:100%;font:inherit;border:1px solid #cfd8d3;border-radius:8px;padding:10px;background:white;color:var(--ink)}textarea{min-height:84px;resize:vertical}.row{display:grid;grid-template-columns:1fr 180px;gap:10px}.badge{display:inline-block;border-radius:999px;background:var(--soft);color:var(--green);padding:4px 10px;font-size:13px;font-weight:700}.warn{color:var(--danger)}.ok{color:var(--green)}.toast{position:fixed;left:14px;right:14px;bottom:14px;background:#17231e;color:white;border-radius:8px;padding:12px 14px;display:none}@media(max-width:640px){.row{grid-template-columns:1fr}.actions button{width:100%}}
+</style></head><body><div class="wrap"><header><h1>會議待辦確認</h1><div class="meta">主持人：${esc(session.hostName || '錄音上傳者')} ・ 狀態：<span id="statusText">${esc(session.status)}</span></div></header>
+<section class="panel"><div id="summary"></div><div class="actions" id="hostChoice"><button data-action="start">要，開啟確認</button><button class="secondary" data-action="complete">不要，直接完成</button></div><div class="actions"><a href="${esc(session.publicUrl || session.meetingUrl)}" target="_blank" rel="noopener"><button class="secondary" type="button">查看會議記錄</button></a></div></section>
+<section id="tasks"></section>
+<section class="panel"><div class="actions"><button id="finalize" class="danger">主持人最終確認並建立待辦</button></div><p class="meta">只有所有任務具備任務名稱、負責人、截止日期，且已由負責人確認後，才能最終建立正式待辦。</p></section>
+<div class="toast" id="toast"></div>${liffId ? '<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"><\\/script>' : ''}<script>
+const DATA=${sessionJson};let lineUserId='',lineName='';
+const api=(body)=>fetch(location.pathname,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...body,actorUserId:lineUserId,actorName:lineName})}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'操作失敗');return j});
+function show(msg){const el=document.getElementById('toast');el.textContent=msg;el.style.display='block';setTimeout(()=>el.style.display='none',2800)}
+async function initLiff(){if(!DATA.liffId||!window.liff)return;try{await liff.init({liffId:DATA.liffId});if(liff.isLoggedIn()){const p=await liff.getProfile();lineUserId=p.userId||'';lineName=p.displayName||''}}catch(e){console.warn(e)}}
+function optionHtml(value){return '<option value="">選擇負責人</option>'+DATA.members.map(n=>'<option '+(n===value?'selected':'')+'>'+esc(n)+'</option>').join('')}
+function esc(s){return String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function render(){
+ const sum=DATA.summary;document.getElementById('statusText').textContent=DATA.status;
+ document.getElementById('summary').innerHTML='<span class="badge">候選 '+sum.total+' 筆</span> <span class="badge">欄位完整 '+sum.requiredReady+'/'+sum.total+'</span> <span class="badge">負責人確認 '+sum.confirmed+'/'+sum.total+'</span>';
+ document.getElementById('hostChoice').style.display=DATA.status==='awaiting_host_choice'?'flex':'none';
+ document.getElementById('finalize').disabled=!(DATA.status==='reviewing'&&sum.allReady&&sum.allConfirmed);
+ document.getElementById('tasks').innerHTML=DATA.todos.map(t=>'<article class="task" data-id="'+esc(t.id)+'"><div><span class="badge">'+(t.ownerConfirmed?'已確認':'待確認')+'</span></div><label>任務名稱</label><textarea name="content">'+esc(t.content)+'</textarea><div class="row"><div><label>負責人</label><select name="owner">'+optionHtml(t.owner)+'</select></div><div><label>截止日期</label><input name="due" type="date" value="'+esc(t.due)+'"></div></div><p class="meta">版本 '+t.version+(t.ownerConfirmedAt?' ・ 確認時間 '+esc(t.ownerConfirmedAt):'')+'</p><div class="actions"><button class="secondary save">儲存修改</button><button class="confirm">確認我的任務</button></div></article>').join('');
+}
+document.addEventListener('click',async(e)=>{const btn=e.target.closest('button');if(!btn)return;try{
+ if(btn.dataset.action){const j=await api({action:btn.dataset.action});Object.assign(DATA,j.session);show('已更新');render();return}
+ if(btn.id==='finalize'){const j=await api({action:'finalize'});Object.assign(DATA,j.session);show('已建立正式待辦');render();return}
+ const card=btn.closest('.task');if(!card)return;const todoId=card.dataset.id;const body={todoId,content:card.querySelector('[name=content]').value,owner:card.querySelector('[name=owner]').value,due:card.querySelector('[name=due]').value};
+ const j=await api({action:btn.classList.contains('confirm')?'confirm-todo':'save-todo',...body});Object.assign(DATA,j.session);show(btn.classList.contains('confirm')?'已確認':'已儲存');render();
+}catch(err){show(err.message||'操作失敗')}});
+initLiff().finally(render);
+</script></div></body></html>`;
+}
+
+function reviewClientSession(session) {
+  return {
+    status: session.status,
+    todos: session.todos,
+    summary: reviewSummary(session),
+  };
+}
+
+async function handleMeetingReviewRequest(req, res, { pathname }) {
+  const m = String(pathname).match(/^\/meetings\/review\/([0-9a-f]{20})-([0-9a-f]{16})$/i);
+  if (!m) return false;
+  const [, sessionId, sig] = m;
+  const session = reviewSessions.get(sessionId);
+  if (!platform.publicLinkSecret || reviewSig(sessionId) !== sig.toLowerCase() || !session) {
+    res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end('<meta charset="utf-8"><p style="font-family:system-ui;padding:40px;text-align:center">找不到這份待辦確認。</p>');
+    return true;
+  }
+  if (req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(renderReviewHtml(session));
+    return true;
+  }
+  if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' }), true;
+  try {
+    const body = JSON.parse(await readBody(req));
+    const action = String(body.action || '');
+    const actorName = String(body.actorName || session.hostName || '主持人').trim();
+    const actorUserId = String(body.actorUserId || '');
+    if (action === 'start') {
+      assertHostActor(session, actorUserId);
+      if (session.status !== 'awaiting_host_choice') throw Object.assign(new Error('此會議已經選擇過確認流程。'), { statusCode: 409 });
+      session.status = 'reviewing';
+      await platform.pushLineMessage(session.groupId, `🧾 會議待辦確認已開啟。\n請各負責人進入頁面修正並確認自己的任務：${reviewUrl(session.id, session.tenant)}`).catch(() => {});
+      return sendJson(res, 200, { ok: true, session: reviewClientSession(session) }), true;
+    }
+    if (action === 'complete') {
+      assertHostActor(session, actorUserId);
+      if (session.status !== 'awaiting_host_choice') throw Object.assign(new Error('此會議已進入確認流程，不能直接完成。'), { statusCode: 409 });
+      await completeWithoutReview(session, actorName);
+      return sendJson(res, 200, { ok: true, session: reviewClientSession(session) }), true;
+    }
+    if (!['reviewing'].includes(session.status)) throw Object.assign(new Error('此會議目前不能修改待辦。'), { statusCode: 409 });
+    if (action === 'save-todo' || action === 'confirm-todo') {
+      const todo = session.todos.find((t) => t.id === String(body.todoId || ''));
+      if (!todo) throw Object.assign(new Error('找不到這筆待辦。'), { statusCode: 404 });
+      const before = `${todo.content}|${todo.owner}|${todo.due}`;
+      todo.content = String(body.content || '').trim();
+      todo.owner = String(body.owner || '').trim();
+      todo.due = String(body.due || '').trim();
+      const after = `${todo.content}|${todo.owner}|${todo.due}`;
+      if (before !== after) {
+        todo.ownerConfirmed = false;
+        todo.ownerConfirmedBy = '';
+        todo.ownerConfirmedAt = '';
+        todo.version += 1;
+      }
+      if (action === 'confirm-todo') {
+        if (!hasRequiredTodoFields(todo)) throw Object.assign(new Error('任務名稱、負責人、截止日期都填完後才能確認。'), { statusCode: 409 });
+        const expectedUserId = memberUserId(session.binding, todo.owner);
+        if (expectedUserId && actorUserId && expectedUserId !== actorUserId) throw Object.assign(new Error('只有目前負責人可以確認這筆任務。'), { statusCode: 403 });
+        todo.ownerConfirmed = true;
+        todo.ownerConfirmedBy = actorName || todo.owner;
+        todo.ownerConfirmedAt = stamp();
+      }
+      return sendJson(res, 200, { ok: true, session: reviewClientSession(session) }), true;
+    }
+    if (action === 'finalize') {
+      assertHostActor(session, actorUserId);
+      await finishReviewSession(session, actorName);
+      return sendJson(res, 200, { ok: true, session: reviewClientSession(session) }), true;
+    }
+    return sendJson(res, 400, { error: '未知的操作。' }), true;
+  } catch (error) {
+    return sendJson(res, error.statusCode || 500, { error: error.message || '會議待辦確認失敗。' }), true;
+  }
+}
+
 // ── 落地 + 發布 ────────────────────────────────────────────
-async function publishMeeting({ parsed, diarized, legend, roster, projectPageId, groupId, senderName, answeredBy, filename, audioDriveUrl, tenant, binding }) {
+async function publishMeeting({ parsed, diarized, legend, roster, projectPageId, groupId, senderName, senderUserId, answeredBy, filename, audioDriveUrl, tenant, binding }) {
   const today = todayStr();
   const cfg = meetingsCfg(tenant);
   const { dbId: meetingsDb, perGroup } = await resolveMeetingsTarget(tenant, binding);
@@ -874,32 +1189,31 @@ async function publishMeeting({ parsed, diarized, legend, roster, projectPageId,
     catch (e) { console.warn(`transcript section failed: ${e.message}`); }
   }
 
-  // 待辦展開進待辦任務
+  // 候選待辦先留在 review session；正式待辦只在主持人略過確認或最終確認後建立。
   const todos = (parsed.todos || []).slice(0, 30);
-  for (const t of todos) {
-    await platform.notionRequest('/v1/pages', {
-      method: 'POST',
-      body: {
-        parent: { type: 'data_source_id', data_source_id: tenant.dataSources.tasks },
-        properties: {
-          '內容': { title: [text(t.content)] },
-          ...(projectPageId ? { '專案': { relation: [{ id: projectPageId }] } } : {}),
-          '負責人': { rich_text: t.owner ? [text(t.owner)] : [] },
-          '期限': /^\d{4}-\d{2}-\d{2}$/.test(t.due || '') ? { date: { start: t.due } } : { date: null },
-          '來源': { select: { name: '會議' } },
-          '狀態': { select: { name: '待辦' } },
-          // LINE 群組中的會議待辦必須保留來源群組；Portal 指定群組權限才能正確看見。
-          ...(binding?.pageId ? { '負責群組': { relation: [{ id: binding.pageId }] } } : {}),
-          // 待辦庫的「會議記錄」關聯指向預設會議庫;per-group 庫的會議頁不在其目標庫內,故略過關聯
-          ...(perGroup ? {} : { '會議記錄': { relation: [{ id: meeting.id }] } }),
-        },
-      },
-    }).catch((e) => console.warn(`todo create failed: ${e.message}`));
-  }
 
   // LINE 推完整會議記錄(不含逐字稿),過長自動分段;附「自架公開頁(免帳號)」+「Notion 連結」
   const url = await shareableUrl(meeting.id, meeting.url);
-  await sendMeetingToLine(groupId, parsed, { legendLine, date: today, type: meetingType, url, publicUrl: publicMeetingUrl(meeting.id, tenant), defaultTitle });
+  const publicUrl = publicMeetingUrl(meeting.id, tenant);
+  await sendMeetingToLine(groupId, parsed, { legendLine, date: today, type: meetingType, url, publicUrl, defaultTitle });
+  const session = createReviewSession({
+    tenant,
+    binding,
+    groupId,
+    hostName: senderName,
+    hostUserId: senderUserId || '',
+    meetingId: meeting.id,
+    meetingUrl: url,
+    publicUrl,
+    projectPageId,
+    perGroup,
+    todos,
+  });
+  if (!reviewUrl(session.id, tenant)) {
+    await completeWithoutReview(session, '系統');
+  } else {
+    await platform.pushLineMessage(groupId, meetingReviewLineText(session));
+  }
   console.log(`Meeting published (AssemblyAI): ${parsed.title}, ${todos.length} todos.`);
 }
 
@@ -985,8 +1299,8 @@ async function geminiTranscribeParsed({ tenant, buffer, filename, contentType, r
 }
 
 // ══ 後備:Gemini 直轉流程(無 AssemblyAI key 時使用)══
-// ctx: { tenant, buffer, filename, contentType, binding, senderName, groupId }
-async function processRecording({ tenant, buffer, filename, contentType, binding, senderName, groupId }) {
+// ctx: { tenant, buffer, filename, contentType, binding, senderName, senderUserId, groupId }
+async function processRecording({ tenant, buffer, filename, contentType, binding, senderName, senderUserId, groupId }) {
   if (/x-m4a|m4a/i.test(contentType) || /\.(m4a|mp4)$/i.test(filename)) contentType = 'audio/mp4';
   const cfg = meetingsCfg(tenant);
   const minutes = Math.round(buffer.byteLength / 1024 / 1024);
@@ -1026,27 +1340,27 @@ async function processRecording({ tenant, buffer, filename, contentType, binding
   await appendToggleSection(meeting.id, '📝 筆記(分區詳細記錄)', notesTabBlocks(parsed));
 
   const todos = (parsed.todos || []).slice(0, 30);
-  for (const t of todos) {
-    await platform.notionRequest('/v1/pages', {
-      method: 'POST',
-      body: {
-        parent: { type: 'data_source_id', data_source_id: tenant.dataSources.tasks },
-        properties: {
-          '內容': { title: [text(t.content)] },
-          ...(binding?.projectPageId ? { '專案': { relation: [{ id: binding.projectPageId }] } } : {}),
-          '負責人': { rich_text: t.owner ? [text(t.owner)] : [] },
-          '期限': /^\d{4}-\d{2}-\d{2}$/.test(t.due || '') ? { date: { start: t.due } } : { date: null },
-          '來源': { select: { name: '會議' } },
-          '狀態': { select: { name: '待辦' } },
-          ...(binding?.pageId ? { '負責群組': { relation: [{ id: binding.pageId }] } } : {}),
-          ...(perGroup ? {} : { '會議記錄': { relation: [{ id: meeting.id }] } }),
-        },
-      },
-    }).catch((e) => console.warn(`todo create failed: ${e.message}`));
-  }
-
   const url = await shareableUrl(meeting.id, meeting.url);
-  await sendMeetingToLine(groupId, parsed, { legendLine: '', date: today, type: meetingType, url, publicUrl: publicMeetingUrl(meeting.id, tenant), defaultTitle: cfg.defaultTitle });
+  const publicUrl = publicMeetingUrl(meeting.id, tenant);
+  await sendMeetingToLine(groupId, parsed, { legendLine: '', date: today, type: meetingType, url, publicUrl, defaultTitle: cfg.defaultTitle });
+  const session = createReviewSession({
+    tenant,
+    binding,
+    groupId,
+    hostName: senderName,
+    hostUserId: senderUserId || '',
+    meetingId: meeting.id,
+    meetingUrl: url,
+    publicUrl,
+    projectPageId: binding?.projectPageId || '',
+    perGroup,
+    todos,
+  });
+  if (!reviewUrl(session.id, tenant)) {
+    await completeWithoutReview(session, '系統');
+  } else {
+    await platform.pushLineMessage(groupId, meetingReviewLineText(session));
+  }
   console.log(`Meeting processed (Gemini fallback): ${parsed.title}, ${todos.length} todos.`);
 }
 
@@ -1072,10 +1386,17 @@ export default {
       const handled = await handlePublicRequest(req, res, pathname);
       if (!handled) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Not found'); }
     },
+  }, {
+    prefix: '/meetings/review',
+    access: { kind: 'public', scope: 'signed-link' },
+    handler: async (req, res, { pathname }) => {
+      const handled = await handleMeetingReviewRequest(req, res, { pathname });
+      if (!handled) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Not found'); }
+    },
   }],
   consumeRoster,       // (ctx) 直接以與會資訊收斂發布(外層已判定 pending 時用)
   processRecording,    // (ctx) 無 AssemblyAI 時的 Gemini 直轉
 };
 
 // 測試用內部匯出(不影響正式流程)
-export const __test = { meetingPrompt, normalizeParsed, withNextMeetingTodo, summarize, summaryTabBlocks, notesTabBlocks, publishMeeting, resolveMeetingsTarget, provisionMeetingsDb };
+export const __test = { meetingPrompt, normalizeParsed, withNextMeetingTodo, summarize, summaryTabBlocks, notesTabBlocks, publishMeeting, resolveMeetingsTarget, provisionMeetingsDb, normalizeTodo, hasRequiredTodoFields, reviewSummary };

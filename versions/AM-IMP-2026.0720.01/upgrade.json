@@ -1,0 +1,73 @@
+{
+  "id": "AM-IMP-2026.0720.01",
+  "name": "Meeting todo confirmation gate",
+  "type": "Core",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-07-20",
+  "installTargets": [
+    "AM_PLATFORM",
+    "BUILD_AM",
+    "HOZO_AM",
+    "SEVEN_AM",
+    "NEW_AM_PROJECT"
+  ],
+  "scope": [
+    "AMCore modules/meetings",
+    "project-local AM Platform runtime installations"
+  ],
+  "requiresDatabases": [
+    "Existing project-local meetings data source",
+    "Existing project-local tasks data source",
+    "Existing project-local group bindings data source with optional member mapping"
+  ],
+  "requiresEnv": [
+    "Project-local publicBaseUrl equivalent",
+    "Project-local publicLinkSecret equivalent",
+    "Optional LINE LIFF ID in tenant config"
+  ],
+  "requiresScripts": [
+    "node --check modules/meetings/index.js"
+  ],
+  "requires": [
+    "Existing meetings module",
+    "Existing tasks module or compatible tasks data source",
+    "publicBaseUrl and publicLinkSecret for signed review links",
+    "Optional LINE LIFF ID for stronger host and owner identity checks"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Review sessions bind to the project-local tenant, LINE group binding, meeting page, and tasks data source. AMCore stores only shared code and package documentation; live meetings, candidate todos, formal tasks, group members, LINE IDs, and secrets remain project-local."
+  },
+  "dependsOn": [
+    "AM-IMP-2026.0608.14",
+    "AM-IMP-2026.0717.02"
+  ],
+  "changes": [
+    "Meeting todos are treated as candidates before formal task creation",
+    "A signed review page lets the host decide whether todo confirmation is required",
+    "Owners can edit and confirm their assigned todos",
+    "Changing task title, owner, or due date invalidates the old owner confirmation",
+    "Host finalization creates formal tasks only after required fields and owner confirmations pass",
+    "If the host does not choose within 24 hours, the system falls back to original direct task creation"
+  ],
+  "definitionOfDone": [
+    "Meeting record creation still succeeds before any todo confirmation",
+    "Formal tasks are not created immediately when the review link is available",
+    "The host can skip confirmation and preserve the old workflow",
+    "Owner confirmation requires title, owner, and due date",
+    "Editing a confirmed todo invalidates only that todo's confirmation",
+    "Host finalization is blocked until all todos are ready and owner-confirmed",
+    "Created tasks preserve source meeting and group binding where available"
+  ],
+  "files": [
+    "modules/meetings/index.js",
+    "versions/AM-IMP-2026.0720.01/README.md",
+    "versions/AM-IMP-2026.0720.01/INSTALL.md",
+    "versions/AM-IMP-2026.0720.01/VERIFY.md",
+    "versions/AM-IMP-2026.0720.01/ROLLBACK.md"
+  ]
+}
