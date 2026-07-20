@@ -973,6 +973,24 @@ function reviewSummary(session) {
   return { total, requiredReady, confirmed, allReady: total > 0 && requiredReady === total, allConfirmed: total > 0 && confirmed === total };
 }
 
+function confirmedTodoLine(t, index) {
+  return `${index + 1}. ${t.content}${t.owner ? `(${t.owner})` : ''}${t.due ? ` 期限:${t.due}` : ''}`;
+}
+
+function confirmedTodosText(session) {
+  return session.todos.map(confirmedTodoLine).join('\n') || '(無)';
+}
+
+async function appendConfirmedTodosToMeeting(session) {
+  if (!session?.meetingId || session.confirmedTodosAppended) return;
+  const blocks = [
+    para(`[最終確認] ${stamp()} 由 ${session.finalizedBy || '主持人'} 完成待辦確認；以下清單為正式建立待辦的版本。`),
+    ...session.todos.map((t) => todoBlock(t)),
+  ];
+  await appendToggleSection(session.meetingId, '✅ 最終確認待辦', blocks);
+  session.confirmedTodosAppended = true;
+}
+
 async function autoCompleteReviewSession(sessionId) {
   const session = reviewSessions.get(sessionId);
   if (!session || session.status !== 'awaiting_host_choice') return;
@@ -991,7 +1009,8 @@ async function finishReviewSession(session, actor = '主持人') {
   session.finalizedAt = new Date().toISOString();
   clearReviewTimer(session);
   await createMeetingTasksFromTodos(session);
-  await platform.pushLineMessage(session.groupId, `✅ 會議待辦已完成確認，正式建立 ${session.taskPageIds.length} 筆待辦。\n會議記錄：${session.publicUrl || session.meetingUrl}`).catch(() => {});
+  await appendConfirmedTodosToMeeting(session).catch((e) => console.warn(`append confirmed meeting todos failed: ${e.message}`));
+  await platform.pushLineMessage(session.groupId, `✅ 會議待辦已完成確認，正式建立 ${session.taskPageIds.length} 筆待辦。\n\n最終確認待辦：\n${confirmedTodosText(session)}\n\n會議記錄：${session.publicUrl || session.meetingUrl}`).catch(() => {});
 }
 
 async function completeWithoutReview(session, actor = '主持人') {
