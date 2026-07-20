@@ -704,10 +704,17 @@ function publicMeetingUrl(pageId, tenant = null) {
 function reviewSig(sessionId) {
   return crypto.createHmac('sha256', platform.publicLinkSecret || '').update(`meeting-review:${sessionId}`).digest('hex').slice(0, 16);
 }
+function reviewPath(sessionId) {
+  return `/meetings/review/${sessionId}-${reviewSig(sessionId)}`;
+}
 function reviewUrl(sessionId, tenant = null) {
+  const liffId = String(tenant?.config?.meetings?.liffId || '').trim();
+  if (liffId && platform.publicLinkSecret) {
+    return `https://liff.line.me/${encodeURIComponent(liffId)}/${sessionId}-${reviewSig(sessionId)}`;
+  }
   const baseUrl = platform.publicBaseUrlForTenant?.(tenant) || platform.publicBaseUrl;
   if (!baseUrl || !platform.publicLinkSecret) return '';
-  return `${String(baseUrl).replace(/\/+$/, '')}/meetings/review/${sessionId}-${reviewSig(sessionId)}`;
+  return `${String(baseUrl).replace(/\/+$/, '')}${reviewPath(sessionId)}`;
 }
 
 function sendJson(res, status, obj) {
@@ -1160,10 +1167,20 @@ function reviewClientSession(session) {
   };
 }
 
-async function handleMeetingReviewRequest(req, res, { pathname }) {
-  const m = String(pathname).match(/^\/meetings\/review\/([0-9a-f]{20})-([0-9a-f]{16})$/i);
-  if (!m) return false;
-  const [, sessionId, sig] = m;
+function meetingReviewTokenFromRequest(pathname, url) {
+  let m = String(pathname).match(/^\/meetings\/review\/([0-9a-f]{20})-([0-9a-f]{16})$/i);
+  if (m) return { sessionId: m[1], sig: m[2] };
+  if (String(pathname) !== '/meetings/review') return null;
+  const state = String(url?.searchParams?.get('liff.state') || '');
+  m = state.match(/^\/(?:meetings\/review\/)?([0-9a-f]{20})-([0-9a-f]{16})(?:[?#].*)?$/i);
+  if (m) return { sessionId: m[1], sig: m[2] };
+  return null;
+}
+
+async function handleMeetingReviewRequest(req, res, { pathname, url }) {
+  const token = meetingReviewTokenFromRequest(pathname, url);
+  if (!token) return false;
+  const { sessionId, sig } = token;
   const session = reviewSessions.get(sessionId);
   if (!platform.publicLinkSecret || reviewSig(sessionId) !== sig.toLowerCase() || !session) {
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -1486,8 +1503,8 @@ export default {
   }, {
     prefix: '/meetings/review',
     access: { kind: 'public', scope: 'signed-link' },
-    handler: async (req, res, { pathname }) => {
-      const handled = await handleMeetingReviewRequest(req, res, { pathname });
+    handler: async (req, res, { pathname, url }) => {
+      const handled = await handleMeetingReviewRequest(req, res, { pathname, url });
       if (!handled) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Not found'); }
     },
   }],
