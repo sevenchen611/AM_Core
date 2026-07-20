@@ -658,7 +658,10 @@ async function resolveMeetingsTarget(tenant, binding) {
   try {
     const page = await platform.notionRequest(`/v1/pages/${encodeURIComponent(binding.pageId)}`, { method: 'GET' });
     const existing = plainRich(page.properties?.['會議資料庫']);
-    if (existing) return { dbId: existing, perGroup: true };
+    if (existing) {
+      await platform.registerTenantDataSource?.(tenant, existing);
+      return { dbId: existing, perGroup: true };
+    }
     const groupName = plainRich(page.properties?.['群組名稱']);
     const dbId = await provisionMeetingsDb(tenant, groupName);
     try {
