@@ -3,12 +3,14 @@
 
 export const GROUP_CAPABILITIES = ['訊息收集', '待辦', '會議', '案件狀態', '照片', '提醒'];
 export const GROUP_STATUS_UPDATE_POLICIES = ['所有成員', '主要負責人', '總管'];
+export const GROUP_BINDING_STATUSES = ['啟用', '影子記錄', '停用'];
 export const GROUP_BINDING_V2_REQUIRED_FIELDS = [
   '群組用途', '主要負責人', '啟用功能', '所屬目標',
   '狀態更新權限', '預設提醒對象', '最後設定時間', '最後設定者',
 ];
 
 export const GROUP_BINDING_V2_PROPERTIES = {
+  '狀態': { select: { options: GROUP_BINDING_STATUSES.map((name) => ({ name })) } },
   '群組用途': { rich_text: {} },
   '主要負責人': { rich_text: {} },
   '啟用功能': { multi_select: { options: GROUP_CAPABILITIES.map((name) => ({ name })) } },

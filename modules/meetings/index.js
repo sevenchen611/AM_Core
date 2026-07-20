@@ -44,7 +44,11 @@ function isAudio(message) {
 }
 
 // Tab 1「摘要」:重點摘要 + 結論/收穫 + 待辦(checkbox)。標題依會議樣式(工作/分享)微調。
-function summaryTabBlocks(parsed, kind = 'work') {
+function formalTasksEnabled(tenant) {
+  return tenant?.config?.meetings?.formalTasksEnabled === true;
+}
+
+function summaryTabBlocks(parsed, kind = 'work', { formalTasks = true } = {}) {
   const share = kind === 'share';
   const b = [];
   const highlights = (parsed.highlights || []).slice(0, 10);
@@ -52,7 +56,9 @@ function summaryTabBlocks(parsed, kind = 'work') {
   const conclusions = (parsed.conclusions || []).slice(0, 15);
   if (conclusions.length) { b.push(heading2(share ? '✅ 收穫與共識' : '✅ 主議題結論')); conclusions.forEach((c) => b.push(bullet(c))); }
   const todos = (parsed.todos || []).slice(0, 30);
-  b.push(heading2(share ? '📅 後續行動/延伸(checkbox,已同步待辦任務資料庫)' : '📅 待辦(checkbox 即任務,已同步待辦任務資料庫)'));
+  b.push(heading2(formalTasks
+    ? (share ? '📅 後續行動/延伸(checkbox,已同步待辦任務資料庫)' : '📅 待辦(checkbox 即任務,已同步待辦任務資料庫)')
+    : (share ? '📅 後續行動/延伸（候選，尚未建立正式待辦）' : '📅 待辦候選（尚未建立正式待辦）')));
   if (todos.length) todos.forEach((t) => b.push(todoBlock(t))); else b.push(para(share ? '(無後續行動)' : '(無待辦事項)'));
   return b;
 }
@@ -1150,11 +1156,23 @@ async function autoCompleteReviewSession(sessionId) {
   if (!session || session.status !== 'awaiting_host_choice') return;
   session.status = 'completed_without_review';
   clearReviewTimer(session);
+  if (!formalTasksEnabled(session.tenant)) {
+    session.status = 'candidates_retained';
+    await platform.pushLineMessage(session.groupId, `⏱ 會議待辦候選已保留，Green Hotel AM 尚未啟用正式待辦。\n會議記錄：${session.publicUrl || session.meetingUrl}`).catch(() => {});
+    return;
+  }
   await createMeetingTasksFromTodos(session);
   await platform.pushLineMessage(session.groupId, `⏱ 會議待辦確認超過 24 小時未選擇，已依原流程直接建立 ${session.taskPageIds.length} 筆待辦。\n會議記錄：${session.publicUrl || session.meetingUrl}`).catch(() => {});
 }
 
 async function finishReviewSession(session, actor = '主持人') {
+  if (!formalTasksEnabled(session.tenant)) {
+    session.status = 'candidates_retained';
+    session.finalizedBy = actor;
+    session.finalizedAt = new Date().toISOString();
+    clearReviewTimer(session);
+    return;
+  }
   const s = reviewSummary(session);
   if (!s.allReady) throw Object.assign(new Error('仍有待辦缺少任務名稱、負責人或截止日期。'), { statusCode: 409 });
   if (!s.allConfirmed) throw Object.assign(new Error('仍有待辦尚未由負責人確認。'), { statusCode: 409 });
@@ -1172,6 +1190,11 @@ async function completeWithoutReview(session, actor = '主持人') {
   session.finalizedBy = actor;
   session.finalizedAt = new Date().toISOString();
   clearReviewTimer(session);
+  if (!formalTasksEnabled(session.tenant)) {
+    session.status = 'candidates_retained';
+    await platform.pushLineMessage(session.groupId, `✅ 會議待辦候選已保留；Green Hotel AM 尚未啟用正式待辦。\n會議記錄：${session.publicUrl || session.meetingUrl}`).catch(() => {});
+    return;
+  }
   await createMeetingTasksFromTodos(session);
   await platform.pushLineMessage(session.groupId, `✅ 主持人選擇不進行待辦確認，已依原流程建立 ${session.taskPageIds.length} 筆待辦。\n會議記錄：${session.publicUrl || session.meetingUrl}`).catch(() => {});
 }
@@ -1385,7 +1408,7 @@ async function publishMeeting({ parsed, diarized, legend, roster, projectPageId,
   });
   // 同一頁三個可展開區段(tab):摘要 → 筆記 → 逐字稿
   await appendChildren(meeting.id, sourceBlocks);
-  await appendToggleSection(meeting.id, '📄 摘要(會議記錄)', summaryTabBlocks(parsed, kind));
+  await appendToggleSection(meeting.id, '📄 摘要(會議記錄)', summaryTabBlocks(parsed, kind, { formalTasks: formalTasksEnabled(tenant) }));
   await appendToggleSection(meeting.id, '📝 筆記(分區詳細記錄)', notesTabBlocks(parsed));
   const transcriptBlocks = [];
   for (let i = 0; i < diarized.length && transcriptBlocks.length < 90; i += 1900) {
@@ -1403,6 +1426,11 @@ async function publishMeeting({ parsed, diarized, legend, roster, projectPageId,
   const url = await shareableUrl(meeting.id, meeting.url);
   const publicUrl = publicMeetingUrl(meeting.id, tenant);
   await sendMeetingToLine(groupId, parsed, { legendLine, date: today, type: meetingType, url, publicUrl, defaultTitle });
+  if (!formalTasksEnabled(tenant)) {
+    if (todos.length) await platform.pushLineMessage(groupId, `📌 本次辨識 ${todos.length} 項待辦候選，已隨會議記錄保存；尚未建立正式待辦。`).catch(() => {});
+    console.log(`Meeting published as candidates only: ${parsed.title}, ${todos.length} todos.`);
+    return;
+  }
   const session = createReviewSession({
     tenant,
     binding,
@@ -1543,13 +1571,18 @@ async function processRecording({ tenant, buffer, filename, contentType, binding
     },
   });
   await appendChildren(meeting.id, sourceBlocks);
-  await appendToggleSection(meeting.id, '📄 摘要(會議記錄)', summaryTabBlocks(parsed));
+  await appendToggleSection(meeting.id, '📄 摘要(會議記錄)', summaryTabBlocks(parsed, 'work', { formalTasks: formalTasksEnabled(tenant) }));
   await appendToggleSection(meeting.id, '📝 筆記(分區詳細記錄)', notesTabBlocks(parsed));
 
   const todos = (parsed.todos || []).slice(0, 30);
   const url = await shareableUrl(meeting.id, meeting.url);
   const publicUrl = publicMeetingUrl(meeting.id, tenant);
   await sendMeetingToLine(groupId, parsed, { legendLine: '', date: today, type: meetingType, url, publicUrl, defaultTitle: cfg.defaultTitle });
+  if (!formalTasksEnabled(tenant)) {
+    if (todos.length) await platform.pushLineMessage(groupId, `📌 本次辨識 ${todos.length} 項待辦候選，已隨會議記錄保存；尚未建立正式待辦。`).catch(() => {});
+    console.log(`Meeting processed as candidates only: ${parsed.title}, ${todos.length} todos.`);
+    return;
+  }
   const session = createReviewSession({
     tenant,
     binding,
@@ -1606,4 +1639,4 @@ export default {
 };
 
 // 測試用內部匯出(不影響正式流程)
-export const __test = { meetingPrompt, normalizeParsed, withNextMeetingTodo, summarize, summaryTabBlocks, notesTabBlocks, publishMeeting, resolveMeetingsTarget, provisionMeetingsDb, normalizeTodo, hasRequiredTodoFields, reviewSummary, renderReviewHtml, pushMeetingReviewNotification, beginMeetingReview, lineProfileFromAccessToken, ensureSessionMemberBestEffort };
+export const __test = { meetingPrompt, normalizeParsed, withNextMeetingTodo, summarize, summaryTabBlocks, formalTasksEnabled, notesTabBlocks, publishMeeting, resolveMeetingsTarget, provisionMeetingsDb, normalizeTodo, hasRequiredTodoFields, reviewSummary, renderReviewHtml, pushMeetingReviewNotification, beginMeetingReview, lineProfileFromAccessToken, ensureSessionMemberBestEffort };

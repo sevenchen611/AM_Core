@@ -167,7 +167,9 @@ export function createOperationalMemory({ env = process.env, logger = console, p
         const senderName = safeText(ctx.senderName || '未知成員', 500);
         const sourceKey = `line:${messageId}`;
         const idempotencyKey = sha256(`${config.tenantId}|${sourceKey}`);
-        const content = message.type === 'text' ? safeText(message.text, 20000) : '';
+        const content = message.type === 'text'
+          ? safeText(message.text, 20000)
+          : safeText(ctx.operationalMemoryText, 20000);
 
         const groupResult = await client.query(
           `INSERT INTO am_memory.conversation_groups

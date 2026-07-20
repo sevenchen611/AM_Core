@@ -126,7 +126,7 @@ await create('WORK_ITEMS', '工作項目', {
 await create('GROUP_BINDINGS', '群組綁定', {
   '群組名稱': { title: {} }, 'LINE 群組 ID': text, '專案': relation(ids.PROJECTS),
   '群組角色': select('總管', '內部', '專案', '部門', '外部合作'), '工種': select('營運', '房務', '工務', '行銷', '其他'),
-  '狀態': select('啟用', '停用'), '成員對照': text, '我方主管': text, '對方主管': text,
+  '狀態': select('啟用', '影子記錄', '停用'), '成員對照': text, '我方主管': text, '對方主管': text,
   '群組用途': text, '主要負責人': text,
   '啟用功能': multi('訊息收集', '待辦', '會議', '案件狀態', '照片', '提醒'),
   '所屬目標': text, '狀態更新權限': select('所有成員', '主要負責人', '總管'),

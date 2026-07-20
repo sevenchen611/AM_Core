@@ -215,6 +215,15 @@ async function onMessage(ctx) {
   const photoTimeMs = new Date(ctx.event?.timestamp || Date.now()).getTime();
   // 視覺判讀與候選查詢並行
   const [vision, candidates] = await Promise.all([visionJudge(ctx), queryCandidatesSafe(ctx, photoTimeMs)]);
+  if (vision) {
+    ctx.operationalMemoryText = [
+      '【圖片／文件 AI 解析】',
+      `主題：${vision.topic || '未分類'}`,
+      `說明：${vision.caption || '無'}`,
+      `標籤：${(vision.tags || []).join('、') || '無'}`,
+      `是否為佐證或後續處理素材：${vision.isEvidence ? '是' : '否'}`,
+    ].join('\n');
+  }
 
   const photo = { time: photoTimeMs, quotedMessageId: message.quotedMessageId || '', topic: vision?.topic || '', tags: vision?.tags || [] };
   const event = resolveEvent({ photo, candidates });

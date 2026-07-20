@@ -4,13 +4,13 @@
   "aka": "葉綠宿 AM",
   "tenantId": "6c421e02-7ef7-4f98-8acb-758224689b58",
   "envPrefix": "GREEN_HOTEL",
-  "runtimeEnabled": false,
+  "runtimeEnabled": true,
   "authorizationReady": false,
-  "modules": ["collect", "meetings", "media", "operational-memory", "triage", "queue", "tasks", "reminders", "groups"],
-  "status": "Foundation provisioned and connections verified. Runtime remains fail-closed until Green Hotel operational memory (PostgreSQL) and tenant-neutral extraction modules are verified. No LINE group is routed.",
+  "modules": ["collect", "media", "operational-memory", "meetings"],
+  "status": "Shadow-plus-meetings runtime: bound groups with status 影子記錄 preserve raw sources, archive and analyze images, extract PostgreSQL candidates, and publish meeting records. Formal tasks, reminders, Portal authorization, and general automatic replies remain disabled.",
   "operationalMemory": {
-    "enabled": false,
-    "activationMode": "off",
+    "enabled": true,
+    "activationMode": "shadow",
     "queryMode": "legacy",
     "contractVersion": "AM-IMP-2026.0718.01",
     "notionProjection": true,
@@ -37,6 +37,7 @@
       "evening": "20:30"
     },
     "meetings": {
+      "formalTasksEnabled": false,
       "domain": "台灣旅宿營運與管理會議",
       "transcriptionHint": "台灣旅宿營運會議，繁體中文為主，可能包含飯店、訂房、房務、工務、OTA 與合作案術語。",
       "keyterms": ["葉綠宿", "房務", "櫃檯", "入住", "退房", "訂房", "OTA", "團客", "散客", "維修", "住房率", "房價"],

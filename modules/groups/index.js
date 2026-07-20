@@ -143,7 +143,7 @@ function renderRow(row, disabled, canCore) {
 <td>${canCore ? input('capabilities', row.capabilities.join('、'), '待辦、案件狀態') : `<span>${esc(row.capabilities.join('、') || '未設定')}</span><small>核心功能由租戶全群組管理者設定。</small>`}</td>
 <td>${input('goal', row.goal, '所屬專案或目標')}</td>
 <td>${selectInput('statusUpdatePolicy', row.statusUpdatePolicy || STATUS_POLICIES[0], STATUS_POLICIES)}${memberSelect('reminderTargets', row.reminderTargets, row.memberNames, { multiple: true })}<small>可複選提醒對象。</small></td>
-<td>${canCore ? selectInput('status', row.status || '啟用', ['啟用', '停用']) : `<span>${esc(row.status || '停用')}</span>`}<small>角色：${esc(row.role || '未設定')}<br>成員對照：${row.memberCount} 人</small></td>
+<td>${canCore ? selectInput('status', row.status || '影子記錄', ['啟用', '影子記錄', '停用']) : `<span>${esc(row.status || '停用')}</span>`}<small>角色：${esc(row.role || '未設定')}<br>成員對照：${row.memberCount} 人</small></td>
 <td><button type="button" class="sync-members"${memberControlsDisabled ? ' disabled' : ''}>同步成員</button><button type="button" class="save"${disabled ? ' disabled' : ''}>儲存</button><small class="result">${esc(row.editedAt ? `最近設定：${row.editedAt}` : '')}</small></td></tr>`;
 }
 
@@ -189,7 +189,7 @@ function updateProperties(body, schema, actor) {
   add('預設提醒對象', { rich_text: text(String(body.reminderTargets || '').trim()) });
   if (Object.prototype.hasOwnProperty.call(body, 'status')) {
     const status = String(body.status || '').trim();
-    if (!['啟用', '停用'].includes(status)) throw new Error('群組狀態只能是啟用或停用。');
+    if (!['啟用', '影子記錄', '停用'].includes(status)) throw new Error('群組狀態只能是啟用、影子記錄或停用。');
     add('狀態', { select: { name: status } });
   }
   add('最後設定時間', { date: { start: new Date().toISOString() } });

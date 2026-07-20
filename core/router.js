@@ -5,6 +5,9 @@
 // resolveGroupBinding 放在 core(路由器要用);模組從 ctx.binding 取,不必自己查。
 
 const BINDING_CACHE_TTL_MS = 5 * 60 * 1000;
+// 「影子記錄」已完成租戶歸屬，但只允許來源保存與候選抽取；
+// 它必須能被路由，否則無法建立任何影子紀錄。
+const ROUTABLE_BINDING_STATUSES = ['啟用', '影子記錄'];
 const plain = (prop, kind = 'rich_text') => (prop?.[kind] || []).map((t) => t.plain_text || t.text?.content || '').join('');
 const selected = (prop) => prop?.select?.name || '';
 const selectedMany = (prop) => (prop?.multi_select || []).map((x) => x.name).filter(Boolean);
@@ -24,7 +27,7 @@ export function createRouter({ tenants, notionRequest, logger = console }) {
         filter: {
           and: [
             { property: 'LINE 群組 ID', rich_text: { equals: groupId } },
-            { property: '狀態', select: { equals: '啟用' } },
+            { or: ROUTABLE_BINDING_STATUSES.map((status) => ({ property: '狀態', select: { equals: status } })) },
           ],
         },
         page_size: 1,
