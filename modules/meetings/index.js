@@ -1135,7 +1135,7 @@ function renderReviewHtml(session) {
 <section class="panel"><div id="summary"></div><div class="actions" id="hostChoice"><button data-action="start">要，開啟確認</button><button class="secondary" data-action="complete">不要，直接完成</button></div><div class="actions"><a href="${esc(session.publicUrl || session.meetingUrl)}" target="_blank" rel="noopener"><button class="secondary" type="button">查看會議記錄</button></a></div></section>
 <section id="tasks"></section>
 <section class="panel"><div class="actions"><button id="finalize" class="danger">主持人最終確認並建立待辦</button></div><p class="meta">只有所有任務具備任務名稱、負責人、截止日期，且已由負責人確認後，才能最終建立正式待辦。</p></section>
-<div class="toast" id="toast"></div>${liffId ? '<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"><\\/script>' : ''}<script>
+<div class="toast" id="toast"></div>${liffId ? '<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>' : ''}<script>
 const DATA=${sessionJson};let lineUserId='',lineName='',lineAccessToken='';
 const api=(body)=>fetch(DATA.apiPath||location.pathname,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...body,actorUserId:lineUserId,actorName:lineName,liffAccessToken:lineAccessToken})}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'操作失敗');return j});
 function show(msg){const el=document.getElementById('toast');el.textContent=msg;el.style.display='block';setTimeout(()=>el.style.display='none',2800)}
@@ -1198,6 +1198,7 @@ async function handleMeetingReviewRequest(req, res, { pathname, url }) {
   try {
     const body = JSON.parse(await readBody(req));
     const action = String(body.action || '');
+    console.log(`Meeting review action=${action || 'unknown'} session=${sessionId.slice(0, 8)} status=${session.status}`);
     const { actorName, actorUserId } = await resolveReviewActor(session, body);
     if (action === 'identify') {
       await ensureSessionMember(session, actorName, actorUserId).catch((e) => console.warn(`meeting review member update failed: ${e.message}`));
@@ -1515,4 +1516,4 @@ export default {
 };
 
 // 測試用內部匯出(不影響正式流程)
-export const __test = { meetingPrompt, normalizeParsed, withNextMeetingTodo, summarize, summaryTabBlocks, notesTabBlocks, publishMeeting, resolveMeetingsTarget, provisionMeetingsDb, normalizeTodo, hasRequiredTodoFields, reviewSummary };
+export const __test = { meetingPrompt, normalizeParsed, withNextMeetingTodo, summarize, summaryTabBlocks, notesTabBlocks, publishMeeting, resolveMeetingsTarget, provisionMeetingsDb, normalizeTodo, hasRequiredTodoFields, reviewSummary, renderReviewHtml };
