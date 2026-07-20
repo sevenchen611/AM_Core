@@ -1,0 +1,51 @@
+{
+  "key": "green-hotel",
+  "displayName": "Green Hotel AM",
+  "aka": "葉綠宿 AM",
+  "tenantId": "6c421e02-7ef7-4f98-8acb-758224689b58",
+  "envPrefix": "GREEN_HOTEL",
+  "runtimeEnabled": false,
+  "authorizationReady": false,
+  "modules": ["collect", "meetings", "media", "operational-memory", "triage", "queue", "tasks", "reminders", "groups"],
+  "status": "Foundation provisioned and connections verified. Runtime remains fail-closed until Green Hotel operational memory (PostgreSQL) and tenant-neutral extraction modules are verified. No LINE group is routed.",
+  "operationalMemory": {
+    "enabled": false,
+    "activationMode": "off",
+    "queryMode": "legacy",
+    "contractVersion": "AM-IMP-2026.0718.01",
+    "notionProjection": true,
+    "vectorSearch": false,
+    "knowledgePromotion": "review-only"
+  },
+  "config": {
+    "homeRoute": "/admin",
+    "portal": {
+      "label": "Green Hotel AM / 葉綠宿 AM"
+    },
+    "vocabulary": {
+      "industry": "旅宿營運",
+      "sites": ["葉綠宿"],
+      "departments": ["營運", "櫃檯", "房務", "工務", "業務", "行銷", "財務", "人資"],
+      "projectTerms": ["館別", "房務", "入住", "訂房", "OTA", "團客", "散客", "維修", "合作案"]
+    },
+    "media": {
+      "visionContext": "旅宿營運現場"
+    },
+    "reportSchedule": {
+      "morning": "08:30",
+      "followUp": ["10:00", "13:00", "17:00"],
+      "evening": "20:30"
+    },
+    "meetings": {
+      "domain": "台灣旅宿營運與管理會議",
+      "transcriptionHint": "台灣旅宿營運會議，繁體中文為主，可能包含飯店、訂房、房務、工務、OTA 與合作案術語。",
+      "keyterms": ["葉綠宿", "房務", "櫃檯", "入住", "退房", "訂房", "OTA", "團客", "散客", "維修", "住房率", "房價"],
+      "types": ["營運會議", "專案會議", "主管會議", "合作會議"],
+      "defaultType": "營運會議",
+      "defaultTitle": "Green Hotel 會議",
+      "sectionBy": "主題或館別",
+      "workKindHint": "旅宿營運／專案會議",
+      "projectCodes": {}
+    }
+  }
+}

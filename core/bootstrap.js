@@ -8,6 +8,7 @@ import { createLine } from './line.js';
 import { createDrive } from './drive.js';
 import { createPortal } from './portal.js';
 import { createLlm } from './llm.js';
+import { createOperationalMemory } from './operational-memory.js';
 import { createRouter } from './router.js';
 import { loadModules, createDispatcher } from './modules.js';
 
@@ -49,6 +50,11 @@ export async function bootstrap(env = process.env, overrides = {}) {
   });
   // LLM 抽象層:可插拔後端 + 統一備援鏈(鏈序見 AMCORE_LLM_CHAIN)。
   const llm = overrides.llm || createLlm({ env, logger });
+  const operationalMemory = overrides.operationalMemory || createOperationalMemory({
+    env,
+    logger,
+    poolFactory: overrides.operationalMemoryPoolFactory || null,
+  });
   const tenantLlms = new Map();
   if (!overrides.llm) {
     for (const tenant of tenants) {
@@ -99,6 +105,7 @@ export async function bootstrap(env = process.env, overrides = {}) {
     queueAccessKey: env.AMCORE_QUEUE_ACCESS_KEY || '',
     // LLM(統一備援鏈)。新模組一律用這個,不要自己接 AI 供應商。
     llm,
+    operationalMemory,
     llmForTenant: (tenant) => tenantLlms.get(tenant?.key) || llm,
     aiForTenant: (tenant) => tenant?.ai || {
       provider: (env.AMCORE_AI_PROVIDER || '').toLowerCase(),
@@ -134,5 +141,5 @@ export async function bootstrap(env = process.env, overrides = {}) {
   const modules = await loadModules({ tenants, platform, logger });
   const dispatcher = createDispatcher({ tenants, modules, platform, logger });
 
-  return { env, logger, tenants, registry, platform, line, notion, drive, portal, llm, router, modules, dispatcher };
+  return { env, logger, tenants, registry, platform, line, notion, drive, portal, llm, operationalMemory, router, modules, dispatcher };
 }

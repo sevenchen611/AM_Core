@@ -1,0 +1,59 @@
+{
+  "id": "AM-IMP-2026.0718.01",
+  "name": "Tenant-isolated operational memory foundation",
+  "type": "Core",
+  "portable": true,
+  "status": "Ready",
+  "installTargets": [
+    "AM_PLATFORM",
+    "HOZO_AM",
+    "SEVEN_AM",
+    "NEW_AM_PROJECT"
+  ],
+  "requiresDatabases": [
+    "PostgreSQL 15+ with pgcrypto",
+    "pgvector when semantic retrieval is enabled",
+    "project-local Notion projection databases when Notion projection is enabled"
+  ],
+  "requiresEnv": [
+    "AM_MEMORY_DATABASE_URL",
+    "AM_MEMORY_TENANT_ID",
+    "AM_MEMORY_QUEUE_DRIVER",
+    "AM_MEMORY_OBJECT_STORE_DRIVER",
+    "project-local connector credentials"
+  ],
+  "requiresScripts": [
+    "scripts/verify-operational-memory-package.mjs",
+    "scripts/plan-tenant-install.mjs",
+    "scripts/dryrun-operational-memory-domain.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Every operational-memory row carries tenant_id; database Row Level Security and the AMCore AccessContext must agree before reads, writes, retrieval, projections, or answer citations are allowed."
+  },
+  "dependsOn": [
+    "AM-IMP-2026.0608.14",
+    "AM-IMP-2026.0608.16",
+    "AM-IMP-2026.0608.17",
+    "AM-IMP-2026.0608.18",
+    "AM-IMP-2026.0610.03",
+    "AM-IMP-2026.0611.01",
+    "AM-IMP-2026.0717.02",
+    "AM-IMP-2026.0717.04"
+  ],
+  "definitionOfDone": [
+    "Package files and machine-readable contracts pass the package verifier",
+    "The target AM has a unique tenant id and project-local connector configuration",
+    "Raw LINE ingestion is idempotent and acknowledges before AI processing",
+    "Confirmed events, tasks, task changes, decisions, and answers cannot exist without project-local source evidence",
+    "Formal tasks link to a confirmed project goal; useful goal-unknown work remains a candidate with clarification needed",
+    "Task reconciliation updates one canonical task and appends history instead of creating message-per-task duplicates",
+    "Structured project, task, and decision queries run before raw-message retrieval",
+    "Cross-tenant reads and writes fail at both application and PostgreSQL RLS layers",
+    "Notion is treated as a projection and can be rebuilt without losing PostgreSQL state",
+    "Project manifest and project-local upgrade record are updated after local verification"
+  ]
+}

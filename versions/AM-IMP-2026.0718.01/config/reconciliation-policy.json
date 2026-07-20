@@ -1,0 +1,406 @@
+{
+  "schemaVersion": 1,
+  "id": "am-operational-memory-reconciliation-policy",
+  "scope": "All tenant-local real-time and scheduled reconciliation runs that convert new sources into events or current-state changes.",
+  "schedule": {
+    "timezone": "tenant-local",
+    "realtimeTriggers": [
+      "explicit assignment",
+      "explicit commitment",
+      "explicit decision",
+      "due-date or meeting change",
+      "completion or cancellation evidence"
+    ],
+    "hourlyWindow": {
+      "start": "08:00",
+      "end": "22:00",
+      "frequencyMinutes": 60,
+      "inclusive": true
+    },
+    "dailyConvergenceRequired": true,
+    "weeklyProjectSnapshotRequired": true
+  },
+  "tenantScope": {
+    "tenantContextRequired": true,
+    "recordTenantField": "tenant_id",
+    "crossTenantCandidateSearchAllowed": false,
+    "crossTenantMutationAllowed": false,
+    "crossTenantSupersessionAllowed": false,
+    "failureMode": "fail_closed"
+  },
+  "requiredInputs": [
+    "TenantContext and system or user principal",
+    "new project-local sources since the last successful checkpoint",
+    "same-conversation topic-thread history",
+    "active project-local tasks, goals, decisions, blockers, and risks",
+    "project-local conversation master binding",
+    "recent project-local meetings and reports when relevant",
+    "latest shared, project-local, learned, and manual rules"
+  ],
+  "ruleLoading": {
+    "mandatoryBeforeClassification": true,
+    "loadOrder": [
+      {
+        "priority": 1,
+        "source": "amcore_shared",
+        "required": true
+      },
+      {
+        "priority": 2,
+        "source": "project_local_judgment_database",
+        "required": true
+      },
+      {
+        "priority": 3,
+        "source": "project_local_learned_calibration",
+        "required": false
+      },
+      {
+        "priority": 4,
+        "source": "active_manual_user_ui_rules",
+        "required": false
+      }
+    ],
+    "filters": [
+      "rule status is active, verified, installed, or reviewable under tenant policy",
+      "rule scope includes the current tenant, project, source type, or shared scope",
+      "trigger pattern matches the current source, thread, entity, or operation",
+      "no exception excludes the current case"
+    ],
+    "materialApplicationTraceRequired": true,
+    "traceFields": [
+      "rule_id",
+      "rule_version",
+      "source",
+      "effect",
+      "applied_at"
+    ],
+    "failurePolicy": {
+      "recordWarning": true,
+      "silentFallbackAllowed": false,
+      "fallback": "Suppress irreversible or high-risk automatic mutations, preserve the source, and create a reviewable candidate when an actionable item cannot be safely ignored."
+    }
+  },
+  "threading": {
+    "unitOfJudgment": "topic_thread",
+    "singleMessageJudgmentOnlyWhenExplicitAndSelfContained": true,
+    "signals": [
+      "reply chain",
+      "subject continuity",
+      "participant continuity",
+      "time continuity",
+      "shared files or deliverables",
+      "explicit topic changes",
+      "phrases that introduce another matter"
+    ],
+    "defaultTimeWindowMinutes": 15,
+    "groupIsContextContainerNotProjectGuarantee": true,
+    "oneThreadMayProduceMultipleEvents": true,
+    "oneEventMayUseMultipleMessages": true
+  },
+  "projectAndGoalResolution": {
+    "projectResolutionOrder": [
+      "project-local conversation master binding",
+      "explicit project relation on the source",
+      "project name or alias",
+      "participants, topic, and recent task context",
+      "schema-constrained AI classification",
+      "unclassified candidate"
+    ],
+    "fixedBindingOverridesTextGuess": true,
+    "formalTaskRequiresProjectId": true,
+    "formalTaskRequiresGoalId": true,
+    "newGoalSignalBehavior": "Propose or create the goal before formalizing its tasks, subject to tenant authorization and evidence gates.",
+    "unknownProjectOrGoalBehavior": "Keep the event or task as candidate, retain evidence, and set clarification_needed."
+  },
+  "idempotencyAndDeduplication": {
+    "ingestionUniqueKey": [
+      "tenant_id",
+      "source_channel",
+      "source_id"
+    ],
+    "attachmentUniqueKey": [
+      "tenant_id",
+      "sha256"
+    ],
+    "meetingTaskUniqueKey": [
+      "tenant_id",
+      "meeting_reference",
+      "normalized_checkbox_text"
+    ],
+    "commandUniqueKey": [
+      "tenant_id",
+      "idempotency_key"
+    ],
+    "eventUniqueKey": [
+      "tenant_id",
+      "event_id"
+    ],
+    "normalization": [
+      "Unicode NFKC",
+      "trim surrounding whitespace",
+      "collapse internal whitespace",
+      "normalize checkbox markers",
+      "case-fold Latin text",
+      "preserve dates, amounts, identifiers, and negation"
+    ],
+    "retryBehavior": "Return the previously committed result for the same tenant and idempotency key; never append a duplicate event or transition."
+  },
+  "taskMatching": {
+    "candidatePool": "Non-terminal and recently terminal tasks in the same tenant, normally limited to the resolved project.",
+    "sameTenantRequired": true,
+    "sameProjectPreferred": true,
+    "matchingDimensions": [
+      {
+        "name": "same project relation",
+        "weight": 25
+      },
+      {
+        "name": "same topic thread or source conversation",
+        "weight": 20
+      },
+      {
+        "name": "same requested deliverable or normalized subject",
+        "weight": 20
+      },
+      {
+        "name": "same owner, requester, or involved people",
+        "weight": 10
+      },
+      {
+        "name": "compatible due date or meeting date",
+        "weight": 10
+      },
+      {
+        "name": "shared source, attachment, or linked page",
+        "weight": 10
+      },
+      {
+        "name": "compatible active lifecycle",
+        "weight": 5
+      }
+    ],
+    "automaticUpdateMinimumScore": 75,
+    "manualReviewMinimumScore": 50,
+    "belowManualReviewBehavior": "Treat as a possible new event and continue through the new-task gates.",
+    "ambiguousTopMatchesBehavior": "request_confirmation",
+    "neverMergeAcrossProjectsWithoutExplicitAuthorizedRelation": true,
+    "explanationRequired": true
+  },
+  "existingTaskUpdateSignals": [
+    "requested data was provided",
+    "a prior question was answered",
+    "a promised file or attachment was delivered",
+    "a meeting time or attendance was confirmed or changed",
+    "work was started or advanced",
+    "a blocker or waiting party was identified",
+    "owner, requester, due date, scope, priority, or next step changed",
+    "completion, cancellation, rejection, or reopening was reported",
+    "an operational check was answered with normal, no adjustment needed, or already handled"
+  ],
+  "newEventSignals": [
+    "a distinct new subject not represented by an active task",
+    "a new delivery request",
+    "a new external commitment",
+    "a new financial, HR, legal, tax, safety, or customer risk",
+    "a new project goal",
+    "a new unresolved decision",
+    "a distinct follow-up with a different owner or expected result"
+  ],
+  "suppressionSignals": [
+    "assistant operation command with no separate real-world action",
+    "assistant phonetic or mistyped alias used to list, open, search, or update tasks",
+    "acknowledgement with no state change",
+    "test message",
+    "duplicate source",
+    "pure background conversation",
+    "pure knowledge sharing that contains no action, unresolved decision, or risk",
+    "system introduction or automated echo"
+  ],
+  "decisionOutcomes": [
+    {
+      "operation": "update_existing_task",
+      "requirements": [
+        "one sufficiently strong existing-task match",
+        "evidence-backed change",
+        "valid status or field transition",
+        "expected entity version"
+      ]
+    },
+    {
+      "operation": "create_new_event_task",
+      "requirements": [
+        "new actionable event",
+        "resolved project",
+        "resolved project goal",
+        "source-evidence gate passed",
+        "no existing task can absorb the event"
+      ]
+    },
+    {
+      "operation": "mark_judged_no_task",
+      "requirements": [
+        "source was preserved",
+        "suppression reason was recorded",
+        "no separate real-world action was ignored"
+      ]
+    },
+    {
+      "operation": "request_confirmation",
+      "requirements": [
+        "important but ambiguous match, project, goal, status, or closure",
+        "candidate and evidence retained for authorized review"
+      ]
+    }
+  ],
+  "statusReconciliation": {
+    "statuses": [
+      "candidate",
+      "pending",
+      "in_progress",
+      "waiting",
+      "pending_completion_confirmation",
+      "completed",
+      "cancelled",
+      "no_action"
+    ],
+    "confirmationStatuses": [
+      "pending",
+      "confirmed",
+      "rejected"
+    ],
+    "allowedTransitions": {
+      "candidate": [
+        "pending",
+        "cancelled",
+        "no_action"
+      ],
+      "pending": [
+        "in_progress",
+        "waiting",
+        "pending_completion_confirmation",
+        "completed",
+        "cancelled",
+        "no_action"
+      ],
+      "in_progress": [
+        "waiting",
+        "pending_completion_confirmation",
+        "completed",
+        "cancelled",
+        "pending"
+      ],
+      "waiting": [
+        "in_progress",
+        "pending_completion_confirmation",
+        "completed",
+        "cancelled",
+        "pending"
+      ],
+      "pending_completion_confirmation": [
+        "completed",
+        "in_progress",
+        "waiting",
+        "cancelled"
+      ],
+      "completed": [
+        "in_progress"
+      ],
+      "cancelled": [
+        "pending"
+      ],
+      "no_action": [
+        "pending"
+      ]
+    },
+    "reopenRequiresEvidence": true,
+    "waitingRequiresWaitingFor": true,
+    "completedRequiresCompletionEvidence": true,
+    "overdueIsDerivedNotStoredLifecycle": true,
+    "transitionLogAppendOnly": true,
+    "transitionRequiredFields": [
+      "from_status",
+      "to_status",
+      "detected_at",
+      "evidence_refs",
+      "rule_trace",
+      "reason"
+    ]
+  },
+  "supersession": {
+    "eventHistoryRetained": true,
+    "decisionHistoryRetained": true,
+    "allowedRelationships": [
+      "supersedes_event",
+      "supersedes_decision",
+      "corrects_event",
+      "reopens_task"
+    ],
+    "targetTenantMustMatch": true,
+    "decisionProjectMustMatch": true,
+    "newRecordMustExplainReason": true,
+    "effectiveProjectionRule": "Only the newest supported, non-revoked record in a valid supersession chain is current."
+  },
+  "evidenceGate": {
+    "mandatory": true,
+    "minimumEvidenceRefs": 1,
+    "checks": [
+      "source exists in the same tenant",
+      "source type is accepted",
+      "source locator or relation is auditable",
+      "source time and actor are present when available",
+      "LINE evidence includes group or conversation, time, sender, content, and media reference when present",
+      "meeting evidence includes meeting reference and checkbox or decision text",
+      "system suggestions link to underlying source evidence",
+      "principal is authorized for the source and target entity"
+    ],
+    "formalCreationFailure": "candidate_or_reject",
+    "formalUpdateFailure": "no_mutation_and_log",
+    "appendTaskBodyEvidence": true,
+    "taskBodyEvidenceStandard": "AM-IMP-2026.0610.03"
+  },
+  "sensitiveActionPolicy": {
+    "categories": [
+      "financial",
+      "contractual",
+      "legal",
+      "human_resources",
+      "tax",
+      "safety",
+      "external_commitment"
+    ],
+    "automaticExternalActionAllowed": false,
+    "automaticFinalClosureAllowed": false,
+    "completionBehavior": "Set confirmation_status to pending and request project-owner confirmation while retaining completion evidence."
+  },
+  "concurrency": {
+    "optimisticVersionRequiredForProjectionMutation": true,
+    "conflictBehavior": "Reload the current projection and rerun reconciliation with the same tenant and idempotency key.",
+    "lostUpdateAllowed": false
+  },
+  "failurePolicy": {
+    "sourcePersistenceFailure": "Do not acknowledge durable ingestion success; retry through the tenant-local queue policy.",
+    "enrichmentFailure": "Retain the raw source, record the error, and retry or route to review without creating unsupported facts.",
+    "schemaValidationFailure": "Reject the extraction output, retain the source, and log processor details.",
+    "projectionFailureAfterEventAppend": "Retry the idempotent projection step from the event ledger.",
+    "viewPublishFailure": "Do not roll back canonical state; retry the tenant-local view outbox.",
+    "deadLetterRequired": true
+  },
+  "requiredAuditFields": [
+    "tenant_id",
+    "run_id",
+    "checkpoint_before",
+    "checkpoint_after",
+    "processor_version",
+    "rule_set_version",
+    "source_ids",
+    "decision_outcome",
+    "matched_entity_id",
+    "match_score",
+    "evidence_refs",
+    "rule_trace",
+    "warnings",
+    "started_at",
+    "completed_at"
+  ]
+}

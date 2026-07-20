@@ -1,0 +1,35 @@
+-- Green Hotel AM Notion schema contract (documentation only).
+--
+-- Notion does not execute SQL.  The authoritative, idempotent implementation is:
+--   node tools/provision-tenant-foundation.mjs green-hotel \
+--     --parent-page=<Green-Hotel-parent-page-id> --drive-root=<Drive-folder-id>
+--
+-- Do not create the earlier English-named draft sources manually: the runtime
+-- uses the Chinese property names below.  The provisioner creates these 15
+-- tenant-local data sources and writes their IDs only to the local .env:
+--
+-- Projects        專案名稱(title), 館別代碼(text)
+-- Spaces          名稱(title), 專案(relation -> Projects)
+-- Work Items      工項(title), 專案(relation -> Projects), 空間(relation -> Spaces),
+--                 工種(select), 狀態(select: 未開始)
+-- Group Bindings  群組名稱(title), LINE 群組 ID(text), 狀態(select: 啟用/停用),
+--                 群組角色(select), 成員對照(text), 專案(relation -> Projects),
+--                 群組用途(text), 主要負責人(text), 啟用功能(multi_select),
+--                 所屬目標(text), 狀態更新權限(select), 預設提醒對象(text),
+--                 最後設定時間(date), 最後設定者(text), 會議資料庫(text)
+-- Messages        訊息(title), 內容(text), LINE 群組 ID(text), LINE 訊息 ID(text),
+--                 發送者(text), 時間(date), 訊息類型(select), 掛載狀態(select),
+--                 群組綁定(relation -> Group Bindings), 專案(relation -> Projects),
+--                 AI 訊息類型(select), AI 信心度(select), AI 初判結果(text),
+--                 確認者(text), 確認時間(date), 空間(relation -> Spaces),
+--                 工項(relation -> Work Items)
+-- Attachments     附件項目(title), 訊息(relation -> Messages), 日期(date), 檔案名稱(text),
+--                 檔案大小(number), 專案(relation -> Projects), 檔案(files), Drive 連結(url),
+--                 AI影像判讀(text), 空間(relation -> Spaces), 工項(relation -> Work Items)
+-- Meetings        會議(title), 類型(select), 日期(date), 參與者(text), 專案(relation -> Projects)
+-- Tasks           內容(title), 負責人(text), 期限(date), 來源(select), 狀態(select),
+--                 專案(relation -> Projects), 會議記錄(relation -> Meetings),
+--                 負責群組(relation -> Group Bindings), 提醒記錄(text)
+-- Events, Decisions, Knowledge Items, Task History, Daily Summaries,
+-- Project Snapshots, Answer Logs: operational-memory projections; their
+-- canonical records require the PostgreSQL operational-memory store.

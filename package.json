@@ -11,5 +11,8 @@
     "dryrun": "node --experimental-vm-modules tools/dryrun-core.mjs",
     "dryrun:engineering": "node tools/dryrun-engineering-convergence.mjs",
     "dryrun:groups": "node tools/dryrun-groups.mjs"
+  },
+  "dependencies": {
+    "pg": "^8.16.3"
   }
 }

@@ -1,0 +1,266 @@
+{
+  "schemaVersion": 1,
+  "id": "am-operational-memory-retention-policy",
+  "scope": "Tenant-local lifecycle, retrieval, archive, rehydration, redaction, and deletion behavior for operational-memory records.",
+  "tenantScope": {
+    "tenantContextRequired": true,
+    "policyResolvedPerTenant": true,
+    "crossTenantArchiveAllowed": false,
+    "crossTenantBackupRestoreAllowed": false,
+    "crossTenantSearchIndexAllowed": false,
+    "namespaceRequiredForObjectsAndIndexes": true
+  },
+  "principles": [
+    "Preserve raw evidence so structured conclusions can be reprocessed and audited.",
+    "Do not place entire historical windows into a model prompt; retrieve only authorized relevant context.",
+    "Keep current structured state separate from append-only history.",
+    "A newer event may supersede an older fact without deleting the old record.",
+    "Legal, privacy, contractual, security, or project-owner deletion requirements override default retention through an audited tenant-local process.",
+    "AMCore never becomes the archive for production tenant data."
+  ],
+  "tiers": [
+    {
+      "id": "hot",
+      "age": {
+        "minimumDays": 0,
+        "maximumDaysInclusive": 14
+      },
+      "storage": "tenant-local online primary storage",
+      "indexing": [
+        "structured indexes",
+        "full-text index",
+        "authorized semantic index when enabled"
+      ],
+      "retrieval": "Low-latency filtered retrieval by tenant, project, group, people, topic, source type, and time.",
+      "modelContextRule": "Even hot data must be filtered and reranked; never send the entire hot window by default."
+    },
+    {
+      "id": "warm",
+      "age": {
+        "minimumDays": 15,
+        "maximumDaysInclusive": 90
+      },
+      "storage": "tenant-local online or nearline storage",
+      "indexing": [
+        "structured indexes",
+        "full-text index",
+        "semantic index for supported non-sensitive content"
+      ],
+      "retrieval": "Retrieve on explicit project, task, decision, commitment, file, person, or evidence relevance.",
+      "modelContextRule": "Return only top-ranked authorized excerpts and their provenance."
+    },
+    {
+      "id": "cold",
+      "age": {
+        "minimumDays": 91,
+        "maximumDaysInclusive": null
+      },
+      "storage": "tenant-local archive or lower-cost object storage",
+      "indexing": [
+        "durable metadata index",
+        "project, source, event, hash, and archive-locator index"
+      ],
+      "retrieval": "Use current project summaries, task history, decision logs, and verified knowledge first; rehydrate raw content only for historical or evidence requests.",
+      "modelContextRule": "Cold raw content requires explicit authorized retrieval and must not be bulk-loaded."
+    }
+  ],
+  "recordPolicies": {
+    "SourceRecord": {
+      "defaultRetention": "indefinite",
+      "mutability": "append-only-with-governed-redaction",
+      "tierBy": "occurred_at",
+      "rehydratable": true,
+      "minimumArchiveMetadata": [
+        "tenant_id",
+        "source_id",
+        "source_type",
+        "occurred_at",
+        "conversation_or_meeting_reference",
+        "content_hash",
+        "archive_locator",
+        "sensitivity"
+      ]
+    },
+    "Attachment": {
+      "defaultRetention": "follow parent SourceRecord unless tenant-local policy is stricter",
+      "tierBy": "source occurred_at",
+      "contentAddressedHashRequired": true,
+      "metadataRetainedAfterTierMove": true
+    },
+    "TopicThread": {
+      "defaultRetention": "indefinite",
+      "mutability": "versioned grouping with prior versions retained",
+      "tierBy": "ended_at"
+    },
+    "DomainEvent": {
+      "defaultRetention": "indefinite",
+      "mutability": "append-only",
+      "tierBy": "event_time",
+      "supersededEventRetained": true
+    },
+    "TaskTransition": {
+      "defaultRetention": "indefinite",
+      "mutability": "append-only",
+      "tierBy": "detected_at"
+    },
+    "ProjectGoal": {
+      "defaultRetention": "indefinite current projection plus version history",
+      "tierBy": "last_updated_at"
+    },
+    "Project": {
+      "defaultRetention": "indefinite current projection plus periodic snapshots",
+      "tierBy": "last_updated_at"
+    },
+    "Task": {
+      "defaultRetention": "indefinite current projection plus transition history",
+      "tierBy": "last_updated_at"
+    },
+    "Decision": {
+      "defaultRetention": "indefinite",
+      "mutability": "versioned with supersession chain",
+      "supersededDecisionRetained": true
+    },
+    "KnowledgeItem": {
+      "defaultRetention": "until tenant-local expiry, deprecation, or governed removal",
+      "reviewRequiredAt": "last_reviewed_at plus tenant review interval",
+      "expiredItemAsCurrentAllowed": false,
+      "priorVersionsRetained": true
+    },
+    "ProjectSnapshot": {
+      "defaultRetention": "indefinite",
+      "minimumFrequencies": [
+        "daily convergence result",
+        "weekly project snapshot"
+      ]
+    },
+    "AnswerProvenance": {
+      "defaultRetentionDays": 365,
+      "tenantOverrideAllowed": true,
+      "rawUnauthorizedSearchHitsStored": false,
+      "secretValuesStored": false,
+      "tierBy": "created_at"
+    },
+    "JudgmentLog": {
+      "defaultRetentionDays": 730,
+      "tenantOverrideAllowed": true,
+      "minimumFieldsAfterArchive": [
+        "tenant_id",
+        "source_ids",
+        "outcome",
+        "rule_trace",
+        "processor_version",
+        "created_at"
+      ]
+    }
+  },
+  "attachmentPolicy": {
+    "tenantNamespacedObjectPathRequired": true,
+    "contentHashRequired": true,
+    "encryptionAtRestRequired": true,
+    "signedOrAuthorizedAccessRequired": true,
+    "publicPermanentUrlsForbidden": true,
+    "derivedTextCarriesParentAuthorization": true,
+    "thumbnailCarriesParentAuthorization": true,
+    "deletionPropagatesToDerivedArtifacts": true
+  },
+  "embeddingPolicy": {
+    "optional": true,
+    "tenantPartitionRequired": true,
+    "authorizationMetadataRequired": true,
+    "sourceReferenceRequired": true,
+    "embeddingModelVersionRequired": true,
+    "sensitiveContentDefault": "disabled unless explicitly approved by tenant policy",
+    "deleteOrRedactBehavior": "Delete or rebuild all affected vectors and cached retrieval artifacts.",
+    "embeddingIsNotSourceOfTruth": true
+  },
+  "tierTransition": {
+    "frequency": "daily in tenant-local time",
+    "idempotencyRequired": true,
+    "preconditions": [
+      "destination tenant namespace exists",
+      "content hash has been recorded",
+      "archive write has been verified",
+      "metadata and authorization labels have been preserved"
+    ],
+    "sourceRemovalAfterArchive": "Only after archive verification and according to tenant-local storage policy.",
+    "failureBehavior": "Keep the prior durable copy, record the failure, and retry without changing the tier marker."
+  },
+  "rehydration": {
+    "authorizationRequired": true,
+    "tenantMatchRequired": true,
+    "auditLogRequired": true,
+    "cacheLocation": "same tenant namespace",
+    "defaultCacheHours": 24,
+    "contentHashVerificationRequired": true,
+    "allowedReasons": [
+      "explicit historical query",
+      "evidence verification",
+      "authorized reprocessing",
+      "incident investigation",
+      "legal or audit review"
+    ]
+  },
+  "legalAndPrivacyOverrides": {
+    "tenantLocalPolicyAuthoritative": true,
+    "supportedActions": [
+      "legal_hold",
+      "restricted_access",
+      "redaction",
+      "governed_deletion",
+      "retention_extension",
+      "export"
+    ],
+    "approvalRequired": true,
+    "reasonAndAuthorityRequired": true,
+    "crossTenantBulkActionAllowed": false,
+    "legalHoldPreventsDeletion": true
+  },
+  "deletionAndRedaction": {
+    "silentDeletionAllowed": false,
+    "hardDeleteDefault": false,
+    "tombstoneRequiredWhenHistoryMustRemainAuditable": true,
+    "tombstoneFields": [
+      "tenant_id",
+      "record_id",
+      "record_type",
+      "action",
+      "reason",
+      "authority",
+      "performed_at",
+      "content_hash_before_action"
+    ],
+    "cascadeTargets": [
+      "primary storage",
+      "object storage",
+      "full-text indexes",
+      "semantic indexes",
+      "caches",
+      "derived text",
+      "thumbnails",
+      "Notion projections when applicable"
+    ],
+    "projectionBehavior": "Mark affected conclusions as source-withdrawn or pending review; never continue presenting unsupported facts as verified."
+  },
+  "backupAndRestore": {
+    "tenantScopedRestoreRequired": true,
+    "restoreIntoDifferentTenantAllowed": false,
+    "encryptionRequired": true,
+    "restoreDrillRequired": true,
+    "postRestoreChecks": [
+      "tenant namespace",
+      "record counts",
+      "content hashes",
+      "event-to-projection consistency",
+      "search authorization metadata",
+      "Notion projection outbox position"
+    ]
+  },
+  "auditRequirements": [
+    "record each tier transition",
+    "record each rehydration",
+    "record each retention override",
+    "record each redaction or deletion",
+    "record the actor, tenant, reason, timestamps, and affected resources",
+    "verify that no live tenant data is copied into AMCore"
+  ]
+}

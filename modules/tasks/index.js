@@ -30,6 +30,11 @@ function init(injected) {
 
 // ── 純工具 ────────────────────────────────────────────────
 const text = (c) => ({ type: 'text', text: { content: String(c).slice(0, 1900) } });
+const evidenceChildren = (sourceEvidence) => {
+  const value = String(sourceEvidence || '').trim();
+  if (!value) return [];
+  return [{ object: 'block', type: 'paragraph', paragraph: { rich_text: [text(`來源證據：${value}`)] } }];
+};
 
 const STATUSES = ['待辦', '進行中', '完成', '取消'];
 const SOURCES = ['會議', '回饋單', '手動'];
@@ -120,7 +125,11 @@ async function createTask(ctx, task = {}) {
 
   const page = await reqFor(ctx)('/v1/pages', {
     method: 'POST',
-    body: { parent: { type: 'data_source_id', data_source_id: tasksDs }, properties },
+    body: {
+      parent: { type: 'data_source_id', data_source_id: tasksDs },
+      properties,
+      children: evidenceChildren(task.sourceEvidence),
+    },
   });
   rememberLast(tenant, ctx.groupId, page.id, task.content);
   return page.id;
@@ -144,6 +153,7 @@ async function expandTasks(ctx, todos = [], common = {}) {
         meetingId: common.meetingId,
         feedbackId: common.feedbackId,
         groupBindingId: common.groupBindingId,
+        sourceEvidence: common.sourceEvidence,
       }));
     } catch (e) {
       (platform?.logger || console).warn(`todo create failed: ${e.message}`);

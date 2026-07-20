@@ -34,6 +34,12 @@ collect → meetings → media → triage → queue → tasks → reminders → 
 4. Core 只放行該租戶宣告過、且實際位於該租戶母頁下的資料來源；跨租戶存取直接拒絕。
 5. Portal 個人帳號先通過租戶 `amAccess`，再以群組綁定 Page ID 限縮群組設定、佇列、待辦與案件；任何 Notion 寫入仍需再通過第 4 點的租戶守衛。
 
+## 固定外部連線
+
+- 全平台 Notion 只使用 `BuildAM`（葉綠宿總公司 workspace）的全域 `NOTION_TOKEN`。
+- 全平台 Google Drive 只使用 `2014greenhotel@gmail.com` 的全域 OAuth 授權；為使用租戶既有資料夾，授權範圍為完整 Drive，不得建立租戶個別 OAuth 身分。
+- 每個租戶只提供自己的 Notion 母頁／資料源與 Drive 根目錄，不能覆寫上述身分。啟用前執行 `tools/verify-platform-connection-identities.mjs` 驗證。
+
 ## 個人帳號與群組授權
 
 授權鏈固定為：`個人帳號 → 租戶 → 對話群組 → 功能操作 → 租戶 Notion 隔離守衛`。

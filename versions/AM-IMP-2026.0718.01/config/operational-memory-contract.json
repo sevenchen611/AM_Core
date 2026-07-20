@@ -1,0 +1,423 @@
+{
+  "schemaVersion": 1,
+  "id": "am-operational-memory-contract",
+  "packageVersion": "AM-IMP-2026.0718.01",
+  "purpose": "Provide every AM tenant with the same conversation-to-event, task, decision, project-state, and verified-knowledge architecture while keeping all live data project-local and tenant-isolated.",
+  "dataBoundary": {
+    "amcoreMayStore": [
+      "shared schemas",
+      "shared policies",
+      "reference adapters",
+      "synthetic fixtures",
+      "non-secret configuration templates"
+    ],
+    "amcoreMustNotStore": [
+      "production messages",
+      "production tasks",
+      "production decisions",
+      "production knowledge records",
+      "production attachments",
+      "production answer logs",
+      "production database identifiers",
+      "tokens or secrets"
+    ],
+    "liveDataOwner": "The project-local AM tenant that received or created the record."
+  },
+  "tenantBoundary": {
+    "mandatory": true,
+    "recordField": "tenant_id",
+    "requiredContextFields": [
+      "tenantKey",
+      "namespace",
+      "timezone",
+      "principal"
+    ],
+    "namespacePattern": "tenant/{tenantKey}",
+    "cacheKeyPattern": "{tenantKey}::{resourceType}::{resourceId}",
+    "queuePartitionPattern": "{tenantKey}::{workType}",
+    "objectPathPattern": "tenant/{tenantKey}/{sourceType}/{yyyy}/{mm}/{resourceId}",
+    "enforcement": [
+      "Every source, event, projection, search document, queue item, cache entry, attachment, and audit record carries the tenant identity.",
+      "Every adapter method receives TenantContext before resource identifiers.",
+      "A missing, unknown, disabled, or mismatched tenant fails closed.",
+      "Cross-tenant joins, matches, merges, supersession links, and relations are forbidden.",
+      "Notion data sources and relations must resolve under the same project-local tenant parent.",
+      "User-facing reads apply both tenant isolation and record-level AccessContext authorization."
+    ]
+  },
+  "layers": [
+    {
+      "order": 1,
+      "id": "raw-source",
+      "name": "Raw source and evidence",
+      "mutability": "append-only-with-governed-redaction",
+      "entities": [
+        "SourceRecord",
+        "Attachment"
+      ],
+      "purpose": "Preserve auditable LINE, meeting, report, suggestion, file, and linked-page evidence for reprocessing and answer verification."
+    },
+    {
+      "order": 2,
+      "id": "event-ledger",
+      "name": "Structured event ledger",
+      "mutability": "append-only",
+      "entities": [
+        "TopicThread",
+        "DomainEvent",
+        "JudgmentLog",
+        "RuleApplication"
+      ],
+      "purpose": "Record meaningful observations and changes without treating every message as a new task."
+    },
+    {
+      "order": 3,
+      "id": "current-state",
+      "name": "Current operational state",
+      "mutability": "versioned-projection",
+      "entities": [
+        "ProjectGoal",
+        "Project",
+        "Task",
+        "TaskTransition",
+        "Decision"
+      ],
+      "purpose": "Maintain the currently effective project, task, commitment, blocker, risk, and decision state while preserving its event history."
+    },
+    {
+      "order": 4,
+      "id": "verified-knowledge-and-query",
+      "name": "Verified knowledge and answer layer",
+      "mutability": "versioned-and-reviewable",
+      "entities": [
+        "KnowledgeItem",
+        "ProjectSnapshot",
+        "AnswerProvenance"
+      ],
+      "purpose": "Answer from current structured state first and retrieve raw material only for detail, conflict resolution, or evidence."
+    }
+  ],
+  "entities": {
+    "SourceRecord": {
+      "requiredFields": [
+        "source_id",
+        "tenant_id",
+        "source_type",
+        "occurred_at",
+        "actor",
+        "locator",
+        "content_hash",
+        "processing_state"
+      ],
+      "sourceTypes": [
+        "line_message",
+        "meeting_record",
+        "daily_report",
+        "system_suggestion",
+        "attachment",
+        "linked_page"
+      ]
+    },
+    "TopicThread": {
+      "requiredFields": [
+        "topic_thread_id",
+        "tenant_id",
+        "source_ids",
+        "conversation_id",
+        "started_at",
+        "ended_at",
+        "topic_summary"
+      ]
+    },
+    "DomainEvent": {
+      "requiredFields": [
+        "event_id",
+        "tenant_id",
+        "event_type",
+        "summary",
+        "event_time",
+        "observed_at",
+        "evidence_refs",
+        "rule_trace",
+        "goal_link",
+        "idempotency_key"
+      ],
+      "eventTypes": [
+        "task_requested",
+        "decision_made",
+        "request_raised",
+        "issue_raised",
+        "progress_reported",
+        "commitment_made",
+        "meeting_scheduled",
+        "risk_raised",
+        "information_observed",
+        "question_raised",
+        "completion_reported",
+        "cancellation_reported",
+        "change_reported"
+      ]
+    },
+    "ProjectGoal": {
+      "requiredFields": [
+        "goal_id",
+        "tenant_id",
+        "project_id",
+        "title",
+        "status",
+        "success_criteria",
+        "evidence_refs",
+        "version"
+      ]
+    },
+    "Task": {
+      "requiredFields": [
+        "task_id",
+        "tenant_id",
+        "project_id",
+        "goal_id",
+        "title",
+        "status",
+        "confirmation_status",
+        "formalization_status",
+        "source_event_ids",
+        "latest_evidence_refs",
+        "version"
+      ]
+    },
+    "TaskTransition": {
+      "requiredFields": [
+        "transition_id",
+        "tenant_id",
+        "task_id",
+        "from_status",
+        "to_status",
+        "detected_at",
+        "evidence_refs",
+        "rule_trace"
+      ],
+      "mutability": "append-only"
+    },
+    "Decision": {
+      "requiredFields": [
+        "decision_id",
+        "tenant_id",
+        "project_id",
+        "statement",
+        "status",
+        "decision_time",
+        "evidence_refs",
+        "version"
+      ]
+    },
+    "KnowledgeItem": {
+      "requiredFields": [
+        "knowledge_id",
+        "tenant_id",
+        "title",
+        "content",
+        "scope",
+        "status",
+        "evidence_refs",
+        "version"
+      ]
+    },
+    "AnswerProvenance": {
+      "requiredFields": [
+        "answer_id",
+        "tenant_id",
+        "principal_id",
+        "question",
+        "intent",
+        "structured_record_refs",
+        "source_refs",
+        "answer_as_of",
+        "confidence"
+      ]
+    }
+  },
+  "canonicalStatuses": {
+    "taskLifecycle": [
+      "candidate",
+      "pending",
+      "in_progress",
+      "waiting",
+      "pending_completion_confirmation",
+      "completed",
+      "cancelled",
+      "no_action"
+    ],
+    "taskTerminalStatuses": [
+      "completed",
+      "cancelled",
+      "no_action"
+    ],
+    "taskConfirmationStatus": [
+      "pending",
+      "confirmed",
+      "rejected"
+    ],
+    "taskFormalizationStatus": [
+      "candidate",
+      "formal",
+      "rejected"
+    ],
+    "decisionStatus": [
+      "draft",
+      "active",
+      "superseded",
+      "revoked"
+    ],
+    "knowledgeStatus": [
+      "candidate",
+      "verified",
+      "deprecated",
+      "expired"
+    ],
+    "projectAndGoalStatus": [
+      "candidate",
+      "active",
+      "on_hold",
+      "completed",
+      "cancelled"
+    ],
+    "derivedFlags": {
+      "overdue": "due_at is before the tenant-local current time and task status is not terminal",
+      "blocked": "blocker is present or the newest supported transition identifies a blocker"
+    }
+  },
+  "goalPolicy": {
+    "formalTaskRequiresGoal": true,
+    "projectLocalConversationBindingOverridesTextGuess": true,
+    "unknownGoalBehavior": "Keep the item as candidate, record a proposed goal when possible, and set clarification_needed without promoting it to a formal task.",
+    "newGoalBehavior": "Create or propose the project goal before organizing formal tasks under it."
+  },
+  "evidencePolicy": {
+    "formalMutationRequiresEvidence": true,
+    "appliesTo": [
+      "formal task creation",
+      "task status, owner, due date, scope, blocker, or next-step change",
+      "active decision creation or supersession",
+      "verified knowledge promotion",
+      "project or goal status change"
+    ],
+    "minimumEvidenceRefs": 1,
+    "tenantMatchRequired": true,
+    "sourceMustExist": true,
+    "sourceMustBeAuthorized": true,
+    "meetingCheckboxBehavior": "A meeting checkbox is a confirmed task source when its meeting reference, normalized checkbox text, and surrounding discussion reference are retained.",
+    "failureBehavior": "Recover the source, keep a candidate or pending-confirmation record, or reject the mutation and log the failure.",
+    "taskBodyStandard": "AM-IMP-2026.0610.03"
+  },
+  "ruleTracePolicy": {
+    "loadOrder": [
+      "AMCore shared rules",
+      "project-local judgment rules",
+      "project-local learned calibration rules",
+      "active manual User UI rules"
+    ],
+    "materialRuleMustBeRecorded": true,
+    "requiredTraceFields": [
+      "rule_id",
+      "rule_version",
+      "source",
+      "effect",
+      "applied_at"
+    ],
+    "loadFailureBehavior": "Record a warning and use the safest fallback; never silently ignore rule-loading failure."
+  },
+  "supersessionPolicy": {
+    "historyDeletionForbidden": true,
+    "allowedRelationships": [
+      "supersedes_event",
+      "supersedes_decision",
+      "corrects_event",
+      "reopens_task"
+    ],
+    "sameTenantRequired": true,
+    "sameProjectRequiredForDecisions": true,
+    "effectiveReadBehavior": "Return the newest supported non-superseded state while retaining the complete chain for audit."
+  },
+  "processingPipeline": [
+    "verify LINE webhook and acknowledge quickly",
+    "canonicalize input and enforce ingestion idempotency",
+    "durably store the project-local raw source",
+    "enqueue tenant-partitioned processing work",
+    "extract attachment, image, document, audio, and URL text",
+    "group messages into topic threads",
+    "load the latest shared and project-local judgment rules",
+    "resolve project and project goal",
+    "search related active project-local tasks and decisions",
+    "produce schema-constrained event and reconciliation candidates",
+    "apply deterministic evidence, authorization, transition, and deduplication gates",
+    "append the event ledger and update versioned current-state projections transactionally",
+    "publish human-facing Notion and search projections",
+    "serve structured-first authorized answers with provenance"
+  ],
+  "schedules": {
+    "realtime": [
+      "explicit assignment",
+      "due-date change",
+      "meeting change",
+      "clear decision",
+      "clear completion"
+    ],
+    "hourlyReconciliation": {
+      "timezone": "tenant-local",
+      "windowStart": "08:00",
+      "windowEnd": "22:00",
+      "frequency": "hourly"
+    },
+    "dailyConvergence": [
+      "new tasks",
+      "progress changes",
+      "completed work",
+      "waiting items",
+      "unanswered questions",
+      "conflicting facts"
+    ],
+    "weeklySnapshot": [
+      "current project state",
+      "completed this week",
+      "next actions",
+      "owners",
+      "blockers",
+      "risks",
+      "management decisions required"
+    ]
+  },
+  "adapterPorts": [
+    "SourceStore",
+    "AttachmentStore",
+    "WorkQueue",
+    "EventStore",
+    "ProjectionStore",
+    "SearchIndex",
+    "RulesProvider",
+    "IdentityDirectory",
+    "AccessPolicy",
+    "ProjectResolver",
+    "LlmExtractor",
+    "ViewPublisher",
+    "Clock",
+    "Telemetry"
+  ],
+  "invariants": [
+    "Raw sources and event history are never silently overwritten.",
+    "A current-state projection can change only through an evidence-backed event or an authorized correction command.",
+    "A later reply that answers, delivers, blocks, changes, or completes an existing task updates that task instead of creating a duplicate.",
+    "Assistant operation commands, acknowledgements, test messages, and background conversation do not become operational tasks unless they also contain a distinct real-world action.",
+    "Meeting checkbox tasks preserve the meeting reference and nearby execution knowledge.",
+    "No record or relation can cross a tenant boundary.",
+    "Sensitive financial, contractual, legal, HR, tax, and external-commitment closures require project-owner confirmation.",
+    "Query answers prefer authorized structured current state and use raw sources only when evidence or detail is required.",
+    "Unknown or conflicting information is stated explicitly and is never filled by unsupported inference."
+  ],
+  "dependsOn": [
+    "AM-IMP-2026.0608.14",
+    "AM-IMP-2026.0608.16",
+    "AM-IMP-2026.0608.17",
+    "AM-IMP-2026.0608.18",
+    "AM-IMP-2026.0610.03"
+  ]
+}

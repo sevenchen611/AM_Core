@@ -1,0 +1,218 @@
+{
+  "schemaVersion": 1,
+  "id": "tenant-operational-memory-example",
+  "tenantId": "00000000-0000-4000-8000-000000000001",
+  "tenantKey": "example-am",
+  "displayName": "Example AM",
+  "envPrefix": "EXAMPLE_AM",
+  "runtimeEnabled": false,
+  "authorizationReady": false,
+  "timezone": "Asia/Taipei",
+  "modules": [
+    "collect",
+    "meetings",
+    "media",
+    "operational-memory",
+    "tasks",
+    "reminders",
+    "groups"
+  ],
+  "operationalMemory": {
+    "enabled": false,
+    "mode": "shared-platform-tenant",
+    "namespace": "tenant/example-am",
+    "contractVersion": "AM-IMP-2026.0718.01",
+    "adapters": {
+      "sourceStore": {
+        "type": "project-local-postgres",
+        "connectionEnvironmentVariable": "EXAMPLE_AM_OPERATIONAL_MEMORY_DATABASE_URL",
+        "schema": "am_memory",
+        "tenantColumn": "tenant_id"
+      },
+      "attachmentStore": {
+        "type": "project-local-object-store",
+        "bucketEnvironmentVariable": "EXAMPLE_AM_OBJECT_BUCKET",
+        "credentialEnvironmentVariable": "EXAMPLE_AM_OBJECT_STORE_CREDENTIALS",
+        "prefix": "tenant/example-am"
+      },
+      "workQueue": {
+        "type": "project-local-durable-queue",
+        "connectionEnvironmentVariable": "EXAMPLE_AM_QUEUE_URL",
+        "partition": "example-am::operational-memory"
+      },
+      "eventStore": {
+        "type": "project-local-postgres",
+        "connectionEnvironmentVariable": "EXAMPLE_AM_OPERATIONAL_MEMORY_DATABASE_URL",
+        "appendOnly": true
+      },
+      "projectionStore": {
+        "type": "project-local-postgres",
+        "connectionEnvironmentVariable": "EXAMPLE_AM_OPERATIONAL_MEMORY_DATABASE_URL",
+        "optimisticConcurrency": true
+      },
+      "searchIndex": {
+        "type": "project-local-pgvector",
+        "connectionEnvironmentVariable": "EXAMPLE_AM_OPERATIONAL_MEMORY_DATABASE_URL",
+        "tenantFilterRequired": true
+      },
+      "rulesProvider": {
+        "type": "composite",
+        "projectLocalDataSourceEnvironmentVariable": "EXAMPLE_AM_JUDGMENT_RULES_DATA_SOURCE_ID"
+      },
+      "notionProjection": {
+        "type": "tenant-locked-notion",
+        "notionTokenEnvironmentVariable": "EXAMPLE_AM_NOTION_TOKEN",
+        "parentPageEnvironmentVariable": "EXAMPLE_AM_NOTION_PARENT_PAGE_ID",
+        "publishMode": "idempotent-outbox"
+      }
+    },
+    "logicalDataSources": {
+      "lineMessages": "EXAMPLE_AM_LINE_MESSAGES_DATA_SOURCE_ID",
+      "lineConversations": "EXAMPLE_AM_LINE_CONVERSATIONS_DATA_SOURCE_ID",
+      "meetings": "EXAMPLE_AM_MEETINGS_DATA_SOURCE_ID",
+      "groupBindings": "EXAMPLE_AM_GROUP_BINDINGS_DATA_SOURCE_ID",
+      "projectGoals": "EXAMPLE_AM_PROJECT_GOALS_DATA_SOURCE_ID",
+      "projects": "EXAMPLE_AM_TOTAL_CONTROL_PROJECT_DATA_SOURCE_ID",
+      "events": "EXAMPLE_AM_OPERATIONAL_EVENTS_DATA_SOURCE_ID",
+      "tasks": "EXAMPLE_AM_TOTAL_CONTROL_TASK_DATA_SOURCE_ID",
+      "decisions": "EXAMPLE_AM_DECISIONS_DATA_SOURCE_ID",
+      "knowledge": "EXAMPLE_AM_KNOWLEDGE_DATA_SOURCE_ID",
+      "answerProvenance": "EXAMPLE_AM_ANSWER_PROVENANCE_DATA_SOURCE_ID"
+    },
+    "ruleSources": [
+      {
+        "priority": 1,
+        "type": "amcore-shared",
+        "required": true
+      },
+      {
+        "priority": 2,
+        "type": "project-local-judgment-database",
+        "required": true
+      },
+      {
+        "priority": 3,
+        "type": "project-local-learned-calibration",
+        "required": false
+      },
+      {
+        "priority": 4,
+        "type": "active-manual-user-ui-rules",
+        "required": false
+      }
+    ],
+    "schedules": {
+      "hourlyReconciliation": {
+        "enabled": true,
+        "windowStart": "08:00",
+        "windowEnd": "22:00",
+        "frequencyMinutes": 60,
+        "timezone": "tenant-local"
+      },
+      "dailyConvergence": {
+        "enabled": true,
+        "localTime": "20:30"
+      },
+      "weeklySnapshot": {
+        "enabled": true,
+        "dayOfWeek": "Friday",
+        "localTime": "18:00"
+      }
+    },
+    "threading": {
+      "defaultTimeWindowMinutes": 15,
+      "useReplyChain": true,
+      "useSubjectContinuity": true,
+      "useParticipantContinuity": true,
+      "splitOnExplicitTopicChange": true
+    },
+    "reconciliation": {
+      "formalTaskRequiresProject": true,
+      "formalTaskRequiresGoal": true,
+      "formalMutationRequiresEvidence": true,
+      "automaticTaskUpdateMinimumScore": 75,
+      "manualReviewMinimumScore": 50,
+      "assistantCommandAliases": [
+        "example assistant"
+      ],
+      "safestFallbackOnRuleLoadFailure": true
+    },
+    "query": {
+      "structuredFirst": true,
+      "rawSearchByDefault": false,
+      "includeAnswerAsOf": true,
+      "includeProvenance": true,
+      "minimumMediumConfidence": 0.6,
+      "minimumHighConfidence": 0.85
+    },
+    "retention": {
+      "hotDays": 14,
+      "warmThroughDays": 90,
+      "coldFromDays": 91,
+      "rawSourceDefault": "indefinite-unless-governed-override",
+      "answerProvenanceDays": 365,
+      "judgmentLogDays": 730
+    },
+    "statusLabels": {
+      "candidate": "待確認",
+      "pending": "待處理",
+      "in_progress": "處理中",
+      "waiting": "等待他人",
+      "pending_completion_confirmation": "待完成確認",
+      "completed": "已完成",
+      "cancelled": "已取消",
+      "no_action": "無須處理"
+    },
+    "sensitivity": {
+      "categoriesRequiringOwnerConfirmation": [
+        "financial",
+        "contractual",
+        "legal",
+        "human_resources",
+        "tax",
+        "safety",
+        "external_commitment"
+      ],
+      "automaticExternalActionAllowed": false,
+      "automaticFinalClosureAllowed": false
+    },
+    "notionProjection": {
+      "enabled": true,
+      "sourceOfTruth": false,
+      "taskBodyEvidenceStandard": "AM-IMP-2026.0610.03",
+      "humanReviewActionsReturnAsCommands": true,
+      "fieldMap": {}
+    },
+    "requiredEnvironmentVariables": [
+      "EXAMPLE_AM_OPERATIONAL_MEMORY_DATABASE_URL",
+      "EXAMPLE_AM_QUEUE_URL",
+      "EXAMPLE_AM_OBJECT_BUCKET",
+      "EXAMPLE_AM_OBJECT_STORE_CREDENTIALS",
+      "EXAMPLE_AM_NOTION_TOKEN",
+      "EXAMPLE_AM_NOTION_PARENT_PAGE_ID",
+      "EXAMPLE_AM_JUDGMENT_RULES_DATA_SOURCE_ID",
+      "EXAMPLE_AM_PROJECT_GOALS_DATA_SOURCE_ID",
+      "EXAMPLE_AM_TOTAL_CONTROL_PROJECT_DATA_SOURCE_ID",
+      "EXAMPLE_AM_OPERATIONAL_EVENTS_DATA_SOURCE_ID",
+      "EXAMPLE_AM_TOTAL_CONTROL_TASK_DATA_SOURCE_ID",
+      "EXAMPLE_AM_DECISIONS_DATA_SOURCE_ID",
+      "EXAMPLE_AM_KNOWLEDGE_DATA_SOURCE_ID"
+    ]
+  },
+  "dataBoundary": {
+    "containsProductionIdentifiers": false,
+    "containsSecrets": false,
+    "containsLiveMessagesOrRecords": false,
+    "replaceExampleValuesInProjectLocalConfigurationOnly": true
+  },
+  "enablementGates": [
+    "runtimeEnabled is true",
+    "authorizationReady is true",
+    "operationalMemory.enabled is true",
+    "all required adapters pass conformance tests",
+    "all required environment variables are present in the project-local runtime",
+    "tenant isolation dry-run passes",
+    "source-evidence and reconciliation acceptance fixtures pass",
+    "Notion projection schema is verified under the tenant parent"
+  ]
+}

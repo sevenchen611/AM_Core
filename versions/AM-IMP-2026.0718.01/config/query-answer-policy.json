@@ -1,0 +1,252 @@
+{
+  "schemaVersion": 1,
+  "id": "am-operational-memory-query-answer-policy",
+  "scope": "All answers derived from tenant-local operational memory, including LINE replies, portal responses, reports, and assistant tools.",
+  "tenantScope": {
+    "tenantContextRequired": true,
+    "principalRequired": true,
+    "crossTenantSearchAllowed": false,
+    "crossTenantCitationAllowed": false,
+    "unknownTenantBehavior": "deny",
+    "disabledTenantBehavior": "deny"
+  },
+  "authorization": {
+    "checkOrder": [
+      "resolve authenticated principal",
+      "resolve tenant membership",
+      "resolve allowed groups and projects",
+      "apply sensitivity and feature grants",
+      "filter every structured record",
+      "authorize every raw source and attachment before retrieval"
+    ],
+    "defenseInDepth": [
+      "tenant storage guard",
+      "record-level AccessContext",
+      "source and attachment authorization",
+      "answer-time citation filtering"
+    ],
+    "unassignedRecordPolicy": "Only tenant-wide authorized principals or platform owners may access records without a reliable group or project relation.",
+    "clientSuppliedTenantOrRecordScopeTrusted": false
+  },
+  "intents": [
+    {
+      "id": "project_status",
+      "preferredStructuredEntities": [
+        "Project",
+        "ProjectGoal",
+        "Task",
+        "Decision",
+        "DomainEvent"
+      ]
+    },
+    {
+      "id": "task_status",
+      "preferredStructuredEntities": [
+        "Task",
+        "TaskTransition",
+        "DomainEvent"
+      ]
+    },
+    {
+      "id": "owner_or_commitment",
+      "preferredStructuredEntities": [
+        "Task",
+        "DomainEvent",
+        "Project"
+      ]
+    },
+    {
+      "id": "decision_or_rationale",
+      "preferredStructuredEntities": [
+        "Decision",
+        "DomainEvent",
+        "ProjectSnapshot"
+      ]
+    },
+    {
+      "id": "deadline_or_schedule",
+      "preferredStructuredEntities": [
+        "Task",
+        "DomainEvent",
+        "Project"
+      ]
+    },
+    {
+      "id": "blocker_or_risk",
+      "preferredStructuredEntities": [
+        "Project",
+        "Task",
+        "DomainEvent"
+      ]
+    },
+    {
+      "id": "company_policy_or_knowledge",
+      "preferredStructuredEntities": [
+        "KnowledgeItem",
+        "Decision"
+      ]
+    },
+    {
+      "id": "original_source_or_file",
+      "preferredStructuredEntities": [
+        "EvidenceRef",
+        "SourceRecord",
+        "Attachment"
+      ]
+    }
+  ],
+  "structuredFirstPlan": [
+    {
+      "step": 1,
+      "action": "classify intent, tenant-local project, people, topic, and time scope"
+    },
+    {
+      "step": 2,
+      "action": "load authorized current Project and ProjectGoal projections"
+    },
+    {
+      "step": 3,
+      "action": "load authorized relevant Task, Decision, KnowledgeItem, and latest non-superseded DomainEvent records"
+    },
+    {
+      "step": 4,
+      "action": "evaluate freshness, conflicts, pending confirmation, and unknown fields"
+    },
+    {
+      "step": 5,
+      "action": "retrieve authorized raw evidence only when detail, rationale, conflict resolution, or explicit source review is needed"
+    },
+    {
+      "step": 6,
+      "action": "rerank evidence by project relation, effective status, event time, source quality, and intent relevance"
+    },
+    {
+      "step": 7,
+      "action": "compose a bounded answer with as-of time, uncertainty, and provenance"
+    },
+    {
+      "step": 8,
+      "action": "persist an authorized AnswerProvenance log without copying cross-tenant data"
+    }
+  ],
+  "retrievalRules": {
+    "defaultLayerOrder": [
+      "current-state projection",
+      "verified knowledge",
+      "non-superseded event ledger",
+      "raw source and attachments"
+    ],
+    "rawSearchDefault": false,
+    "rawSearchTriggers": [
+      "user explicitly asks for original wording, file, or conversation",
+      "structured records conflict",
+      "decision rationale is not represented in the current projection",
+      "current state is stale or low-confidence",
+      "an answer claim requires source verification"
+    ],
+    "wholeHistoryPromptingAllowed": false,
+    "semanticSearchAloneSufficientForFinalAnswer": false,
+    "fixedProjectBindingOverridesTextGuess": true,
+    "candidateKnowledgeCanBePresentedAsPolicy": false,
+    "pendingConfirmationMustBeLabeled": true,
+    "freshness": {
+      "projectStatePreferLatestSnapshot": true,
+      "taskStateUseHighestCommittedVersion": true,
+      "decisionUseEffectiveSupersessionHead": true,
+      "knowledgeUseVerifiedNonExpiredVersion": true
+    }
+  },
+  "supersessionAndConflictHandling": {
+    "supersededRecordsAsCurrentAllowed": false,
+    "historyAvailableForAudit": true,
+    "effectiveRecordRule": "Use the newest supported record at the head of a valid same-tenant supersession chain.",
+    "unresolvedConflictBehavior": [
+      "do not select a winner without evidence",
+      "state the conflict",
+      "show the relevant dates and sources the principal may access",
+      "request authorized confirmation when the answer affects action"
+    ],
+    "staleProjectionBehavior": "State the last verified as-of time and optionally retrieve newer authorized events before answering."
+  },
+  "answerContract": {
+    "requiredFields": [
+      "intent",
+      "tenant_id",
+      "answer_as_of",
+      "current_state",
+      "confidence",
+      "provenance"
+    ],
+    "recommendedSections": [
+      "current_state",
+      "latest_progress",
+      "next_action",
+      "owners",
+      "blockers_and_risks",
+      "pending_confirmation",
+      "evidence"
+    ],
+    "provenanceFields": [
+      "structured_record_refs",
+      "source_refs",
+      "source_dates",
+      "rule_or_policy_version_when_material"
+    ],
+    "citationRequirements": {
+      "everyMaterialClaimTraceable": true,
+      "sourceTenantMustMatch": true,
+      "sourceMustBeAuthorized": true,
+      "includeSourceDate": true,
+      "includeConversationOrMeetingLabelWhenAllowed": true,
+      "doNotExposeInternalIdentifiersUnlessUseful": true
+    },
+    "language": "Use the requester's language and tenant display labels while retaining canonical values in machine output."
+  },
+  "confidencePolicy": {
+    "highMinimum": 0.85,
+    "mediumMinimum": 0.6,
+    "belowMediumBehavior": "State that the answer is uncertain and identify the missing confirmation or source.",
+    "factors": [
+      "projection freshness",
+      "number and quality of independent evidence refs",
+      "presence of a confirmed project and goal relation",
+      "absence of unresolved conflicts",
+      "confirmation status",
+      "rule-load health"
+    ],
+    "confidenceMayNotOverrideAuthorizationOrEvidence": true
+  },
+  "unknownPolicy": {
+    "unsupportedInferenceAllowed": false,
+    "requiredBehavior": [
+      "say what is known",
+      "say what is unknown or conflicting",
+      "name the most useful next confirmation",
+      "do not invent an owner, date, completion, decision, or policy"
+    ]
+  },
+  "logging": {
+    "answerProvenanceRequired": true,
+    "requiredFields": [
+      "answer_id",
+      "tenant_id",
+      "principal_id",
+      "question",
+      "intent",
+      "authorized_scope_hash",
+      "structured_record_refs",
+      "source_refs",
+      "answer_as_of",
+      "confidence",
+      "processor_version",
+      "created_at"
+    ],
+    "storeSecretValues": false,
+    "storeUnauthorizedCandidateHits": false,
+    "feedbackFields": [
+      "user_rating",
+      "correction_reference",
+      "reviewed_at"
+    ]
+  }
+}

@@ -107,6 +107,7 @@ export function loadTenants(env = process.env, logger = console) {
     const tenant = {
       key: raw.key,
       displayName: raw.displayName || raw.key,
+      tenantId: raw.tenantId || '',
       envPrefix: prefix,
       // 遷移中租戶可先出現在 Portal 目錄，但不得參與 webhook、模組路由或排程。
       runtimeEnabled: raw.runtimeEnabled !== false,
@@ -116,6 +117,9 @@ export function loadTenants(env = process.env, logger = console) {
       // 模組一律從 ctx.tenant.config 讀,不可硬寫進程式(見 modules/HOZO_EXTRACTION_PLAN.md §0)。
       // 機密(頁 ID/資料源 ID/金鑰)不放這裡——那些走 .env 的 <PREFIX>_*。
       config: readConfig(raw.config, env, prefix),
+      operationalMemory: raw.operationalMemory && typeof raw.operationalMemory === 'object'
+        ? JSON.parse(JSON.stringify(raw.operationalMemory))
+        : null,
       // ── 機密(來自平台 .env,不進 git)──
       parentPageId,                 // 資料隔離母頁:此租戶所有庫必須位於其下
       meetingsParentPageId,         // 每群獨立會議庫的建立母頁；預設為租戶母頁
@@ -129,7 +133,7 @@ export function loadTenants(env = process.env, logger = console) {
       reminders: {
         escalationDays: Number(prefixed(env, prefix, 'ESCALATION_DAYS', env.AMCORE_ESCALATION_DAYS) || 2),
         reminderHour: Number(prefixed(env, prefix, 'REMINDER_HOUR', env.AMCORE_REMINDER_HOUR) || 9),
-        escalationOwner: prefixed(env, prefix, 'ESCALATION_OWNER', env.AMCORE_ESCALATION_OWNER || 'Seven陳聖文'),
+        escalationOwner: prefixed(env, prefix, 'ESCALATION_OWNER', env.AMCORE_ESCALATION_OWNER || '租戶管理者'),
       },
       ai: readAi(env, prefix),
       line,                          // 只供設定盤點；正式收送仍由平台全域同一支 OA 負責

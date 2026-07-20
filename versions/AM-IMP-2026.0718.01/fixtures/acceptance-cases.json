@@ -1,0 +1,589 @@
+{
+  "schemaVersion": 1,
+  "id": "am-operational-memory-synthetic-acceptance-cases",
+  "description": "Synthetic, non-production cases for verifying tenant isolation, evidence gates, goal linkage, event reconciliation, status history, supersession, structured-first answers, and retention behavior.",
+  "syntheticOnly": true,
+  "tenants": [
+    {
+      "tenantId": "00000000-0000-4000-8000-000000000101",
+      "tenantKey": "fixture-am-a",
+      "timezone": "Asia/Taipei"
+    },
+    {
+      "tenantId": "00000000-0000-4000-8000-000000000202",
+      "tenantKey": "fixture-am-b",
+      "timezone": "Asia/Taipei"
+    }
+  ],
+  "statusVocabulary": {
+    "taskLifecycle": [
+      "candidate",
+      "pending",
+      "in_progress",
+      "waiting",
+      "pending_completion_confirmation",
+      "completed",
+      "cancelled",
+      "no_action"
+    ],
+    "confirmationStatus": [
+      "pending",
+      "confirmed",
+      "rejected"
+    ],
+    "decisionStatus": [
+      "draft",
+      "active",
+      "superseded",
+      "revoked"
+    ],
+    "knowledgeStatus": [
+      "candidate",
+      "verified",
+      "deprecated",
+      "expired"
+    ]
+  },
+  "coverageRequirements": [
+    "ingestion idempotency",
+    "cross-tenant isolation",
+    "topic-thread task convergence",
+    "meeting checkbox extraction and deduplication",
+    "source-evidence gate",
+    "project-goal gate",
+    "assistant command suppression",
+    "operational completion evidence",
+    "sensitive closure confirmation",
+    "decision supersession",
+    "rule-load safe fallback",
+    "material rule trace",
+    "optimistic concurrency",
+    "structured-first query",
+    "adapter parity",
+    "hot-warm-cold retention",
+    "knowledge verification gate"
+  ],
+  "cases": [
+    {
+      "caseId": "AC-001",
+      "title": "Repeated webhook delivery is idempotent",
+      "tenantId": "00000000-0000-4000-8000-000000000101",
+      "covers": [
+        "ingestion idempotency"
+      ],
+      "given": {
+        "source": {
+          "source_type": "line_message",
+          "source_id": "line-msg-001",
+          "source_channel": "line",
+          "content": "請 Alex 週五前交企劃書。"
+        },
+        "project_id": "project-alpha",
+        "goal_id": "goal-launch"
+      },
+      "when": {
+        "deliveries": 3,
+        "sameIdempotencyKey": "fixture-am-a:line:line-msg-001"
+      },
+      "expect": {
+        "sourceRecordCount": 1,
+        "domainEventCount": 1,
+        "formalTaskCount": 1,
+        "taskTransitionCount": 1,
+        "duplicateErrors": 0,
+        "resultAfterFirst": "prior_idempotent_result"
+      }
+    },
+    {
+      "caseId": "AC-002",
+      "title": "Tenant A cannot access or mutate Tenant B",
+      "tenantId": "00000000-0000-4000-8000-000000000101",
+      "covers": [
+        "cross-tenant isolation"
+      ],
+      "given": {
+        "tenantAContext": "00000000-0000-4000-8000-000000000101",
+        "tenantBTask": {
+          "tenant_id": "00000000-0000-4000-8000-000000000202",
+          "task_id": "tenant-b-task-001"
+        }
+      },
+      "when": {
+        "attempts": [
+          "read",
+          "write",
+          "search",
+          "relate",
+          "supersede",
+          "open_attachment"
+        ]
+      },
+      "expect": {
+        "allDenied": true,
+        "errorCode": "tenant_mismatch",
+        "tenantBRecordChanged": false,
+        "tenantBHitLeaked": false,
+        "auditWarningRecorded": true
+      }
+    },
+    {
+      "caseId": "AC-003",
+      "title": "A conversation sequence converges into one task and append-only history",
+      "tenantId": "00000000-0000-4000-8000-000000000101",
+      "covers": [
+        "topic-thread task convergence"
+      ],
+      "given": {
+        "project_id": "project-quote",
+        "goal_id": "goal-customer-approval",
+        "topic_thread_id": "thread-quote-001",
+        "messages": [
+          "報價單正在整理。",
+          "報價單已經完成。",
+          "報價單已寄給客戶。",
+          "客戶要求修改。",
+          "修改版已重新寄出。"
+        ]
+      },
+      "when": {
+        "reconcileInOrder": true
+      },
+      "expect": {
+        "formalTaskCount": 1,
+        "taskTitle": "完成並寄送報價單",
+        "currentStatus": "waiting",
+        "waitingFor": "客戶確認修改版",
+        "historyEntryCount": 5,
+        "evidenceEntriesAppendOnly": true,
+        "duplicateTaskCount": 0
+      }
+    },
+    {
+      "caseId": "AC-004",
+      "title": "Meeting checkbox creates one confirmed task with nearby knowledge",
+      "tenantId": "00000000-0000-4000-8000-000000000101",
+      "covers": [
+        "meeting checkbox extraction and deduplication"
+      ],
+      "given": {
+        "meeting_reference": "meeting-fixture-2026-07-18",
+        "checkbox": "[ ] Alex 於 7/22 前更新成本表",
+        "nearbyDiscussion": "主管要求同時列出原估與最新估價差異。",
+        "project_id": "project-budget",
+        "goal_id": "goal-cost-control"
+      },
+      "when": {
+        "syncRuns": 2,
+        "secondCheckboxVariant": "☐  Alex 於 7/22 前更新成本表"
+      },
+      "expect": {
+        "formalTaskCount": 1,
+        "confirmationStatus": "confirmed",
+        "sourceType": "meeting_record",
+        "dedupeKeyIncludes": [
+          "tenant_id",
+          "meeting_reference",
+          "normalized_checkbox_text"
+        ],
+        "nearbyDiscussionPreserved": true
+      }
+    },
+    {
+      "caseId": "AC-005",
+      "title": "Formal task creation without evidence is blocked",
+      "tenantId": "00000000-0000-4000-8000-000000000101",
+      "covers": [
+        "source-evidence gate"
+      ],
+      "given": {
+        "candidateTask": {
+          "title": "聯絡供應商",
+          "project_id": "project-supply",
+          "goal_id": "goal-secure-supply",
+          "evidence_refs": []
+        }
+      },
+      "when": {
+        "operation": "create_new_event_task"
+      },
+      "expect": {
+        "formalTaskCreated": false,
+        "allowedFallbacks": [
+          "candidate",
+          "reject"
+        ],
+        "errorCode": "source_evidence_required",
+        "failureLogged": true
+      }
+    },
+    {
+      "caseId": "AC-006",
+      "title": "Useful task without a goal remains a candidate",
+      "tenantId": "00000000-0000-4000-8000-000000000101",
+      "covers": [
+        "project-goal gate"
+      ],
+      "given": {
+        "source": "請 Mia 整理下週會議資料。",
+        "project_id": "project-meeting",
+        "goal_id": null,
+        "evidence_ref": "line-msg-goal-missing"
+      },
+      "when": {
+        "operation": "create_new_event_task"
+      },
+      "expect": {
+        "formalTaskCreated": false,
+        "candidateCreated": true,
+        "status": "candidate",
+        "clarificationNeeded": true,
+        "proposedGoalAllowed": true,
+        "errorCode": "goal_link_required"
+      }
+    },
+    {
+      "caseId": "AC-007",
+      "title": "Assistant task-list command is not a real-world task",
+      "tenantId": "00000000-0000-4000-8000-000000000101",
+      "covers": [
+        "assistant command suppression"
+      ],
+      "given": {
+        "conversationType": "assistant_control_group",
+        "message": "謝夢娟，列出今天的待辦。",
+        "configuredAssistantAliases": [
+          "謝夢娟",
+          "謝孟娟"
+        ]
+      },
+      "when": {
+        "reconcile": true
+      },
+      "expect": {
+        "operation": "mark_judged_no_task",
+        "formalTaskCount": 0,
+        "reason": "assistant_operation_command",
+        "sourcePreserved": true
+      }
+    },
+    {
+      "caseId": "AC-008",
+      "title": "A real action inside an assistant command is still extracted",
+      "tenantId": "00000000-0000-4000-8000-000000000101",
+      "covers": [
+        "assistant command suppression",
+        "topic-thread task convergence"
+      ],
+      "given": {
+        "message": "列出今天的待辦，另外請 Leo 明天下午前把合約掃描檔寄給財務。",
+        "project_id": "project-contract",
+        "goal_id": "goal-finance-records"
+      },
+      "when": {
+        "reconcile": true
+      },
+      "expect": {
+        "assistantCommandTaskCreated": false,
+        "realWorldTaskCount": 1,
+        "taskOwner": "Leo",
+        "taskTitleContains": "合約掃描檔",
+        "evidencePreserved": true
+      }
+    },
+    {
+      "caseId": "AC-009",
+      "title": "Normal operation reply closes the existing operational check",
+      "tenantId": "00000000-0000-4000-8000-000000000101",
+      "covers": [
+        "operational completion evidence"
+      ],
+      "given": {
+        "existingTask": {
+          "task_id": "task-weather-check",
+          "status": "pending",
+          "title": "確認颱風是否需調整課程",
+          "project_id": "project-classes",
+          "goal_id": "goal-safe-operations",
+          "version": 2
+        },
+        "laterMessage": "明天正常上課，不用調整。"
+      },
+      "when": {
+        "reconcile": true
+      },
+      "expect": {
+        "newTaskCreated": false,
+        "matchedTaskId": "task-weather-check",
+        "toStatus": "completed",
+        "statusEvidenceAppended": true,
+        "originalTaskArchivedAsNoise": false
+      }
+    },
+    {
+      "caseId": "AC-010",
+      "title": "Sensitive completion waits for owner confirmation",
+      "tenantId": "00000000-0000-4000-8000-000000000101",
+      "covers": [
+        "sensitive closure confirmation"
+      ],
+      "given": {
+        "existingTask": {
+          "task_id": "task-payment",
+          "status": "waiting",
+          "confirmation_status": "confirmed",
+          "sensitivity": [
+            "financial",
+            "external_commitment"
+          ],
+          "version": 4
+        },
+        "laterMessage": "款項已匯出。"
+      },
+      "when": {
+        "reconcile": true
+      },
+      "expect": {
+        "completionEvidenceAppended": true,
+        "finalStatusAutomaticallyCompleted": false,
+        "confirmationStatus": "pending",
+        "confirmationRequestedFrom": "project_owner",
+        "externalActionTriggered": false
+      }
+    },
+    {
+      "caseId": "AC-011",
+      "title": "A newer decision supersedes the older decision without deleting it",
+      "tenantId": "00000000-0000-4000-8000-000000000101",
+      "covers": [
+        "decision supersession"
+      ],
+      "given": {
+        "project_id": "project-meeting",
+        "decisionA": {
+          "decision_id": "decision-time-1500",
+          "statement": "會議訂在下午三點",
+          "status": "active",
+          "decision_time": "2026-07-10T07:00:00Z"
+        },
+        "decisionBSource": "會議改到下午四點",
+        "decisionBTime": "2026-07-12T07:00:00Z"
+      },
+      "when": {
+        "operation": "create_or_supersede_decision"
+      },
+      "expect": {
+        "decisionAStatus": "superseded",
+        "decisionADeleted": false,
+        "decisionBStatus": "active",
+        "decisionBSupersedes": "decision-time-1500",
+        "effectiveQueryReturns": "下午四點",
+        "historyContainsBoth": true
+      }
+    },
+    {
+      "caseId": "AC-012",
+      "title": "Rule source failure is visible and fails safe",
+      "tenantId": "00000000-0000-4000-8000-000000000101",
+      "covers": [
+        "rule-load safe fallback"
+      ],
+      "given": {
+        "source": "請確認是否同意新租約條款。",
+        "failedRuleSource": "project_local_judgment_database",
+        "sensitivity": "contractual"
+      },
+      "when": {
+        "reconcile": true
+      },
+      "expect": {
+        "warningRecorded": true,
+        "silentIgnore": false,
+        "irreversibleMutation": false,
+        "operation": "request_confirmation",
+        "sourcePreserved": true
+      }
+    },
+    {
+      "caseId": "AC-013",
+      "title": "Material project-local rule is retained in the trace",
+      "tenantId": "00000000-0000-4000-8000-000000000101",
+      "covers": [
+        "material rule trace"
+      ],
+      "given": {
+        "source": "資料已送出，等業主回覆。",
+        "existingTaskId": "task-owner-reply",
+        "rule": {
+          "rule_id": "rule-waiting-owner",
+          "rule_version": "3",
+          "source": "project_local_judgment_database",
+          "effect": "map to waiting instead of completed"
+        }
+      },
+      "when": {
+        "reconcile": true
+      },
+      "expect": {
+        "matchedTaskId": "task-owner-reply",
+        "toStatus": "waiting",
+        "ruleTraceContains": "rule-waiting-owner",
+        "evidenceLogContainsRule": true
+      }
+    },
+    {
+      "caseId": "AC-014",
+      "title": "Optimistic concurrency preserves both updates",
+      "tenantId": "00000000-0000-4000-8000-000000000101",
+      "covers": [
+        "optimistic concurrency"
+      ],
+      "given": {
+        "task_id": "task-concurrent",
+        "currentVersion": 6,
+        "commandAExpectedVersion": 6,
+        "commandBExpectedVersion": 6,
+        "commandA": "set owner to Ivy",
+        "commandB": "set due date to 2026-07-25"
+      },
+      "when": {
+        "commandsArriveConcurrently": true
+      },
+      "expect": {
+        "firstCommitVersion": 7,
+        "secondInitialResult": "version_conflict",
+        "secondReloadsAndReconciles": true,
+        "finalVersion": 8,
+        "owner": "Ivy",
+        "dueDate": "2026-07-25",
+        "historyEntryCountAdded": 2,
+        "lostUpdate": false
+      }
+    },
+    {
+      "caseId": "AC-015",
+      "title": "Project status answer is structured-first and source-backed",
+      "tenantId": "00000000-0000-4000-8000-000000000101",
+      "covers": [
+        "structured-first query"
+      ],
+      "given": {
+        "question": "夏季合作案目前進度如何？",
+        "authorizedProject": "project-summer",
+        "currentProjectProjectionAvailable": true,
+        "activeTaskProjectionAvailable": true,
+        "effectiveDecisionAvailable": true,
+        "rawMessageCount": 50000
+      },
+      "when": {
+        "query": "answer_question"
+      },
+      "expect": {
+        "retrievalOrderStartsWith": [
+          "Project",
+          "ProjectGoal",
+          "Task",
+          "Decision"
+        ],
+        "allRawMessagesLoaded": false,
+        "rawEvidenceLoadedOnlyIfNeeded": true,
+        "answerIncludes": [
+          "current_state",
+          "latest_progress",
+          "next_action",
+          "owners",
+          "blockers_and_risks",
+          "answer_as_of",
+          "provenance"
+        ],
+        "unauthorizedSourcesCited": false
+      }
+    },
+    {
+      "caseId": "AC-016",
+      "title": "Supported adapters produce the same domain outcome",
+      "tenantId": "00000000-0000-4000-8000-000000000101",
+      "covers": [
+        "adapter parity"
+      ],
+      "given": {
+        "fixture": "AC-003",
+        "adapters": [
+          "project-local-postgres",
+          "tenant-locked-notion-compatibility"
+        ]
+      },
+      "when": {
+        "runSameContractFixture": true
+      },
+      "expect": {
+        "sameOperation": true,
+        "sameCanonicalStatus": true,
+        "sameTaskCount": true,
+        "sameEvidenceCount": true,
+        "sameSupersessionOutcome": true,
+        "crossTenantAccess": false
+      }
+    },
+    {
+      "caseId": "AC-017",
+      "title": "Hot, warm, and cold sources use different retrieval behavior",
+      "tenantId": "00000000-0000-4000-8000-000000000101",
+      "covers": [
+        "hot-warm-cold retention"
+      ],
+      "given": {
+        "sources": [
+          {
+            "source_id": "source-hot",
+            "ageDays": 7
+          },
+          {
+            "source_id": "source-warm",
+            "ageDays": 45
+          },
+          {
+            "source_id": "source-cold",
+            "ageDays": 180
+          }
+        ]
+      },
+      "when": {
+        "runLifecycleAndAuthorizedQuery": true
+      },
+      "expect": {
+        "source-hot": "hot",
+        "source-warm": "warm",
+        "source-cold": "cold",
+        "coldMetadataSearchable": true,
+        "coldRawBulkLoaded": false,
+        "coldRehydrationRequiresAuthorization": true,
+        "coldHashVerified": true,
+        "tenantNamespacePreserved": true
+      }
+    },
+    {
+      "caseId": "AC-018",
+      "title": "Conversation knowledge remains candidate until authorized verification",
+      "tenantId": "00000000-0000-4000-8000-000000000101",
+      "covers": [
+        "knowledge verification gate"
+      ],
+      "given": {
+        "message": "聽說所有報價都可以直接打九折。",
+        "source_id": "line-msg-knowledge-rumor",
+        "managerApproval": false,
+        "repeatedVerifiedEvidence": false
+      },
+      "when": {
+        "extractAndQueryAsCompanyPolicy": true
+      },
+      "expect": {
+        "knowledgeStatus": "candidate",
+        "presentedAsOfficialPolicy": false,
+        "verificationRequested": true,
+        "sourceEvidenceRetained": true,
+        "unsupportedDiscountApplied": false
+      }
+    }
+  ]
+}

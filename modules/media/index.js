@@ -42,9 +42,12 @@ const VISION_SCHEMA = {
     tags: { type: 'array', items: { type: 'string' } }, isEvidence: { type: 'boolean' },
   },
 };
-const VISION_SYSTEM = '你是工地/工程照片的判讀助手。看圖回報:主題 topic(短詞)、一句說明 caption、'
-  + '關鍵標籤 tags(3~6 個名詞,如「漏水」「磁磚」「配電箱」「天花板」)、是否為問題/瑕疵/證據照 isEvidence。'
-  + '只描述看得見的,不臆測用途或責任。';
+function visionSystem(tenant) {
+  const context = tenant?.config?.media?.visionContext || tenant?.config?.vocabulary?.industry || '現場營運';
+  return `你是${context}照片與文件的判讀助手。看圖回報:主題 topic(短詞)、一句說明 caption、`
+    + '關鍵標籤 tags(3~6 個可見名詞)、是否為後續處理、異常或佐證所需的照片 isEvidence。'
+    + '只描述看得見的內容，不臆測用途、責任或敏感個人資訊。';
+}
 
 // ── 純函式(可單元測試,dryrun 釘這裡)────────────────────────
 // 語意重疊:照片關鍵詞出現在事件文字裡的比例(對中文以子字串命中,足夠當階段2的消歧義訊號)。
@@ -97,7 +100,7 @@ async function visionJudge(ctx) {
   try {
     fs.writeFileSync(tmp, Buffer.from(media.buffer));
     const v = await llm.completeJson({
-      system: VISION_SYSTEM, userContent: '判讀這張照片。', schema: VISION_SCHEMA,
+      system: visionSystem(ctx.tenant), userContent: '判讀這張照片。', schema: VISION_SCHEMA,
       imagePaths: [tmp], profile: 'cheap', maxTokens: 800, budgetMs: 60_000,
     });
     return {

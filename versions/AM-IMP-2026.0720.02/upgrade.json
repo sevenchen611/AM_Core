@@ -1,0 +1,23 @@
+{
+  "id": "AM-IMP-2026.0720.02",
+  "name": "Green Hotel AM tenant bootstrap",
+  "type": "Core",
+  "portable": true,
+  "status": "Installed",
+  "dependsOn": ["AM-IMP-2026.0718.01"],
+  "createdAt": "2026-07-20",
+  "installTargets": ["AM_PLATFORM", "NEW_AM_PROJECT"],
+  "scope": ["AMCore tenant registry", "Green Hotel tenant-local provisioning contract"],
+  "requiresDatabases": ["Green Hotel Notion parent page", "Green Hotel Messages data source", "Green Hotel Group Bindings data source", "Green Hotel Tasks data source", "Green Hotel tenant-local meeting databases"],
+  "requiresEnv": ["GREEN_HOTEL_NOTION_PARENT_PAGE_ID", "GREEN_HOTEL_MEETINGS_PARENT_PAGE_ID", "GREEN_HOTEL_MESSAGES_DATA_SOURCE_ID", "GREEN_HOTEL_GROUP_BINDINGS_DATA_SOURCE_ID", "GREEN_HOTEL_ATTACHMENTS_DATA_SOURCE_ID", "GREEN_HOTEL_PROJECTS_DATA_SOURCE_ID", "GREEN_HOTEL_SPACES_DATA_SOURCE_ID", "GREEN_HOTEL_WORK_ITEMS_DATA_SOURCE_ID", "GREEN_HOTEL_TASKS_DATA_SOURCE_ID", "GREEN_HOTEL_MEETINGS_DATA_SOURCE_ID", "GREEN_HOTEL_DECISIONS_DATA_SOURCE_ID", "GREEN_HOTEL_KNOWLEDGE_ITEMS_DATA_SOURCE_ID", "GREEN_HOTEL_EVENTS_DATA_SOURCE_ID", "GREEN_HOTEL_TASK_HISTORY_DATA_SOURCE_ID", "GREEN_HOTEL_DAILY_SUMMARIES_DATA_SOURCE_ID", "GREEN_HOTEL_PROJECT_SNAPSHOTS_DATA_SOURCE_ID", "GREEN_HOTEL_ANSWER_LOGS_DATA_SOURCE_ID", "GREEN_HOTEL_DRIVE_ROOT_FOLDER_ID"],
+  "requiresScripts": ["node tools/provision-tenant-foundation.mjs green-hotel --parent-page=<notion-parent-page-id> --drive-root=<drive-folder-id>", "node tools/check-upgrade-package.js AM-IMP-2026.0720.02", "node tools/audit-alignment.js", "node --env-file=.env tools/verify-platform-connection-identities.mjs <tenant-drive-root-folder-id>"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Green Hotel receives its own Notion parent page, data-source registry, Drive root, group bindings, access controls, and meeting databases. AMCore retains only reusable configuration and documentation."
+  },
+  "definitionOfDone": ["Green Hotel AM is registered with a unique tenant key and environment prefix", "The tenant is fail-closed until source and authorization verification", "The operating contract covers raw sources, events, tasks, decisions, knowledge, and project state", "Future LINE group bindings route only to Green Hotel tenant-local data sources"],
+  "files": [".env.example", "PLATFORM.md", "tenants/README.md", "tenants/green-hotel.json", "versions/AM-IMP-2026.0720.02/README.md", "versions/AM-IMP-2026.0720.02/INSTALL.md", "versions/AM-IMP-2026.0720.02/VERIFY.md", "versions/AM-IMP-2026.0720.02/ROLLBACK.md", "versions/AM-IMP-2026.0720.02/upgrade.json", "versions/AM-IMP-2026.0720.02/config/green-hotel-env.example", "versions/AM-IMP-2026.0720.02/schemas/notion-ddl.sql", "docs/PLATFORM_CONNECTION_IDENTITIES.md", "tools/google-drive-auth.mjs", "tools/provision-tenant-foundation.mjs", "tools/verify-platform-connection-identities.mjs", "core/bootstrap.js", "core/tenants.js", "modules/media/index.js", "modules/meetings/index.js", "modules/reminders/index.js", "modules/tasks/index.js"]
+}

@@ -1,0 +1,687 @@
+{
+  "schemaVersion": 1,
+  "id": "am-operational-memory-api-contract",
+  "purpose": "Define tenant-aware ports, commands, queries, transaction rules, and adapter conformance behavior for the shared AM operational-memory domain.",
+  "tenantContext": {
+    "type": "object",
+    "required": [
+      "tenantId",
+      "tenantKey",
+      "namespace",
+      "timezone",
+      "mode",
+      "principal"
+    ],
+    "fields": {
+      "tenantId": "Stable tenant UUID or project-local stable identifier.",
+      "tenantKey": "Stable human-readable runtime key.",
+      "namespace": "Storage, queue, cache, search, and object namespace owned by this tenant.",
+      "timezone": "IANA timezone used for schedules and derived dates.",
+      "mode": "shared-platform-tenant or project-local-runtime.",
+      "principal": "Authorized system or user principal; never accepted from an untrusted payload without authentication.",
+      "dataSourceHandles": "Logical project-local handles resolved by the adapter, never shared production identifiers.",
+      "fieldMap": "Optional project-local display field mapping.",
+      "featureFlags": "Tenant-local feature gates."
+    },
+    "rules": [
+      "Every port method receives TenantContext as its first argument.",
+      "The adapter derives tenant storage scope from trusted runtime configuration, not from client-supplied paths or IDs.",
+      "TenantContext mismatch, missing tenant, disabled tenant, or unauthorized principal fails closed.",
+      "TenantContext is immutable for the duration of a command or query."
+    ]
+  },
+  "commandEnvelope": {
+    "requiredFields": [
+      "commandId",
+      "commandType",
+      "tenantId",
+      "idempotencyKey",
+      "issuedAt",
+      "principal",
+      "payload"
+    ],
+    "optionalFields": [
+      "causationId",
+      "correlationId",
+      "expectedEntityVersion",
+      "traceId"
+    ],
+    "invariants": [
+      "command tenantId equals TenantContext tenantId",
+      "idempotencyKey is unique inside the tenant",
+      "payload record references are authorized and tenant-local",
+      "mutation commands include evidence refs unless the command only stores raw source data",
+      "projection mutations with an existing target include expectedEntityVersion"
+    ]
+  },
+  "queryEnvelope": {
+    "requiredFields": [
+      "queryId",
+      "queryType",
+      "tenantId",
+      "issuedAt",
+      "principal",
+      "payload"
+    ],
+    "optionalFields": [
+      "asOf",
+      "traceId"
+    ],
+    "invariants": [
+      "query tenantId equals TenantContext tenantId",
+      "all returned records are filtered by tenant and AccessContext",
+      "raw sources and attachments are authorized individually",
+      "query logging never stores unauthorized candidate hits"
+    ]
+  },
+  "ports": {
+    "SourceStore": {
+      "responsibility": "Durably retain tenant-local immutable source records and processing checkpoints.",
+      "methods": [
+        {
+          "name": "putIfAbsent",
+          "input": [
+            "TenantContext",
+            "SourceRecord",
+            "ingestionIdempotencyKey"
+          ],
+          "output": "{ sourceRecord, created }",
+          "guarantee": "Unique by tenant, source channel, and source ID."
+        },
+        {
+          "name": "getAuthorized",
+          "input": [
+            "TenantContext",
+            "sourceId"
+          ],
+          "output": "SourceRecord or not_found",
+          "guarantee": "Never returns a record from another tenant or unauthorized scope."
+        },
+        {
+          "name": "listSinceCheckpoint",
+          "input": [
+            "TenantContext",
+            "checkpoint",
+            "limit"
+          ],
+          "output": "{ records, nextCheckpoint }",
+          "guarantee": "Stable tenant-local ordering and repeatable checkpoints."
+        },
+        {
+          "name": "recordProcessingState",
+          "input": [
+            "TenantContext",
+            "sourceId",
+            "state",
+            "processorVersion",
+            "error"
+          ],
+          "output": "ProcessingState",
+          "guarantee": "State changes do not overwrite source content."
+        }
+      ]
+    },
+    "AttachmentStore": {
+      "responsibility": "Store and retrieve tenant-namespaced attachments and derived text.",
+      "methods": [
+        {
+          "name": "putContentAddressed",
+          "input": [
+            "TenantContext",
+            "sourceId",
+            "sha256",
+            "metadata",
+            "contentStream"
+          ],
+          "output": "AttachmentRef",
+          "guarantee": "Object path, metadata, cache, and derived artifacts stay inside the tenant namespace."
+        },
+        {
+          "name": "openAuthorized",
+          "input": [
+            "TenantContext",
+            "attachmentId"
+          ],
+          "output": "AuthorizedContentStream or not_found",
+          "guarantee": "Authorization is rechecked at read time."
+        }
+      ]
+    },
+    "WorkQueue": {
+      "responsibility": "Provide tenant-partitioned asynchronous work, retries, checkpoints, and dead letters.",
+      "methods": [
+        {
+          "name": "enqueue",
+          "input": [
+            "TenantContext",
+            "workType",
+            "payload",
+            "idempotencyKey"
+          ],
+          "output": "QueueReceipt",
+          "guarantee": "At-least-once delivery with tenant-local idempotent consumers."
+        },
+        {
+          "name": "deadLetter",
+          "input": [
+            "TenantContext",
+            "workId",
+            "reason",
+            "attempts"
+          ],
+          "output": "DeadLetterReceipt",
+          "guarantee": "No payload is moved to another tenant partition."
+        }
+      ]
+    },
+    "EventStore": {
+      "responsibility": "Append immutable tenant-local events, transitions, judgments, and supersession links.",
+      "methods": [
+        {
+          "name": "appendIdempotent",
+          "input": [
+            "TenantContext",
+            "DomainEvent",
+            "idempotencyKey"
+          ],
+          "output": "{ event, appended }",
+          "guarantee": "Same tenant and idempotency key returns the prior event; history is never overwritten."
+        },
+        {
+          "name": "loadStream",
+          "input": [
+            "TenantContext",
+            "entityType",
+            "entityId",
+            "asOf"
+          ],
+          "output": "Authorized ordered DomainEvent list",
+          "guarantee": "Superseded events remain visible to authorized audit queries."
+        }
+      ]
+    },
+    "ProjectionStore": {
+      "responsibility": "Persist versioned current ProjectGoal, Project, Task, Decision, KnowledgeItem, and snapshot projections.",
+      "methods": [
+        {
+          "name": "getCurrentAuthorized",
+          "input": [
+            "TenantContext",
+            "entityType",
+            "entityId"
+          ],
+          "output": "Current authorized projection or not_found",
+          "guarantee": "Applies tenant and record-level access filters."
+        },
+        {
+          "name": "compareAndSwap",
+          "input": [
+            "TenantContext",
+            "entityType",
+            "entityId",
+            "expectedVersion",
+            "nextProjection",
+            "causingEventId"
+          ],
+          "output": "{ projection, committed } or version_conflict",
+          "guarantee": "No lost updates and no cross-tenant target."
+        },
+        {
+          "name": "searchTaskCandidates",
+          "input": [
+            "TenantContext",
+            "projectId",
+            "topicSignals",
+            "statusScope"
+          ],
+          "output": "Authorized task candidates",
+          "guarantee": "Never searches another tenant and normally stays within the resolved project."
+        }
+      ]
+    },
+    "SearchIndex": {
+      "responsibility": "Index and retrieve authorized tenant-local structured and raw search documents.",
+      "methods": [
+        {
+          "name": "upsert",
+          "input": [
+            "TenantContext",
+            "SearchDocument"
+          ],
+          "output": "IndexReceipt",
+          "guarantee": "Document carries tenant, project, group, sensitivity, source, and authorization metadata."
+        },
+        {
+          "name": "searchAuthorized",
+          "input": [
+            "TenantContext",
+            "query",
+            "filters",
+            "limit"
+          ],
+          "output": "Authorized ranked hits",
+          "guarantee": "Semantic similarity never bypasses tenant or record authorization."
+        }
+      ]
+    },
+    "RulesProvider": {
+      "responsibility": "Load versioned shared, project-local, learned, and manual rules with health information.",
+      "methods": [
+        {
+          "name": "loadEffectiveRules",
+          "input": [
+            "TenantContext",
+            "projectId",
+            "sourceContext",
+            "operation"
+          ],
+          "output": "{ ruleSetVersion, rules, warnings, sourceHealth }",
+          "guarantee": "Rule IDs and versions remain available for material rule trace."
+        }
+      ]
+    },
+    "IdentityDirectory": {
+      "responsibility": "Resolve tenant-local people, aliases, LINE identities, teams, and roles without leaking identifiers.",
+      "methods": [
+        {
+          "name": "resolvePeople",
+          "input": [
+            "TenantContext",
+            "namesOrAliases",
+            "conversationContext"
+          ],
+          "output": "Tenant-local person candidates",
+          "guarantee": "Assistant command aliases are distinguishable from real task owners."
+        }
+      ]
+    },
+    "AccessPolicy": {
+      "responsibility": "Authorize commands, structured records, sources, attachments, groups, projects, and sensitive fields.",
+      "methods": [
+        {
+          "name": "assert",
+          "input": [
+            "TenantContext",
+            "action",
+            "resourceDescriptor"
+          ],
+          "output": "AuthorizedScope or access_denied",
+          "guarantee": "Fail closed; no client-supplied operator or tenant is trusted."
+        }
+      ]
+    },
+    "ProjectResolver": {
+      "responsibility": "Resolve project and goal using project-local bindings before text inference.",
+      "methods": [
+        {
+          "name": "resolve",
+          "input": [
+            "TenantContext",
+            "TopicThread",
+            "EvidenceRef list"
+          ],
+          "output": "{ project, goal, candidates, clarificationNeeded, reasons }",
+          "guarantee": "Conversation master binding overrides text guessing."
+        }
+      ]
+    },
+    "LlmExtractor": {
+      "responsibility": "Produce schema-constrained extraction candidates without mutation authority.",
+      "methods": [
+        {
+          "name": "extract",
+          "input": [
+            "TenantContext",
+            "AuthorizedTopicThreadContext",
+            "EffectiveRuleSet",
+            "event-extraction.schema.json"
+          ],
+          "output": "Validated extraction candidate or extraction_error",
+          "guarantee": "The output is a proposal; deterministic evidence, transition, dedupe, and authorization gates remain mandatory."
+        }
+      ]
+    },
+    "ViewPublisher": {
+      "responsibility": "Publish tenant-local Notion and other human-facing projections through an idempotent outbox.",
+      "methods": [
+        {
+          "name": "publish",
+          "input": [
+            "TenantContext",
+            "projectionType",
+            "projection",
+            "projectionVersion"
+          ],
+          "output": "PublishReceipt",
+          "guarantee": "A view failure does not roll back canonical state and never redirects to another tenant."
+        }
+      ]
+    },
+    "Clock": {
+      "responsibility": "Provide deterministic UTC and tenant-local time.",
+      "methods": [
+        {
+          "name": "now",
+          "input": [
+            "TenantContext"
+          ],
+          "output": "{ utc, tenantLocal }",
+          "guarantee": "Derived overdue and schedule behavior uses tenant timezone."
+        }
+      ]
+    },
+    "Telemetry": {
+      "responsibility": "Record tenant-safe metrics, traces, warnings, and audit events.",
+      "methods": [
+        {
+          "name": "record",
+          "input": [
+            "TenantContext",
+            "telemetryEvent"
+          ],
+          "output": "void",
+          "guarantee": "Secrets and unauthorized source content are excluded."
+        }
+      ]
+    }
+  },
+  "commands": [
+    {
+      "name": "ingest_source",
+      "requiredPayload": [
+        "sourceRecord",
+        "ingestionIdempotencyKey"
+      ],
+      "requiredPorts": [
+        "AccessPolicy",
+        "SourceStore",
+        "WorkQueue",
+        "Telemetry"
+      ],
+      "result": "source_persisted or prior_idempotent_result"
+    },
+    {
+      "name": "reconcile_source_batch",
+      "requiredPayload": [
+        "sourceIds",
+        "checkpoint"
+      ],
+      "requiredPorts": [
+        "SourceStore",
+        "AttachmentStore",
+        "RulesProvider",
+        "ProjectResolver",
+        "ProjectionStore",
+        "LlmExtractor",
+        "AccessPolicy",
+        "Clock",
+        "Telemetry"
+      ],
+      "result": "schema-valid reconciliation candidates"
+    },
+    {
+      "name": "apply_reconciliation",
+      "requiredPayload": [
+        "candidate",
+        "evidenceRefs",
+        "ruleTrace",
+        "expectedEntityVersion"
+      ],
+      "requiredPorts": [
+        "AccessPolicy",
+        "SourceStore",
+        "EventStore",
+        "ProjectionStore",
+        "ViewPublisher",
+        "SearchIndex",
+        "Telemetry"
+      ],
+      "result": "committed event and projection or deterministic rejection"
+    },
+    {
+      "name": "confirm_sensitive_transition",
+      "requiredPayload": [
+        "entityType",
+        "entityId",
+        "targetStatus",
+        "evidenceRefs",
+        "expectedEntityVersion"
+      ],
+      "requiredPorts": [
+        "AccessPolicy",
+        "EventStore",
+        "ProjectionStore",
+        "ViewPublisher",
+        "Telemetry"
+      ],
+      "result": "confirmed transition or access/version rejection"
+    },
+    {
+      "name": "promote_knowledge",
+      "requiredPayload": [
+        "knowledgeId",
+        "approval",
+        "evidenceRefs",
+        "expectedEntityVersion"
+      ],
+      "requiredPorts": [
+        "AccessPolicy",
+        "EventStore",
+        "ProjectionStore",
+        "ViewPublisher",
+        "SearchIndex",
+        "Telemetry"
+      ],
+      "result": "verified knowledge version or rejection"
+    },
+    {
+      "name": "supersede_decision",
+      "requiredPayload": [
+        "priorDecisionId",
+        "newDecision",
+        "reason",
+        "evidenceRefs",
+        "expectedEntityVersion"
+      ],
+      "requiredPorts": [
+        "AccessPolicy",
+        "EventStore",
+        "ProjectionStore",
+        "ViewPublisher",
+        "Telemetry"
+      ],
+      "result": "new active decision and prior superseded decision or rejection"
+    }
+  ],
+  "queries": [
+    {
+      "name": "get_project_state",
+      "requiredPayload": [
+        "projectId"
+      ],
+      "retrievalOrder": [
+        "Project",
+        "ProjectGoal",
+        "active Task",
+        "effective Decision",
+        "latest DomainEvent"
+      ]
+    },
+    {
+      "name": "get_task_state",
+      "requiredPayload": [
+        "taskId"
+      ],
+      "retrievalOrder": [
+        "Task",
+        "TaskTransition",
+        "evidence on demand"
+      ]
+    },
+    {
+      "name": "get_effective_decision",
+      "requiredPayload": [
+        "projectId",
+        "decisionTopic"
+      ],
+      "retrievalOrder": [
+        "effective Decision supersession head",
+        "decision event history",
+        "source rationale on demand"
+      ]
+    },
+    {
+      "name": "search_operational_memory",
+      "requiredPayload": [
+        "intent",
+        "query",
+        "filters"
+      ],
+      "retrievalOrder": [
+        "authorized structured projections",
+        "verified knowledge",
+        "non-superseded events",
+        "authorized raw sources when justified"
+      ]
+    },
+    {
+      "name": "answer_question",
+      "requiredPayload": [
+        "question"
+      ],
+      "retrievalOrder": [
+        "intent classification",
+        "structured-first query",
+        "conflict and freshness evaluation",
+        "authorized evidence retrieval",
+        "answer composition",
+        "AnswerProvenance persistence"
+      ]
+    },
+    {
+      "name": "get_evidence",
+      "requiredPayload": [
+        "evidenceRef"
+      ],
+      "retrievalOrder": [
+        "authorize source",
+        "load source metadata",
+        "rehydrate content if cold",
+        "authorize attachment",
+        "return bounded evidence"
+      ]
+    }
+  ],
+  "transactionSemantics": {
+    "canonicalMutationUnit": [
+      "idempotency claim",
+      "event append",
+      "projection compare-and-swap",
+      "projection outbox append",
+      "search outbox append",
+      "audit record"
+    ],
+    "atomicWithinCanonicalStore": true,
+    "notionOrSearchPublishInsideCanonicalTransaction": false,
+    "publishViaOutbox": true,
+    "projectionRebuildableFromEventHistory": true,
+    "projectionFailureRecovery": "Replay committed tenant-local events idempotently.",
+    "viewFailureRecovery": "Retry the tenant-local outbox without reversing canonical state."
+  },
+  "idempotency": {
+    "scope": "tenant",
+    "sameKeySamePayload": "Return the prior committed result.",
+    "sameKeyDifferentPayload": "Reject with idempotency_conflict.",
+    "retention": "At least as long as the source and event retry window; event IDs remain permanently unique.",
+    "requiredFor": [
+      "source ingestion",
+      "event append",
+      "projection mutation",
+      "queue enqueue",
+      "Notion projection publish",
+      "search index publish"
+    ]
+  },
+  "errorContract": {
+    "errors": [
+      {
+        "code": "tenant_required",
+        "retryable": false
+      },
+      {
+        "code": "tenant_mismatch",
+        "retryable": false
+      },
+      {
+        "code": "access_denied",
+        "retryable": false
+      },
+      {
+        "code": "source_evidence_required",
+        "retryable": false
+      },
+      {
+        "code": "goal_link_required",
+        "retryable": false
+      },
+      {
+        "code": "schema_validation_failed",
+        "retryable": true
+      },
+      {
+        "code": "version_conflict",
+        "retryable": true
+      },
+      {
+        "code": "idempotency_conflict",
+        "retryable": false
+      },
+      {
+        "code": "rule_source_unavailable",
+        "retryable": true
+      },
+      {
+        "code": "confirmation_required",
+        "retryable": false
+      },
+      {
+        "code": "adapter_unavailable",
+        "retryable": true
+      },
+      {
+        "code": "not_found",
+        "retryable": false
+      }
+    ],
+    "safeErrorResponseFields": [
+      "code",
+      "message",
+      "retryable",
+      "traceId"
+    ],
+    "secretOrCrossTenantDetailsAllowed": false
+  },
+  "securityAndIsolation": [
+    "Use tenant-locked Notion requests and project-local data-source handles.",
+    "Apply AccessContext after tenant isolation for user-facing records.",
+    "Reauthorize target records and attachments immediately before mutation or read.",
+    "Never accept tenant, operator, group relation, object path, or authorization labels solely from the browser or model output.",
+    "Partition database rows, unique indexes, object paths, queues, caches, search indexes, and telemetry by tenant.",
+    "Exclude production secrets and records from AMCore packages and fixtures."
+  ],
+  "adapterConformance": {
+    "mandatoryCases": [
+      "same source ingested three times produces one source and one event outcome",
+      "tenant A cannot read, write, search, supersede, or relate tenant B records",
+      "missing tenant fails closed",
+      "same reconciliation fixture produces the same domain outcome across supported canonical adapters",
+      "version conflict causes reload and retry without lost history",
+      "Notion publish failure leaves canonical state committed and retries through outbox",
+      "cold evidence rehydration rechecks hash, tenant, and authorization",
+      "sensitive completion remains pending until an authorized confirmation command"
+    ],
+    "syntheticFixturesOnly": true,
+    "liveTenantIdentifiersAllowed": false,
+    "requiredResult": "All mandatory cases pass before the adapter is enabled for a tenant."
+  }
+}

@@ -1,0 +1,790 @@
+{
+  "schemaVersion": 1,
+  "id": "am-operational-memory-notion-projections",
+  "role": "Human-readable, review, approval, and workflow projections of tenant-local operational memory. Notion is not the cross-tenant canonical event store and is never a substitute for source evidence.",
+  "tenantIsolation": {
+    "allDataSourcesProjectLocal": true,
+    "allDataSourceHandlesResolvedFromTenantContext": true,
+    "productionIdsStoredInPackage": false,
+    "relationsMustStayInsideTenantParent": true,
+    "tenantKeyAuditPropertyRequired": true,
+    "tenantKeyPropertyMutableByUser": false,
+    "notionRequestsMustUseTenantLockedAdapter": true,
+    "userReadsAndWritesAlsoRequireAccessContext": true,
+    "crossTenantRollupsRelationsAndCopiesForbidden": true
+  },
+  "sourceOfTruth": {
+    "rawEvidence": "Project-local SourceStore and existing LINE, meeting, report, file, or linked-page records.",
+    "eventHistory": "Project-local append-only EventStore.",
+    "currentState": "Project-local versioned ProjectionStore.",
+    "notionRole": [
+      "human review",
+      "task and project views",
+      "decision approval",
+      "knowledge approval",
+      "weekly summaries"
+    ],
+    "notionDirectEdits": "Authorized human edits to controlled fields must be converted into tenant-local commands with actor, evidence, expected version, and rule trace before canonical state changes.",
+    "notionMustNotAuthoritativelyOverwrite": [
+      "raw source content",
+      "event history",
+      "task transition history",
+      "supersession history",
+      "tenant identity",
+      "canonical entity IDs",
+      "projection version"
+    ]
+  },
+  "syncRules": {
+    "direction": "canonical-to-notion by default; selected authorized review actions return as commands",
+    "mechanism": "tenant-local idempotent outbox",
+    "idempotencyKeyPattern": "{tenant_id}:{entity_type}:{entity_id}:{projection_version}",
+    "publishFailureBehavior": "Keep canonical state committed, record the failure, and retry the tenant-local outbox.",
+    "notionVersionBehindBehavior": "Republish the latest canonical projection.",
+    "notionVersionAheadBehavior": "Do not trust or overwrite canonical state; create a review conflict.",
+    "deletionBehavior": "Archive or mark the projection according to canonical retention state; never silently delete event or evidence history."
+  },
+  "statusMappings": {
+    "taskLifecycle": {
+      "candidate": "待確認",
+      "pending": "待處理",
+      "in_progress": "處理中",
+      "waiting": "等待他人",
+      "pending_completion_confirmation": "待完成確認",
+      "completed": "已完成",
+      "cancelled": "已取消",
+      "no_action": "無須處理"
+    },
+    "taskConfirmation": {
+      "pending": "待確認",
+      "confirmed": "已確認",
+      "rejected": "不成立"
+    },
+    "taskFormalization": {
+      "candidate": "候選控制項",
+      "formal": "正式總控任務",
+      "rejected": "不納入總控"
+    },
+    "decisionStatus": {
+      "draft": "草案",
+      "active": "目前有效",
+      "superseded": "已被取代",
+      "revoked": "已撤銷"
+    },
+    "knowledgeStatus": {
+      "candidate": "候選知識",
+      "verified": "正式知識",
+      "deprecated": "已停用",
+      "expired": "已過期"
+    },
+    "projectAndGoalStatus": {
+      "candidate": "待確認",
+      "active": "進行中",
+      "on_hold": "暫停",
+      "completed": "已完成",
+      "cancelled": "已取消"
+    },
+    "derivedFlags": {
+      "overdue": "逾期",
+      "blocked": "受阻"
+    }
+  },
+  "projections": {
+    "projectGoals": {
+      "logicalDataSource": "PROJECT_GOALS_DATA_SOURCE_ID",
+      "role": "Project-local goals that explain why tasks matter and define success.",
+      "required": true,
+      "properties": [
+        {
+          "name": "目標名稱",
+          "type": "title",
+          "canonicalField": "title",
+          "required": true
+        },
+        {
+          "name": "目標 ID",
+          "type": "rich_text",
+          "canonicalField": "goal_id",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "Tenant Key",
+          "type": "rich_text",
+          "canonicalField": "tenant_id",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "總控專案",
+          "type": "relation",
+          "canonicalField": "project_id",
+          "target": "PROJECT_TOTAL_CONTROL_PROJECT_DATA_SOURCE_ID",
+          "required": true
+        },
+        {
+          "name": "狀態",
+          "type": "status",
+          "canonicalField": "status",
+          "required": true
+        },
+        {
+          "name": "成功條件",
+          "type": "rich_text",
+          "canonicalField": "success_criteria",
+          "required": true
+        },
+        {
+          "name": "需釐清事項",
+          "type": "rich_text",
+          "canonicalField": "clarification_needed",
+          "required": false
+        },
+        {
+          "name": "來源事件",
+          "type": "relation",
+          "canonicalField": "source_event_ids",
+          "target": "PROJECT_OPERATIONAL_EVENTS_DATA_SOURCE_ID",
+          "required": true
+        },
+        {
+          "name": "資料版本",
+          "type": "number",
+          "canonicalField": "version",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "最後更新",
+          "type": "date",
+          "canonicalField": "last_updated_at",
+          "required": true,
+          "readOnly": true
+        }
+      ]
+    },
+    "projects": {
+      "logicalDataSource": "PROJECT_TOTAL_CONTROL_PROJECT_DATA_SOURCE_ID",
+      "role": "Current project or case dossier projection.",
+      "required": true,
+      "properties": [
+        {
+          "name": "專案名稱",
+          "type": "title",
+          "canonicalField": "name",
+          "required": true
+        },
+        {
+          "name": "專案 ID",
+          "type": "rich_text",
+          "canonicalField": "project_id",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "Tenant Key",
+          "type": "rich_text",
+          "canonicalField": "tenant_id",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "目標",
+          "type": "relation",
+          "canonicalField": "goal_ids",
+          "target": "PROJECT_GOALS_DATA_SOURCE_ID",
+          "required": true
+        },
+        {
+          "name": "狀態",
+          "type": "status",
+          "canonicalField": "status",
+          "required": true
+        },
+        {
+          "name": "階段",
+          "type": "select",
+          "canonicalField": "phase",
+          "required": false
+        },
+        {
+          "name": "目前進度摘要",
+          "type": "rich_text",
+          "canonicalField": "latest_summary",
+          "required": true
+        },
+        {
+          "name": "下一步",
+          "type": "rich_text",
+          "canonicalField": "next_action",
+          "required": true
+        },
+        {
+          "name": "主要阻礙",
+          "type": "rich_text",
+          "canonicalField": "blockers",
+          "required": false
+        },
+        {
+          "name": "主要風險",
+          "type": "rich_text",
+          "canonicalField": "risks",
+          "required": false
+        },
+        {
+          "name": "負責人",
+          "type": "people_or_relation",
+          "canonicalField": "owner_ids",
+          "required": false
+        },
+        {
+          "name": "關聯任務",
+          "type": "relation",
+          "canonicalField": "task_ids",
+          "target": "PROJECT_TOTAL_CONTROL_TASK_DATA_SOURCE_ID",
+          "required": true
+        },
+        {
+          "name": "有效決策",
+          "type": "relation",
+          "canonicalField": "effective_decision_ids",
+          "target": "PROJECT_DECISIONS_DATA_SOURCE_ID",
+          "required": false
+        },
+        {
+          "name": "關聯 LINE 對話",
+          "type": "relation",
+          "canonicalField": "conversation_refs",
+          "target": "PROJECT_LINE_CONVERSATIONS_DATA_SOURCE_ID",
+          "required": false
+        },
+        {
+          "name": "資料版本",
+          "type": "number",
+          "canonicalField": "version",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "最後更新",
+          "type": "date",
+          "canonicalField": "last_updated_at",
+          "required": true,
+          "readOnly": true
+        }
+      ]
+    },
+    "events": {
+      "logicalDataSource": "PROJECT_OPERATIONAL_EVENTS_DATA_SOURCE_ID",
+      "role": "Append-only human-readable projection of the tenant-local event ledger.",
+      "required": true,
+      "appendOnly": true,
+      "properties": [
+        {
+          "name": "事件摘要",
+          "type": "title",
+          "canonicalField": "summary",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "事件 ID",
+          "type": "rich_text",
+          "canonicalField": "event_id",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "Tenant Key",
+          "type": "rich_text",
+          "canonicalField": "tenant_id",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "事件類型",
+          "type": "select",
+          "canonicalField": "event_type",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "發生時間",
+          "type": "date",
+          "canonicalField": "event_time",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "總控專案",
+          "type": "relation",
+          "canonicalField": "project_id",
+          "target": "PROJECT_TOTAL_CONTROL_PROJECT_DATA_SOURCE_ID",
+          "required": false,
+          "readOnly": true
+        },
+        {
+          "name": "主題串 ID",
+          "type": "rich_text",
+          "canonicalField": "topic_thread_id",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "狀態變更",
+          "type": "rich_text",
+          "canonicalField": "status_change_summary",
+          "required": false,
+          "readOnly": true
+        },
+        {
+          "name": "取代事件",
+          "type": "relation",
+          "canonicalField": "superseded_event_id",
+          "target": "PROJECT_OPERATIONAL_EVENTS_DATA_SOURCE_ID",
+          "required": false,
+          "readOnly": true
+        },
+        {
+          "name": "規則軌跡",
+          "type": "rich_text",
+          "canonicalField": "rule_trace_summary",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "來源證據",
+          "type": "relation_or_rich_text",
+          "canonicalField": "evidence_refs",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "信心度",
+          "type": "number",
+          "canonicalField": "confidence",
+          "required": true,
+          "readOnly": true
+        }
+      ]
+    },
+    "tasks": {
+      "logicalDataSource": "PROJECT_TOTAL_CONTROL_TASK_DATA_SOURCE_ID",
+      "role": "Current task state with append-only evidence and processing history in the page body.",
+      "required": true,
+      "properties": [
+        {
+          "name": "任務名稱",
+          "type": "title",
+          "canonicalField": "title",
+          "required": true
+        },
+        {
+          "name": "任務 ID",
+          "type": "rich_text",
+          "canonicalField": "task_id",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "Tenant Key",
+          "type": "rich_text",
+          "canonicalField": "tenant_id",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "總控專案",
+          "type": "relation",
+          "canonicalField": "project_id",
+          "target": "PROJECT_TOTAL_CONTROL_PROJECT_DATA_SOURCE_ID",
+          "required": true
+        },
+        {
+          "name": "專案目標",
+          "type": "relation",
+          "canonicalField": "goal_id",
+          "target": "PROJECT_GOALS_DATA_SOURCE_ID",
+          "required": true
+        },
+        {
+          "name": "狀態",
+          "type": "status",
+          "canonicalField": "status",
+          "required": true
+        },
+        {
+          "name": "確認狀態",
+          "type": "select",
+          "canonicalField": "confirmation_status",
+          "required": true
+        },
+        {
+          "name": "總控正式化",
+          "type": "select",
+          "canonicalField": "formalization_status",
+          "required": true
+        },
+        {
+          "name": "下一步",
+          "type": "rich_text",
+          "canonicalField": "next_action",
+          "required": false
+        },
+        {
+          "name": "負責人",
+          "type": "people_or_relation",
+          "canonicalField": "assignee_ids",
+          "required": false
+        },
+        {
+          "name": "等待對象",
+          "type": "rich_text",
+          "canonicalField": "waiting_for",
+          "required": false
+        },
+        {
+          "name": "阻礙",
+          "type": "rich_text",
+          "canonicalField": "blocker",
+          "required": false
+        },
+        {
+          "name": "截止日",
+          "type": "date",
+          "canonicalField": "due_at",
+          "required": false
+        },
+        {
+          "name": "來源事件",
+          "type": "relation",
+          "canonicalField": "source_event_ids",
+          "target": "PROJECT_OPERATIONAL_EVENTS_DATA_SOURCE_ID",
+          "required": true
+        },
+        {
+          "name": "負責群組",
+          "type": "relation",
+          "canonicalField": "group_binding_id",
+          "target": "PROJECT_GROUP_BINDINGS_DATA_SOURCE_ID",
+          "required": true
+        },
+        {
+          "name": "最後證據時間",
+          "type": "date",
+          "canonicalField": "latest_evidence_at",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "敏感類別",
+          "type": "multi_select",
+          "canonicalField": "sensitivity_categories",
+          "required": false,
+          "readOnly": true
+        },
+        {
+          "name": "資料版本",
+          "type": "number",
+          "canonicalField": "version",
+          "required": true,
+          "readOnly": true
+        }
+      ]
+    },
+    "decisions": {
+      "logicalDataSource": "PROJECT_DECISIONS_DATA_SOURCE_ID",
+      "role": "Decision log with rationale, impact, evidence, and supersession history.",
+      "required": true,
+      "properties": [
+        {
+          "name": "決策名稱",
+          "type": "title",
+          "canonicalField": "title",
+          "required": true
+        },
+        {
+          "name": "決策 ID",
+          "type": "rich_text",
+          "canonicalField": "decision_id",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "Tenant Key",
+          "type": "rich_text",
+          "canonicalField": "tenant_id",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "總控專案",
+          "type": "relation",
+          "canonicalField": "project_id",
+          "target": "PROJECT_TOTAL_CONTROL_PROJECT_DATA_SOURCE_ID",
+          "required": true
+        },
+        {
+          "name": "決策內容",
+          "type": "rich_text",
+          "canonicalField": "statement",
+          "required": true
+        },
+        {
+          "name": "狀態",
+          "type": "status",
+          "canonicalField": "status",
+          "required": true
+        },
+        {
+          "name": "決策人",
+          "type": "people_or_relation",
+          "canonicalField": "decision_maker_ids",
+          "required": false
+        },
+        {
+          "name": "決策時間",
+          "type": "date",
+          "canonicalField": "decision_time",
+          "required": true
+        },
+        {
+          "name": "背景與原因",
+          "type": "rich_text",
+          "canonicalField": "background_and_reason",
+          "required": true
+        },
+        {
+          "name": "影響",
+          "type": "rich_text",
+          "canonicalField": "impact",
+          "required": false
+        },
+        {
+          "name": "取代決策",
+          "type": "relation",
+          "canonicalField": "supersedes_decision_id",
+          "target": "PROJECT_DECISIONS_DATA_SOURCE_ID",
+          "required": false
+        },
+        {
+          "name": "來源事件",
+          "type": "relation",
+          "canonicalField": "source_event_ids",
+          "target": "PROJECT_OPERATIONAL_EVENTS_DATA_SOURCE_ID",
+          "required": true
+        },
+        {
+          "name": "資料版本",
+          "type": "number",
+          "canonicalField": "version",
+          "required": true,
+          "readOnly": true
+        }
+      ]
+    },
+    "knowledge": {
+      "logicalDataSource": "PROJECT_KNOWLEDGE_DATA_SOURCE_ID",
+      "role": "Candidate and verified tenant-local company knowledge, clearly separated by status.",
+      "required": true,
+      "properties": [
+        {
+          "name": "知識標題",
+          "type": "title",
+          "canonicalField": "title",
+          "required": true
+        },
+        {
+          "name": "知識 ID",
+          "type": "rich_text",
+          "canonicalField": "knowledge_id",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "Tenant Key",
+          "type": "rich_text",
+          "canonicalField": "tenant_id",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "分類",
+          "type": "select",
+          "canonicalField": "category",
+          "required": true
+        },
+        {
+          "name": "適用範圍",
+          "type": "multi_select_or_relation",
+          "canonicalField": "scope",
+          "required": true
+        },
+        {
+          "name": "狀態",
+          "type": "status",
+          "canonicalField": "status",
+          "required": true
+        },
+        {
+          "name": "負責人",
+          "type": "people_or_relation",
+          "canonicalField": "owner_ids",
+          "required": false
+        },
+        {
+          "name": "生效日",
+          "type": "date",
+          "canonicalField": "effective_at",
+          "required": false
+        },
+        {
+          "name": "到期日",
+          "type": "date",
+          "canonicalField": "expires_at",
+          "required": false
+        },
+        {
+          "name": "最後審查",
+          "type": "date",
+          "canonicalField": "last_reviewed_at",
+          "required": false
+        },
+        {
+          "name": "來源事件",
+          "type": "relation",
+          "canonicalField": "source_event_ids",
+          "target": "PROJECT_OPERATIONAL_EVENTS_DATA_SOURCE_ID",
+          "required": true
+        },
+        {
+          "name": "資料版本",
+          "type": "number",
+          "canonicalField": "version",
+          "required": true,
+          "readOnly": true
+        }
+      ],
+      "pageBodyField": "content"
+    },
+    "answerProvenance": {
+      "logicalDataSource": "PROJECT_ANSWER_PROVENANCE_DATA_SOURCE_ID",
+      "role": "Optional project-local review projection for answer quality and provenance; sensitive source excerpts are not copied by default.",
+      "required": false,
+      "properties": [
+        {
+          "name": "問題摘要",
+          "type": "title",
+          "canonicalField": "question_summary",
+          "required": true
+        },
+        {
+          "name": "Answer ID",
+          "type": "rich_text",
+          "canonicalField": "answer_id",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "Tenant Key",
+          "type": "rich_text",
+          "canonicalField": "tenant_id",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "提問時間",
+          "type": "date",
+          "canonicalField": "created_at",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "意圖",
+          "type": "select",
+          "canonicalField": "intent",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "資料截至",
+          "type": "date",
+          "canonicalField": "answer_as_of",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "信心度",
+          "type": "number",
+          "canonicalField": "confidence",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "來源摘要",
+          "type": "rich_text",
+          "canonicalField": "provenance_summary",
+          "required": true,
+          "readOnly": true
+        },
+        {
+          "name": "使用者評價",
+          "type": "select",
+          "canonicalField": "user_rating",
+          "required": false
+        }
+      ]
+    }
+  },
+  "bodyEvidenceStandard": {
+    "appliesToProjection": "tasks",
+    "version": "AM-IMP-2026.0610.03",
+    "bodyField": "內文",
+    "appendOnly": true,
+    "topLevelSections": [
+      "任務控制紀錄",
+      "目前任務摘要",
+      "最新判斷",
+      "證據與處理紀錄"
+    ],
+    "requiredEvidenceMetadata": [
+      "擷取時間",
+      "來源類型",
+      "來源位置",
+      "來源時間",
+      "來源對象"
+    ],
+    "requiredEvidenceSections": [
+      "來源原文",
+      "證據摘要",
+      "AM 判斷",
+      "處理結果",
+      "下一步"
+    ],
+    "optionalEvidenceSections": [
+      "狀態變更",
+      "關聯規則"
+    ],
+    "sourceLocationClickableWhenAvailable": true,
+    "legacySourceOriginalPropertyAuthoritative": false
+  },
+  "relationRules": [
+    "Every task relates to exactly one tenant-local project and at least one tenant-local goal before it becomes formal.",
+    "Every task, goal, decision, and verified knowledge item relates to one or more tenant-local source events.",
+    "Every event carries auditable source evidence even when a Notion relation cannot represent every source type.",
+    "Every LINE-created task carries the tenant-local group binding relation.",
+    "Meeting checkbox tasks relate to the meeting record and preserve nearby discussion in evidence.",
+    "Self-relations for task parent-child or decision supersession remain inside the same tenant data source.",
+    "A relation target is resolved from TenantContext logical handles, never from model or browser input."
+  ],
+  "forbiddenPatterns": [
+    "one shared production Notion database containing live records from multiple AM tenants",
+    "hard-coded production data-source IDs in AMCore",
+    "task creation without source evidence and project goal relation",
+    "overwriting old task evidence instead of appending a new record",
+    "deleting superseded events or decisions",
+    "treating candidate knowledge as official policy",
+    "using Notion page content as the only canonical event history",
+    "trusting a user-editable Tenant Key, entity ID, version, relation, or operator field"
+  ]
+}

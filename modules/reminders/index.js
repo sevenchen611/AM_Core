@@ -38,7 +38,7 @@ const overdueDaysBetween = (today, deadline) => Math.round((new Date(`${today}T0
 
 // 租戶提醒設定由 core/tenants.js 從 <PREFIX>_* 載入。
 function tenantConfig(tenant) {
-  return tenant.reminders || { escalationDays: 2, reminderHour: 9, escalationOwner: 'Seven陳聖文' };
+  return tenant.reminders || { escalationDays: 2, reminderHour: 9, escalationOwner: '租戶管理者' };
 }
 
 // ── 每租戶巡邏狀態(當日一次的日戳,以 tenant.key 為鍵)────────
@@ -160,7 +160,7 @@ async function runTaskDailyPass(tenant, cfg, today) {
     else if (due < today) {
       const overdueDays = overdueDaysBetween(today, due);
       header = `⚠ 待辦已逾期 ${overdueDays} 天`;
-      if (overdueDays >= cfg.escalationDays) extra = '請儘速處理;此事項已升級通知 Seven。';
+      if (overdueDays >= cfg.escalationDays) extra = `請儘速處理；此事項已升級通知 ${cfg.escalationOwner}。`;
       if (overdueDays >= cfg.escalationDays) {
         // 升級:通知該專案內部群/總管群點名負責人
         const projectId = task.properties['專案']?.relation?.[0]?.id;

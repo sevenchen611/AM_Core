@@ -323,7 +323,7 @@ async function finalizeMeeting(key, rosterAnswer, answeredBy) {
     // 只有真的備份成功才敢說「已存 Drive」——沒留底時要明講,否則使用者會以為原檔還在而刪掉手機裡的錄音。
     if (!audioDriveUrl && entry.drivePromise) audioDriveUrl = await raceTimeout(entry.drivePromise, 10000, '');
     const note = audioDriveUrl
-      ? '錄音原檔已存 Drive,可重傳再試或聯絡 Seven。'
+      ? '錄音原檔已存 Drive，可重傳再試或聯絡系統管理者。'
       : '⚠ 這次錄音「沒有」留底(此租戶未啟用 Drive 備份或備份失敗),請保留手機原檔並重新上傳。';
     await platform.pushLineMessage(groupId, `⚠ 會議記錄整理失敗(${error.message.slice(0, 90)})。${note}`).catch(() => {});
   }
@@ -1004,6 +1004,7 @@ async function createMeetingTasksFromTodos(session) {
     projectPageId: session.projectPageId,
     meetingId: session.perGroup ? '' : session.meetingId,
     groupBindingId: session.binding?.pageId || '',
+    sourceEvidence: `會議記錄：${session.publicUrl || session.meetingUrl || session.meetingId}${session.groupId ? `；LINE 群組：${session.groupId}` : ''}`,
     limit: 30,
   };
   if (platform.tasks?.expandTasks) {
