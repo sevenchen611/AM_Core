@@ -37,7 +37,7 @@
       "evening": "20:30"
     },
     "meetings": {
-      "formalTasksEnabled": false,
+      "formalTasksEnabled": true,
       "domain": "台灣旅宿營運與管理會議",
       "transcriptionHint": "台灣旅宿營運會議，繁體中文為主，可能包含飯店、訂房、房務、工務、OTA 與合作案術語。",
       "keyterms": ["葉綠宿", "房務", "櫃檯", "入住", "退房", "訂房", "OTA", "團客", "散客", "維修", "住房率", "房價"],
