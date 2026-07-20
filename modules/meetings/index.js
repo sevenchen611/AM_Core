@@ -1120,6 +1120,7 @@ function renderReviewHtml(session) {
     hostUserId: session.hostUserId,
     meetingUrl: session.meetingUrl,
     publicUrl: session.publicUrl,
+    apiPath: reviewPath(session.id),
     members,
     liffId,
     requireLineLogin: reviewRequiresLineLogin(session),
@@ -1136,7 +1137,7 @@ function renderReviewHtml(session) {
 <section class="panel"><div class="actions"><button id="finalize" class="danger">主持人最終確認並建立待辦</button></div><p class="meta">只有所有任務具備任務名稱、負責人、截止日期，且已由負責人確認後，才能最終建立正式待辦。</p></section>
 <div class="toast" id="toast"></div>${liffId ? '<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"><\\/script>' : ''}<script>
 const DATA=${sessionJson};let lineUserId='',lineName='',lineAccessToken='';
-const api=(body)=>fetch(location.pathname,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...body,actorUserId:lineUserId,actorName:lineName,liffAccessToken:lineAccessToken})}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'操作失敗');return j});
+const api=(body)=>fetch(DATA.apiPath||location.pathname,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...body,actorUserId:lineUserId,actorName:lineName,liffAccessToken:lineAccessToken})}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'操作失敗');return j});
 function show(msg){const el=document.getElementById('toast');el.textContent=msg;el.style.display='block';setTimeout(()=>el.style.display='none',2800)}
 async function initLiff(){if(!DATA.liffId||!window.liff)return;try{await liff.init({liffId:DATA.liffId});if(!liff.isLoggedIn()){show('請先用 LINE 登入');liff.login({redirectUri:location.href});return}const p=await liff.getProfile();lineUserId=p.userId||'';lineName=p.displayName||'';lineAccessToken=liff.getAccessToken?.()||'';if(DATA.requireLineLogin&&lineAccessToken){const j=await api({action:'identify'});Object.assign(DATA,j.session);}}catch(e){console.warn(e);show(e.message||'LINE 登入失敗，請從 LINE 重新開啟')}}
 function optionHtml(value){return '<option value="">選擇負責人</option>'+DATA.members.map(n=>'<option '+(n===value?'selected':'')+'>'+esc(n)+'</option>').join('')}
@@ -1149,6 +1150,7 @@ function render(){
  document.getElementById('tasks').innerHTML=DATA.todos.map(t=>'<article class="task" data-id="'+esc(t.id)+'"><div><span class="badge">'+(t.ownerConfirmed?'已確認':'待確認')+'</span></div><label>任務名稱</label><textarea name="content">'+esc(t.content)+'</textarea><div class="row"><div><label>負責人</label><select name="owner">'+optionHtml(t.owner)+'</select></div><div><label>截止日期</label><input name="due" type="date" value="'+esc(t.due)+'"></div></div><p class="meta">版本 '+t.version+(t.ownerConfirmedAt?' ・ 確認時間 '+esc(t.ownerConfirmedAt):'')+'</p><div class="actions"><button class="secondary save">儲存修改</button><button class="confirm">確認我的任務</button></div></article>').join('');
 }
 document.addEventListener('click',async(e)=>{const btn=e.target.closest('button');if(!btn)return;try{
+ if(DATA.requireLineLogin&&!lineAccessToken){show('請先用 LINE 登入後再操作');return}
  if(btn.dataset.action){const j=await api({action:btn.dataset.action});Object.assign(DATA,j.session);show('已更新');render();return}
  if(btn.id==='finalize'){const j=await api({action:'finalize'});Object.assign(DATA,j.session);show('已建立正式待辦');render();return}
  const card=btn.closest('.task');if(!card)return;const todoId=card.dataset.id;const body={todoId,content:card.querySelector('[name=content]').value,owner:card.querySelector('[name=owner]').value,due:card.querySelector('[name=due]').value};
