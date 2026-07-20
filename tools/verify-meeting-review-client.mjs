@@ -43,6 +43,8 @@ new vm.Script(clientScript, { filename: 'meeting-review-client.js' });
 
 const elements = {
   statusText: { textContent: '' },
+  authText: { textContent: '' },
+  errorBox: { textContent: '', style: {} },
   summary: { innerHTML: '' },
   hostChoice: { style: {} },
   finalize: { disabled: false },
@@ -53,9 +55,12 @@ let clickHandler = null;
 const fetchCalls = [];
 const context = {
   console,
+  AbortController,
   setTimeout: () => 0,
+  clearTimeout: () => {},
   document: {
     getElementById: (id) => elements[id],
+    querySelectorAll: () => [],
     addEventListener: (type, handler) => { if (type === 'click') clickHandler = handler; },
   },
   fetch: async (url, options) => {
@@ -106,7 +111,7 @@ assert.ok(startCall, 'start button must send a POST action');
 assert.match(startCall.url, /^\/meetings\/review\/[a-f0-9]{20}-[a-f0-9]{16}$/);
 assert.equal(startCall.body.actorUserId, 'U_TEST_HOST');
 assert.equal(startCall.body.liffAccessToken, 'test-access-token');
-assert.equal(elements.statusText.textContent, 'reviewing');
+assert.equal(elements.statusText.textContent, '等待負責人確認');
 
 const completeButton = {
   dataset: { action: 'complete' },

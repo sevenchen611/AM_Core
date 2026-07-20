@@ -4,7 +4,7 @@
 
 import crypto from 'node:crypto';
 
-export function createLine({ channelAccessToken, channelSecret, logger = console }) {
+export function createLine({ channelAccessToken, channelSecret, logger = console, pushTimeoutMs = 8000 }) {
   // LINE webhook 簽章驗證(HMAC-SHA256, timing-safe)。
   function isValidSignature(rawBody, signature) {
     if (!channelSecret || !signature) return false;
@@ -142,7 +142,7 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
   }
 
   // 推播(共用 OA);訊息含被點名者名字且已知 userId 時升級為 textV2 真 @mention。
-  async function pushLineMessage(to, text, mention) {
+  async function pushLineMessage(to, text, mention, delivery = {}) {
     let message = { type: 'text', text: String(text).slice(0, 4900) };
     if (mention?.name && mention?.userId && String(text).includes(mention.name)) {
       message = {
@@ -151,12 +151,52 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
         substitution: { who: { type: 'mention', mentionee: { type: 'user', userId: mention.userId } } },
       };
     }
-    const response = await fetch('https://api.line.me/v2/bot/message/push', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${channelAccessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ to, messages: [message] }),
-    });
-    if (!response.ok) throw new Error(`LINE push failed: ${response.status} ${await response.text()}`);
+    const retryKey = String(delivery.retryKey || crypto.randomUUID());
+    const timeoutMs = Math.max(10, Number(delivery.timeoutMs || pushTimeoutMs) || 8000);
+    const startedAt = Date.now();
+    const targetHash = crypto.createHash('sha256').update(String(to || '')).digest('hex').slice(0, 10);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch('https://api.line.me/v2/bot/message/push', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${channelAccessToken}`,
+          'Content-Type': 'application/json',
+          'X-Line-Retry-Key': retryKey,
+        },
+        body: JSON.stringify({ to, messages: [message] }),
+        signal: controller.signal,
+      });
+      const responseText = await response.text();
+      const requestId = response.headers.get('x-line-request-id') || '';
+      const acceptedRequestId = response.headers.get('x-line-accepted-request-id') || '';
+      let responseBody = {};
+      try { responseBody = responseText ? JSON.parse(responseText) : {}; } catch { responseBody = {}; }
+      const messageIds = Array.isArray(responseBody.sentMessages)
+        ? responseBody.sentMessages.map((item) => String(item?.id || '')).filter(Boolean)
+        : [];
+      if (response.status === 409 && acceptedRequestId) {
+        logger.warn?.(`[line] push retry already accepted targetHash=${targetHash} status=409 acceptedRequestId=${acceptedRequestId} durationMs=${Date.now() - startedAt}`);
+        return { ok: true, status: 409, retryKey, requestId, acceptedRequestId, messageIds, replayed: true };
+      }
+      if (!response.ok) {
+        throw Object.assign(new Error(`LINE push failed: ${response.status} ${responseText}`), {
+          code: 'LINE_PUSH_FAILED',
+          lineStatus: response.status,
+          requestId,
+        });
+      }
+      logger.info?.(`[line] push accepted targetHash=${targetHash} status=${response.status} requestId=${requestId || '-'} messageIds=${messageIds.join(',') || '-'} durationMs=${Date.now() - startedAt}`);
+      return { ok: true, status: response.status, retryKey, requestId, acceptedRequestId, messageIds, replayed: false };
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw Object.assign(new Error(`LINE push timed out after ${timeoutMs}ms.`), { code: 'LINE_PUSH_TIMEOUT', cause: error });
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   return {

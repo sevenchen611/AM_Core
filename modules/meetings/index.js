@@ -717,16 +717,23 @@ function reviewUrl(sessionId, tenant = null) {
   return `${String(baseUrl).replace(/\/+$/, '')}${reviewPath(sessionId)}`;
 }
 
-async function pushMeetingReviewNotification(session, message, event, { attempts = 3, delayMs = 500 } = {}) {
+async function pushMeetingReviewNotification(session, message, event, { attempts = 2, delayMs = 400, timeoutMs = 6000 } = {}) {
   let lastError = null;
+  if (!session.notificationRetryKeys || typeof session.notificationRetryKeys !== 'object') session.notificationRetryKeys = {};
+  const retryKey = session.notificationRetryKeys[event] || crypto.randomUUID();
+  session.notificationRetryKeys[event] = retryKey;
+  const groupHash = crypto.createHash('sha256').update(String(session.groupId || '')).digest('hex').slice(0, 10);
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      await platform.pushLineMessage(session.groupId, message);
-      console.log(`Meeting review LINE push succeeded event=${event} session=${session.id.slice(0, 8)} attempt=${attempt}`);
-      return true;
+      const receipt = await platform.pushLineMessage(session.groupId, message, undefined, { retryKey, timeoutMs });
+      console.log(`Meeting review LINE push succeeded event=${event} session=${session.id.slice(0, 8)} groupHash=${groupHash} attempt=${attempt} status=${receipt?.status || '-'} requestId=${receipt?.requestId || receipt?.acceptedRequestId || '-'} messageIds=${receipt?.messageIds?.join(',') || '-'}`);
+      return receipt || true;
     } catch (error) {
       lastError = error;
       console.warn(`Meeting review LINE push failed event=${event} session=${session.id.slice(0, 8)} attempt=${attempt}/${attempts}: ${error?.message || error}`);
+      const lineStatus = Number(error?.lineStatus || 0);
+      const retryable = error?.code === 'LINE_PUSH_TIMEOUT' || !lineStatus || lineStatus === 429 || lineStatus >= 500;
+      if (!retryable) break;
       if (attempt < attempts && delayMs > 0) {
         await new Promise((resolve) => setTimeout(resolve, delayMs * attempt));
       }
@@ -811,18 +818,30 @@ function reviewRequiresLineLogin(session) {
   return Boolean(reviewLiffId(session));
 }
 
-async function lineProfileFromAccessToken(accessToken) {
+async function lineProfileFromAccessToken(accessToken, { timeoutMs = 6000 } = {}) {
   const token = String(accessToken || '').trim();
   if (!token) return null;
-  const response = await fetch('https://api.line.me/v2/profile', {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!response.ok) throw Object.assign(new Error('LINE 登入驗證失敗，請重新開啟頁面。'), { statusCode: 401 });
-  const profile = await response.json();
-  return {
-    userId: String(profile.userId || '').trim(),
-    displayName: String(profile.displayName || '').trim(),
-  };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch('https://api.line.me/v2/profile', {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    });
+    if (!response.ok) throw Object.assign(new Error('LINE 登入驗證失敗，請重新開啟頁面。'), { statusCode: 401 });
+    const profile = await response.json();
+    return {
+      userId: String(profile.userId || '').trim(),
+      displayName: String(profile.displayName || '').trim(),
+    };
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw Object.assign(new Error('LINE 身分驗證逾時，請稍後再按一次。'), { statusCode: 504, code: 'LINE_PROFILE_TIMEOUT', cause: error });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function resolveReviewActor(session, body) {
@@ -857,6 +876,27 @@ async function ensureSessionMember(session, actorName, actorUserId) {
   if (session.binding) session.binding.members = { ...(session.binding.members || {}), [name]: userId };
   await persistSessionMemberMap(session);
   return true;
+}
+
+async function ensureSessionMemberBestEffort(session, actorName, actorUserId, timeoutMs = 2500) {
+  let timer = null;
+  const update = Promise.resolve()
+    .then(() => ensureSessionMember(session, actorName, actorUserId))
+    .catch((error) => {
+      console.warn(`meeting review member update failed: ${error.message}`);
+      return false;
+    });
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      console.warn(`meeting review member update timed out after ${timeoutMs}ms; continuing without blocking the action`);
+      resolve(false);
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([update, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function createReviewSession(payload) {
@@ -1174,30 +1214,36 @@ function renderReviewHtml(session) {
 :root{--bg:#f5f7f6;--card:#fff;--line:#dfe8e3;--ink:#1e2b25;--muted:#6f7e76;--green:#0f4b35;--soft:#e7f3ed;--danger:#a62b25}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,'Noto Sans TC',sans-serif;line-height:1.55}.wrap{max-width:920px;margin:0 auto;padding:18px 14px 48px}header{position:sticky;top:0;background:rgba(245,247,246,.96);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:12px 0;z-index:2}h1{font-size:22px;margin:0 0 4px}.meta{color:var(--muted);font-size:14px}.panel,.task{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:16px;margin:14px 0}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}button{border:0;border-radius:8px;background:var(--green);color:white;font-weight:700;font-size:16px;padding:12px 16px;cursor:pointer}button.secondary{background:var(--soft);color:var(--green)}button.danger{background:var(--danger)}button:disabled{opacity:.45;cursor:not-allowed}label{display:block;font-weight:700;margin:12px 0 6px}input,select,textarea{width:100%;font:inherit;border:1px solid #cfd8d3;border-radius:8px;padding:10px;background:white;color:var(--ink)}textarea{min-height:84px;resize:vertical}.row{display:grid;grid-template-columns:1fr 180px;gap:10px}.badge{display:inline-block;border-radius:999px;background:var(--soft);color:var(--green);padding:4px 10px;font-size:13px;font-weight:700}.warn{color:var(--danger)}.ok{color:var(--green)}.toast{position:fixed;left:14px;right:14px;bottom:14px;background:#17231e;color:white;border-radius:8px;padding:12px 14px;display:none}@media(max-width:640px){.row{grid-template-columns:1fr}.actions button{width:100%}}
 </style></head><body><div class="wrap"><header><h1>會議待辦確認</h1><div class="meta">主持人：${esc(session.hostName || '錄音上傳者')} ・ 狀態：<span id="statusText">${esc(session.status)}</span></div></header>
-<section class="panel"><div id="summary"></div><div class="actions" id="hostChoice"><button data-action="start">要，開啟確認</button><button class="secondary" data-action="complete">不要，直接完成</button></div><div class="actions"><a href="${esc(session.publicUrl || session.meetingUrl)}" target="_blank" rel="noopener"><button class="secondary" type="button">查看會議記錄</button></a></div></section>
+<div id="errorBox" class="panel warn" style="display:none"></div>
+<section class="panel"><div id="summary"></div><p class="meta" id="authText">${liffId ? '正在驗證 LINE 身分…' : '一般網頁模式'}</p><div class="actions" id="hostChoice"><button data-action="start"${liffId ? ' disabled' : ''}>要，開啟確認</button><button class="secondary" data-action="complete"${liffId ? ' disabled' : ''}>不要，直接完成</button></div><div class="actions"><a href="${esc(session.publicUrl || session.meetingUrl)}" target="_blank" rel="noopener"><button class="secondary" type="button">查看會議記錄</button></a></div></section>
 <section id="tasks"></section>
 <section class="panel"><div class="actions"><button id="finalize" class="danger">主持人最終確認並建立待辦</button></div><p class="meta">只有所有任務具備任務名稱、負責人、截止日期，且已由負責人確認後，才能最終建立正式待辦。</p></section>
 <div class="toast" id="toast"></div>${liffId ? '<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>' : ''}<script>
-const DATA=${sessionJson};let lineUserId='',lineName='',lineAccessToken='';
-const api=(body)=>fetch(DATA.apiPath||location.pathname,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...body,actorUserId:lineUserId,actorName:lineName,liffAccessToken:lineAccessToken})}).then(async r=>{const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'操作失敗');return j});
-function show(msg){const el=document.getElementById('toast');el.textContent=msg;el.style.display='block';setTimeout(()=>el.style.display='none',2800)}
-async function initLiff(){if(!DATA.liffId||!window.liff)return;try{await liff.init({liffId:DATA.liffId});if(!liff.isLoggedIn()){show('請先用 LINE 登入');liff.login({redirectUri:location.href});return}const p=await liff.getProfile();lineUserId=p.userId||'';lineName=p.displayName||'';lineAccessToken=liff.getAccessToken?.()||'';if(DATA.requireLineLogin&&lineAccessToken){const j=await api({action:'identify'});Object.assign(DATA,j.session);}}catch(e){console.warn(e);show(e.message||'LINE 登入失敗，請從 LINE 重新開啟')}}
+const DATA=${sessionJson};let lineUserId='',lineName='',lineAccessToken='',identityVerified=!DATA.requireLineLogin,toastTimer=0;
+const api=async(body,timeoutMs=25000)=>{const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),timeoutMs);try{const r=await fetch(DATA.apiPath||location.pathname,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...body,actorUserId:lineUserId,actorName:lineName,liffAccessToken:lineAccessToken}),signal:controller.signal});const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'操作失敗');return j}catch(e){if(controller.signal.aborted)throw Error('連線逾時，請重新整理頁面後再試。');throw e}finally{clearTimeout(timer)}};
+const within=(promise,timeoutMs,message)=>new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error(message)),timeoutMs);Promise.resolve(promise).then(value=>{clearTimeout(timer);resolve(value)},error=>{clearTimeout(timer);reject(error)})});
+function show(msg,duration=2800){const el=document.getElementById('toast');clearTimeout(toastTimer);el.textContent=msg;el.style.display='block';if(duration>0)toastTimer=setTimeout(()=>el.style.display='none',duration)}
+function showError(msg){const el=document.getElementById('errorBox');el.textContent=msg;el.style.display='block'}
+function clearError(){const el=document.getElementById('errorBox');el.textContent='';el.style.display='none'}
+async function initLiff(){if(!DATA.liffId)return;if(!window.liff){showError('LINE 登入元件載入失敗，請關閉後從群組連結重新開啟。');return}try{await within(liff.init({liffId:DATA.liffId}),10000,'LINE 登入初始化逾時，請關閉後重試。');if(!liff.isLoggedIn()){show('請先用 LINE 登入');liff.login({redirectUri:location.href});return}const p=await within(liff.getProfile(),10000,'讀取 LINE 身分逾時，請關閉後重試。');lineUserId=p.userId||'';lineName=p.displayName||'';lineAccessToken=liff.getAccessToken?.()||'';if(DATA.requireLineLogin&&lineAccessToken){const j=await api({action:'identify'});Object.assign(DATA,j.session);identityVerified=true;clearError();}}catch(e){identityVerified=false;console.warn(e);showError(e.message||'LINE 登入失敗，請從 LINE 重新開啟');show(e.message||'LINE 登入失敗，請從 LINE 重新開啟',7000)}}
 function optionHtml(value){return '<option value="">選擇負責人</option>'+DATA.members.map(n=>'<option '+(n===value?'selected':'')+'>'+esc(n)+'</option>').join('')}
 function esc(s){return String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 function render(){
- const sum=DATA.summary;document.getElementById('statusText').textContent=DATA.status;
+ const sum=DATA.summary;const statusLabels={awaiting_host_choice:'等待主持人選擇',opening_review:'正在通知 LINE 群組',reviewing:'等待負責人確認',finalized:'已完成並建立待辦',completed_without_review:'已直接完成'};document.getElementById('statusText').textContent=statusLabels[DATA.status]||DATA.status;
+ document.getElementById('authText').textContent=DATA.requireLineLogin?(identityVerified?'身分已確認：'+(lineName||'LINE 使用者'):'尚未完成 LINE 身分驗證'):'一般網頁模式';
  document.getElementById('summary').innerHTML='<span class="badge">候選 '+sum.total+' 筆</span> <span class="badge">欄位完整 '+sum.requiredReady+'/'+sum.total+'</span> <span class="badge">負責人確認 '+sum.confirmed+'/'+sum.total+'</span>';
  document.getElementById('hostChoice').style.display=DATA.status==='awaiting_host_choice'?'flex':'none';
+ document.querySelectorAll('#hostChoice button').forEach(button=>button.disabled=Boolean(DATA.requireLineLogin&&!identityVerified));
  document.getElementById('finalize').disabled=!(DATA.status==='reviewing'&&sum.allReady&&sum.allConfirmed);
- document.getElementById('tasks').innerHTML=DATA.todos.map(t=>'<article class="task" data-id="'+esc(t.id)+'"><div><span class="badge">'+(t.ownerConfirmed?'已確認':'待確認')+'</span></div><label>任務名稱</label><textarea name="content">'+esc(t.content)+'</textarea><div class="row"><div><label>負責人</label><select name="owner">'+optionHtml(t.owner)+'</select></div><div><label>截止日期</label><input name="due" type="date" value="'+esc(t.due)+'"></div></div><p class="meta">版本 '+t.version+(t.ownerConfirmedAt?' ・ 確認時間 '+esc(t.ownerConfirmedAt):'')+'</p><div class="actions"><button class="secondary save">儲存修改</button><button class="confirm">確認我的任務</button></div></article>').join('');
+ document.getElementById('tasks').innerHTML=DATA.status==='reviewing'?DATA.todos.map(t=>'<article class="task" data-id="'+esc(t.id)+'"><div><span class="badge">'+(t.ownerConfirmed?'已確認':'待確認')+'</span></div><label>任務名稱</label><textarea name="content">'+esc(t.content)+'</textarea><div class="row"><div><label>負責人</label><select name="owner">'+optionHtml(t.owner)+'</select></div><div><label>截止日期</label><input name="due" type="date" value="'+esc(t.due)+'"></div></div><p class="meta">版本 '+t.version+(t.ownerConfirmedAt?' ・ 確認時間 '+esc(t.ownerConfirmedAt):'')+'</p><div class="actions"><button class="secondary save">儲存修改</button><button class="confirm">確認我的任務</button></div></article>').join(''):'<section class="panel"><p class="meta">主持人尚未開啟待辦確認；開啟成功後，任務才會顯示在這裡。</p></section>';
 }
 document.addEventListener('click',async(e)=>{const btn=e.target.closest('button');if(!btn)return;try{
- if(DATA.requireLineLogin&&!lineAccessToken){show('請先用 LINE 登入後再操作');return}
- if(btn.dataset.action){const j=await api({action:btn.dataset.action});Object.assign(DATA,j.session);show('已更新');render();return}
+ if(DATA.requireLineLogin&&!identityVerified){showError('尚未完成 LINE 身分驗證，請關閉後從群組連結重新開啟。');show('請先用 LINE 登入後再操作',7000);return}
+ if(btn.dataset.action){btn.disabled=true;clearError();if(btn.dataset.action==='start')document.getElementById('statusText').textContent='正在通知 LINE 群組…';show(btn.dataset.action==='start'?'正在通知 LINE 群組，請稍候…':'正在處理…',0);try{const j=await api({action:btn.dataset.action});Object.assign(DATA,j.session);show('已更新');render();return}finally{btn.disabled=false}}
  if(btn.id==='finalize'){const j=await api({action:'finalize'});Object.assign(DATA,j.session);show('已建立正式待辦');render();return}
  const card=btn.closest('.task');if(!card)return;const todoId=card.dataset.id;const body={todoId,content:card.querySelector('[name=content]').value,owner:card.querySelector('[name=owner]').value,due:card.querySelector('[name=due]').value};
  const j=await api({action:btn.classList.contains('confirm')?'confirm-todo':'save-todo',...body});Object.assign(DATA,j.session);show(btn.classList.contains('confirm')?'已確認':'已儲存');render();
-}catch(err){show(err.message||'操作失敗')}});
+}catch(err){render();showError(err.message||'操作失敗');show(err.message||'操作失敗',7000)}});
 initLiff().finally(render);
 </script></div></body></html>`;
 }
@@ -1237,23 +1283,26 @@ async function handleMeetingReviewRequest(req, res, { pathname, url }) {
     return true;
   }
   if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' }), true;
+  let action = 'unknown';
   try {
     const body = JSON.parse(await readBody(req));
-    const action = String(body.action || '');
+    action = String(body.action || '');
     console.log(`Meeting review action=${action || 'unknown'} session=${sessionId.slice(0, 8)} status=${session.status}`);
     const { actorName, actorUserId } = await resolveReviewActor(session, body);
+    const actorHash = actorUserId ? crypto.createHash('sha256').update(actorUserId).digest('hex').slice(0, 10) : '-';
+    console.log(`Meeting review actor resolved action=${action || 'unknown'} session=${sessionId.slice(0, 8)} actorHash=${actorHash} hostMatch=${!session.hostUserId || session.hostUserId === actorUserId}`);
     if (action === 'identify') {
-      await ensureSessionMember(session, actorName, actorUserId).catch((e) => console.warn(`meeting review member update failed: ${e.message}`));
+      await ensureSessionMemberBestEffort(session, actorName, actorUserId);
       return sendJson(res, 200, { ok: true, session: reviewClientSession(session) }), true;
     }
     if (action === 'start') {
-      await ensureSessionMember(session, actorName, actorUserId).catch((e) => console.warn(`meeting review member update failed: ${e.message}`));
+      await ensureSessionMemberBestEffort(session, actorName, actorUserId);
       assertHostActor(session, actorUserId);
       await beginMeetingReview(session);
       return sendJson(res, 200, { ok: true, session: reviewClientSession(session) }), true;
     }
     if (action === 'complete') {
-      await ensureSessionMember(session, actorName, actorUserId).catch((e) => console.warn(`meeting review member update failed: ${e.message}`));
+      await ensureSessionMemberBestEffort(session, actorName, actorUserId);
       assertHostActor(session, actorUserId);
       if (session.status !== 'awaiting_host_choice') throw Object.assign(new Error('此會議已進入確認流程，不能直接完成。'), { statusCode: 409 });
       await completeWithoutReview(session, actorName);
@@ -1276,7 +1325,7 @@ async function handleMeetingReviewRequest(req, res, { pathname, url }) {
       }
       if (action === 'confirm-todo') {
         if (!hasRequiredTodoFields(todo)) throw Object.assign(new Error('任務名稱、負責人、截止日期都填完後才能確認。'), { statusCode: 409 });
-        await ensureSessionMember(session, actorName, actorUserId).catch((e) => console.warn(`meeting review member update failed: ${e.message}`));
+        await ensureSessionMemberBestEffort(session, actorName, actorUserId);
         if (reviewRequiresLineLogin(session) && !actorUserId) throw Object.assign(new Error('確認任務需要先用 LINE 登入。'), { statusCode: 401 });
         const expectedUserId = memberUserId(session, todo.owner);
         if (expectedUserId && actorUserId !== expectedUserId) throw Object.assign(new Error('只有目前負責人可以確認這筆任務。'), { statusCode: 403 });
@@ -1287,13 +1336,14 @@ async function handleMeetingReviewRequest(req, res, { pathname, url }) {
       return sendJson(res, 200, { ok: true, session: reviewClientSession(session) }), true;
     }
     if (action === 'finalize') {
-      await ensureSessionMember(session, actorName, actorUserId).catch((e) => console.warn(`meeting review member update failed: ${e.message}`));
+      await ensureSessionMemberBestEffort(session, actorName, actorUserId);
       assertHostActor(session, actorUserId);
       await finishReviewSession(session, actorName);
       return sendJson(res, 200, { ok: true, session: reviewClientSession(session) }), true;
     }
     return sendJson(res, 400, { error: '未知的操作。' }), true;
   } catch (error) {
+    console.warn(`Meeting review request failed action=${action || 'unknown'} session=${sessionId.slice(0, 8)} status=${session.status} statusCode=${error.statusCode || 500}: ${error.message || error}`);
     return sendJson(res, error.statusCode || 500, { error: error.message || '會議待辦確認失敗。' }), true;
   }
 }
@@ -1556,4 +1606,4 @@ export default {
 };
 
 // 測試用內部匯出(不影響正式流程)
-export const __test = { meetingPrompt, normalizeParsed, withNextMeetingTodo, summarize, summaryTabBlocks, notesTabBlocks, publishMeeting, resolveMeetingsTarget, provisionMeetingsDb, normalizeTodo, hasRequiredTodoFields, reviewSummary, renderReviewHtml, pushMeetingReviewNotification, beginMeetingReview };
+export const __test = { meetingPrompt, normalizeParsed, withNextMeetingTodo, summarize, summaryTabBlocks, notesTabBlocks, publishMeeting, resolveMeetingsTarget, provisionMeetingsDb, normalizeTodo, hasRequiredTodoFields, reviewSummary, renderReviewHtml, pushMeetingReviewNotification, beginMeetingReview, lineProfileFromAccessToken, ensureSessionMemberBestEffort };
