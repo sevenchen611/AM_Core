@@ -39,8 +39,19 @@ const todoBlock = (t) => ({ object: 'block', type: 'to_do', to_do: { rich_text: 
 
 const AUDIO_EXT = /\.(m4a|mp3|aac|wav|amr|ogg|mp4)$/i;
 function isAudio(message) {
-  if (message.type === 'audio') return true;
+  if (message.type === 'audio' || message.type === 'video') return true;
   return message.type === 'file' && AUDIO_EXT.test(message.fileName || '');
+}
+
+// LINE 原生 video 沒有 fileName，串流分派時也不會預先下載取得 MIME；
+// 明確補成 video/mp4。若下載後已拿到 video/*，則必須保留，不能因副檔名 .mp4
+// 被誤改成 audio/mp4（AssemblyAI 可抽音軌，Gemini 備援則需要正確 MIME）。
+function normalizeMeetingContentType(contentType, filename, sourceIsVideo = false) {
+  const current = String(contentType || '').trim();
+  if (sourceIsVideo) return /^video\//i.test(current) ? current : 'video/mp4';
+  if (/^video\//i.test(current)) return current;
+  if (/x-m4a|m4a/i.test(current) || /\.(m4a|mp4)$/i.test(filename || '')) return 'audio/mp4';
+  return current;
 }
 
 // Tab 1「摘要」:重點摘要 + 結論/收穫 + 待辦(checkbox)。標題依會議樣式(工作/分享)微調。
@@ -230,14 +241,20 @@ function rosterPrompt(filename) {
 async function onAudio(ctx) {
   const { tenant, buffer, audioMessageId, filename, binding, senderName, groupId, ackSent } = ctx;
   const senderUserId = ctx.event?.source?.userId || '';
-  let contentType = ctx.contentType;
+  const sourceIsVideo = ctx.message?.type === 'video';
+  let contentType = normalizeMeetingContentType(ctx.contentType, filename, sourceIsVideo);
   // 無 AssemblyAI 金鑰 → Gemini 直讀備援(需要 buffer;串流路徑未帶 buffer 就下載一次)。
   if (!aiForTenant(tenant).assemblyKey) {
     let buf = buffer;
-    if (!buf && audioMessageId) buf = (await platform.downloadLineContent(audioMessageId)).buffer;
-    return processRecording({ tenant, buffer: buf, filename, contentType, binding, senderName, groupId, senderUserId });
+    if (!buf && audioMessageId) {
+      const downloaded = await platform.downloadLineContent(audioMessageId);
+      buf = downloaded.buffer;
+      contentType = normalizeMeetingContentType(downloaded.contentType || contentType, filename, sourceIsVideo);
+    }
+    await processRecording({ tenant, buffer: buf, filename, contentType, binding, senderName, groupId, senderUserId, sourceIsVideo });
+    return true;
   }
-  if (contentType && (/x-m4a|m4a/i.test(contentType) || /\.(m4a|mp4)$/i.test(filename))) contentType = 'audio/mp4';
+  contentType = normalizeMeetingContentType(contentType, filename, sourceIsVideo);
 
   // 串流路徑(平台,大檔友善):先發反問、只存 messageId,轉寫時才「邊下載邊上傳」;
   //   Drive 留底改為「背景串流上傳」——收到錄音當下就開始備份,不擋反問、整檔不進記憶體。
@@ -250,7 +267,7 @@ async function onAudio(ctx) {
 
   const key = pkey(tenant, groupId);
   clearPending(key); // 同(租戶,群)若有上一份待補會議,以新錄音取代
-  const entry = { tenant, buffer, audioMessageId, filename, contentType, binding, senderName, senderUserId, groupId, audioDriveUrl, createdAt: Date.now() };
+  const entry = { tenant, buffer, audioMessageId, filename, contentType, sourceIsVideo, binding, senderName, senderUserId, groupId, audioDriveUrl, createdAt: Date.now() };
   if (!buffer && audioMessageId) {
     // 背景留底:即刻開始(不等與會回覆——就算沒人回、或伺服器中途重啟,原檔已在 Drive)。
     // 結果掛在 entry 上,finalize 發布前再收割;.catch 確保這個 promise 永不 reject。
@@ -262,8 +279,12 @@ async function onAudio(ctx) {
   }, ROSTER_TIMEOUT_MS);
   pending.set(key, entry);
 
-  if (!ackSent) await platform.pushLineMessage(groupId, rosterPrompt(filename));
+  if (!ackSent) {
+    try { await platform.pushLineMessage(groupId, rosterPrompt(filename)); }
+    catch (error) { console.warn(`Meeting roster prompt push failed (group=${groupId}): ${error.message}`); }
+  }
   console.log(`Meeting audio staged, awaiting roster (tenant=${tenant?.key || 'default'}, group=${groupId}, mode=${buffer ? 'buffer' : 'stream'}).`);
+  return true;
 }
 
 // 群組下一則文字 = 與會資訊答覆 → 收斂成會議記錄
@@ -292,7 +313,8 @@ async function finalizeMeeting(key, rosterAnswer, answeredBy) {
   const entry = pending.get(key);
   if (!entry) return;
   clearPending(key);
-  const { tenant, buffer, audioMessageId, filename, contentType, binding, senderName, senderUserId, groupId } = entry;
+  const { tenant, buffer, audioMessageId, filename, sourceIsVideo, binding, senderName, senderUserId, groupId } = entry;
+  let contentType = entry.contentType;
   // Drive 留底:buffer 路徑在 onAudio 就存好;串流路徑在背景跑,發布/回報前限時收割。
   let audioDriveUrl = entry.audioDriveUrl || '';
   const cfg = meetingsCfg(tenant);
@@ -317,8 +339,12 @@ async function finalizeMeeting(key, rosterAnswer, answeredBy) {
       await platform.pushLineMessage(groupId, '⚠ 逐字轉寫服務忙線,改用備援方式整理(這次不附署名逐字稿),稍候發布。').catch(() => {});
       // 備援需要完整 buffer;串流路徑此時才下載一次(僅在 AssemblyAI 失敗的少見情況)。
       let buf = buffer;
-      if (!buf && audioMessageId) buf = (await platform.downloadLineContent(audioMessageId)).buffer;
-      parsed = await geminiTranscribeParsed({ tenant, buffer: buf, filename, contentType, roster, cfg });
+      if (!buf && audioMessageId) {
+        const downloaded = await platform.downloadLineContent(audioMessageId);
+        buf = downloaded.buffer;
+        contentType = normalizeMeetingContentType(downloaded.contentType || contentType, filename, sourceIsVideo);
+      }
+      parsed = await geminiTranscribeParsed({ tenant, buffer: buf, filename, contentType, sourceIsVideo, roster, cfg });
     }
     if (roster.topic) parsed.title = roster.topic; // 使用者主題優先
     // 5. 落地 + 發布(轉寫已花了幾分鐘,背景 Drive 備份通常早就完成;最多再等 2 分鐘)
@@ -1491,10 +1517,10 @@ function raceTimeout(promise, ms, fallback) {
 //
 // Gemini 直接讀音檔 → 整理成 parsed(供「無 AssemblyAI key」與「AssemblyAI 失敗備援」共用)。
 // 走 Google 網路(從雲端主機穩定),但無講者分離,故不產署名逐字稿。
-async function geminiTranscribeParsed({ tenant, buffer, filename, contentType, roster, cfg = GENERIC_MEETINGS_CONFIG }) {
+async function geminiTranscribeParsed({ tenant, buffer, filename, contentType, sourceIsVideo = false, roster, cfg = GENERIC_MEETINGS_CONFIG }) {
   const ai = aiForTenant(tenant);
   if (!ai.geminiKey) throw new Error('Gemini API key not configured for tenant');
-  if (/x-m4a|m4a/i.test(contentType) || /\.(m4a|mp4)$/i.test(filename)) contentType = 'audio/mp4';
+  contentType = normalizeMeetingContentType(contentType, filename, sourceIsVideo);
   const boundary = `mtg${Date.now()}`;
   const meta = JSON.stringify({ file: { display_name: filename } });
   const body = Buffer.concat([
@@ -1535,13 +1561,14 @@ async function geminiTranscribeParsed({ tenant, buffer, filename, contentType, r
 
 // ══ 後備:Gemini 直轉流程(無 AssemblyAI key 時使用)══
 // ctx: { tenant, buffer, filename, contentType, binding, senderName, senderUserId, groupId }
-async function processRecording({ tenant, buffer, filename, contentType, binding, senderName, senderUserId, groupId }) {
-  if (/x-m4a|m4a/i.test(contentType) || /\.(m4a|mp4)$/i.test(filename)) contentType = 'audio/mp4';
+async function processRecording({ tenant, buffer, filename, contentType, sourceIsVideo = false, binding, senderName, senderUserId, groupId }) {
+  contentType = normalizeMeetingContentType(contentType, filename, sourceIsVideo);
   const cfg = meetingsCfg(tenant);
   const minutes = Math.round(buffer.byteLength / 1024 / 1024);
-  await platform.pushLineMessage(groupId, `🎙 收到會議錄音「${filename}」,葉小蝸整理中(${minutes > 60 ? '較長錄音約 5-10 分鐘' : '約 3-5 分鐘'}),完成後在此發布。`);
+  await platform.pushLineMessage(groupId, `🎙 收到會議錄音「${filename}」,葉小蝸整理中(${minutes > 60 ? '較長錄音約 5-10 分鐘' : '約 3-5 分鐘'}),完成後在此發布。`)
+    .catch((error) => console.warn(`Meeting processing acknowledgement failed (group=${groupId}): ${error.message}`));
 
-  const parsed = await geminiTranscribeParsed({ tenant, buffer, filename, contentType, roster: {}, cfg });
+  const parsed = await geminiTranscribeParsed({ tenant, buffer, filename, contentType, sourceIsVideo, roster: {}, cfg });
   const today = todayStr();
   let audioDriveUrl = '';
   if (tenant?.driveConfigured) {
@@ -1639,4 +1666,4 @@ export default {
 };
 
 // 測試用內部匯出(不影響正式流程)
-export const __test = { meetingPrompt, normalizeParsed, withNextMeetingTodo, summarize, summaryTabBlocks, formalTasksEnabled, notesTabBlocks, publishMeeting, resolveMeetingsTarget, provisionMeetingsDb, normalizeTodo, hasRequiredTodoFields, reviewSummary, renderReviewHtml, pushMeetingReviewNotification, beginMeetingReview, lineProfileFromAccessToken, ensureSessionMemberBestEffort };
+export const __test = { meetingPrompt, normalizeParsed, normalizeMeetingContentType, withNextMeetingTodo, summarize, summaryTabBlocks, formalTasksEnabled, notesTabBlocks, publishMeeting, resolveMeetingsTarget, provisionMeetingsDb, normalizeTodo, hasRequiredTodoFields, reviewSummary, renderReviewHtml, pushMeetingReviewNotification, beginMeetingReview, lineProfileFromAccessToken, ensureSessionMemberBestEffort };

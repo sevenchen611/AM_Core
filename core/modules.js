@@ -13,7 +13,9 @@ const MODULES_DIR = path.resolve(CORE_DIR, '..', 'modules');
 const AUDIO_EXT = /\.(m4a|mp3|aac|wav|amr|ogg|mp4)$/i;
 const ROUTE_ACCESS_KINDS = new Set(['public', 'machine', 'tenant', 'group']);
 function isAudioCandidate(message) {
-  return message.type === 'audio' || (message.type === 'file' && AUDIO_EXT.test(message.fileName || ''));
+  return message.type === 'audio'
+    || message.type === 'video'
+    || (message.type === 'file' && AUDIO_EXT.test(message.fileName || ''));
 }
 // 檔頭 magic bytes 辨識音檔:分享進 LINE 的錄音常掉副檔名,LINE content-type 又常回 octet-stream,
 // 光看檔名/類型會漏接;下載後看前幾個 byte 才可靠。
@@ -120,8 +122,12 @@ export function createDispatcher({ tenants, modules, platform, logger = console 
     // 讓後續 onMessage 模組(尤其 collect)共用同一份「是否會議音檔」判定,避免各自用副檔名重判:
     // collect 才不會把「掉了副檔名的錄音」當一般附件整包下載+上傳。
     ctx.isMeetingAudio = audio;
-    // 下游轉寫/存檔要吃得到副檔名;檔名掉了副檔名(或 type=audio 無檔名)時補一個 .m4a。
-    const audioFilename = AUDIO_EXT.test(message.fileName || '') ? message.fileName : `audio-${message.id}.m4a`;
+    // 下游轉寫/存檔要吃得到副檔名；原生 video 補 .mp4，audio／無副檔名音檔補 .m4a。
+    const audioFilename = AUDIO_EXT.test(message.fileName || '')
+      ? message.fileName
+      : message.type === 'video'
+        ? `video-${message.id}.mp4`
+        : `audio-${message.id}.m4a`;
     for (const mod of tenantModules(tenant)) {
       try {
         // 檔頭判定為音檔 → 交給任何有 onAudio 的模組(現況即 meetings);檔名判定 → 由模組自己的 isAudio 決定。

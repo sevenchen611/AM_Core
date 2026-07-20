@@ -1,0 +1,53 @@
+{
+  "id": "AM-IMP-2026.0720.03",
+  "name": "LINE meeting media intake reliability",
+  "type": "Core",
+  "portable": true,
+  "status": "Ready",
+  "dependsOn": ["AM-IMP-2026.0720.01"],
+  "createdAt": "2026-07-20",
+  "installTargets": ["AM_PLATFORM", "BUILD_AM", "HOZO_AM", "SEVEN_AM", "NEW_AM_PROJECT"],
+  "scope": [
+    "Tenant-safe LINE group-binding lookup",
+    "Native LINE video meeting intake",
+    "Meeting-media dispatch short-circuit",
+    "Regression verification"
+  ],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "node tools/check-upgrade-package.js AM-IMP-2026.0720.03",
+    "node tools/dryrun-core.mjs",
+    "node tools/meeting-audio-tests/test-platform-sniff.mjs",
+    "node tools/audit-alignment.js"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Install the behavior independently in each target runtime. Never copy LINE IDs, group bindings, Notion records, media, transcripts, credentials, environment values, or deployment state between projects."
+  },
+  "definitionOfDone": [
+    "The group-binding Notion query contains the LINE group ID but no undeclared status select value",
+    "Routable statuses are accepted in application code and disabled bindings remain rejected",
+    "Duplicate bindings inside one tenant or across tenants fail closed",
+    "A native LINE video invokes the meeting-media handler exactly once",
+    "Accepted meeting media short-circuits downstream generic media handling",
+    "Existing audio and file meeting-intake regression checks pass",
+    "The target project manifest and project-local upgrade record are updated after installation",
+    "Production is marked Deployed only after target-specific verification"
+  ],
+  "files": [
+    "core/router.js",
+    "core/modules.js",
+    "modules/meetings/index.js",
+    "tools/dryrun-core.mjs",
+    "tools/meeting-audio-tests/test-platform-sniff.mjs",
+    "versions/AM-IMP-2026.0720.03/README.md",
+    "versions/AM-IMP-2026.0720.03/upgrade.json",
+    "versions/AM-IMP-2026.0720.03/INSTALL.md",
+    "versions/AM-IMP-2026.0720.03/VERIFY.md",
+    "versions/AM-IMP-2026.0720.03/ROLLBACK.md"
+  ]
+}
