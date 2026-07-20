@@ -75,6 +75,7 @@ export async function bootstrap(env = process.env, overrides = {}) {
     // Notion(per-tenant 隔離守衛內建)
     notionRequest: notion.notionRequest,
     uploadFileToNotion: notion.uploadFileToNotion,
+    registerTenantDataSource: notion.registerTenantDataSource,
     // LINE(共用 OA)
     pushLineMessage: line.pushLineMessage,
     lineGet: line.lineGet,

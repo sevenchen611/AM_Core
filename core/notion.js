@@ -78,6 +78,24 @@ export function createNotion({ token, version, registry, logger = console }) {
     verified.set(norm, true);
   }
 
+  // 每群會議庫是在執行期間建立，不能預先寫入 .env。建立後仍先驗證
+  // 「資料庫確實位於該租戶母頁」才會登記進守衛，之後才允許寫入。
+  async function registerTenantDataSource(tenant, dataSourceId, name = 'groupMeetings') {
+    if (!tenant?.key || !dataSourceId) throw new Error('registerTenantDataSource requires tenant and data source id.');
+    const norm = normalizeId(dataSourceId);
+    const existing = registry.get(norm);
+    if (existing && existing.tenant.key !== tenant.key) {
+      throw new Error(`Refusing to register data source ${dataSourceId} for ${tenant.key}; it belongs to ${existing.tenant.key}.`);
+    }
+    if (!existing) registry.set(norm, { tenant, name });
+    try {
+      await assertDataSource(dataSourceId, { tenantKey: tenant.key });
+    } catch (error) {
+      if (!existing) registry.delete(norm);
+      throw error;
+    }
+  }
+
   async function assertPage(pageId, opts) {
     const cachedDataSourceId = verifiedPages.get(normalizeId(pageId));
     if (cachedDataSourceId) {
@@ -133,5 +151,5 @@ export function createNotion({ token, version, registry, logger = console }) {
     return result.id ? result : upload;
   }
 
-  return { notionRequest, uploadFileToNotion };
+  return { notionRequest, uploadFileToNotion, registerTenantDataSource };
 }
