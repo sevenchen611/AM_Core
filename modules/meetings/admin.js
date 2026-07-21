@@ -5,7 +5,7 @@
 // configured groupBindings data source (never a browser supplied source id).
 
 import { readBody, sendJson } from '../../core/util.js';
-import { groupBindingV2SchemaPatch } from '../../core/group-binding-schema.js';
+import { GROUP_BINDING_V2_PROPERTIES } from '../../core/group-binding-schema.js';
 import {
   MEETING_MODE_OPTIONS,
   MEETING_ROLLOUT_MODES,
@@ -117,11 +117,9 @@ function safeExistingOptions(options = []) {
 }
 
 function meetingAdminSchemaPatch(properties = {}) {
-  let patch = {};
-  try {
-    patch = groupBindingV2SchemaPatch(properties);
-  } catch (error) {
-    throw publicError(409, error.message || '群組綁定欄位型別不正確，請先人工確認。');
+  const patch = {};
+  for (const name of REQUIRED_EXISTING_FIELDS) {
+    if (!properties[name] && GROUP_BINDING_V2_PROPERTIES[name]) patch[name] = GROUP_BINDING_V2_PROPERTIES[name];
   }
   for (const [name, definition] of Object.entries(MEETING_ADMIN_PROPERTIES)) {
     const expectedType = Object.keys(definition)[0];
