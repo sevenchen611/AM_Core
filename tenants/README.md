@@ -48,3 +48,4 @@ Notion 頁 ID、資料來源 ID、LINE/AI 金鑰**一律放平台的 `.env`（gi
 - **森在**（`forest.json`）＝ Notion「AI」頁；平台首頁為 `/admin?tenant=forest`，群組對照表為 `/groups?tenant=forest`
 - **Green Hotel AM**（`green-hotel.json`）＝ 葉綠宿 AM 的獨立租戶；完成 Notion／Drive／資料源與群組綁定驗證前維持 fail-closed。
 - **HOZO AM**（`hozoam.json`）與 **7AM**（`7am.json`）目前為遷移中登記：既有獨立入口維持，群組綁定與 Core 相容層完成前一律 fail closed，不啟動任何平台模組。
+- **HOZO AM 2.0**（`hozo-am-2-0.json`）＝全新 AM Platform 租戶；與既有 `hozoam` 完全隔離，使用獨立 Notion 母頁、Drive 根目錄、tenant UUID、環境變數前綴與群組綁定。

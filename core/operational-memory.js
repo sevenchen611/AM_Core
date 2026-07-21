@@ -31,11 +31,16 @@ const positiveInt = (value, fallback, ceiling = 100) => {
 function tenantConfig(tenant, env) {
   const declared = tenant?.operationalMemory || {};
   const prefix = String(tenant?.envPrefix || '').toUpperCase();
+  const connectionPrefix = String(declared.connectionEnvPrefix || prefix).toUpperCase();
   const fromEnv = (name, fallback = '') => env[`${prefix}_${name}`] || env[name] || fallback;
+  const fromConnectionEnv = (name, fallback = '') => env[`${prefix}_${name}`]
+    || env[`${connectionPrefix}_${name}`]
+    || env[name]
+    || fallback;
   const declaredMode = declared.enabled === false ? 'off' : (declared.activationMode || 'off');
   const mode = String(fromEnv('AM_MEMORY_MODE', declaredMode)).toLowerCase();
   const queryMode = String(fromEnv('AM_MEMORY_QUERY_MODE', declared.queryMode || 'legacy')).toLowerCase();
-  const databaseUrl = fromEnv('AM_MEMORY_DATABASE_URL', '');
+  const databaseUrl = fromConnectionEnv('AM_MEMORY_DATABASE_URL', '');
   return {
     tenantId: String(tenant?.tenantId || declared.tenantId || ''),
     tenantKey: String(tenant?.key || ''),

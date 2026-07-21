@@ -21,13 +21,23 @@ if (!tenant) throw new Error(`Unknown tenant: ${tenantKey}`);
 if (!UUID_RE.test(String(tenant.tenantId || ''))) throw new Error(`Tenant ${tenantKey} has no valid tenantId.`);
 
 const prefix = tenant.envPrefix;
-const migrationUrl = process.env[`${prefix}_AM_MEMORY_MIGRATION_DATABASE_URL`] || process.env.AM_MEMORY_MIGRATION_DATABASE_URL || '';
-const runtimeUrl = process.env[`${prefix}_AM_MEMORY_DATABASE_URL`] || process.env.AM_MEMORY_DATABASE_URL || '';
+const connectionPrefix = String(tenant.operationalMemory?.connectionEnvPrefix || prefix).toUpperCase();
+const migrationUrl = process.env[`${prefix}_AM_MEMORY_MIGRATION_DATABASE_URL`]
+  || process.env[`${connectionPrefix}_AM_MEMORY_MIGRATION_DATABASE_URL`]
+  || process.env.AM_MEMORY_MIGRATION_DATABASE_URL
+  || '';
+const runtimeUrl = process.env[`${prefix}_AM_MEMORY_DATABASE_URL`]
+  || process.env[`${connectionPrefix}_AM_MEMORY_DATABASE_URL`]
+  || process.env.AM_MEMORY_DATABASE_URL
+  || '';
 if (!migrationUrl) throw new Error(`${prefix}_AM_MEMORY_MIGRATION_DATABASE_URL is required.`);
 if (!runtimeUrl) throw new Error(`${prefix}_AM_MEMORY_DATABASE_URL is required.`);
 
 function poolConfig(connectionString) {
-  const ssl = String(process.env[`${prefix}_AM_MEMORY_DATABASE_SSL`] || process.env.AM_MEMORY_DATABASE_SSL || '').toLowerCase();
+  const ssl = String(process.env[`${prefix}_AM_MEMORY_DATABASE_SSL`]
+    || process.env[`${connectionPrefix}_AM_MEMORY_DATABASE_SSL`]
+    || process.env.AM_MEMORY_DATABASE_SSL
+    || '').toLowerCase();
   return {
     connectionString,
     max: 1,
@@ -114,11 +124,14 @@ async function ensureRuntimeRole(pool, connectionString) {
   if (!username || !password) throw new Error('Runtime database URL must include a username and password.');
   const role = quoteIdentifier(username);
   const secret = quoteLiteral(password);
-  const existing = await pool.query('SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = $1', [username]);
+  const existing = await pool.query(
+    'SELECT rolsuper, rolcreatedb, rolcreaterole FROM pg_catalog.pg_roles WHERE rolname = $1',
+    [username],
+  );
   if (!existing.rowCount) {
     await pool.query(`CREATE ROLE ${role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD ${secret}`);
-  } else {
-    await pool.query(`ALTER ROLE ${role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD ${secret}`);
+  } else if (existing.rows[0].rolsuper || existing.rows[0].rolcreatedb || existing.rows[0].rolcreaterole) {
+    throw new Error('Existing runtime role has unsafe administrative privileges.');
   }
 }
 

@@ -1,0 +1,53 @@
+{
+  "key": "hozo-am-2-0",
+  "displayName": "HOZO AM 2.0",
+  "aka": "HOZO AM 2 0",
+  "tenantId": "a72c78d7-5035-4e6e-8caf-9ec4d58c914f",
+  "envPrefix": "HZ2",
+  "runtimeEnabled": true,
+  "authorizationReady": false,
+  "modules": ["collect", "media", "operational-memory", "meetings"],
+  "status": "新租戶初始化：以 shadow 模式保留原始證據並產生事件、任務、決策與知識候選；完成 Notion、Drive、PostgreSQL 與群組綁定驗證前，不啟用正式任務寫回、提醒或自動回覆。",
+  "operationalMemory": {
+    "enabled": true,
+    "connectionEnvPrefix": "FOREST",
+    "activationMode": "shadow",
+    "queryMode": "legacy",
+    "contractVersion": "AM-IMP-2026.0718.01",
+    "notionProjection": true,
+    "vectorSearch": false,
+    "knowledgePromotion": "review-only"
+  },
+  "config": {
+    "homeRoute": "/admin",
+    "portal": {
+      "label": "HOZO AM 2.0",
+      "authorizationNote": "全新平台租戶，與既有 HOZO AM 完全隔離；完成資料源及群組綁定驗證後才可分派權限。"
+    },
+    "vocabulary": {
+      "industry": "旅宿營運與專案管理",
+      "departments": ["營運", "櫃檯", "房務", "工務", "業務", "行銷", "財務", "人資"],
+      "projectTerms": ["專案", "館別", "營運", "合作案", "任務", "承諾", "決策", "風險"]
+    },
+    "media": {
+      "visionContext": "旅宿營運與專案管理現場"
+    },
+    "reportSchedule": {
+      "morning": "08:30",
+      "followUp": ["10:00", "13:00", "17:00"],
+      "evening": "20:30"
+    },
+    "meetings": {
+      "formalTasksEnabled": false,
+      "domain": "台灣旅宿營運與專案管理會議",
+      "transcriptionHint": "台灣旅宿營運與專案管理會議，繁體中文為主。",
+      "keyterms": ["HOZO", "旅宿", "營運", "房務", "櫃檯", "工務", "專案", "合作案"],
+      "types": ["營運會議", "專案會議", "主管會議", "合作會議"],
+      "defaultType": "營運會議",
+      "defaultTitle": "HOZO AM 2.0 會議",
+      "sectionBy": "主題或專案",
+      "workKindHint": "旅宿營運／專案會議",
+      "projectCodes": {}
+    }
+  }
+}
