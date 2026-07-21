@@ -2,7 +2,7 @@
 
 | Version | Status | Scope | Verified | Notes |
 | --- | --- | --- | --- | --- |
-| AM-IMP-2026.0718.01 | Ready | Shadow operational memory | Notion and Drive identity check | Tenant runtime and Notion foundation are being installed. PostgreSQL migration and Render runtime connection are still required before it becomes Installed. |
+| AM-IMP-2026.0718.01 | Blocked | Shadow operational memory | Notion/Drive identity, local checks, Render deploy and public health | Forest tenant runtime and Notion foundation are deployed. PostgreSQL migration and its dedicated restricted runtime connection still require a database-resource decision. |
 
 ## Tenant boundary
 
