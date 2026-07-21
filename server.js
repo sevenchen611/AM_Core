@@ -6,6 +6,7 @@ import http from 'node:http';
 import crypto from 'node:crypto';
 import { bootstrap } from './core/bootstrap.js';
 import { createAccessDirectory } from './core/access-directory.js';
+import { safePortalHandoffLocation } from './core/portal-handoff.js';
 import { sendJson, sendText, readBody } from './core/util.js';
 
 const ctx = await bootstrap(process.env);
@@ -38,6 +39,13 @@ function homeLocation(tenant, access = null) {
     route = (tenant?.modules || []).includes('queue') ? '/queue' : '/admin';
   }
   return `${route}${route.includes('?') ? '&' : '?'}tenant=${encodeURIComponent(tenant.key)}`;
+}
+function portalHandoffLocation(url, tenant, access) {
+  return safePortalHandoffLocation(
+    url.searchParams.get('next'),
+    tenant.key,
+    homeLocation(tenant, access),
+  );
 }
 function renderLoginPage(tenant, error = false) {
   const emergency = portal.pinConfigured;
@@ -158,7 +166,7 @@ const server = http.createServer(async (req, res) => {
     const cookie = handoff ? portal.ssoCookieHeader(handoff) : '';
     if (!handoff || !cookie) return sendJson(res, 401, { error: 'Portal authorization failed.' });
     const access = portal.accessForUser(handoff.user, tenant);
-    res.writeHead(302, { Location: homeLocation(tenant, access), 'Set-Cookie': cookie, 'Cache-Control': 'no-store' });
+    res.writeHead(302, { Location: portalHandoffLocation(url, tenant, access), 'Set-Cookie': cookie, 'Cache-Control': 'no-store' });
     return res.end();
   }
 
@@ -229,6 +237,12 @@ const server = http.createServer(async (req, res) => {
       ? await portal.resolveAccess(req, tenant)
       : null;
     if (['tenant', 'group'].includes(route.access?.kind) && !access?.allowed) {
+      // A small number of protected HTML consoles provide their own friendly
+      // sign-in page. They still receive the denied AccessContext and must fail
+      // closed; JSON APIs continue to stop here with 401/403.
+      if (route.access?.denied === 'handler' && req.method === 'GET' && pathname === route.prefix) {
+        return route.handler(req, res, { pathname, url, tenant, tenants, portal, platform, access, routeAccess: route.access || null });
+      }
       return sendJson(res, access?.user ? 403 : 401, { error: '沒有此租戶或對話群組的權限。' });
     }
     return route.handler(req, res, { pathname, url, tenant, tenants, portal, platform, access, routeAccess: route.access || null });

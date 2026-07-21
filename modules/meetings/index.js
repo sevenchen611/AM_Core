@@ -1973,7 +1973,7 @@ export default {
   // 不限 method:GET=看,POST=明確拒絕；公開簽章不能取代 Portal / 群組授權。
   routes: [{
     prefix: '/meetings/manage',
-    access: { kind: 'group', capability: 'groups.manage' },
+    access: { kind: 'tenant', capability: 'groups.core', denied: 'handler' },
     handler: async (req, res, rctx) => {
       if (!meetingAdminHandler) {
         res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' });

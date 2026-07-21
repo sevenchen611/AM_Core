@@ -329,7 +329,7 @@ function parseUpdates(body) {
 
 function assertTenantAll(access) {
   if (!access?.allowed) throw publicError(401, '請先登入 AM Platform。');
-  if (!access.isTenantAll) throw publicError(403, '只有租戶全群組管理者可以批次變更會議功能。');
+  if (!access.isPlatformOwner) throw publicError(403, '只有平台最高管理者可以批次變更會議功能。');
 }
 
 function rowsForUpdates(access, allRows, updates, action = 'groups.read') {
@@ -360,22 +360,27 @@ function propertiesForUpdate(row, mode, preflight, schema, actor) {
   return properties;
 }
 
-function tenantTabs(tenant, tenants) {
+function tenantTabs(tenant, tenants, access) {
   const available = (Array.isArray(tenants) ? tenants : [])
     .filter((item) => item?.runtimeEnabled !== false && (item?.modules || []).includes('meetings'));
-  const rows = available.length ? available : [tenant];
+  // Only a platform owner may discover and switch across tenant names from this
+  // global console. Non-owner users are rejected before this page renders.
+  const visible = access?.isPlatformOwner
+    ? available
+    : available.filter((item) => item?.key === tenant?.key);
+  const rows = visible.length ? visible : [tenant];
   return rows.map((item) => `<a class="tab${item.key === tenant.key ? ' active' : ''}" href="/meetings/manage?tenant=${encodeURIComponent(item.key)}">${esc(item.displayName || item.key)}</a>`).join('');
 }
 
 function renderAdminHtml(tenant, tenants, access) {
-  const tabs = tenantTabs(tenant, tenants);
-  const canMutate = Boolean(access?.isTenantAll);
+  const tabs = tenantTabs(tenant, tenants, access);
+  const canMutate = Boolean(access?.isPlatformOwner);
   return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>會議功能管理臺｜${esc(tenant.displayName)}</title>
 <style>
 :root{--green:#164c39;--mint:#e5f3ec;--line:#dbe6df;--ink:#183026;--muted:#66766e;--warn:#8a5b0a;--danger:#a12d28}*{box-sizing:border-box}body{margin:0;background:#f4f7f5;color:var(--ink);font-family:system-ui,'Noto Sans TC',sans-serif}main{max-width:1220px;margin:auto;padding:26px 18px 64px}a{color:var(--green)}h1{font-size:29px;margin:8px 0}.sub{color:var(--muted);line-height:1.6}.tabs{display:flex;gap:8px;overflow:auto;margin:22px 0 18px}.tab{white-space:nowrap;padding:9px 14px;border:1px solid var(--line);border-radius:999px;background:#fff;text-decoration:none;color:var(--ink)}.tab.active{background:var(--green);color:#fff;border-color:var(--green)}.panel{background:#fff;border:1px solid var(--line);border-radius:16px;padding:17px;margin-top:14px;box-shadow:0 5px 22px #183d2a0a}.summary{display:flex;gap:9px;flex-wrap:wrap}.pill{padding:7px 11px;border-radius:999px;background:var(--mint);font-weight:700;font-size:13px}.toolbar{display:flex;gap:9px;flex-wrap:wrap;align-items:center}.toolbar select,.toolbar button{min-height:42px;border-radius:10px;border:1px solid #cddbd3;padding:8px 12px;font:inherit}.toolbar select{background:#fff;min-width:210px}.toolbar button{background:var(--green);color:#fff;border:0;font-weight:750;cursor:pointer}.toolbar button.secondary{background:#e4f1ea;color:var(--green)}.toolbar button:disabled{opacity:.45;cursor:not-allowed}.notice{margin:12px 0;padding:12px 14px;border-radius:10px;background:#fff5dc;color:#714c0a;line-height:1.55}.notice.info{background:#eaf4ef;color:#28543f}.table{overflow:auto;margin-top:14px}table{width:100%;border-collapse:collapse;min-width:840px}th,td{text-align:left;vertical-align:top;border-bottom:1px solid #e6ede9;padding:12px 9px;font-size:14px}th{color:#496257;font-size:12px}.badge{display:inline-block;border-radius:999px;padding:5px 9px;font-size:12px;font-weight:800}.Ready{background:#e1f4e8;color:#17623a}.Warning{background:#fff0c9;color:#7b5000}.Blocked{background:#ffe0de;color:#912620}.mode{font-weight:750}.muted{color:var(--muted);font-size:12px;line-height:1.5}.problems{margin:6px 0 0;padding-left:18px;color:var(--muted);font-size:12px;line-height:1.55}.toast{position:fixed;right:18px;bottom:18px;max-width:420px;padding:13px 16px;border-radius:11px;background:#173f31;color:white;display:none}.toast.error{background:#982b27}@media(max-width:680px){main{padding:17px 12px 50px}h1{font-size:25px}.panel{padding:13px}.toolbar>*{width:100%}}
 </style></head><body><main><p><a href="/admin?tenant=${encodeURIComponent(tenant.key)}">← 回 AM Platform 後臺</a></p><h1>會議功能管理臺</h1><p class="sub">選擇每個 LINE 群的會議模式。套用前會即時檢查 LINE、LIFF、語音轉文字、Notion 與待辦儲存條件。</p><nav class="tabs">${tabs}</nav>
 <section class="panel"><div class="summary"><span class="pill" id="countAll">載入中…</span><span class="pill" id="countReady">Ready 0</span><span class="pill" id="countWarning">Warning 0</span><span class="pill" id="countBlocked">Blocked 0</span><span class="pill" id="ceiling">租戶上限載入中…</span></div><p class="notice info">四種模式：關閉／僅記錄／確認試行（不建立正式任務）／完整確認（建立正式任務）。影子群與租戶安全上限會自動降級。</p><div id="schemaNotice"></div>
-<div class="toolbar"><label><input id="selectAll" type="checkbox"> 全選目前群組</label><select id="batchMode"><option value="">批次選擇模式…</option>${MEETING_MODE_OPTIONS.map(({ value, label }) => `<option value="${value}">${esc(label)}</option>`).join('')}</select><button class="secondary" id="preflight">重新檢查選取群組</button><button id="apply"${canMutate ? '' : ' disabled'}>套用到選取群組</button><button class="secondary" id="schema"${canMutate ? '' : ' disabled'}>初始化管理欄位</button></div>${canMutate ? '' : '<p class="notice">目前帳號可查看與執行檢查；只有租戶全群組管理者可以套用變更。</p>'}
+<div class="toolbar"><label><input id="selectAll" type="checkbox"> 全選目前群組</label><select id="batchMode"><option value="">批次選擇模式…</option>${MEETING_MODE_OPTIONS.map(({ value, label }) => `<option value="${value}">${esc(label)}</option>`).join('')}</select><button class="secondary" id="preflight">重新檢查選取群組</button><button id="apply"${canMutate ? '' : ' disabled'}>套用到選取群組</button><button class="secondary" id="schema"${canMutate ? '' : ' disabled'}>初始化管理欄位</button></div>${canMutate ? '' : '<p class="notice">目前帳號可查看與執行檢查；只有平台最高管理者可以套用變更。</p>'}
 <div class="table"><table><thead><tr><th></th><th>LINE 群組</th><th>群組狀態</th><th>選擇模式</th><th>實際模式</th><th>導入檢查</th></tr></thead><tbody id="rows"><tr><td colspan="6">正在取得群組設定…</td></tr></tbody></table></div></section></main><div class="toast" id="toast"></div>
 <script>
 const TENANT=${JSON.stringify(tenant.key)},CAN_MUTATE=${JSON.stringify(canMutate)};let state={rows:[],missingSchemaFields:[]},busy=false;
@@ -393,8 +398,12 @@ $('#schema').addEventListener('click',async e=>{if(!CAN_MUTATE)return;await runB
 </script></body></html>`;
 }
 
-function renderUnauthorized(tenant) {
-  return `<!doctype html><meta charset="utf-8"><title>需要登入</title><main style="font-family:system-ui;margin:48px"><h2>需要 ${esc(tenant?.displayName || '此租戶')} 的後臺權限</h2><p><a href="/?tenant=${encodeURIComponent(tenant?.key || '')}">回到平台登入</a></p></main>`;
+function renderUnauthorized(tenant, { forbidden = false } = {}) {
+  const title = forbidden ? '需要平台最高管理者權限' : '請先從 HOZO Portal 登入';
+  const detail = forbidden
+    ? `目前帳號不是平台最高管理者，不能開啟 ${esc(tenant?.displayName || '此租戶')} 的會議功能管理臺。`
+    : '這是受保護的管理頁，請先登入 HOZO Portal，再從「AM Platform 會議管理臺」入口進入。';
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>body{margin:0;background:#f4f7f5;color:#183026;font-family:system-ui,'Noto Sans TC',sans-serif}main{max-width:620px;margin:10vh auto;padding:32px;background:#fff;border:1px solid #dbe6df;border-radius:18px;box-shadow:0 8px 32px #183d2a12}h1{font-size:26px}.sub{color:#66766e;line-height:1.8}.button{display:inline-block;margin-top:14px;padding:12px 18px;border-radius:10px;background:#164c39;color:#fff;text-decoration:none;font-weight:750}</style></head><body><main><h1>${title}</h1><p class="sub">${detail}</p><a class="button" href="https://rental.hozorental.com/portal">前往 HOZO Portal</a></main></body></html>`;
 }
 
 async function readJson(req) {
@@ -414,6 +423,16 @@ async function dispatch(platform, req, res, rctx) {
     return sendJson(res, 401, { error: '需要此租戶的後臺權限。' });
   }
 
+  // This console changes rollout policy across tenant groups. Until Portal has
+  // a complete AM group-authorization editor, keep it platform-owner only.
+  if (!access.isPlatformOwner) {
+    if (pathname === '/meetings/manage' && req.method === 'GET') {
+      res.writeHead(403, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+      return res.end(renderUnauthorized(tenant, { forbidden: true }));
+    }
+    return sendJson(res, 403, { error: '只有平台最高管理者可以使用會議功能管理臺。' });
+  }
+
   if (pathname === '/meetings/manage' && req.method === 'GET') {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
     return res.end(renderAdminHtml(tenant, rctx.tenants, access));
@@ -424,7 +443,7 @@ async function dispatch(platform, req, res, rctx) {
     const rows = access.filterBindings(await listBindings(platform, tenant), 'groups.read');
     return sendJson(res, 200, {
       tenant: { key: tenant.key, displayName: tenant.displayName },
-      canMutate: Boolean(access.isTenantAll),
+      canMutate: Boolean(access.isPlatformOwner),
       ceiling: tenantMeetingModeCeiling(tenant),
       ceilingLabel: meetingModeLabel(tenantMeetingModeCeiling(tenant)),
       missingSchemaFields: missingSchemaFields(schema),

@@ -1,0 +1,111 @@
+{
+  "id": "AM-IMP-2026.0721.02",
+  "name": "Portal SSO and tenant-safe Meeting administration",
+  "type": "Governance / Portal SSO / Meeting administration",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-07-21",
+  "dependsOn": [
+    "AM-IMP-2026.0717.04",
+    "AM-IMP-2026.0721.01"
+  ],
+  "installTargets": [
+    "AM_PLATFORM",
+    "PORTAL"
+  ],
+  "scope": [
+    "Portal-to-AM Platform single-use SSO handoff",
+    "Portal D1 hashed handoff and session persistence",
+    "Live Portal account and platform-owner authorization verification",
+    "Friendly protected Meeting console login and forbidden pages",
+    "Platform-owner Meeting console authorization",
+    "Allowlisted tenant-bound SSO return paths",
+    "Portal new-user AM feature selection persistence"
+  ],
+  "requiresDatabases": [
+    "Portal D1 am_sso_handoffs",
+    "Portal D1 am_sso_sessions",
+    "Existing Portal admin_users with AM tenant authorization fields",
+    "Existing target-local Group Bindings required by AM-IMP-2026.0721.01"
+  ],
+  "requiresEnv": [
+    "AM_PLATFORM_BASE_URL",
+    "AM_PLATFORM_SERVICE_TOKEN",
+    "AM_GROUP_AUTHZ_MODE",
+    "HOZO_DB",
+    "AMCORE_PORTAL_SERVICE_TOKEN",
+    "AMCORE_PORTAL_ME_ENDPOINT",
+    "AMCORE_PORTAL_HANDOFF_ENDPOINT",
+    "AMCORE_PORTAL_VERIFY_ENDPOINT",
+    "AMCORE_QUEUE_ACCESS_KEY",
+    "AMCORE_GROUP_AUTHZ_MODE",
+    "AMCORE_ENABLE_EMERGENCY_PIN"
+  ],
+  "requiresScripts": [
+    "node --check core/portal-handoff.js",
+    "node --check core/portal.js",
+    "node --check server.js",
+    "node --check modules/meetings/admin.js",
+    "node --check modules/meetings/index.js",
+    "node tools/verify-portal-handoff.mjs",
+    "node tools/verify-meeting-admin.mjs",
+    "node tools/verify-portal-group-authz.mjs <portal-project-path>",
+    "node tools/check-upgrade-package.js AM-IMP-2026.0721.02"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Install code and additive schema independently. Portal accounts, token hashes, sessions, tenant permissions, Group Bindings, Meeting records, LINE identities, Notion data, credentials, and deployment values remain inside the target environment and tenant."
+  },
+  "changes": [
+    "Adds D1-backed, hashed, 60-second, single-use Portal handoffs",
+    "Adds D1-backed, hashed, tenant-bound, fixed eight-hour AM sessions",
+    "Requires current active Portal owner on each session verification",
+    "Adds allowlisted local return-path handling that overwrites tenant context",
+    "Allows an exact protected Meeting console GET to render a friendly denied page while APIs remain centrally blocked",
+    "Reclassifies the Meeting management console as a tenant administration route",
+    "Requires isPlatformOwner for every Meeting console page and API operation",
+    "Limits the Meeting management console to platform owners",
+    "Persists AM tenant feature selections when a Portal administrator creates a user"
+  ],
+  "definitionOfDone": [
+    "Portal D1 contains additive am_sso_handoffs and am_sso_sessions tables and required indexes",
+    "Raw handoff and session tokens never enter D1 or browser-visible logs",
+    "Handoff consumption is tenant-bound, expiry-checked, conditional, and exactly once",
+    "Session verification is tenant-bound, expiry-checked, non-sliding, and reloads the current active Portal owner",
+    "AM Platform health reports Portal service authentication configured without exposing its value",
+    "Unauthenticated exact Meeting console GET renders a friendly Portal login page and protected API paths remain 401 JSON",
+    "Selected-group users cannot read or mutate the Meeting console and receive 403",
+    "Tenant-wide non-owner managers cannot read or mutate the Meeting console and receive 403",
+    "Platform owners may use authorized tenant tabs",
+    "Only allowlisted local return paths survive SSO and the consumed tenant always replaces a supplied tenant query",
+    "Portal new-user creation preserves all selected AM tenant features",
+    "Portal and AM Platform verification suites pass",
+    "Each target keeps its own secrets, D1 rows, accounts, sessions, Group Bindings, Meeting data, and deployment record",
+    "The target manifest and project-local upgrade record are updated after verification",
+    "Production is marked Deployed only after a real account completes SSO, safe return, live revocation, and Meeting authorization smoke tests"
+  ],
+  "files": [
+    "core/portal.js",
+    "core/portal-handoff.js",
+    "server.js",
+    "modules/meetings/admin.js",
+    "modules/meetings/index.js",
+    "tools/verify-portal-handoff.mjs",
+    "tools/verify-meeting-admin.mjs",
+    "Portal _worker.js",
+    "Portal admin-users",
+    "Portal admin-users.html",
+    "Portal db-schema.remote.sql",
+    "versions/AM-IMP-2026.0721.02/README.md",
+    "versions/AM-IMP-2026.0721.02/upgrade.json",
+    "versions/AM-IMP-2026.0721.02/INSTALL.md",
+    "versions/AM-IMP-2026.0721.02/ENVIRONMENT.md",
+    "versions/AM-IMP-2026.0721.02/REQUIRED_DATABASES.md",
+    "versions/AM-IMP-2026.0721.02/VERIFY.md",
+    "versions/AM-IMP-2026.0721.02/ROLLBACK.md",
+    "versions/AM-IMP-2026.0721.02/schemas/portal-sso-d1.sql"
+  ]
+}

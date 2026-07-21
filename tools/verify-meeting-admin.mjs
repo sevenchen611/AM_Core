@@ -80,11 +80,12 @@ function bindingPage({
   };
 }
 
-function access({ tenantAll = true, visibleIds = null } = {}) {
+function access({ tenantAll = true, visibleIds = null, platformOwner = false } = {}) {
   return {
     allowed: true,
     actor: 'Portal 測試總管',
     isTenantAll: tenantAll,
+    isPlatformOwner: platformOwner,
     filterBindings: (rows) => visibleIds ? rows.filter((row) => visibleIds.includes(row.id)) : rows,
     assert: (_action, pageId) => {
       if (visibleIds && !visibleIds.includes(pageId)) {
@@ -212,7 +213,7 @@ async function postReview(path, body, sessionTenant) {
 
 // 管理頁只提供操作程式與非敏感租戶標籤，不得把 LINE 身分、資料源或密鑰塞進 HTML。
 {
-  const h = makeHarness();
+  const h = makeHarness({ accessContext: access({ platformOwner: true }) });
   const res = await h.run('/meetings/manage');
   assert.equal(res.status, 200);
   assert.match(res.body, /會議功能管理臺/);
@@ -227,9 +228,54 @@ async function postReview(path, body, sessionTenant) {
     'C_SERVER_GROUP_1',
     DATA_SOURCE_ID,
   ]) assert.ok(!res.body.includes(secret), `HTML 不可包含 ${secret}`);
+  assert.match(res.body, /Forest AM/);
 }
 
-// 租戶範圍帳號可看但不可套用；瀏覽器偽造 payload 不能提升權限。
+// 非平台 owner 即使具備租戶全群組權限，也不能開啟這個 rollout 管理臺。
+{
+  const h = makeHarness({ accessContext: access({ tenantAll: true }) });
+  const res = await h.run('/meetings/manage');
+  assert.equal(res.status, 403);
+  assert.match(res.body, /需要平台最高管理者權限/);
+  assert.equal(h.calls.length, 0);
+}
+
+// 未登入者只能取得友善 Portal 登入頁，不能先讀任何 Notion 管理資料。
+{
+  const h = makeHarness({ accessContext: null });
+  const res = await h.run('/meetings/manage');
+  assert.equal(res.status, 401);
+  assert.match(String(res.headers['content-type'] || ''), /text\/html/);
+  assert.match(res.body, /請先從 HOZO Portal 登入/);
+  assert.match(res.body, /https:\/\/rental\.hozorental\.com\/portal/);
+  assert.equal(h.calls.length, 0);
+}
+
+// 單群帳號不可讀全租戶管理頁、群組清單或執行預檢。
+{
+  const h = makeHarness({ accessContext: access({ tenantAll: false, visibleIds: ['binding-1'] }) });
+  const page = await h.run('/meetings/manage');
+  assert.equal(page.status, 403);
+  assert.match(String(page.headers['content-type'] || ''), /text\/html/);
+  assert.match(page.body, /需要平台最高管理者權限/);
+  for (const [pathname, method, body] of [
+    ['/meetings/manage/api/list', 'GET', ''],
+    ['/meetings/manage/api/preflight', 'POST', JSON.stringify({ updates: [{ pageId: 'binding-1', mode: MEETING_ROLLOUT_MODES.RECORD_ONLY }] })],
+  ]) {
+    const res = await h.run(pathname, method, body);
+    assert.equal(res.status, 403);
+    assert.match(parsed(res).error, /平台最高管理者/);
+  }
+  assert.equal(h.calls.length, 0, '被拒絕的管理請求不可讀取 Notion');
+}
+
+// 路由本身必須宣告為 tenant-wide console，且 denied GET 交給友善登入頁處理。
+{
+  const route = meetings.routes.find((item) => item.prefix === '/meetings/manage');
+  assert.deepEqual(route?.access, { kind: 'tenant', capability: 'groups.core', denied: 'handler' });
+}
+
+// 租戶範圍帳號不可套用；瀏覽器偽造 payload 不能提升權限。
 {
   const h = makeHarness({ accessContext: access({ tenantAll: false }) });
   const res = await h.run('/meetings/manage/api/apply', 'POST', JSON.stringify({
@@ -237,14 +283,14 @@ async function postReview(path, body, sessionTenant) {
     pageIds: ['binding-1'],
   }));
   assert.equal(res.status, 403);
-  assert.match(parsed(res).error, /只有租戶全群組管理者/);
+  assert.match(parsed(res).error, /只有平台最高管理者/);
   assert.equal(h.calls.some((call) => call.pathname.startsWith('/v1/pages/')), false);
   assert.deepEqual(h.invalidated, []);
 }
 
 // pageId 必須重新從目前租戶的綁定表定位，不能拿另一租戶的 pageId 寫入。
 {
-  const h = makeHarness();
+  const h = makeHarness({ accessContext: access({ platformOwner: true }) });
   const res = await h.run('/meetings/manage/api/apply', 'POST', JSON.stringify({
     updates: [{ pageId: 'foreign-binding', mode: MEETING_ROLLOUT_MODES.RECORD_ONLY }],
   }));
@@ -256,7 +302,7 @@ async function postReview(path, body, sessionTenant) {
 
 // Schema 未初始化時必須阻擋套用，不能用只寫存在欄位的方式造成半套設定。
 {
-  const h = makeHarness({ schema: propertySchema({ missing: ['會議待辦模式'] }) });
+  const h = makeHarness({ accessContext: access({ platformOwner: true }), schema: propertySchema({ missing: ['會議待辦模式'] }) });
   const res = await h.run('/meetings/manage/api/apply', 'POST', JSON.stringify({
     mode: MEETING_ROLLOUT_MODES.RECORD_ONLY,
     pageIds: ['binding-1'],
@@ -268,7 +314,7 @@ async function postReview(path, body, sessionTenant) {
 
 // 初始化 schema 只補缺欄位，並寫回目前租戶自己的 data source。
 {
-  const h = makeHarness({ schema: propertySchema({ missing: ['會議待辦模式', '會議導入檢查'] }) });
+  const h = makeHarness({ accessContext: access({ platformOwner: true }), schema: propertySchema({ missing: ['會議待辦模式', '會議導入檢查'] }) });
   const res = await h.run('/meetings/manage/api/schema', 'POST', '{}');
   assert.equal(res.status, 200);
   const body = parsed(res);
@@ -285,7 +331,7 @@ async function postReview(path, body, sessionTenant) {
     bindingPage({ id: 'binding-1', name: '群組一', groupId: 'C_SERVER_GROUP_1' }),
     bindingPage({ id: 'binding-2', name: '群組二', groupId: 'C_SERVER_GROUP_2' }),
   ];
-  const h = makeHarness({ pages });
+  const h = makeHarness({ accessContext: access({ platformOwner: true }), pages });
   const res = await h.run('/meetings/manage/api/apply', 'POST', JSON.stringify({
     updates: [
       { pageId: 'binding-1', groupId: 'C_BROWSER_FORGED', mode: MEETING_ROLLOUT_MODES.REVIEW_AND_CREATE },
@@ -310,7 +356,7 @@ async function postReview(path, body, sessionTenant) {
     bindingPage({ id: 'binding-1', groupId: 'C_SERVER_GROUP_1' }),
     bindingPage({ id: 'binding-shadow', groupId: 'C_SERVER_SHADOW', status: '影子記錄' }),
   ];
-  const h = makeHarness({ pages });
+  const h = makeHarness({ accessContext: access({ platformOwner: true }), pages });
   const res = await h.run('/meetings/manage/api/apply', 'POST', JSON.stringify({
     mode: MEETING_ROLLOUT_MODES.REVIEW_AND_CREATE,
     pageIds: ['binding-1', 'binding-shadow'],
