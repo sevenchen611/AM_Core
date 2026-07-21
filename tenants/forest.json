@@ -2,15 +2,36 @@
   "key": "forest",
   "displayName": "森在",
   "aka": "經營單位（非工程）",
+  "tenantId": "aac8949f-0625-44d6-b655-57162f97143d",
   "envPrefix": "FOREST",
-  "modules": ["collect", "queue", "meetings", "tasks", "reminders", "groups"],
-  "status": "Notion「AI」頁（39851c68…）；integration 待連接、schema 待建",
+  "runtimeEnabled": true,
+  "authorizationReady": false,
+  "modules": ["collect", "media", "operational-memory", "meetings", "queue", "tasks", "reminders", "groups"],
+  "status": "AM-IMP-2026.0718.01 shadow runtime: 保留 LINE／會議原始證據、產生候選事件／任務／決策／知識；未啟用正式任務寫回、提醒或自動外部回覆。",
+  "operationalMemory": {
+    "enabled": true,
+    "activationMode": "shadow",
+    "queryMode": "legacy",
+    "contractVersion": "AM-IMP-2026.0718.01",
+    "notionProjection": false,
+    "vectorSearch": false,
+    "knowledgePromotion": "review-only"
+  },
   "config": {
     "homeRoute": "/admin",
     "portal": {
       "label": "森在 AM / Forest AM"
     },
+    "vocabulary": {
+      "industry": "經營與營運管理",
+      "departments": ["營運", "行政", "業務", "行銷", "財務", "人資"],
+      "projectTerms": ["專案", "合作案", "客戶", "排程", "交付", "營運", "決策"]
+    },
+    "media": {
+      "visionContext": "經營與營運管理現場"
+    },
     "meetings": {
+      "formalTasksEnabled": false,
       "domain": "營運會議",
       "transcriptionHint": "台灣的營運會議,繁體中文為主。",
       "keyterms": [],
