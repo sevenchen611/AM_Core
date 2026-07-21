@@ -109,7 +109,8 @@ await clickHandler({ target: startButton });
 const startCall = fetchCalls.find((call) => call.body.action === 'start');
 assert.ok(startCall, 'start button must send a POST action');
 assert.match(startCall.url, /^\/meetings\/review\/[a-f0-9]{20}-[a-f0-9]{16}$/);
-assert.equal(startCall.body.actorUserId, 'U_TEST_HOST');
+assert.equal(Object.prototype.hasOwnProperty.call(startCall.body, 'actorUserId'), false, 'browser-supplied user id must not be trusted or sent');
+assert.equal(Object.prototype.hasOwnProperty.call(startCall.body, 'actorName'), false, 'browser-supplied display name must not be trusted or sent');
 assert.equal(startCall.body.liffAccessToken, 'test-access-token');
 assert.equal(elements.statusText.textContent, '等待負責人確認');
 

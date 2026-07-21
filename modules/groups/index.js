@@ -103,6 +103,7 @@ function renderAdmin(tenant) {
   const key = encodeURIComponent(tenant.key);
   const cards = [
     ['群組設定', '設定每個 LINE 群的用途、負責人與啟用功能。', `/groups?tenant=${key}`],
+    ...(tenant.modules.includes('meetings') ? [['會議功能管理台', '選擇群組的會議模式、執行導入檢查並批次啟用。', `/meetings/manage?tenant=${key}`]] : []),
     ...(tenant.modules.includes('queue') ? [['確認佇列', '確認系統整理出的訊息與待辦。', `/queue?tenant=${key}`]] : []),
     ...(tenant.modules.includes('tasks') ? [['待辦案件', '查看尚未完成的案件與追蹤項目。', `/tasks?tenant=${key}`]] : []),
   ];

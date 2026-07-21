@@ -52,6 +52,7 @@ export function createRouter({ tenants, notionRequest, logger = console }) {
       pageId: page.id,
       groupId: plain(page.properties?.['LINE 群組 ID']),
       groupName: plain(page.properties?.['群組名稱'], 'title'),
+      status,
       projectPageId: page.properties?.['專案']?.relation?.[0]?.id || '',
       projectName: plain(page.properties?.['所屬目標']) || '',
       role: selected(page.properties?.['群組角色']),
@@ -60,6 +61,10 @@ export function createRouter({ tenants, notionRequest, logger = console }) {
       purpose: plain(page.properties?.['群組用途']),
       owner: plain(page.properties?.['主要負責人']) || plain(page.properties?.['我方主管']) || plain(page.properties?.['對方主管']),
       capabilities: selectedMany(page.properties?.['啟用功能']),
+      // 會議功能管理台的群組級 rollout 模式。欄位尚未建立或未設定時留空，
+      // 由 meetings/policy.js 採用舊租戶相容模式，避免部署後意外關閉既有會議流程。
+      meetingMode: selected(page.properties?.['會議待辦模式']),
+      meetingPolicyVersion: plain(page.properties?.['會議設定版本']),
       statusUpdatePolicy: selected(page.properties?.['狀態更新權限']),
       defaultReminderTargets: plain(page.properties?.['預設提醒對象']),
       members,

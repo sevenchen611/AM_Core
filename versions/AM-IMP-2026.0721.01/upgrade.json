@@ -1,0 +1,95 @@
+{
+  "id": "AM-IMP-2026.0721.01",
+  "name": "AM Meeting Rollout Control Center",
+  "type": "Governance",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-07-21",
+  "dependsOn": [
+    "AM-IMP-2026.0720.01",
+    "AM-IMP-2026.0720.03"
+  ],
+  "installTargets": [
+    "AM_PLATFORM",
+    "HOZO_AM",
+    "SEVEN_AM",
+    "NEW_AM_PROJECT"
+  ],
+  "scope": [
+    "Tenant-tabbed Portal meeting rollout page",
+    "Per-group meeting mode stored in project-local Group Bindings",
+    "formalTasksEnabled compatibility ceiling and fail-closed enforcement",
+    "Selected-group preflight and batch apply",
+    "Safe Group Bindings schema initialization",
+    "Immediate group router cache invalidation"
+  ],
+  "requiresDatabases": [
+    "Existing project-local LINE group bindings source with standard core fields",
+    "Existing project-local meetings and review sources required by AM-IMP-2026.0720.01",
+    "Existing project-local formal tasks source for review_and_create mode"
+  ],
+  "requiresEnv": [
+    "Existing target-local Portal tenant-wide group-manager authentication configuration",
+    "Existing target-local public base URL and signed review-link configuration",
+    "Existing per-tenant LINE Messaging API and published LIFF configuration for review modes",
+    "Existing target-local transcription, AI, and media-storage configuration"
+  ],
+  "requiresScripts": [
+    "node tools/check-upgrade-package.js AM-IMP-2026.0721.01",
+    "node tools/verify-meeting-rollout-policy.mjs",
+    "node tools/verify-meeting-admin.mjs",
+    "Target-local production smoke test for each enabled tenant"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Install the control behavior independently in every target. Group settings are scoped by target, tenant, and group. Never copy LINE identities, member mappings, meeting or task records, database identifiers, credentials, environment values, or deployment state between projects."
+  },
+  "changes": [
+    "Adds four meeting rollout modes: off, record_only, review_only, and review_and_create",
+    "Uses the tenant formalTasksEnabled setting as the compatibility ceiling for each group request",
+    "Adds tenant tabs, group selection, batch mode selection, preflight, and batch apply",
+    "Adds safe initialization of meeting-management fields in the existing Group Bindings source",
+    "Adds mode-aware preflight that blocks unsafe activation with actionable reasons",
+    "Restricts mutation and schema initialization to the tenant-wide Portal group manager",
+    "Records last setter, time, setting version, and preflight metadata in each updated group binding",
+    "Invalidates the server-resolved group router cache after a successful update",
+    "Preserves existing meeting behavior when a legacy group has no explicit meeting mode",
+    "Separates one-time LIFF, Render, Notion, LINE, storage, transcription, and AI setup from checkbox activation"
+  ],
+  "definitionOfDone": [
+    "All four production enum values and Chinese labels have server-enforced behavior and are visible in Portal",
+    "Tenant tabs show only authorized project-local Group Bindings rows",
+    "A group request cannot exceed the formalTasksEnabled tenant ceiling and invalid policy fails closed",
+    "Only the tenant-wide Portal group manager can initialize schema or batch-apply changes",
+    "Mode-aware preflight prevents activation when required project-local prerequisites are missing",
+    "Missing management fields can be safely initialized without replacing incompatible existing fields",
+    "A successful group setting records setter/time/version/preflight metadata and affects new meetings without redeployment",
+    "The server invalidates only the updated group IDs read from authorized binding rows",
+    "Existing enabled and disabled meeting behavior is preserved when no explicit group mode exists",
+    "The checkbox never creates LIFF, Render, Notion, LINE, storage, transcription, or AI infrastructure",
+    "Meeting and task data remain isolated inside each target and tenant",
+    "The target project manifest and project-local upgrade record are updated after verification",
+    "Production is marked Deployed only after target-specific authorization, isolation, and meeting smoke tests pass"
+  ],
+  "files": [
+    "core/group-binding-schema.js",
+    "core/router.js",
+    "modules/groups/index.js",
+    "modules/meetings/policy.js",
+    "modules/meetings/admin.js",
+    "modules/meetings/index.js",
+    "tools/verify-meeting-rollout-policy.mjs",
+    "tools/verify-meeting-admin.mjs",
+    "versions/AM-IMP-2026.0721.01/README.md",
+    "versions/AM-IMP-2026.0721.01/upgrade.json",
+    "versions/AM-IMP-2026.0721.01/CONTROL_CONTRACT.md",
+    "versions/AM-IMP-2026.0721.01/INSTALL.md",
+    "versions/AM-IMP-2026.0721.01/REQUIRED_DATABASES.md",
+    "versions/AM-IMP-2026.0721.01/ENVIRONMENT.md",
+    "versions/AM-IMP-2026.0721.01/VERIFY.md",
+    "versions/AM-IMP-2026.0721.01/ROLLBACK.md"
+  ]
+}
