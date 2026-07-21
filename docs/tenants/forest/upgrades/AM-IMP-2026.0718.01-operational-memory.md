@@ -1,8 +1,8 @@
 # AM-IMP-2026.0718.01 — Forest operational memory
 
-Status: Blocked — PostgreSQL resource decision required
+Status: Deployed — shared production PostgreSQL with strict tenant isolation
 
-Forest AM is configured and deployed for the shared-platform tenant runtime in `shadow` mode. The runtime remains safely inactive until its PostgreSQL connection is provisioned.
+Forest AM is configured and deployed for the shared-platform tenant runtime in `shadow` mode. It uses the shared production PostgreSQL service through a dedicated restricted runtime role; tenant data is isolated with forced RLS.
 
 ## Installed code and policy
 
@@ -13,10 +13,10 @@ Forest AM is configured and deployed for the shared-platform tenant runtime in `
 ## Required completion gates
 
 1. Create Forest-only Notion projection databases under the Forest parent page. — Completed
-2. Provision a dedicated PostgreSQL database and restricted runtime role. — Blocked pending database plan approval
-3. Apply and verify the schema with `node --env-file=.env tools/install-tenant-operational-memory.mjs forest`.
-4. Configure `FOREST_AM_MEMORY_DATABASE_URL` in the AM Platform Render service; `FOREST_AM_MEMORY_MODE=shadow` is already set.
-5. Verify tenant RLS, a Forest group binding, raw ingestion, idempotency, candidate extraction, and `/health`.
+2. Provision the shared production PostgreSQL service and Forest's restricted runtime role. — Completed
+3. Apply and verify the schema with `node --env-file=.env tools/install-tenant-operational-memory.mjs forest`. — Completed; PostgreSQL 18 and runtime-role separation verified.
+4. Configure the Forest runtime connection in the AM Platform Render service; `FOREST_AM_MEMORY_MODE=shadow` remains set. — Completed
+5. Verify tenant RLS, a Forest group binding, raw ingestion, idempotency, candidate extraction, and `/health`. — RLS verified: no-context access fails closed, Forest access succeeds, and cross-tenant access is denied. Runtime health is available; live message ingestion begins only after Forest's LINE group binding receives a message.
 
 ## Rollback
 

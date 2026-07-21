@@ -41,6 +41,10 @@ function quoteIdentifier(value) {
   return `"${value.replace(/"/g, '""')}"`;
 }
 
+function quoteLiteral(value) {
+  return `'${String(value).replace(/'/g, "''")}'`;
+}
+
 async function identity(pool) {
   const result = await pool.query('SELECT current_user, current_database(), version() AS version');
   return result.rows[0];
@@ -103,6 +107,21 @@ async function grantRuntimeRole(pool, runtimeRole) {
   await pool.query(`ALTER DEFAULT PRIVILEGES IN SCHEMA am_memory GRANT EXECUTE ON FUNCTIONS TO ${role}`);
 }
 
+async function ensureRuntimeRole(pool, connectionString) {
+  const parsed = new URL(connectionString);
+  const username = decodeURIComponent(parsed.username || '');
+  const password = decodeURIComponent(parsed.password || '');
+  if (!username || !password) throw new Error('Runtime database URL must include a username and password.');
+  const role = quoteIdentifier(username);
+  const secret = quoteLiteral(password);
+  const existing = await pool.query('SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = $1', [username]);
+  if (!existing.rowCount) {
+    await pool.query(`CREATE ROLE ${role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD ${secret}`);
+  } else {
+    await pool.query(`ALTER ROLE ${role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD ${secret}`);
+  }
+}
+
 async function verifyRuntimeIsolation(pool) {
   const noContext = await pool.query('SELECT count(*)::int AS count FROM am_memory.tenants');
   if (Number(noContext.rows[0]?.count) !== 0) throw new Error('RLS fails closed check: runtime role can read without tenant context.');
@@ -141,6 +160,7 @@ async function verifyRuntimeIsolation(pool) {
 const migrationPool = new pg.Pool(poolConfig(migrationUrl));
 const runtimePool = new pg.Pool(poolConfig(runtimeUrl));
 try {
+  await ensureRuntimeRole(migrationPool, runtimeUrl);
   const [migrationIdentity, runtimeIdentity] = await Promise.all([identity(migrationPool), identity(runtimePool)]);
   if (migrationIdentity.current_database !== runtimeIdentity.current_database) {
     throw new Error('Migration and runtime connections must target the same PostgreSQL database.');

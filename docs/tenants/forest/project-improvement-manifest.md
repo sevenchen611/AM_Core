@@ -2,7 +2,7 @@
 
 | Version | Status | Scope | Verified | Notes |
 | --- | --- | --- | --- | --- |
-| AM-IMP-2026.0718.01 | Blocked | Shadow operational memory | Notion/Drive identity, local checks, Render deploy and public health | Forest tenant runtime and Notion foundation are deployed. PostgreSQL migration and its dedicated restricted runtime connection still require a database-resource decision. |
+| AM-IMP-2026.0718.01 | Deployed | Shadow operational memory | Notion/Drive identity, PostgreSQL migration, runtime-role separation, forced RLS isolation, Render deployment and public health | Forest uses the shared production PostgreSQL service with a dedicated restricted runtime role. Forest can access only its own tenant row; missing tenant context and a different tenant ID are denied. |
 
 ## Tenant boundary
 
