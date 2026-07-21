@@ -41,6 +41,9 @@ function tenantConfig(tenant, env) {
   const mode = String(fromEnv('AM_MEMORY_MODE', declaredMode)).toLowerCase();
   const queryMode = String(fromEnv('AM_MEMORY_QUERY_MODE', declared.queryMode || 'legacy')).toLowerCase();
   const databaseUrl = fromConnectionEnv('AM_MEMORY_DATABASE_URL', '');
+  const databaseSsl = ['1', 'true', 'require'].includes(
+    String(fromConnectionEnv('AM_MEMORY_DATABASE_SSL', '')).toLowerCase(),
+  );
   return {
     tenantId: String(tenant?.tenantId || declared.tenantId || ''),
     tenantKey: String(tenant?.key || ''),
@@ -48,6 +51,7 @@ function tenantConfig(tenant, env) {
     mode: MODES.has(mode) ? mode : 'off',
     queryMode: QUERY_MODES.has(queryMode) ? queryMode : 'legacy',
     databaseUrl,
+    databaseSsl,
     configured: Boolean(UUID_RE.test(String(tenant?.tenantId || declared.tenantId || '')) && databaseUrl),
     batchSize: positiveInt(fromEnv('AM_MEMORY_WORKER_BATCH_SIZE', declared.workerBatchSize), 8, 25),
     knowledgePromotion: String(fromEnv('AM_MEMORY_KNOWLEDGE_PROMOTION', declared.knowledgePromotion || 'review-only')),
@@ -107,6 +111,7 @@ export function createOperationalMemory({ env = process.env, logger = console, p
     }
     const pool = factory({
       connectionString: config.databaseUrl,
+      ssl: config.databaseSsl ? { rejectUnauthorized: false } : undefined,
       max: positiveInt(env.AM_MEMORY_POOL_SIZE, 4, 20),
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 8_000,
