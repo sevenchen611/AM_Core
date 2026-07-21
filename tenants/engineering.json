@@ -14,6 +14,7 @@
       "acceptLegacyGlobalPinCookie": true
     },
     "meetings": {
+      "formalTasksEnabled": true,
       "domain": "台灣旅宿室內裝修工程會議",
       "transcriptionHint": "台灣旅宿室內裝修工程會議,繁體中文為主、夾雜英文工程術語。",
       "keyterms": [
