@@ -209,6 +209,7 @@ const pending = new Map();
 const reviewSessions = new Map();
 const ROSTER_TIMEOUT_MS = 30 * 60 * 1000;
 const REVIEW_DECISION_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+const REVIEW_SESSION_MARKER = '[AM_MEETING_REVIEW_SESSION]';
 const pkey = (tenant, groupId) => `${(tenant && tenant.key) || 'default'}::${groupId}`;
 
 function hasPending(tenant, groupId) {
@@ -778,11 +779,140 @@ async function pushMeetingReviewNotification(session, message, event, { attempts
   throw error;
 }
 
+function reviewSessionRichText(session) {
+  const payload = {
+    version: 1,
+    id: session.id,
+    status: session.status,
+    tenantKey: session.tenant?.key || '',
+    binding: {
+      pageId: session.binding?.pageId || '',
+      groupName: session.binding?.groupName || session.binding?.name || '',
+      name: session.binding?.name || session.binding?.groupName || '',
+      role: session.binding?.role || '',
+      projectPageId: session.binding?.projectPageId || '',
+      members: session.memberMap || session.binding?.members || {},
+    },
+    memberMap: session.memberMap || {},
+    groupId: session.groupId || '',
+    hostName: session.hostName || '',
+    hostUserId: session.hostUserId || '',
+    meetingId: session.meetingId || '',
+    meetingUrl: session.meetingUrl || '',
+    publicUrl: session.publicUrl || '',
+    projectPageId: session.projectPageId || '',
+    perGroup: Boolean(session.perGroup),
+    createdAt: session.createdAt || Date.now(),
+    todos: session.todos || [],
+    taskPageIds: session.taskPageIds || [],
+    notificationRetryKeys: session.notificationRetryKeys || {},
+    finalizedBy: session.finalizedBy || '',
+    finalizedAt: session.finalizedAt || '',
+    confirmedTodosAppended: Boolean(session.confirmedTodosAppended),
+  };
+  const encoded = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+  const value = `${REVIEW_SESSION_MARKER}${encoded}`;
+  const chunks = [];
+  for (let i = 0; i < value.length; i += 1800) chunks.push(value.slice(i, i + 1800));
+  return chunks.map((content) => ({ type: 'text', text: { content } }));
+}
+
+function parseReviewSessionMarker(value) {
+  const raw = String(value || '');
+  if (!raw.startsWith(REVIEW_SESSION_MARKER)) return null;
+  try {
+    const encoded = raw.slice(REVIEW_SESSION_MARKER.length).trim();
+    return JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+  } catch (error) {
+    console.warn(`meeting review session marker parse failed: ${error.message}`);
+    return null;
+  }
+}
+
+async function persistReviewSession(session) {
+  if (!session?.meetingId) return;
+  try {
+    const children = await readChildren(session.meetingId);
+    const markers = children.filter((block) => block.type === 'paragraph'
+      && richText(block.paragraph?.rich_text).startsWith(REVIEW_SESSION_MARKER));
+    const body = { paragraph: { rich_text: reviewSessionRichText(session) } };
+    if (markers.length) {
+      const latest = markers[markers.length - 1];
+      await platform.notionRequest(`/v1/blocks/${encodeURIComponent(latest.id)}`, {
+        method: 'PATCH',
+        body,
+      });
+    } else {
+      await appendChildren(session.meetingId, [{
+        object: 'block',
+        type: 'paragraph',
+        paragraph: body.paragraph,
+      }]);
+    }
+  } catch (error) {
+    console.warn(`meeting review session persist failed: ${error.message}`);
+  }
+}
+
+async function loadReviewSessionFromMeeting(sessionId, tenants = [], routeTenant = null) {
+  if (!/^[0-9a-f]{32}$/i.test(String(sessionId || ''))) return null;
+  try {
+    const children = await readChildren(sessionId);
+    const markers = children.filter((block) => block.type === 'paragraph'
+      && richText(block.paragraph?.rich_text).startsWith(REVIEW_SESSION_MARKER));
+    for (let i = markers.length - 1; i >= 0; i -= 1) {
+      const payload = parseReviewSessionMarker(richText(markers[i].paragraph?.rich_text));
+      if (!payload || payload.id !== sessionId) continue;
+      const tenant = tenants.find((t) => t.key === payload.tenantKey) || routeTenant || null;
+      if (!tenant) return null;
+      const binding = payload.binding && typeof payload.binding === 'object' ? { ...payload.binding } : {};
+      binding.members = payload.memberMap || binding.members || {};
+      const session = {
+        id: payload.id,
+        status: payload.status || 'awaiting_host_choice',
+        tenant,
+        binding,
+        memberMap: payload.memberMap || binding.members || {},
+        groupId: payload.groupId || '',
+        hostName: payload.hostName || '',
+        hostUserId: payload.hostUserId || '',
+        meetingId: payload.meetingId || payload.id,
+        meetingUrl: payload.meetingUrl || '',
+        publicUrl: payload.publicUrl || '',
+        projectPageId: payload.projectPageId || binding.projectPageId || '',
+        perGroup: Boolean(payload.perGroup),
+        createdAt: Number(payload.createdAt || Date.now()),
+        todos: (payload.todos || []).slice(0, 30).map(normalizeTodo),
+        taskPageIds: Array.isArray(payload.taskPageIds) ? payload.taskPageIds : [],
+        notificationRetryKeys: payload.notificationRetryKeys || {},
+        finalizedBy: payload.finalizedBy || '',
+        finalizedAt: payload.finalizedAt || '',
+        confirmedTodosAppended: Boolean(payload.confirmedTodosAppended),
+        timer: null,
+      };
+      if (session.status === 'awaiting_host_choice') {
+        const elapsed = Date.now() - session.createdAt;
+        const remaining = Math.max(60_000, REVIEW_DECISION_TIMEOUT_MS - elapsed);
+        session.timer = setTimeout(() => {
+          autoCompleteReviewSession(session.id).catch((e) => console.warn(`meeting review auto-complete failed: ${e.message}`));
+        }, remaining);
+        session.timer.unref?.();
+      }
+      reviewSessions.set(session.id, session);
+      return session;
+    }
+  } catch (error) {
+    console.warn(`meeting review session restore failed session=${String(sessionId || '').slice(0, 8)}: ${error.message}`);
+  }
+  return null;
+}
+
 async function beginMeetingReview(session, options = {}) {
   if (session.status !== 'awaiting_host_choice') {
     throw Object.assign(new Error('此會議已經選擇過確認流程。'), { statusCode: 409 });
   }
   session.status = 'opening_review';
+  await persistReviewSession(session);
   try {
     await pushMeetingReviewNotification(
       session,
@@ -791,8 +921,10 @@ async function beginMeetingReview(session, options = {}) {
       options,
     );
     session.status = 'reviewing';
+    await persistReviewSession(session);
   } catch (error) {
     session.status = 'awaiting_host_choice';
+    await persistReviewSession(session);
     throw error;
   }
 }
@@ -932,7 +1064,7 @@ async function ensureSessionMemberBestEffort(session, actorName, actorUserId, ti
 }
 
 function createReviewSession(payload) {
-  const sessionId = crypto.randomBytes(10).toString('hex');
+  const sessionId = normId(payload.meetingId) || crypto.randomBytes(10).toString('hex');
   const todos = (payload.todos || []).slice(0, 30).map(normalizeTodo);
   const session = {
     id: sessionId,
@@ -956,6 +1088,7 @@ function createReviewSession(payload) {
   session.timer = setTimeout(() => {
     autoCompleteReviewSession(sessionId).catch((e) => console.warn(`meeting review auto-complete failed: ${e.message}`));
   }, REVIEW_DECISION_TIMEOUT_MS);
+  session.timer.unref?.();
   reviewSessions.set(sessionId, session);
   return session;
 }
@@ -987,7 +1120,7 @@ async function readChildren(blockId) {
 }
 
 const esc = (s) => String(s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const richText = (rt) => (rt || []).map((r) => r.plain_text || '').join('');
+const richText = (rt) => (rt || []).map((r) => r.plain_text || r.text?.content || '').join('');
 
 // Notion 區塊 → HTML(標題/條列/checkbox/段落)
 function blocksToHtml(blocks) {
@@ -1184,10 +1317,12 @@ async function autoCompleteReviewSession(sessionId) {
   clearReviewTimer(session);
   if (!formalTasksEnabled(session.tenant)) {
     session.status = 'candidates_retained';
+    await persistReviewSession(session);
     await platform.pushLineMessage(session.groupId, `⏱ 會議待辦候選已保留，Green Hotel AM 尚未啟用正式待辦。\n會議記錄：${session.publicUrl || session.meetingUrl}`).catch(() => {});
     return;
   }
   await createMeetingTasksFromTodos(session);
+  await persistReviewSession(session);
   await platform.pushLineMessage(session.groupId, `⏱ 會議待辦確認超過 24 小時未選擇，已依原流程直接建立 ${session.taskPageIds.length} 筆待辦。\n會議記錄：${session.publicUrl || session.meetingUrl}`).catch(() => {});
 }
 
@@ -1197,6 +1332,7 @@ async function finishReviewSession(session, actor = '主持人') {
     session.finalizedBy = actor;
     session.finalizedAt = new Date().toISOString();
     clearReviewTimer(session);
+    await persistReviewSession(session);
     return;
   }
   const s = reviewSummary(session);
@@ -1208,6 +1344,7 @@ async function finishReviewSession(session, actor = '主持人') {
   clearReviewTimer(session);
   await createMeetingTasksFromTodos(session);
   await appendConfirmedTodosToMeeting(session).catch((e) => console.warn(`append confirmed meeting todos failed: ${e.message}`));
+  await persistReviewSession(session);
   await platform.pushLineMessage(session.groupId, `✅ 會議待辦已完成確認，正式建立 ${session.taskPageIds.length} 筆待辦。\n\n最終確認待辦：\n${confirmedTodosText(session)}\n\n會議記錄：${session.publicUrl || session.meetingUrl}`).catch(() => {});
 }
 
@@ -1218,10 +1355,12 @@ async function completeWithoutReview(session, actor = '主持人') {
   clearReviewTimer(session);
   if (!formalTasksEnabled(session.tenant)) {
     session.status = 'candidates_retained';
+    await persistReviewSession(session);
     await platform.pushLineMessage(session.groupId, `✅ 會議待辦候選已保留；Green Hotel AM 尚未啟用正式待辦。\n會議記錄：${session.publicUrl || session.meetingUrl}`).catch(() => {});
     return;
   }
   await createMeetingTasksFromTodos(session);
+  await persistReviewSession(session);
   await platform.pushLineMessage(session.groupId, `✅ 主持人選擇不進行待辦確認，已依原流程建立 ${session.taskPageIds.length} 筆待辦。\n會議記錄：${session.publicUrl || session.meetingUrl}`).catch(() => {});
 }
 
@@ -1307,20 +1446,21 @@ function reviewClientSession(session) {
 }
 
 function meetingReviewTokenFromRequest(pathname, url) {
-  let m = String(pathname).match(/^\/meetings\/review\/([0-9a-f]{20})-([0-9a-f]{16})$/i);
+  let m = String(pathname).match(/^\/meetings\/review\/([0-9a-f]{20}|[0-9a-f]{32})-([0-9a-f]{16})$/i);
   if (m) return { sessionId: m[1], sig: m[2] };
   if (String(pathname) !== '/meetings/review') return null;
   const state = String(url?.searchParams?.get('liff.state') || '');
-  m = state.match(/^\/(?:meetings\/review\/)?([0-9a-f]{20})-([0-9a-f]{16})(?:[?#].*)?$/i);
+  m = state.match(/^\/(?:meetings\/review\/)?([0-9a-f]{20}|[0-9a-f]{32})-([0-9a-f]{16})(?:[?#].*)?$/i);
   if (m) return { sessionId: m[1], sig: m[2] };
   return null;
 }
 
-async function handleMeetingReviewRequest(req, res, { pathname, url }) {
+async function handleMeetingReviewRequest(req, res, { pathname, url, tenant = null, tenants = [] }) {
   const token = meetingReviewTokenFromRequest(pathname, url);
   if (!token) return false;
   const { sessionId, sig } = token;
-  const session = reviewSessions.get(sessionId);
+  let session = reviewSessions.get(sessionId);
+  if (!session) session = await loadReviewSessionFromMeeting(sessionId, tenants, tenant);
   if (!platform.publicLinkSecret || reviewSig(sessionId) !== sig.toLowerCase() || !session) {
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end('<meta charset="utf-8"><p style="font-family:system-ui;padding:40px;text-align:center">找不到這份待辦確認。</p>');
@@ -1342,6 +1482,7 @@ async function handleMeetingReviewRequest(req, res, { pathname, url }) {
     console.log(`Meeting review actor resolved action=${action || 'unknown'} session=${sessionId.slice(0, 8)} actorHash=${actorHash} hostMatch=${!session.hostUserId || session.hostUserId === actorUserId}`);
     if (action === 'identify') {
       await ensureSessionMemberBestEffort(session, actorName, actorUserId);
+      await persistReviewSession(session);
       return sendJson(res, 200, { ok: true, session: reviewClientSession(session) }), true;
     }
     if (action === 'start') {
@@ -1382,6 +1523,7 @@ async function handleMeetingReviewRequest(req, res, { pathname, url }) {
         todo.ownerConfirmedBy = actorName || todo.owner;
         todo.ownerConfirmedAt = stamp();
       }
+      await persistReviewSession(session);
       return sendJson(res, 200, { ok: true, session: reviewClientSession(session) }), true;
     }
     if (action === 'finalize') {
@@ -1470,6 +1612,7 @@ async function publishMeeting({ parsed, diarized, legend, roster, projectPageId,
     perGroup,
     todos,
   });
+  await persistReviewSession(session);
   if (!reviewUrl(session.id, tenant)) {
     await completeWithoutReview(session, '系統');
   } else {
@@ -1623,6 +1766,7 @@ async function processRecording({ tenant, buffer, filename, contentType, sourceI
     perGroup,
     todos,
   });
+  await persistReviewSession(session);
   if (!reviewUrl(session.id, tenant)) {
     await completeWithoutReview(session, '系統');
   } else {
@@ -1656,8 +1800,8 @@ export default {
   }, {
     prefix: '/meetings/review',
     access: { kind: 'public', scope: 'signed-link' },
-    handler: async (req, res, { pathname, url }) => {
-      const handled = await handleMeetingReviewRequest(req, res, { pathname, url });
+    handler: async (req, res, { pathname, url, tenant, tenants }) => {
+      const handled = await handleMeetingReviewRequest(req, res, { pathname, url, tenant, tenants });
       if (!handled) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Not found'); }
     },
   }],
@@ -1666,4 +1810,4 @@ export default {
 };
 
 // 測試用內部匯出(不影響正式流程)
-export const __test = { meetingPrompt, normalizeParsed, normalizeMeetingContentType, withNextMeetingTodo, summarize, summaryTabBlocks, formalTasksEnabled, notesTabBlocks, publishMeeting, resolveMeetingsTarget, provisionMeetingsDb, normalizeTodo, hasRequiredTodoFields, reviewSummary, renderReviewHtml, pushMeetingReviewNotification, beginMeetingReview, lineProfileFromAccessToken, ensureSessionMemberBestEffort };
+export const __test = { meetingPrompt, normalizeParsed, normalizeMeetingContentType, withNextMeetingTodo, summarize, summaryTabBlocks, formalTasksEnabled, notesTabBlocks, publishMeeting, resolveMeetingsTarget, provisionMeetingsDb, normalizeTodo, hasRequiredTodoFields, reviewSummary, renderReviewHtml, pushMeetingReviewNotification, beginMeetingReview, lineProfileFromAccessToken, ensureSessionMemberBestEffort, createReviewSession, persistReviewSession, loadReviewSessionFromMeeting, reviewSessions };
