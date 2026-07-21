@@ -248,7 +248,7 @@ export function createOperationalMemory({ env = process.env, logger = console, p
           `INSERT INTO am_memory.processing_jobs
              (tenant_id, job_kind, idempotency_key, source_id, input_payload)
            VALUES ($1, 'extract_operational_events', $2, $3,
-             jsonb_build_object('sourceId', $3::text, 'groupExternalKey', $4::text))
+             jsonb_build_object('sourceId', $3, 'groupExternalKey', $4))
            ON CONFLICT (tenant_id, job_kind, idempotency_key) DO NOTHING`,
           [config.tenantId, idempotencyKey, sourceId, groupExternalKey],
         );
