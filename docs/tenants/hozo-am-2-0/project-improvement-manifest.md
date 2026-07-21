@@ -6,7 +6,7 @@ Environment prefix: `HZ2`
 
 | Version | Status | Capability | Scope | Notes |
 | --- | --- | --- | --- | --- |
-| AM-IMP-2026.0718.01 | Installed | Operational memory | Raw evidence → events → project/task state → decisions/knowledge | Notion, Drive and the shared PostgreSQL tenant row are installed. PostgreSQL 18, separated runtime role and forced RLS passed; Render production deployment verification remains. |
+| AM-IMP-2026.0718.01 | Deployed | Operational memory | Raw evidence → events → project/task state → decisions/knowledge | Notion, Drive, 15 data sources and the shared PostgreSQL tenant row are live. PostgreSQL 18, separated runtime role, forced RLS and Render production health passed. |
 
 ## Tenant boundaries
 

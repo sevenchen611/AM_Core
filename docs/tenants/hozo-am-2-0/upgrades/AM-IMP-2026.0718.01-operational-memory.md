@@ -1,6 +1,6 @@
 # AM-IMP-2026.0718.01 — HOZO AM 2.0 operational memory
 
-Status: Installed — Render deployment verification pending
+Status: Deployed — shared production PostgreSQL with strict tenant isolation
 
 HOZO AM 2.0 uses the AM Platform shared production PostgreSQL service in `shadow` mode. It has its own tenant UUID and relies on transaction-local tenant context plus forced RLS for data isolation.
 
@@ -13,6 +13,8 @@ HOZO AM 2.0 uses the AM Platform shared production PostgreSQL service in `shadow
 5. Verified HOZO AM 2.0 can read its own tenant row after setting its tenant context.
 6. Verified a different tenant context cannot read the HOZO AM 2.0 tenant row.
 7. Added `HZ2_AM_MEMORY_MODE=shadow` to the shared AM Platform Render service.
+8. Deployed commit `9f26b7a` to the AM Platform service; Render deploy `dep-d9fe5h741pts73e0qtu0` reached `live`.
+9. Verified production `/health`: Notion configured, Drive configured, group routing enabled, 15 tenant data sources loaded, and `collect`, `media`, `operational-memory`, and `meetings` active.
 
 ## Safety boundary
 
