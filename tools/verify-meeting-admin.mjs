@@ -314,12 +314,22 @@ async function postReview(path, body, sessionTenant) {
 
 // 初始化 schema 只補缺欄位，並寫回目前租戶自己的 data source。
 {
-  const h = makeHarness({ accessContext: access({ platformOwner: true }), schema: propertySchema({ missing: ['會議待辦模式', '會議導入檢查'] }) });
+  const h = makeHarness({ accessContext: access({ platformOwner: true }), schema: propertySchema({ missing: ['啟用功能', '會議待辦模式', '會議導入檢查'] }) });
   const res = await h.run('/meetings/manage/api/schema', 'POST', '{}');
   assert.equal(res.status, 200);
   const body = parsed(res);
   assert.equal(body.changed, true);
-  assert.deepEqual(new Set(body.fields), new Set(['會議待辦模式', '會議導入檢查']));
+  assert.deepEqual(new Set(body.fields), new Set([
+    '群組用途',
+    '主要負責人',
+    '啟用功能',
+    '所屬目標',
+    '狀態更新權限',
+    '預設提醒對象',
+    '會議資料庫',
+    '會議待辦模式',
+    '會議導入檢查',
+  ]));
   const patch = h.calls.find((call) => call.pathname === `/v1/data_sources/${DATA_SOURCE_ID}` && call.opts.method === 'PATCH');
   assert.ok(patch, 'schema 初始化應送出 PATCH');
   assert.equal(patch.opts.tenantKey, 'engineering');
