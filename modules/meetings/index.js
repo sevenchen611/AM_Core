@@ -1038,6 +1038,19 @@ function memberUserId(session, name) {
   return members?.[name] || '';
 }
 
+function knownReviewMemberUserIds(session) {
+  const members = session?.memberMap && typeof session.memberMap === 'object' ? session.memberMap : initialMemberMap(session?.binding);
+  return new Set(Object.values(members || {})
+    .map((id) => String(id || '').trim())
+    .filter(Boolean));
+}
+
+function isLineGroupMemberListUnavailable(error) {
+  const status = Number(error?.lineStatus || 0);
+  const message = String(error?.lineBody || error?.message || '');
+  return status === 403 && /Access to this API is not available for your account/i.test(message);
+}
+
 function reviewLiffId(session) {
   return String(session?.tenant?.config?.meetings?.liffId || '').trim();
 }
@@ -1091,17 +1104,39 @@ async function lineProfileFromAccessToken(accessToken, { timeoutMs = 6000, expec
   }
 }
 
-async function assertReviewGroupMember(session, userId) {
+function namesEqual(a, b) {
+  return Boolean(String(a || '').trim() && String(a || '').trim() === String(b || '').trim());
+}
+
+async function assertReviewGroupMember(session, userId, actorName = '') {
   const groupId = String(session?.groupId || '').trim();
   const actor = String(userId || '').trim();
   if (!groupId || !actor) throw Object.assign(new Error('無法確認會議群組身分。'), { statusCode: 403 });
+  const knownIds = knownReviewMemberUserIds(session);
+  if (actor === String(session?.hostUserId || '').trim() || knownIds.has(actor)) return;
+  if (String(session?.hostUserId || '').trim() && namesEqual(actorName, session?.hostName)) {
+    session.hostUserId = actor;
+    return;
+  }
   if (typeof platform?.listGroupMemberIds !== 'function') {
     throw Object.assign(new Error('LINE 群組成員驗證尚未設定，確認功能暫時唯讀。'), { statusCode: 503 });
   }
   const key = `${session?.tenant?.key || ''}::${groupId}`;
   let cached = reviewGroupMemberCache.get(key);
   if (!cached || Date.now() - cached.at > REVIEW_GROUP_MEMBER_CACHE_MS) {
-    const ids = await platform.listGroupMemberIds(groupId);
+    let ids = [];
+    try {
+      ids = await platform.listGroupMemberIds(groupId);
+    } catch (error) {
+      if (isLineGroupMemberListUnavailable(error)) {
+        console.warn(`Meeting review member list API unavailable session=${String(session?.id || '').slice(0, 8)}; using stored member map fallback.`);
+        throw Object.assign(
+          new Error('目前 LINE OA 不支援即時讀取群組成員；請先讓此使用者在群組內發過訊息或由主持人開啟確認。'),
+          { statusCode: 403, code: 'LINE_MEMBER_LIST_UNAVAILABLE', cause: error },
+        );
+      }
+      throw error;
+    }
     cached = { at: Date.now(), ids: new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean)) };
     reviewGroupMemberCache.set(key, cached);
   }
@@ -1118,7 +1153,7 @@ async function resolveReviewActor(session, body) {
   if (!profile?.userId) throw Object.assign(new Error('請先用 LINE 登入後再操作。'), { statusCode: 401 });
   const actorUserId = profile.userId;
   const actorName = profile.displayName || session.hostName || 'LINE 使用者';
-  await assertReviewGroupMember(session, actorUserId);
+  await assertReviewGroupMember(session, actorUserId, actorName);
   return { actorUserId, actorName };
 }
 

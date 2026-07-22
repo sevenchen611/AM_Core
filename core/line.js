@@ -21,7 +21,14 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
     const response = await fetch(`https://api.line.me${pathname}`, {
       headers: { Authorization: `Bearer ${channelAccessToken}` },
     });
-    if (!response.ok) throw new Error(`LINE API failed: ${response.status} ${await response.text()}`);
+    if (!response.ok) {
+      const body = await response.text();
+      throw Object.assign(new Error(`LINE API failed: ${response.status} ${body}`), {
+        code: 'LINE_API_FAILED',
+        lineStatus: response.status,
+        lineBody: body,
+      });
+    }
     return response.json();
   }
 

@@ -428,7 +428,7 @@ async function postReview(path, body, sessionTenant) {
   assert.equal(session.status, 'awaiting_host_choice');
 }
 
-// 有效 token 仍必須是該 LINE 群的現役成員。
+// 有效 token 仍必須是該 LINE 群的現役成員；非主持人且不在群組成員清單時拒絕。
 {
   meetings.init({
     publicLinkSecret: 'review-signed-secret',
@@ -438,12 +438,37 @@ async function postReview(path, body, sessionTenant) {
     pushLineMessage: async () => ({}),
   });
   const { session, path } = reviewSession({ meetingId: 'f'.repeat(20), tenantKey: 'non-member', groupId: 'C_NON_MEMBER' });
-  const line = installLineFetch();
+  const line = installLineFetch({ userId: 'U_NOT_IN_GROUP', displayName: 'Other User' });
   try {
     const res = await postReview(path, { action: 'start', liffAccessToken: 'valid-but-not-member' }, session.tenant);
     assert.equal(res.status, 403);
     assert.match(parsed(res).error, /只有這個 LINE 群組的成員/);
     assert.equal(session.status, 'awaiting_host_choice');
+  } finally { line.restore(); }
+}
+
+// 若 LINE Login channel 與 Messaging API userId 對不起來，但 LIFF 顯示名稱完全等於錄音上傳者，
+// 允許本次主持人補綁 LIFF userId，避免帳號不支援 members/ids API 時主持人被卡住。
+{
+  meetings.init({
+    publicLinkSecret: 'review-signed-secret',
+    publicBaseUrl: 'https://safe.example.test',
+    listGroupMemberIds: async () => {
+      const error = new Error('LINE API failed: 403 {"message":"Access to this API is not available for your account"}');
+      error.lineStatus = 403;
+      error.lineBody = '{"message":"Access to this API is not available for your account"}';
+      throw error;
+    },
+    notionRequest: async () => ({}),
+    pushLineMessage: async () => ({}),
+  });
+  const { session, path } = reviewSession({ meetingId: 'b2'.repeat(10), tenantKey: 'host-name-fallback', groupId: 'C_HOST_FALLBACK' });
+  const line = installLineFetch({ userId: 'U_LIFF_REVIEW_HOST', displayName: 'Review Host' });
+  try {
+    const res = await postReview(path, { action: 'start', liffAccessToken: 'valid-host-token' }, session.tenant);
+    assert.equal(res.status, 200);
+    assert.equal(session.hostUserId, 'U_LIFF_REVIEW_HOST');
+    assert.equal(session.status, 'reviewing');
   } finally { line.restore(); }
 }
 
