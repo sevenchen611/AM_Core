@@ -1289,16 +1289,24 @@ async function buildPublicSections(pageId) {
   const legend = top.filter((b) => b.type === 'paragraph')
     .map((b) => richText(b.paragraph?.rich_text)).find((s) => s.includes('【講者對照】')) || '';
   const sections = [];
+  let confirmedTodoSection = null;
   for (const tg of top.filter((b) => b.type === 'heading_2' && b.heading_2?.is_toggleable)) {
     const title = richText(tg.heading_2.rich_text);
     const kids = await readChildren(tg.id);
-    if (title.includes('摘要')) {
+    if (title.includes('最終確認待辦')) {
+      confirmedTodoSection = { key: 'todo', title: '📅 待辦事項（最終確認版）', blocks: kids.filter((b) => b.type === 'to_do') };
+    } else if (title.includes('摘要')) {
       const i = kids.findIndex((b) => b.type === 'heading_2' && richText(b.heading_2?.rich_text).includes('待辦'));
       sections.push({ key: 'summary', title: '📄 摘要', blocks: i >= 0 ? kids.slice(0, i) : kids });
       if (i >= 0) sections.push({ key: 'todo', title: '📅 待辦事項', blocks: kids.slice(i + 1) });
     } else if (title.includes('筆記')) sections.push({ key: 'notes', title: '📝 筆記', blocks: kids });
     else if (title.includes('逐字稿')) sections.push({ key: 'transcript', title: '🎧 逐字稿', blocks: kids });
     else sections.push({ key: 'other', title, blocks: kids });
+  }
+  if (confirmedTodoSection?.blocks?.length) {
+    const existingTodoIndex = sections.findIndex((s) => s.key === 'todo');
+    if (existingTodoIndex >= 0) sections[existingTodoIndex] = confirmedTodoSection;
+    else sections.push(confirmedTodoSection);
   }
   const order = { summary: 1, notes: 2, todo: 3, transcript: 4, other: 5 };
   sections.sort((a, b) => (order[a.key] || 9) - (order[b.key] || 9));
@@ -1477,6 +1485,53 @@ async function appendConfirmedTodosToMeeting(session) {
   session.confirmedTodosAppended = true;
 }
 
+async function syncConfirmedTodosToMeetingSummary(session) {
+  if (!session?.meetingId || !Array.isArray(session.todos)) return false;
+  const top = await readChildren(session.meetingId);
+  const summaryToggle = top.find((b) => b.type === 'heading_2'
+    && b.heading_2?.is_toggleable
+    && richText(b.heading_2?.rich_text).includes('摘要'));
+  if (!summaryToggle?.id) return false;
+  const kids = await readChildren(summaryToggle.id);
+  const todoHeadingIndex = kids.findIndex((b) => b.type === 'heading_2'
+    && richText(b.heading_2?.rich_text).includes('待辦'));
+  if (todoHeadingIndex < 0) return false;
+  const todoHeading = kids[todoHeadingIndex];
+  const tail = kids.slice(todoHeadingIndex + 1);
+  const nextHeadingIndex = tail.findIndex((b) => b.type === 'heading_2' || b.type === 'heading_3');
+  const todoRegion = nextHeadingIndex >= 0 ? tail.slice(0, nextHeadingIndex) : tail;
+  const existingTodos = todoRegion.filter((b) => b.type === 'to_do');
+
+  await platform.notionRequest(`/v1/blocks/${encodeURIComponent(todoHeading.id)}`, {
+    method: 'PATCH',
+    body: { heading_2: { rich_text: [text('📅 待辦（已完成確認並同步待辦任務資料庫）')] } },
+  });
+
+  const confirmed = session.todos.slice(0, 30);
+  for (let i = 0; i < Math.min(existingTodos.length, confirmed.length); i += 1) {
+    await platform.notionRequest(`/v1/blocks/${encodeURIComponent(existingTodos[i].id)}`, {
+      method: 'PATCH',
+      body: {
+        to_do: {
+          rich_text: [text(`${confirmed[i].content}${confirmed[i].owner ? `(${confirmed[i].owner})` : ''}${confirmed[i].due ? ` 期限:${confirmed[i].due}` : ''}`)],
+          checked: false,
+        },
+      },
+    });
+  }
+  for (const extra of existingTodos.slice(confirmed.length)) {
+    await platform.notionRequest(`/v1/blocks/${encodeURIComponent(extra.id)}`, {
+      method: 'PATCH',
+      body: { archived: true },
+    });
+  }
+  if (confirmed.length > existingTodos.length) {
+    await appendChildren(summaryToggle.id, confirmed.slice(existingTodos.length).map((t) => todoBlock(t)));
+  }
+  session.confirmedTodosSyncedToSummary = true;
+  return true;
+}
+
 async function autoCompleteReviewSession(sessionId) {
   const session = reviewSessions.get(sessionId);
   if (!session || session.status !== 'awaiting_host_choice') return;
@@ -1501,6 +1556,7 @@ async function finishReviewSession(session, actor = '主持人') {
   session.finalizedAt = new Date().toISOString();
   clearReviewTimer(session);
   if (createFormalTasks) await createMeetingTasksFromTodos(session);
+  await syncConfirmedTodosToMeetingSummary(session).catch((e) => console.warn(`sync confirmed meeting todos to summary failed: ${e.message}`));
   await appendConfirmedTodosToMeeting(session).catch((e) => console.warn(`append confirmed meeting todos failed: ${e.message}`));
   await persistReviewSession(session);
   const outcome = createFormalTasks
