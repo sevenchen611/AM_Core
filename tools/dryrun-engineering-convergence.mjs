@@ -26,14 +26,14 @@ const tenants = loadTenants(env, { warn() {} });
 const engineering = tenants.find((tenant) => tenant.key === 'engineering');
 const forest = tenants.find((tenant) => tenant.key === 'forest');
 assert.ok(engineering, 'engineering tenant should load');
-assert.deepEqual(engineering.modules, ['collect', 'meetings', 'media', 'triage', 'queue', 'tasks', 'reminders', 'construction', 'groups']);
+assert.deepEqual(engineering.modules, ['collect', 'meetings', 'meeting-terms', 'media', 'triage', 'queue', 'tasks', 'reminders', 'construction', 'groups']);
 assert.equal(engineering.queueAccessKey, 'engineering-key');
 assert.equal(engineering.portalPin, 'engineering-pin');
 assert.equal(engineering.calendars.ZS, 'zs-calendar');
 assert.equal(engineering.ai.minimaxApiKey, 'engineering-mm');
 assert.equal(engineering.ai.judgeModel, 'MiniMax-M3');
 
-const portal = createPortal({ queueAccessKey: 'platform-key', portalPin: 'platform-pin', logger: { warn() {} } });
+const portal = createPortal({ queueAccessKey: 'platform-key', portalPin: 'platform-pin', emergencyPinEnabled: true, logger: { warn() {} } });
 const scopedCookie = portal.pinCookieHeader(engineering).split(';')[0];
 assert.equal(portal.checkPin('engineering-pin', engineering), true);
 assert.equal(portal.pinAuthed({ headers: { cookie: scopedCookie } }, engineering), true);
@@ -43,7 +43,7 @@ assert.equal(portal.pinAuthed({ headers: { cookie: scopedCookie } }, forest), fa
 const legacyValue = portal.pinCookieValue();
 assert.equal(portal.pinAuthed({ headers: { cookie: `buildam_auth=${legacyValue}` } }, engineering), false,
   'legacy cookie with platform key must not match tenant key');
-const tenantLegacyPortal = createPortal({ queueAccessKey: 'engineering-key', portalPin: 'engineering-pin', logger: { warn() {} } });
+const tenantLegacyPortal = createPortal({ queueAccessKey: 'engineering-key', portalPin: 'engineering-pin', emergencyPinEnabled: true, logger: { warn() {} } });
 assert.equal(tenantLegacyPortal.pinAuthed({ headers: { cookie: `buildam_auth=${tenantLegacyPortal.pinCookieValue()}` } }, engineering), true);
 const legacyUser = { role: 'member', active: true, allowedFeatures: ['am-buildam', 'am-buildam-zs', 'am-buildam-budget'], projectIds: ['buildam'] };
 assert.equal(portal.tenantAuthorized(legacyUser, engineering), true);

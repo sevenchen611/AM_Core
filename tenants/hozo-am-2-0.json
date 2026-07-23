@@ -6,7 +6,7 @@
   "envPrefix": "HZ2",
   "runtimeEnabled": true,
   "authorizationReady": false,
-  "modules": ["collect", "media", "operational-memory", "meetings"],
+  "modules": ["collect", "media", "operational-memory", "meetings", "meeting-terms"],
   "status": "新租戶初始化：以 shadow 模式保留原始證據並產生事件、任務、決策與知識候選；完成 Notion、Drive、PostgreSQL 與群組綁定驗證前，不啟用正式任務寫回、提醒或自動回覆。",
   "operationalMemory": {
     "enabled": true,

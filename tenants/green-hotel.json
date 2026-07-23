@@ -6,7 +6,7 @@
   "envPrefix": "GREEN_HOTEL",
   "runtimeEnabled": true,
   "authorizationReady": false,
-  "modules": ["collect", "media", "operational-memory", "meetings"],
+  "modules": ["collect", "media", "operational-memory", "meetings", "meeting-terms"],
   "status": "Shadow-plus-meetings runtime: bound groups with status 影子記錄 preserve raw sources, archive and analyze images, extract PostgreSQL candidates, and publish meeting records. Formal tasks, reminders, Portal authorization, and general automatic replies remain disabled.",
   "operationalMemory": {
     "enabled": true,

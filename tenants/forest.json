@@ -6,7 +6,7 @@
   "envPrefix": "FOREST",
   "runtimeEnabled": true,
   "authorizationReady": false,
-  "modules": ["collect", "media", "operational-memory", "meetings", "queue", "tasks", "reminders", "groups"],
+  "modules": ["collect", "media", "operational-memory", "meetings", "meeting-terms", "queue", "tasks", "reminders", "groups"],
   "status": "AM-IMP-2026.0718.01 shadow runtime: 保留 LINE／會議原始證據、產生候選事件／任務／決策／知識；未啟用正式任務寫回、提醒或自動外部回覆。",
   "operationalMemory": {
     "enabled": true,

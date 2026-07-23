@@ -1,0 +1,18 @@
+{
+  "id": "AM-IMP-2026.0723.01",
+  "name": "Tenant meeting terminology library",
+  "type": "Meetings / Transcription quality / Tenant terminology",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-07-23",
+  "dependsOn": [],
+  "installTargets": ["AM_PLATFORM", "PROJECT_LOCAL"],
+  "scope": ["Per-tenant approved meeting terms", "Human review of AI term candidates", "Transcription keyterm injection"],
+  "requiresDatabases": ["Project-local meeting terminology data source"],
+  "requiresEnv": ["Project-local meeting terminology data source ID"],
+  "requiresScripts": ["node --check modules/meetings/index.js", "node tools/check-upgrade-package.js AM-IMP-2026.0723.01"],
+  "dataIsolation": {"canCopyCode": true, "canCopySchema": true, "canCopyData": false, "canCopySecrets": false, "guard": "Terms, aliases, candidate sources, recordings, users and credentials remain in the target tenant."},
+  "changes": ["AM Platform tenant management page", "AI candidate-term hook after meeting processing", "Approved terms only are eligible for transcription prompts"],
+  "definitionOfDone": ["Approved terms are injected only for their own tenant", "AI candidates start pending human confirmation", "Disabled or rejected terms are not injected", "No tenant terms or secrets are copied into AM Core"],
+  "files": ["modules/meeting-terms/index.js", "modules/meetings/index.js", "scripts/provision-meeting-terms.mjs", "versions/AM-IMP-2026.0723.01/README.md", "versions/AM-IMP-2026.0723.01/upgrade.json", "versions/AM-IMP-2026.0723.01/INSTALL.md", "versions/AM-IMP-2026.0723.01/VERIFY.md", "versions/AM-IMP-2026.0723.01/ROLLBACK.md"]
+}

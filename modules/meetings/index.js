@@ -539,7 +539,9 @@ async function transcribeWithAssembly({ tenant, buffer, audioMessageId, filename
 
   // 2. 提交(keyterms=人名+該租戶的專有名詞;prompt=領域提示+主題+與會者;省略 language_code 讓中英夾雜原生切換)
   const names = roster.speakers.map((s) => s.name);
-  const keyterms = [...new Set([...names, ...roster.keyterms, ...cfg.keyterms])]
+  // 名詞庫是 AM Platform 的租戶共用能力；未設定/暫時不可讀時安全退回既有靜態設定。
+  const libraryTerms = await platform.meetingTerms?.enabledTerms?.(tenant) || [];
+  const keyterms = [...new Set([...names, ...roster.keyterms, ...cfg.keyterms, ...libraryTerms])]
     .filter((t) => t && t.length <= 24).slice(0, 100);
   const who = roster.speakers.map((s) => `${s.name}${s.role ? `(${s.role})` : ''}`).join('、');
   const promptText = [
@@ -1895,6 +1897,12 @@ async function publishMeeting({ parsed, diarized, legend, roster, projectPageId,
     console.log(`Meeting published as record-only: ${parsed.title}, ${todos.length} todos.`);
     return true;
   }
+  // 下游可選擇保存 AI 候選名詞；候選不得直接視為正式詞或自動啟用。
+  await platform.suggestTermsFromMeeting?.({
+    tenant,
+    text: `${parsed.title}\n${(parsed.highlights || []).join('\n')}\n${(parsed.conclusions || []).join('\n')}\n${diarized.slice(0, 12000)}`,
+    meetingTitle: parsed.title || defaultTitle,
+  });
   const session = createReviewSession({
     tenant,
     binding,
@@ -2047,6 +2055,11 @@ async function processRecording({ tenant, buffer, filename, contentType, sourceI
   await appendChildren(meeting.id, sourceBlocks);
   await appendToggleSection(meeting.id, '📄 摘要(會議記錄)', summaryTabBlocks(parsed, 'work', { formalTasks: false }));
   await appendToggleSection(meeting.id, '📝 筆記(分區詳細記錄)', notesTabBlocks(parsed));
+  await platform.suggestTermsFromMeeting?.({
+    tenant,
+    text: `${parsed.title}\n${(parsed.highlights || []).join('\n')}\n${(parsed.conclusions || []).join('\n')}\n${(parsed.minutes || []).flatMap((section) => section.points || []).join('\n')}`,
+    meetingTitle: parsed.title || cfg.defaultTitle,
+  });
 
   const todos = (parsed.todos || []).slice(0, 30);
   const url = await shareableUrl(meeting.id, meeting.url);

@@ -3,7 +3,7 @@
   "displayName": "工程 AM",
   "aka": "AM Platform 工程租戶（旅宿工程管理）",
   "envPrefix": "ENG",
-  "modules": ["collect", "meetings", "media", "triage", "queue", "tasks", "reminders", "construction", "groups"],
+  "modules": ["collect", "meetings", "meeting-terms", "media", "triage", "queue", "tasks", "reminders", "construction", "groups"],
   "status": "AM Platform 已完成工程功能承接；正式上線以 LINE webhook 切換為準；沿用既有 Notion 頁與資料來源，不搬資料",
   "config": {
     "homeRoute": "/dashboard",
