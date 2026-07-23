@@ -16,6 +16,8 @@ const mod = (await import(`file://${path.join(HERE, '../modules/meetings/index.j
 
 const SECRET = 'test-secret';
 const PAGE = '39a51c686dac819b816dea4a562c4b9f';
+const MEETINGS_DS = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+const TASKS_DS = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 const sig = crypto.createHmac('sha256', SECRET).update(`meeting:${PAGE}`).digest('hex').slice(0, 16);
 const PATH = `/m/${PAGE}-${sig}`;
 const LEGEND = '【講者對照】講者A=Seven(負責人)  講者B=其勳(現場工務主任)';
@@ -23,7 +25,7 @@ const rt = (s) => [{ type: 'text', text: { content: s }, plain_text: s }];
 
 function makePlatform() {
   const patched = { blocks: {}, props: {} };
-  const page = { id: PAGE, url: 'https://notion/x', properties: { '會議': { title: rt('D區檢討') }, '日期': { date: { start: '2026-07-11' } }, '參與者': { type: 'rich_text', rich_text: rt('Seven(負責人)、其勳(現場工務主任)') }, '類型': { select: { name: '審圖' } } } };
+  const page = { id: PAGE, url: 'https://notion/x', parent: { type: 'data_source_id', data_source_id: MEETINGS_DS }, properties: { '會議': { title: rt('D區檢討') }, '日期': { date: { start: '2026-07-11' } }, '參與者': { type: 'rich_text', rich_text: rt('Seven(負責人)、其勳(現場工務主任)') }, '類型': { select: { name: '審圖' } } } };
   const top = [
     { id: 'lg', type: 'paragraph', has_children: false, paragraph: { rich_text: rt(LEGEND) } },
     { id: 'sumTog', type: 'heading_2', has_children: true, heading_2: { rich_text: rt('📄 摘要(會議記錄)'), is_toggleable: true } },
@@ -40,9 +42,9 @@ function makePlatform() {
     const m = o.method || 'GET';
     if (p.includes('/children')) { const id = decodeURIComponent(p.split('/v1/blocks/')[1].split('/children')[0]); return { results: id === PAGE ? top : (kids[id] || []), has_more: false }; }
     if (p.startsWith('/v1/pages/') && m === 'GET') return page;
-    if (p.startsWith('/v1/pages/') && m === 'PATCH') { patched.props = o.body.properties; return {}; }
+    if (p.startsWith('/v1/pages/') && m === 'PATCH') { patched.props[decodeURIComponent(p.split('/v1/pages/')[1])] = o.body.properties; return {}; }
     if (p.startsWith('/v1/blocks/') && m === 'PATCH') { patched.blocks[decodeURIComponent(p.split('/v1/blocks/')[1])] = readText(Object.values(o.body)[0].rich_text); return {}; }
-    if (p.includes('/query')) return { results: [] };
+    if (p.includes('/query')) return { results: [{ id: 'task-1', properties: { '負責人': { rich_text: rt('其勳') } } }] };
     throw new Error('notion? ' + m + ' ' + p);
   };
   return { platform: { notionRequest, publicBaseUrl: 'https://plat', publicLinkSecret: SECRET }, patched };
@@ -72,9 +74,12 @@ check('GET:有效簽章可讀、顯示講者修正工具且不含 PIN', async ()
 check('POST 有效簽章不需 PIN 即可改寫', async () => {
   const { platform, patched } = makePlatform(); mod.init(platform);
   const res = mockRes();
-  await mod.handlePublicRequest(mockReq('POST', { fixes: SWAP }), res, PATH);
+  await mod.handlePublicRequest(mockReq('POST', { fixes: SWAP }), res, PATH, {
+    tenants: [{ key: 'engineering', dataSources: { meetings: MEETINGS_DS, tasks: TASKS_DS } }],
+  });
   assert.equal(res._r.status, 200);
   assert.ok(Object.keys(patched.blocks).length > 0, '應改寫會議內文');
+  assert.equal(patched.props['task-1']?.['負責人']?.rich_text?.[0]?.text?.content, 'Seven', '應同步正式待辦負責人');
 });
 
 check('POST 壞簽章 → 404,不進 save', async () => {

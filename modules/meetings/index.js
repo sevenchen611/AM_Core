@@ -18,6 +18,7 @@
 import crypto from 'node:crypto';
 import { parseLegend, speakerWidgetHtml, handleSpeakerSave } from './speaker-fix.js';
 import { createMeetingAdmin } from './admin.js';
+import { normalizeId } from '../../core/util.js';
 import {
   MEETING_POLICY_VERSION,
   MEETING_ROLLOUT_MODES,
@@ -1366,10 +1367,36 @@ ${body || '<p class="dim">(此會議尚無內容)</p>'}
 </div></body></html>`;
 }
 
+async function resolveTenantForPublicMeeting(pageId, tenants = []) {
+  const list = Array.isArray(tenants) ? tenants : [];
+  if (!list.length) return null;
+  try {
+    const children = await readChildren(pageId);
+    for (const block of children) {
+      if (block.type !== 'paragraph') continue;
+      const payload = parseReviewSessionMarker(richText(block.paragraph?.rich_text));
+      if (!payload?.tenantKey) continue;
+      const tenant = list.find((item) => item.key === payload.tenantKey);
+      if (tenant) return tenant;
+    }
+  } catch (error) {
+    console.warn(`public meeting tenant marker lookup failed: ${error.message}`);
+  }
+  try {
+    const page = await platform.notionRequest(`/v1/pages/${encodeURIComponent(pageId)}`, { method: 'GET' });
+    const dataSourceId = normalizeId(page?.parent?.data_source_id || (page?.parent?.type === 'data_source_id' ? page.parent.data_source_id : ''));
+    if (!dataSourceId) return null;
+    return list.find((tenant) => normalizeId(tenant?.dataSources?.meetings || '') === dataSourceId) || null;
+  } catch (error) {
+    console.warn(`public meeting tenant parent lookup failed: ${error.message}`);
+    return null;
+  }
+}
+
 // GET  /m/<32碼id>-<16碼簽章> → 公開會議頁(免帳號)
 // POST /m/<32碼id>-<16碼簽章> → 修正講者存回 Notion（已簽署連結，不需 PIN）
 // 回傳 true=已處理。
-async function handlePublicRequest(req, res, pathname) {
+async function handlePublicRequest(req, res, pathname, { tenants = [] } = {}) {
   const m = String(pathname).match(/^\/m\/([0-9a-f]{32})-([0-9a-f]{16})$/i);
   if (!m) return false;
   const [, id, sig] = m;
@@ -1380,7 +1407,15 @@ async function handlePublicRequest(req, res, pathname) {
     const sendJson = (status, obj) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(obj)); };
     try {
       const body = await readJsonBody(req);
-      const result = await handleSpeakerSave({ pageId: id, body, deps: { notionRequest: platform.notionRequest } });
+      const tenant = await resolveTenantForPublicMeeting(id, tenants);
+      const result = await handleSpeakerSave({
+        pageId: id,
+        body,
+        deps: {
+          notionRequest: platform.notionRequest,
+          tasksDataSourceId: tenant?.dataSources?.tasks || '',
+        },
+      });
       sendJson(result.status, result.json);
     } catch (e) {
       console.warn(`speaker-fix save failed: ${e.message}`);
@@ -2075,8 +2110,8 @@ export default {
   }, {
     prefix: '/m',
     access: { kind: 'public', scope: 'signed-link' },
-    handler: async (req, res, { pathname }) => {
-      const handled = await handlePublicRequest(req, res, pathname);
+    handler: async (req, res, { pathname, tenants }) => {
+      const handled = await handlePublicRequest(req, res, pathname, { tenants });
       if (!handled) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end('Not found'); }
     },
   }, {
@@ -2092,4 +2127,4 @@ export default {
 };
 
 // 測試用內部匯出(不影響正式流程)
-export const __test = { meetingPrompt, normalizeParsed, normalizeMeetingContentType, withNextMeetingTodo, summarize, summaryTabBlocks, formalTasksEnabled, meetingRolloutPolicy, sessionMeetingMode, sessionCanReview, sessionCreatesFormalTasks, notesTabBlocks, publishMeeting, resolveMeetingsTarget, provisionMeetingsDb, normalizeTodo, hasRequiredTodoFields, reviewSummary, renderReviewHtml, pushMeetingReviewNotification, beginMeetingReview, lineProfileFromAccessToken, ensureSessionMemberBestEffort, createReviewSession, persistReviewSession, loadReviewSessionFromMeeting, autoCompleteReviewSession, finishReviewSession, completeWithoutReview, reviewSessions };
+export const __test = { meetingPrompt, normalizeParsed, normalizeMeetingContentType, withNextMeetingTodo, summarize, summaryTabBlocks, formalTasksEnabled, meetingRolloutPolicy, sessionMeetingMode, sessionCanReview, sessionCreatesFormalTasks, notesTabBlocks, publishMeeting, resolveMeetingsTarget, provisionMeetingsDb, normalizeTodo, hasRequiredTodoFields, reviewSummary, renderReviewHtml, pushMeetingReviewNotification, beginMeetingReview, lineProfileFromAccessToken, ensureSessionMemberBestEffort, createReviewSession, persistReviewSession, loadReviewSessionFromMeeting, autoCompleteReviewSession, finishReviewSession, completeWithoutReview, resolveTenantForPublicMeeting, reviewSessions };
