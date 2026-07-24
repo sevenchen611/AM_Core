@@ -1,4 +1,4 @@
-const ALLOWED_PORTAL_RETURN_PATHS = new Set(['/meetings/manage', '/admin']);
+const ALLOWED_PORTAL_RETURN_PATHS = new Set(['/meetings/manage', '/meeting-terms', '/admin']);
 
 export function safePortalHandoffLocation(rawNext, tenantKey, fallback = '/') {
   const raw = String(rawNext || '').trim();

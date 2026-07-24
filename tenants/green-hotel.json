@@ -18,7 +18,7 @@
     "knowledgePromotion": "review-only"
   },
   "config": {
-    "homeRoute": "/admin",
+    "homeRoute": "/meeting-terms",
     "portal": {
       "label": "Green Hotel AM / 葉綠宿 AM"
     },
