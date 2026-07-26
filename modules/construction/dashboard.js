@@ -17,7 +17,7 @@ export async function handleDashboardRequest(req, res, pathname, url, deps) {
   try {
     if (req.method === 'GET' && pathname === '/dashboard') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-      return res.end(renderDashboardPage(tenantKey, canBudget, canContract));
+      return res.end(renderDashboardPage(tenantKey, canBudget, canContract, url.searchParams.get('doc') || ''));
     }
     if (req.method === 'GET' && pathname === '/dashboard/api/summary') {
       const summary = await buildSummary(deps);
@@ -316,7 +316,7 @@ async function buildGantt(deps, projectId) {
   return { rows };
 }
 
-function renderDashboardPage(tenantKey, canBudget, canContract) {
+function renderDashboardPage(tenantKey, canBudget, canContract, initialDoc = '') {
   const t = encodeURIComponent(tenantKey);
   const headerLinks = [
     ...(canBudget ? [`<a href="/budget?tenant=${t}">→ 💰 預算控制</a>`] : []),
@@ -399,6 +399,7 @@ function renderDashboardPage(tenantKey, canBudget, canContract) {
 <div id="modal"><button class="close" onclick="closeDoc()">✕</button><div id="modalBody"></div></div>
 <script>
 const TENANT = ${JSON.stringify(tenantKey)};
+const INITIAL_DOC = ${JSON.stringify(initialDoc)};
 async function api(path) {
   const sep = path.includes('?') ? '&' : '?';
   const r = await fetch('/dashboard/api/' + path + sep + 'tenant=' + encodeURIComponent(TENANT));
@@ -434,6 +435,7 @@ async function loadSummary() {
     </div>\`;
   }).join('');
   if (summary.length) openProject(summary[0].id);
+  if (INITIAL_DOC) openDoc(INITIAL_DOC);
 }
 async function openProject(id) {
   summary.forEach(c => document.getElementById('pc-' + c.id)?.classList.toggle('active', c.id === id));

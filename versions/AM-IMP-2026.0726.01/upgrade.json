@@ -1,0 +1,61 @@
+{
+  "id": "AM-IMP-2026.0726.01",
+  "name": "Engineering reminder deep links",
+  "type": "AM Platform / Reminders / Construction dashboard",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-07-26",
+  "dependsOn": [],
+  "installTargets": ["AM_PLATFORM", "ENGINEERING"],
+  "scope": [
+    "Task reminder dashboard links",
+    "Feedback-ticket reminder dashboard links",
+    "Dashboard auto-open document modal"
+  ],
+  "requiresDatabases": [
+    "Existing tenant-local tasks data source",
+    "Existing tenant-local feedbackTickets data source",
+    "Existing tenant-local groupBindings data source"
+  ],
+  "requiresEnv": [
+    "ENG_PUBLIC_BASE_URL or AMCORE_PUBLIC_BASE_URL"
+  ],
+  "requiresScripts": [
+    "node --check modules/reminders/index.js",
+    "node --check modules/construction/reminders.js",
+    "node --check modules/construction/index.js",
+    "node --check modules/construction/dashboard.js",
+    "node tools/check-upgrade-package.js AM-IMP-2026.0726.01"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Links route through AM Platform Portal authorization and tenant-locked Notion access; no tenant records, LINE IDs, Notion IDs, or secrets are stored in the package."
+  },
+  "changes": [
+    "Task reminders append a tenant dashboard link when a public base URL is configured",
+    "Feedback-ticket reminders append a tenant dashboard link when a public base URL is configured",
+    "Construction dashboard accepts doc=<page-id> and opens the existing editable modal"
+  ],
+  "definitionOfDone": [
+    "Package files are complete",
+    "Local syntax checks pass",
+    "Dashboard deep link preserves tenant routing",
+    "Production Render health is verified after deployment"
+  ],
+  "files": [
+    "modules/reminders/index.js",
+    "modules/construction/reminders.js",
+    "modules/construction/index.js",
+    "modules/construction/dashboard.js",
+    "versions/AM-IMP-2026.0726.01/README.md",
+    "versions/AM-IMP-2026.0726.01/INSTALL.md",
+    "versions/AM-IMP-2026.0726.01/REQUIRED_DATABASES.md",
+    "versions/AM-IMP-2026.0726.01/ENVIRONMENT.md",
+    "versions/AM-IMP-2026.0726.01/VERIFY.md",
+    "versions/AM-IMP-2026.0726.01/ROLLBACK.md",
+    "versions/AM-IMP-2026.0726.01/upgrade.json"
+  ]
+}

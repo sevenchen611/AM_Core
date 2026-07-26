@@ -105,6 +105,7 @@ function fullDeps(tenant) {
     // dashboard 用:專案行事曆對照 + LINE 推播配額
     calendars: tenantCalendars(tenant),
     getLineQuota: makeGetLineQuota(),
+    publicBaseUrl: platform.publicBaseUrlForTenant?.(tenant) || tenant.publicBaseUrl || platform.publicBaseUrl || '',
     // classify(AI 初判)用;非工程/未配置金鑰時 classify 自動 no-op
     ai: {
       provider: tenantAi.provider || platform.aiProvider,

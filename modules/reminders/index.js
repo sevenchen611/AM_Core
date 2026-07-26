@@ -36,6 +36,15 @@ const taipeiNow = () => new Date(Date.now() + 8 * 3600 * 1000);
 const dayAfter = (day) => new Date(new Date(`${day}T00:00:00Z`).getTime() + 86400000).toISOString().slice(0, 10);
 const overdueDaysBetween = (today, deadline) => Math.round((new Date(`${today}T00:00:00Z`) - new Date(`${deadline}T00:00:00Z`)) / 86400000);
 
+function dashboardDocUrl(tenant, pageId) {
+  const base = platform.publicBaseUrlForTenant?.(tenant) || tenant?.publicBaseUrl || platform.publicBaseUrl || '';
+  if (!base || !pageId) return '';
+  const url = new URL('/dashboard', base);
+  url.searchParams.set('tenant', tenant.key);
+  url.searchParams.set('doc', pageId);
+  return url.toString();
+}
+
 // 租戶提醒設定由 core/tenants.js 從 <PREFIX>_* 載入。
 function tenantConfig(tenant) {
   return tenant.reminders || { escalationDays: 2, reminderHour: 9, escalationOwner: '租戶管理者' };
@@ -57,6 +66,7 @@ async function runReminderPasses(tenant, cfg, today) {
     dataSources: tenant.dataSources || {},
     notionRequest: (pathname, opts = {}) => platform.notionRequest(pathname, { ...opts, tenantKey: tenant.key }),
     pushLineMessage: platform.pushLineMessage,
+    publicBaseUrl: platform.publicBaseUrlForTenant?.(tenant) || tenant.publicBaseUrl || platform.publicBaseUrl || '',
   };
   const out = [];
   for (const pass of passes) {
@@ -138,7 +148,8 @@ async function pushTaskReminder(tenant, task, header, extra) {
   const dueLabel = due.includes('T') ? `${due.slice(0, 10)} ${due.slice(11, 16)}` : due.slice(0, 10);
   const who = owner || '負責人';
   const mention = info.members[who] ? { name: who, userId: info.members[who] } : null;
-  const text = [header, `內容:${content}`, `期限:${dueLabel}`, extra || `請 ${who} 留意。`].filter(Boolean).join('\n');
+  const link = dashboardDocUrl(tenant, task.id);
+  const text = [header, `內容:${content}`, `期限:${dueLabel}`, link ? `開啟任務:${link}` : '', extra || `請 ${who} 留意。`].filter(Boolean).join('\n');
   await platform.pushLineMessage(info.groupId, text, mention);
   return true;
 }
@@ -184,7 +195,13 @@ async function runTaskDailyPass(tenant, cfg, today) {
             try { members = JSON.parse(plain(ib.properties['成員對照']?.rich_text)) || {}; } catch {}
             const owner = cfg.escalationOwner;
             const mention = members[owner] ? { name: owner, userId: members[owner] } : null;
-            await platform.pushLineMessage(gid, `🚨 升級通知|待辦逾期 ${overdueDays} 天未完成\n內容:${content}\n請 ${owner} 介入。`, mention).catch(() => {});
+            const link = dashboardDocUrl(tenant, task.id);
+            await platform.pushLineMessage(gid, [
+              `🚨 升級通知|待辦逾期 ${overdueDays} 天未完成`,
+              `內容:${content}`,
+              link ? `開啟任務:${link}` : '',
+              `請 ${owner} 介入。`,
+            ].filter(Boolean).join('\n'), mention).catch(() => {});
           }
         }
       }

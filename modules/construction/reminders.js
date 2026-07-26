@@ -21,6 +21,14 @@ const noteBlock = (c) => ({ object: 'block', type: 'paragraph', paragraph: { ric
 const dayAfter = (day) => new Date(new Date(`${day}T00:00:00Z`).getTime() + 86400000).toISOString().slice(0, 10);
 const overdueDaysBetween = (today, deadline) => Math.round((new Date(`${today}T00:00:00Z`) - new Date(`${deadline}T00:00:00Z`)) / 86400000);
 
+function dashboardDocUrl(deps, pageId) {
+  if (!deps.publicBaseUrl || !pageId) return '';
+  const url = new URL('/dashboard', deps.publicBaseUrl);
+  url.searchParams.set('tenant', deps.tenantKey);
+  url.searchParams.set('doc', pageId);
+  return url.toString();
+}
+
 // ══ 回饋單到期提醒 ═══════════════════════════════════════════════
 // 升級邏輯:負責群組 → 逾期滿 cfg.escalationDays 天再升級該專案內部群/總管群(查該租戶自己的 groupBindings)。
 // deps: { tenantKey, dataSources:{feedbackTickets, groupBindings}, notionRequest(已鎖租戶), pushLineMessage }
@@ -81,7 +89,10 @@ export async function runDueReminders(deps, cfg, today) {
         : `⚠ 回饋單已逾期 ${overdueDays} 天|${number}`;
     const lines = [header];
     if (level) lines.push(`等級:${level}`);
-    lines.push(`問題:${description}`, `回覆期限:${deadline}`, `請 ${who} 儘速${kind === '逾期' ? '處理並回覆' : '回覆'}。`);
+    const link = dashboardDocUrl(deps, ticket.id);
+    lines.push(`問題:${description}`, `回覆期限:${deadline}`);
+    if (link) lines.push(`開啟單據:${link}`);
+    lines.push(`請 ${who} 儘速${kind === '逾期' ? '處理並回覆' : '回覆'}。`);
 
     // 升級:逾期滿 N 天 → 通知該專案內部管理群/總管群
     let escalated = false;
@@ -116,7 +127,13 @@ export async function runDueReminders(deps, cfg, today) {
       } else {
         await deps.pushLineMessage(groupId, lines.join('\n'), mention);
         if (shouldEscalate && escalationGroupId) {
-          await deps.pushLineMessage(escalationGroupId, `🚨 升級通知|回饋單 ${number} 已逾期 ${overdueDays} 天未處理\n負責群組:${groupName}(${who})\n問題:${description}\n請 Seven 介入。`);
+          await deps.pushLineMessage(escalationGroupId, [
+            `🚨 升級通知|回饋單 ${number} 已逾期 ${overdueDays} 天未處理`,
+            `負責群組:${groupName}(${who})`,
+            `問題:${description}`,
+            link ? `開啟單據:${link}` : '',
+            '請 Seven 介入。',
+          ].filter(Boolean).join('\n'));
           escalated = true;
         }
       }
