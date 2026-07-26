@@ -10,12 +10,16 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const CORE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const MODULES_DIR = path.resolve(CORE_DIR, '..', 'modules');
 
-const AUDIO_EXT = /\.(m4a|mp3|aac|wav|amr|ogg|mp4)$/i;
+// Meeting intake uses an audio-only allowlist. MP4 is excluded because it is
+// the normal LINE video container and must never start a meeting workflow.
+const AUDIO_EXT = /\.(m4a|mp3|aac|wav|amr|ogg|opus|flac)$/i;
+const VIDEO_EXT = /\.(mp4|mov|m4v|avi|mkv|webm|3gp|3g2|wmv|flv)$/i;
 const ROUTE_ACCESS_KINDS = new Set(['public', 'machine', 'tenant', 'group']);
 function isAudioCandidate(message) {
-  return message.type === 'audio'
-    || message.type === 'video'
-    || (message.type === 'file' && AUDIO_EXT.test(message.fileName || ''));
+  if (message.type === 'video') return false;
+  if (message.type === 'audio') return true;
+  const filename = message.fileName || '';
+  return message.type === 'file' && !VIDEO_EXT.test(filename) && AUDIO_EXT.test(filename);
 }
 // 檔頭 magic bytes 辨識音檔:分享進 LINE 的錄音常掉副檔名,LINE content-type 又常回 octet-stream,
 // 光看檔名/類型會漏接;下載後看前幾個 byte 才可靠。
@@ -23,7 +27,9 @@ function looksLikeAudioBuffer(arrayBuffer) {
   const b = Buffer.from(arrayBuffer);
   if (b.length < 12) return false;
   const at = (i, n) => b.slice(i, i + n).toString('latin1');
-  if (at(4, 4) === 'ftyp') return true;                          // MP4 / M4A(含音訊的 mp4 亦可轉寫)
+  // ISO-BMFF is shared by M4A and MP4. Only known audio brands are accepted;
+  // unknown brands fail closed so a video attachment cannot start a meeting.
+  if (at(4, 4) === 'ftyp') return /^(M4A |M4B |M4P |isom)$/i.test(at(8, 4)) && /M4A|M4B|M4P/i.test(at(8, 4));
   if (at(0, 3) === 'ID3') return true;                           // MP3(帶 ID3 標頭)
   if (b[0] === 0xff && (b[1] & 0xe0) === 0xe0) return true;      // MP3 / AAC-ADTS frame sync
   if (at(0, 4) === 'RIFF' && at(8, 4) === 'WAVE') return true;   // WAV
@@ -125,9 +131,7 @@ export function createDispatcher({ tenants, modules, platform, logger = console 
     // 下游轉寫/存檔要吃得到副檔名；原生 video 補 .mp4，audio／無副檔名音檔補 .m4a。
     const audioFilename = AUDIO_EXT.test(message.fileName || '')
       ? message.fileName
-      : message.type === 'video'
-        ? `video-${message.id}.mp4`
-        : `audio-${message.id}.m4a`;
+      : `audio-${message.id}.m4a`;
     for (const mod of tenantModules(tenant)) {
       try {
         // 檔頭判定為音檔 → 交給任何有 onAudio 的模組(現況即 meetings);檔名判定 → 由模組自己的 isAudio 決定。

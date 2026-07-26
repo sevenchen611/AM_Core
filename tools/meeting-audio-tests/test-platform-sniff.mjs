@@ -1,6 +1,6 @@
 import assert from 'node:assert';
-import { bootstrap } from 'file:///D:/Codex_project/AM_Core/core/bootstrap.js';
-import { __test as meetingTest } from 'file:///D:/Codex_project/AM_Core/modules/meetings/index.js';
+import { bootstrap } from '../../core/bootstrap.js';
+import { __test as meetingTest } from '../../modules/meetings/index.js';
 
 const pushed = [];
 const m4a = Uint8Array.from([0, 0, 0, 0x20, 0x66, 0x74, 0x79, 0x70, 0x4d, 0x34, 0x41, 0x20, ...new Array(20).fill(0)]);
@@ -58,16 +58,19 @@ let downstreamMessages = 0;
 modules.set('_after-meetings-test', { name: '_after-meetings-test', onMessage: async () => { downstreamMessages += 1; return true; } });
 tenants[0].modules.push('_after-meetings-test');
 await dispatcher.dispatchMessage({ tenant: tenants[0], binding, event: evt('v1', '', 'video') });
-check('LINE 原生 video → 觸發一次會議反問', rosterCount() === 1);
-check('LINE 原生 video → 自動補 video-<id>.mp4 檔名', pushed.some((t) => t.includes('video-v1.mp4')));
-check('Meeting 接收 video 後短路後續模組', downstreamMessages === 0);
+check('LINE 原生 video 不觸發會議反問', rosterCount() === 0);
+check('LINE 原生 video 會繼續交給後續模組', downstreamMessages === 1);
 check('原生 video MIME 補正且既有 video MIME 保留',
   meetingTest.normalizeMeetingContentType('application/octet-stream', 'video-v1.mp4', true) === 'video/mp4'
   && meetingTest.normalizeMeetingContentType('video/quicktime', 'video-v2.mov', true) === 'video/quicktime');
 
 content = m4a; pushed.length = 0; downstreamMessages = 0; failNextLinePush = true;
 await dispatcher.dispatchMessage({ tenant: tenants[0], binding, event: evt('v2', '', 'video') });
-check('反問推播失敗時 Meeting 仍短路後續模組', downstreamMessages === 0);
+check('影片不受會議推播失敗影響且繼續交給後續模組', downstreamMessages === 1);
+
+content = m4a; pushed.length = 0; downstreamMessages = 0;
+await dispatcher.dispatchMessage({ tenant: tenants[0], binding, event: evt('v3', 'demo.mp4', 'file') });
+check('.mp4 file does not trigger a meeting prompt', rosterCount() === 0);
 
 let pass = 0;
 for (const [ok, n] of results) { console.log(`${ok ? '✅' : '❌'} ${n}`); if (ok) pass++; }

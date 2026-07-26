@@ -28,9 +28,12 @@ const MEDIA_CFG = {
 };
 
 const MEDIA_TYPES = new Set(['image', 'file']);
-const AUDIO_EXT = /\.(m4a|mp3|aac|wav|amr|ogg|mp4)$/i;
+const AUDIO_EXT = /\.(m4a|mp3|aac|wav|amr|ogg|opus|flac)$/i;
+const VIDEO_EXT = /\.(mp4|mov|m4v|avi|mkv|webm|3gp|3g2|wmv|flv)$/i;
 function isMeetingAudio(message) {
-  return message.type === 'audio' || (message.type === 'file' && AUDIO_EXT.test(message.fileName || ''));
+  if (message.type === 'audio') return true;
+  const filename = message.fileName || '';
+  return message.type === 'file' && !VIDEO_EXT.test(filename) && AUDIO_EXT.test(filename);
 }
 
 // ── 視覺判讀 ──────────────────────────────────────────────

@@ -49,10 +49,13 @@ const heading2 = (c) => ({ object: 'block', type: 'heading_2', heading_2: { rich
 const bullet = (c) => ({ object: 'block', type: 'bulleted_list_item', bulleted_list_item: { rich_text: [text(c)] } });
 const todoBlock = (t) => ({ object: 'block', type: 'to_do', to_do: { rich_text: [text(`${t.content}${t.owner ? `(${t.owner})` : ''}${t.due ? ` 期限:${t.due}` : ''}`)], checked: false } });
 
-const AUDIO_EXT = /\.(m4a|mp3|aac|wav|amr|ogg|mp4)$/i;
+const AUDIO_EXT = /\.(m4a|mp3|aac|wav|amr|ogg|opus|flac)$/i;
+const VIDEO_EXT = /\.(mp4|mov|m4v|avi|mkv|webm|3gp|3g2|wmv|flv)$/i;
 function isAudio(message) {
-  if (message.type === 'audio' || message.type === 'video') return true;
-  return message.type === 'file' && AUDIO_EXT.test(message.fileName || '');
+  if (message.type === 'video') return false;
+  if (message.type === 'audio') return true;
+  const filename = message.fileName || '';
+  return message.type === 'file' && !VIDEO_EXT.test(filename) && AUDIO_EXT.test(filename);
 }
 
 // LINE 原生 video 沒有 fileName，串流分派時也不會預先下載取得 MIME；
@@ -294,6 +297,10 @@ async function onAudio(ctx) {
   }
   const senderUserId = ctx.event?.source?.userId || '';
   const sourceIsVideo = ctx.message?.type === 'video';
+  if (sourceIsVideo || VIDEO_EXT.test(filename || '') || /^video\//i.test(ctx.contentType || '')) {
+    console.log(`Meeting video ignored (tenant=${tenant?.key || 'default'}, group=${groupId}).`);
+    return false;
+  }
   let contentType = normalizeMeetingContentType(ctx.contentType, filename, sourceIsVideo);
   // 無 AssemblyAI 金鑰 → Gemini 直讀備援(需要 buffer;串流路徑未帶 buffer 就下載一次)。
   if (!aiForTenant(tenant).assemblyKey) {

@@ -1,0 +1,18 @@
+{
+  "id": "AM-IMP-2026.0725.01",
+  "name": "Audio-only LINE meeting intake",
+  "type": "Meetings / LINE media classification",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-07-25",
+  "dependsOn": [],
+  "installTargets": ["AM_PLATFORM", "PROJECT_LOCAL"],
+  "scope": ["Audio-only meeting triggers", "Video exclusion", "Attachment classification consistency"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": ["node tools/meeting-audio-tests/test-platform-sniff.mjs", "node tools/check-upgrade-package.js AM-IMP-2026.0725.01"],
+  "dataIsolation": {"canCopyCode": true, "canCopySchema": false, "canCopyData": false, "canCopySecrets": false, "guard": "No tenant data, recordings, attachments, credentials, or LINE content is included."},
+  "changes": ["Exclude native LINE video from meeting dispatch", "Exclude video file extensions including MP4", "Reject ambiguous video-like media before meeting processing", "Update meeting attachment regression tests"],
+  "definitionOfDone": ["Audio messages still produce a meeting prompt", "Native LINE video does not produce a meeting prompt", "MP4 files do not produce a meeting prompt", "Syntax and meeting media regression tests pass"],
+  "files": ["core/modules.js", "modules/meetings/index.js", "modules/collect/index.js", "modules/media/index.js", "tools/meeting-audio-tests/test-platform-sniff.mjs", "versions/AM-IMP-2026.0725.01/README.md", "versions/AM-IMP-2026.0725.01/upgrade.json", "versions/AM-IMP-2026.0725.01/INSTALL.md", "versions/AM-IMP-2026.0725.01/VERIFY.md", "versions/AM-IMP-2026.0725.01/ROLLBACK.md"]
+}

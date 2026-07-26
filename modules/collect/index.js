@@ -28,10 +28,12 @@ function mapMessageType(type) {
 
 // 會議錄音判定(與 meetings.isAudio 同準則):音檔訊息或音檔副檔名的檔案。
 // collect 據此把「會議錄音」排除在附件流程外——大音檔由 meetings 自己存 Drive,避免重複下載+上傳。
-const AUDIO_EXT = /\.(m4a|mp3|aac|wav|amr|ogg|mp4)$/i;
+const AUDIO_EXT = /\.(m4a|mp3|aac|wav|amr|ogg|opus|flac)$/i;
+const VIDEO_EXT = /\.(mp4|mov|m4v|avi|mkv|webm|3gp|3g2|wmv|flv)$/i;
 function isMeetingAudio(message) {
   if (message.type === 'audio') return true;
-  return message.type === 'file' && AUDIO_EXT.test(message.fileName || '');
+  const filename = message.fileName || '';
+  return message.type === 'file' && !VIDEO_EXT.test(filename) && AUDIO_EXT.test(filename);
 }
 
 // ── 成員對照同步狀態(記憶體,鍵=（租戶,群組）)──────────────
