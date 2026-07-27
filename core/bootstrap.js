@@ -84,6 +84,7 @@ export async function bootstrap(env = process.env, overrides = {}) {
     registerTenantDataSource: notion.registerTenantDataSource,
     // LINE(共用 OA)
     pushLineMessage: line.pushLineMessage,
+    replyLineMessage: line.replyLineMessage,
     lineConfigured: line.configured,
     lineGet: line.lineGet,
     listGroupMemberIds: line.listGroupMemberIds,

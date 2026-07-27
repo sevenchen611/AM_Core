@@ -153,6 +153,27 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
   }
 
   // 推播(共用 OA);訊息含被點名者名字且已知 userId 時升級為 textV2 真 @mention。
+  async function replyLineMessage(replyToken, text) {
+    if (!replyToken) throw new Error('LINE replyToken is missing.');
+    const message = { type: 'text', text: String(text).slice(0, 4900) };
+    const response = await fetch('https://api.line.me/v2/bot/message/reply', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${channelAccessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ replyToken, messages: [message] }),
+    });
+    const responseText = await response.text();
+    if (!response.ok) {
+      throw Object.assign(new Error(`LINE reply failed: ${response.status} ${responseText}`), {
+        code: 'LINE_REPLY_FAILED',
+        lineStatus: response.status,
+      });
+    }
+    return { ok: true, status: response.status };
+  }
+
   async function pushLineMessage(to, text, mention, delivery = {}) {
     let message = { type: 'text', text: String(text).slice(0, 4900) };
     if (mention?.name && mention?.userId && String(text).includes(mention.name)) {
@@ -220,6 +241,7 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
     peekLineContent,
     streamLineContent,
     resolveLineFilename,
+    replyLineMessage,
     pushLineMessage,
     configured: Boolean(channelAccessToken && channelSecret),
   };

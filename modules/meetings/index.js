@@ -339,8 +339,17 @@ async function onAudio(ctx) {
   pending.set(key, entry);
 
   if (!ackSent) {
-    try { await platform.pushLineMessage(groupId, rosterPrompt(filename)); }
-    catch (error) { console.warn(`Meeting roster prompt push failed (group=${groupId}): ${error.message}`); }
+    const prompt = rosterPrompt(filename);
+    const replyToken = ctx.event?.replyToken || '';
+    try {
+      if (replyToken && typeof platform.replyLineMessage === 'function') await platform.replyLineMessage(replyToken, prompt);
+      else await platform.pushLineMessage(groupId, prompt);
+    } catch (error) {
+      console.warn(`Meeting roster prompt reply failed (group=${groupId}): ${error.message}`);
+      if (replyToken) {
+        await platform.pushLineMessage(groupId, prompt).catch((pushError) => console.warn(`Meeting roster prompt push fallback failed (group=${groupId}): ${pushError.message}`));
+      }
+    }
   }
   console.log(`Meeting audio staged, awaiting roster (tenant=${tenant?.key || 'default'}, group=${groupId}, mode=${buffer ? 'buffer' : 'stream'}).`);
   return true;
