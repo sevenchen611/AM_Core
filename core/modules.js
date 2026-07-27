@@ -112,13 +112,20 @@ export function createDispatcher({ tenants, modules, platform, logger = console 
     const nameAudio = isAudioCandidate(message);
     // 檔名沒命中的 file,且此租戶有能吃音檔的模組 → 下載後用檔頭補判(分享進 LINE 常掉副檔名)。
     let contentAudio = false;
+    let sniffedContentType = '';
     if (!nameAudio && message.type === 'file' && tenantModules(tenant).some((m) => typeof m.onAudio === 'function')) {
       try {
         // 只抓開頭 64 byte 驗檔頭(Range),不必為了辨識就把整個大檔(可能上百 MB)下載進記憶體。
-        const head = typeof platform.peekLineContent === 'function'
-          ? await platform.peekLineContent(String(message.id || ''), 64)
-          : (await ensureBuffer()).buffer;
-        contentAudio = looksLikeAudioBuffer(head);
+        let head;
+        if (typeof platform.peekLineContent === 'function') {
+          head = await platform.peekLineContent(String(message.id || ''), 64);
+          sniffedContentType = String(head?.contentType || '');
+        } else {
+          const downloaded = await ensureBuffer();
+          head = downloaded.buffer;
+          sniffedContentType = String(downloaded.contentType || '');
+        }
+        contentAudio = looksLikeAudioBuffer(head) || /^audio\//i.test(sniffedContentType);
         if (contentAudio) logger.log(`Audio detected by header (tenant=${tenant.key}, file="${message.fileName || ''}").`);
       } catch (e) {
         logger.warn(`Audio header sniff failed (tenant=${tenant.key}, group=${groupId}): ${e.message}`);
@@ -156,7 +163,7 @@ export function createDispatcher({ tenants, modules, platform, logger = console 
             ...ctx,
             audioMessageId: String(message.id || ''),
             buffer: legacyContent ? legacyContent.buffer : undefined,
-            contentType: legacyContent ? legacyContent.contentType : undefined,
+            contentType: legacyContent ? legacyContent.contentType : sniffedContentType,
             filename: audioFilename,
             ackSent: false,
           });

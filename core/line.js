@@ -105,7 +105,11 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
     const url = `https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`;
     for (let attempt = 1; attempt <= tries; attempt += 1) {
       const response = await fetch(url, { headers: { Authorization: `Bearer ${channelAccessToken}`, Range: `bytes=0-${Math.max(0, bytes - 1)}` } });
-      if (response.status === 206) return response.arrayBuffer();
+      if (response.status === 206) {
+        const buffer = await response.arrayBuffer();
+        buffer.contentType = response.headers.get('content-type') || '';
+        return buffer;
+      }
       if (response.status === 202) { // 仍在轉檔,稍候再試
         try { await response.body?.cancel?.(); } catch { /* ignore */ }
         if (attempt < tries) { await new Promise((r) => setTimeout(r, Math.min(baseDelay * attempt, 12000))); continue; }

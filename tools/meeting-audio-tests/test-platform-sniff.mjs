@@ -4,16 +4,18 @@ import { __test as meetingTest } from '../../modules/meetings/index.js';
 
 const pushed = [];
 const m4a = Uint8Array.from([0, 0, 0, 0x20, 0x66, 0x74, 0x79, 0x70, 0x4d, 0x34, 0x41, 0x20, ...new Array(20).fill(0)]);
+const genericIsom = Uint8Array.from([0, 0, 0, 0x1c, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d, 0, 0, 2, 0, 0x69, 0x73, 0x6f, 0x6d, 0x69, 0x73, 0x6f, 0x32, 0x6d, 0x70, 0x34, 0x31, ...new Array(20).fill(0)]);
 const pdf = Uint8Array.from([...'%PDF-1.7'].map((c) => c.charCodeAt(0)).concat(new Array(20).fill(0)));
 let content = m4a;
+let contentType = 'application/octet-stream';
 let failNextLinePush = false;
 
 const J = (o, ok = true, status = 200) => ({ ok, status, text: async () => JSON.stringify(o), json: async () => o, headers: { get: () => 'application/json' } });
 globalThis.fetch = async (input, opts = {}) => {
   const u = new URL(typeof input === 'string' ? input : input.url);
   if (u.host === 'api-data.line.me') {
-    if (opts.headers?.Range) { const head = content.slice(0, 64); return { ok: true, status: 206, arrayBuffer: async () => head.buffer, text: async () => '', headers: { get: () => 'application/octet-stream' }, body: { cancel: async () => {} } }; }
-    return { ok: true, status: 200, arrayBuffer: async () => content.buffer, text: async () => '', headers: { get: () => 'application/octet-stream' } };
+    if (opts.headers?.Range) { const head = content.slice(0, 64); return { ok: true, status: 206, arrayBuffer: async () => head.buffer, text: async () => '', headers: { get: (name) => name?.toLowerCase() === 'content-type' ? contentType : 'application/json' }, body: { cancel: async () => {} } }; }
+    return { ok: true, status: 200, arrayBuffer: async () => content.buffer, text: async () => '', headers: { get: (name) => name?.toLowerCase() === 'content-type' ? contentType : 'application/json' } };
   }
   if (u.host === 'api.line.me' && u.pathname.includes('/member/')) return J({ displayName: 'Seven' });
   if (u.host === 'api.line.me' && u.pathname.endsWith('/message/push')) {
@@ -45,11 +47,15 @@ content = m4a; pushed.length = 0;
 await dispatcher.dispatchMessage({ tenant: tenants[0], binding, event: evt('m1', '會議錄音') });
 check('無副檔名 m4a(octet-stream)→ 觸發會議反問', rosterSent());
 
-content = pdf; pushed.length = 0;
+content = genericIsom; contentType = 'audio/x-m4a'; pushed.length = 0;
+await dispatcher.dispatchMessage({ tenant: tenants[0], binding, event: evt('m1b', 'generic-isom-audio') });
+check('generic ftypisom with audio/x-m4a content-type triggers a meeting prompt', rosterSent());
+
+content = pdf; contentType = 'application/pdf'; pushed.length = 0;
 await dispatcher.dispatchMessage({ tenant: tenants[0], binding, event: evt('m2', '合約文件') });
 check('無副檔名 PDF → 不觸發會議', !rosterSent());
 
-content = m4a; pushed.length = 0;
+content = m4a; contentType = 'application/octet-stream'; pushed.length = 0;
 await dispatcher.dispatchMessage({ tenant: tenants[0], binding, event: evt('m3', '週會.m4a') });
 check('.m4a 副檔名 → 快路觸發會議反問', rosterSent());
 
