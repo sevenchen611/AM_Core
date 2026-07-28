@@ -83,8 +83,9 @@ async function resolveCompanyGroup(ctx) {
   const dataSourceId = ctx.tenant?.dataSources?.groupBindings;
   if (!dataSourceId) throw new Error('HOZO group bindings data source is not configured.');
 
-  const result = await ctx.notionRequest(`/v1/data_sources/${encodeURIComponent(dataSourceId)}/query`, {
+  const result = await platform.notionRequest(`/v1/data_sources/${encodeURIComponent(dataSourceId)}/query`, {
     method: 'POST',
+    tenantKey: ctx.tenant.key,
     body: { page_size: 100 },
   });
   const matches = (result.results || [])
