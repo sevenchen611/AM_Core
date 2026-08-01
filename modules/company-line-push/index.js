@@ -65,6 +65,7 @@ function isAuthorized(req, ctx) {
   const expected = [
     ctx.tenant?.queueAccessKey,
     platform?.queueAccessKey,
+    platform?.portalServiceToken,
   ].filter(Boolean);
   return expected.some((secret) => timingSafeEqual(provided, secret));
 }

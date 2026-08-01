@@ -38,6 +38,7 @@ export async function bootstrap(env = process.env, overrides = {}) {
   });
   const portal = overrides.portal || createPortal({
     queueAccessKey: env.AMCORE_QUEUE_ACCESS_KEY || '',
+    portalServiceToken: env.AMCORE_PORTAL_SERVICE_TOKEN || '',
     portalPin: env.AMCORE_PORTAL_PIN || '',
     meEndpoint: env.AMCORE_PORTAL_ME_ENDPOINT || 'https://rental.hozorental.com/api/me',
     handoffEndpoint: env.AMCORE_PORTAL_HANDOFF_ENDPOINT || 'https://rental.hozorental.com/api/am-sso/consume',
