@@ -5,6 +5,7 @@ let platform = null;
 
 const COMPANY_GROUP_RE = /HOZO\s*\u516c\u53f8[\u7fa4\u7d44]*/i;
 const LINE_GROUP_ID_RE = /^C[a-f0-9]{20,}$/i;
+const HOZO_TENANT_KEY = 'hozo-am-2-0';
 
 function init(injected) {
   platform = injected;
@@ -57,17 +58,33 @@ function bearerToken(req) {
   return match ? match[1].trim() : '';
 }
 
-function isAuthorized(req, ctx) {
-  const provided = bearerToken(req)
+function providedToken(req, ctx) {
+  return bearerToken(req)
     || String(req.headers['x-amcore-key'] || '')
     || ctx.url.searchParams.get('key')
     || '';
-  const expected = [
+}
+
+function matchesAnySecret(provided, secrets) {
+  return secrets.filter(Boolean).some((secret) => timingSafeEqual(provided, secret));
+}
+
+function isAuthorized(req, ctx) {
+  const provided = providedToken(req, ctx);
+  return matchesAnySecret(provided, [
     ctx.tenant?.queueAccessKey,
     platform?.queueAccessKey,
     platform?.portalServiceToken,
-  ].filter(Boolean);
-  return expected.some((secret) => timingSafeEqual(provided, secret));
+  ]);
+}
+
+function isRentalAuthorized(req, ctx) {
+  const provided = bearerToken(req)
+    || String(req.headers['x-hozo-rental-key'] || '')
+    || String(req.headers['x-amcore-key'] || '')
+    || ctx.url.searchParams.get('key')
+    || '';
+  return matchesAnySecret(provided, [platform?.rentalCompanyGroupPushKey]);
 }
 
 async function readJson(req) {
@@ -103,10 +120,9 @@ async function resolveCompanyGroup(ctx) {
   return matches[0];
 }
 
-async function handlePush(req, res, ctx) {
+async function pushToCompanyGroup(req, res, ctx, source = 'control') {
   if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'Method not allowed.' });
-  if (ctx.tenant?.key !== 'hozo-am-2-0') return sendJson(res, 404, { ok: false, error: 'Not found.' });
-  if (!isAuthorized(req, ctx)) return sendJson(res, 401, { ok: false, error: 'Unauthorized.' });
+  if (ctx.tenant?.key !== HOZO_TENANT_KEY) return sendJson(res, 404, { ok: false, error: 'Not found.' });
 
   try {
     const body = await readJson(req);
@@ -119,6 +135,7 @@ async function handlePush(req, res, ctx) {
       return sendJson(res, 200, {
         ok: true,
         dryRun: true,
+        source,
         target: { name: target.name || 'HOZO company group', maskedId: maskLineId(target.groupId) },
       });
     }
@@ -129,6 +146,7 @@ async function handlePush(req, res, ctx) {
     });
     return sendJson(res, 200, {
       ok: true,
+      source,
       target: { name: target.name || 'HOZO company group', maskedId: maskLineId(target.groupId) },
       line: {
         status: receipt.status,
@@ -149,6 +167,23 @@ async function handlePush(req, res, ctx) {
   }
 }
 
+async function handlePush(req, res, ctx) {
+  if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'Method not allowed.' });
+  if (ctx.tenant?.key !== HOZO_TENANT_KEY) return sendJson(res, 404, { ok: false, error: 'Not found.' });
+  if (!isAuthorized(req, ctx)) return sendJson(res, 401, { ok: false, error: 'Unauthorized.' });
+  return pushToCompanyGroup(req, res, ctx, 'control');
+}
+
+async function handleRentalPush(req, res, ctx) {
+  if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'Method not allowed.' });
+  if (ctx.tenant?.key !== HOZO_TENANT_KEY) return sendJson(res, 404, { ok: false, error: 'Not found.' });
+  if (!platform?.rentalCompanyGroupPushKey) {
+    return sendJson(res, 503, { ok: false, error: 'Rental company-group push key is not configured.' });
+  }
+  if (!isRentalAuthorized(req, ctx)) return sendJson(res, 401, { ok: false, error: 'Unauthorized.' });
+  return pushToCompanyGroup(req, res, ctx, 'hozo-rental');
+}
+
 export default {
   name: 'company-line-push',
   init,
@@ -159,7 +194,13 @@ export default {
       access: { kind: 'machine', scope: 'tenant', capability: 'line.push.company-group' },
       handler: handlePush,
     },
+    {
+      prefix: '/control/hozo/rental/company-group/push',
+      method: 'POST',
+      access: { kind: 'machine', scope: 'tenant', capability: 'line.push.company-group.rental' },
+      handler: handleRentalPush,
+    },
   ],
 };
 
-export const __test = { extractLineGroupId, pageText, titleText };
+export const __test = { extractLineGroupId, pageText, titleText, isRentalAuthorized };

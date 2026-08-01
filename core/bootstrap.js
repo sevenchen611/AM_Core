@@ -106,6 +106,8 @@ export async function bootstrap(env = process.env, overrides = {}) {
     portal,
     authzMode: portal.authzMode,
     queueAccessKey: env.AMCORE_QUEUE_ACCESS_KEY || '',
+    // Dedicated narrow key for HOZO Rental to send text into the HOZO company LINE group.
+    rentalCompanyGroupPushKey: env.HZ2_RENTAL_COMPANY_GROUP_PUSH_KEY || env.HOZO_RENTAL_COMPANY_GROUP_PUSH_KEY || '',
     // LLM(統一備援鏈)。新模組一律用這個,不要自己接 AI 供應商。
     llm,
     operationalMemory,
