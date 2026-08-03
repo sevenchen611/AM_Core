@@ -6,6 +6,7 @@
 
 import assert from 'node:assert';
 import { bootstrap } from '../core/bootstrap.js';
+import { parseGroupOnboardingCommand } from '../core/group-onboarding.js';
 
 // ── 假 Notion 世界 ─────────────────────────────────────────
 const ENG_PAGE = 'aaaa1111aaaa1111aaaa1111aaaa1111';
@@ -225,6 +226,40 @@ await check('守衛擋下跨租戶既有頁更新', async () => {
 // 11) 同租戶的既有群組綁定頁可被後臺安全更新。
 await check('守衛允許同租戶既有頁更新', async () => {
   await platform.notionRequest('/v1/pages/engineering_binding_page', { method: 'PATCH', tenantKey: 'engineering', body: { properties: {} } });
+});
+
+// 12) 通用群組 onboarding 指令解析：多租戶必須明確指定 tenant，避免誤綁。
+await check('通用群組綁定指令可解析 Forest / Green / HOZO', () => {
+  assert.deepEqual(
+    {
+      tenantKey: parseGroupOnboardingCommand('綁定 Forest 群組：營運群').tenantKey,
+      groupName: parseGroupOnboardingCommand('綁定 Forest 群組：營運群').groupName,
+    },
+    { tenantKey: 'forest', groupName: '營運群' },
+  );
+  assert.deepEqual(
+    {
+      tenantKey: parseGroupOnboardingCommand('綁定 Green Hotel AM 群組：營運群').tenantKey,
+      groupName: parseGroupOnboardingCommand('綁定 Green Hotel AM 群組：營運群').groupName,
+    },
+    { tenantKey: 'green-hotel', groupName: '營運群' },
+  );
+  assert.deepEqual(
+    {
+      tenantKey: parseGroupOnboardingCommand('綁定 HOZO AM 2.0 群組：營運處 VS 好住寓好').tenantKey,
+      groupName: parseGroupOnboardingCommand('綁定 HOZO AM 2.0 群組：營運處 VS 好住寓好').groupName,
+    },
+    { tenantKey: 'hozo-am-2-0', groupName: '營運處 VS 好住寓好' },
+  );
+  assert.match(parseGroupOnboardingCommand('綁定 營運群').error, /格式不完整/);
+});
+
+// 13) 舊 HOZO AM 2.0 綁定指令仍相容，讓已通知出去的口令不失效。
+await check('舊 HOZO AM 2.0 群組綁定指令維持相容', () => {
+  const command = parseGroupOnboardingCommand('<绑定 HOZOAM 2.0 群组>');
+  assert.equal(command.tenantKey, 'hozo-am-2-0');
+  assert.equal(command.groupName, '營運處 VS 好住寓好');
+  assert.equal(command.projectName, '好住寓好');
 });
 
 // ── 報告 ──
