@@ -179,8 +179,9 @@ async function maybeHandleGroupOnboardingCommand(event, groupId, resolved = {}) 
       pageId = created.id || '';
     }
     router.invalidate(groupId);
-    logger.log(`AM Platform group bound in shadow mode (tenant=${tenant.key}, group=${groupId}, page=${pageId || 'unknown'}).`);
-    await replyLine(event, `已綁定 ${tenant.displayName}：${command.groupName}\n狀態：影子記錄`);
+    const statusLabel = properties['狀態']?.select?.name || '影子記錄';
+    logger.log(`AM Platform group bound (tenant=${tenant.key}, status=${statusLabel}, group=${groupId}, page=${pageId || 'unknown'}).`);
+    await replyLine(event, `已綁定 ${tenant.displayName}：${command.groupName}\n狀態：${statusLabel}`);
   } catch (error) {
     logger.warn(`Group onboarding failed (tenant=${command.tenantKey}, group=${groupId}): ${error.message}`);
     await replyLine(event, `群組綁定失敗：${error.message.slice(0, 180)}`);

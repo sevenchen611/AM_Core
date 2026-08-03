@@ -6,7 +6,7 @@
 
 import { textItem } from './util.js';
 
-export const GROUP_ONBOARDING_BUILD = 'multi-tenant-group-onboarding-2026-08-03';
+export const GROUP_ONBOARDING_BUILD = 'hozo20-full-workflow-2026-08-03';
 export const LEGACY_HOZO20_BIND_COMMAND = '<绑定 HOZOAM 2.0 群组>';
 
 export const ONBOARDING_TENANTS = [
@@ -14,6 +14,8 @@ export const ONBOARDING_TENANTS = [
     key: 'forest',
     label: 'Forest',
     aliases: ['forest', 'forest am', '森在', '森在 am'],
+    defaultStatus: '影子記錄',
+    defaultCapabilities: ['訊息收集', '會議', '照片'],
     purpose: (name) => `Forest AM「${name}」群組；先以影子模式保留來源訊息、圖片與會議，待驗證後再開正式控制。`,
     statusUpdatePolicy: '主要負責人',
   },
@@ -21,6 +23,8 @@ export const ONBOARDING_TENANTS = [
     key: 'green-hotel',
     label: 'Green Hotel AM',
     aliases: ['green hotel am', 'green hotel', 'green', '葉綠宿 am', '葉綠宿'],
+    defaultStatus: '影子記錄',
+    defaultCapabilities: ['訊息收集', '會議', '照片'],
     purpose: (name) => `Green Hotel AM「${name}」群組；先以影子模式保留來源訊息、圖片與會議，待驗證後再開正式控制。`,
     statusUpdatePolicy: '總管',
   },
@@ -28,7 +32,10 @@ export const ONBOARDING_TENANTS = [
     key: 'hozo-am-2-0',
     label: 'HOZO AM 2.0',
     aliases: ['hozo am 2.0', 'hozoam 2.0', 'hozo am 2 0', 'hozoam 2 0', 'hz2'],
-    purpose: (name) => `HOZO AM 2.0「${name}」群組；先以影子模式保留來源訊息、圖片與會議，待驗證後再開正式控制。`,
+    defaultStatus: '啟用',
+    defaultCapabilities: ['訊息收集', '待辦', '會議', '案件狀態', '照片', '提醒'],
+    defaultMeetingMode: '完整確認',
+    purpose: (name) => `HOZO AM 2.0「${name}」群組；正式開放訊息收集、待辦建立、會議待辦確認、案件狀態更新、照片附件與提醒工作流。`,
     statusUpdatePolicy: '總管',
   },
 ];
@@ -108,16 +115,19 @@ export function groupOnboardingProperties(command, groupId, { projectPageId = ''
   const config = ONBOARDING_TENANTS.find((tenant) => tenant.key === command.tenantKey);
   if (!config) throw new Error(`Unsupported onboarding tenant: ${command.tenantKey}`);
   const has = (name) => !schema || Boolean(schema.properties?.[name]);
+  const status = config.defaultStatus || '影子記錄';
+  const capabilities = config.defaultCapabilities || ['訊息收集', '會議', '照片'];
   const properties = {
     '群組名稱': { title: [textItem(command.groupName)] },
     'LINE 群組 ID': { rich_text: [textItem(groupId)] },
     '群組角色': { select: { name: '內部' } },
     '工種': { select: { name: '營運' } },
-    '狀態': { select: { name: '影子記錄' } },
+    '狀態': { select: { name: status } },
     '成員對照': { rich_text: [textItem('{}')] },
     '群組用途': { rich_text: [textItem(config.purpose(command.groupName))] },
     '主要負責人': { rich_text: [] },
-    '啟用功能': { multi_select: [{ name: '訊息收集' }, { name: '會議' }, { name: '照片' }] },
+    '啟用功能': { multi_select: capabilities.map((name) => ({ name })) },
+    '會議待辦模式': { select: { name: config.defaultMeetingMode || '僅記錄' } },
     '所屬目標': { rich_text: [textItem(command.groupName)] },
     '狀態更新權限': { select: { name: config.statusUpdatePolicy } },
     '預設提醒對象': { rich_text: [] },

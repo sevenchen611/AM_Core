@@ -7,6 +7,7 @@ Environment prefix: `HZ2`
 | Version | Status | Capability | Scope | Notes |
 | --- | --- | --- | --- | --- |
 | AM-IMP-2026.0718.01 | Deployed | Operational memory | Raw evidence → events → project/task state → decisions/knowledge | Notion, Drive, 15 data sources and the shared PostgreSQL tenant row are live. PostgreSQL 18, separated runtime role, forced RLS and Render production health passed. |
+| AM-IMP-2026.0803.01 | Deployed | Full workflow activation | Formal tasks, reminders, queue, group admin, triage, meeting todo creation | HOZO AM 2.0 tenant authorization is enabled, full workflow modules are loaded, meeting tasks can reach review-and-create mode, and new HOZO AM 2.0 group onboarding defaults to active full-function binding. |
 
 ## Tenant boundaries
 
@@ -16,9 +17,15 @@ Environment prefix: `HZ2`
 - Google Drive root is stored only in the platform `.env` under `HZ2_DRIVE_ROOT_FOLDER_ID`.
 - Live messages, tasks, decisions, knowledge, attachments and logs must remain tenant-local.
 
-## Activation gate
+## Activation history
 
-Keep `authorizationReady=false`, meeting formal task creation disabled and operational memory in shadow mode until all of these pass:
+The initial activation gate below was closed while HOZO AM 2.0 was in shadow onboarding. On 2026-08-03, `AM-IMP-2026.0803.01` moved the tenant into full workflow mode after Notion, Drive, PostgreSQL RLS, group routing and production health checks had passed.
+
+Existing group binding rows that were created before this activation may still carry `狀態=影子記錄`. Those rows must be upgraded to `狀態=啟用`, `啟用功能=訊息收集/待辦/會議/案件狀態/照片/提醒`, and `會議待辦模式=完整確認` before they can create formal tasks.
+
+## Initial activation gate
+
+The tenant stayed at `authorizationReady=false`, meeting formal task creation disabled and operational memory in shadow mode until all of these passed:
 
 1. The Notion integration can access the declared parent page.
 2. Tenant-local Notion data sources are provisioned and recorded under `HZ2_*`.

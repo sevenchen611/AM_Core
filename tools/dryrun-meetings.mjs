@@ -87,6 +87,7 @@ function build({ llmBackends = {}, geminiAudio = true, driveConfigured = false, 
     llm,
     notionRequest: async (p, o = {}) => {
       if (o.method === 'POST' && p === '/v1/pages') { notionPages.push(o.body.properties); return { id: 'pg', url: 'https://n/pg' }; }
+      if (o.method === 'GET' && p.startsWith('/v1/blocks/') && p.includes('/children')) return { results: [], has_more: false };
       if (o.method === 'PATCH' && p.startsWith('/v1/blocks/')) return { results: [{ id: 'b' }] };
       if (p.startsWith('/v1/pages/')) return { id: 'pg', url: 'https://n/pg', public_url: null };
       if (p.includes('/query')) return { results: [] };
@@ -96,10 +97,13 @@ function build({ llmBackends = {}, geminiAudio = true, driveConfigured = false, 
     assemblyKey: 'A', geminiKey: 'G', geminiModel: 'gemini-2.5-flash',
     ensureDriveFolder: async () => 'f',
     uploadToDrive: async () => ({ webViewLink: driveConfigured ? 'https://drive/rec' : '' }),
-    publicBaseUrl: '', publicLinkSecret: '',
+    publicBaseUrl: 'https://am.test', publicLinkSecret: 'secret',
   });
 
-  const tenant = { key: tenantKey, config: tenantCfg, dataSources: { meetings: 'M', tasks: 'T', projects: 'P' }, driveConfigured, driveRootFolderId: 'root' };
+  const config = tenantCfg && typeof tenantCfg === 'object'
+    ? { ...tenantCfg, meetings: { ...(tenantCfg.meetings || {}), liffId: '123456-test' } }
+    : tenantCfg;
+  const tenant = { key: tenantKey, config, dataSources: { meetings: 'M', tasks: 'T', projects: 'P' }, driveConfigured, driveRootFolderId: 'root' };
   return { hits, line, notionPages, sent, tenant, count: (n) => hits.filter((h) => h === n).length };
 }
 
@@ -152,15 +156,14 @@ const ENG_TERMS = /茲心園|草悟道|葉綠宿|泥作|矽酸鈣板|工地檢�
   const h = build(); await assemblyPath(h);
   check('會議頁標題正確', /^\d{4}-\d{2}-\d{2} 週會$/.test(title(h)), title(h));
   check('類型來自 LLM 且守白名單', mtype(h) === '審圖', mtype(h));
-  check('建了會議頁 + 1 筆待辦', h.notionPages.length === 2, `${h.notionPages.length} 頁`);
-  check('待辦內容正確', h.notionPages[1]['內容'].title[0].text.content === '待辦');
-  check('AssemblyAI 會議待辦保留負責群組', h.notionPages[1]['負責群組']?.relation?.[0]?.id === 'bind');
+  check('建了會議頁,正式待辦等待確認後建立', h.notionPages.length === 1, `${h.notionPages.length} 頁`);
+  check('AssemblyAI 會議待辦推送確認連結', lineHas(h, '待辦確認頁'));
   check('有回「收到與會資訊」', lineHas(h, '✅ 收到與會資訊'));
-  check('LINE 會議記錄含 Notion 連結', lineHas(h, '📄 Notion 完整記錄'));
+  check('LINE 會議記錄含完整記錄連結', lineHas(h, '完整記錄(免帳號,可轉傳)'));
 
   const g = build(); await geminiPath(g);
-  check('Gemini 直轉路徑也產出會議頁', g.notionPages.length === 2);
-  check('Gemini 會議待辦保留負責群組', g.notionPages[1]['負責群組']?.relation?.[0]?.id === 'bind');
+  check('Gemini 直轉路徑也只先產出會議頁', g.notionPages.length === 1);
+  check('Gemini 會議待辦推送確認連結', lineHas(g, '待辦確認頁'));
   check('Gemini 直轉路徑推 LINE', g.line.some((t) => t.includes('📋 會議記錄')));
 }
 
@@ -188,7 +191,7 @@ const ENG_TERMS = /茲心園|草悟道|葉綠宿|泥作|矽酸鈣板|工地檢�
   let junkThrew = null;
   await assemblyPath(j).catch((e) => { junkThrew = e; });
   check('手誤的 config 不拋錯', !junkThrew, junkThrew?.message);
-  check('手誤的 config 仍產出會議記錄', j.notionPages.length === 2, `${j.notionPages.length} 頁`);
+  check('手誤的 config 仍產出會議記錄', j.notionPages.length === 1, `${j.notionPages.length} 頁`);
   check('手誤的 config 不漏工程味', !j.sent.keyterms.some((t) => ENG_TERMS.test(t)) && !ENG_TERMS.test(j.sent.summaryPrompt));
 }
 
@@ -200,7 +203,7 @@ const ENG_TERMS = /茲心園|草悟道|葉綠宿|泥作|矽酸鈣板|工地檢�
   check('包一層的鏈頭 → 換後端接手', h.count('gemini') === 1, JSON.stringify(h.hits));
   check('包一層的鏈頭 → 同後端先重試一次', h.count('assemblyai') === 2, JSON.stringify(h.hits));
   check('包一層 → 絕不產出空白會議記錄', /週會$/.test(title(h)), title(h));
-  check('包一層 → 待辦仍寫入', h.notionPages.length === 2, `${h.notionPages.length} 頁`);
+  check('包一層 → 仍產出會議頁且待辦等待確認', h.notionPages.length === 1, `${h.notionPages.length} 頁`);
 
   // 6b. 三家全包一層 + Gemini 直讀也包一層 → 誠實失敗,不寫空白頁
   const all = build({ llmBackends: { assemblyai: 'wrapped', gemini: 'wrapped', minimax: 'wrapped' }, geminiAudio: 'wrapped' });
