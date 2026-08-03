@@ -29,6 +29,7 @@ Enable HOZO AM 2.0 as a formal AM Platform tenant instead of a shadow-only intak
   - `狀態=啟用`
   - `啟用功能=訊息收集, 待辦, 會議, 案件狀態, 照片, 提醒`
   - `會議待辦模式=完整確認`
+- Re-sending a HOZO AM 2.0 binding command from an already-bound HOZO AM 2.0 group updates that existing binding row instead of stopping at the duplicate-binding guard.
 
 ## Existing group bindings
 
@@ -45,7 +46,7 @@ To activate an existing group binding, update the group binding row to:
 - `node --check` passes for the edited runtime files.
 - Core dry run passes.
 - Task, reminder, queue, group and meeting dry runs pass.
-- Production `/health` shows build `hozo20-full-workflow-2026-08-03`.
+- Production `/health` shows build `hozo20-full-workflow-rebind-2026-08-03`.
 - Production `/health` shows HOZO AM 2.0 `authorizationReady=true`.
 - Production `/health` shows HOZO AM 2.0 modules loaded for queue, tasks, reminders and groups.
 

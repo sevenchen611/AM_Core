@@ -6,7 +6,7 @@
 
 import { textItem } from './util.js';
 
-export const GROUP_ONBOARDING_BUILD = 'hozo20-full-workflow-2026-08-03';
+export const GROUP_ONBOARDING_BUILD = 'hozo20-full-workflow-rebind-2026-08-03';
 export const LEGACY_HOZO20_BIND_COMMAND = '<绑定 HOZOAM 2.0 群组>';
 
 export const ONBOARDING_TENANTS = [

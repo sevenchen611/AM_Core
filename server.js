@@ -137,15 +137,14 @@ async function maybeHandleGroupOnboardingCommand(event, groupId, resolved = {}) 
     await replyLine(event, `群組綁定失敗：${command.error}\n可用格式：\n${supportedGroupOnboardingExamples().join('\n')}`);
     return true;
   }
-  if (resolved.tenant) {
-    await replyLine(event, `此群組已綁定 ${resolved.tenant.displayName}${resolved.binding?.groupName ? `：${resolved.binding.groupName}` : ''}，不會重複綁定。`);
-    return true;
-  }
-
   const tenant = tenants.find((item) => item.key === command.tenantKey);
   if (!tenant?.notionConfigured || !tenant?.dataSources?.groupBindings) {
     logger.warn(`Group onboarding command received, but tenant group binding is not configured (tenant=${command.tenantKey}).`);
     await replyLine(event, `${command.tenantLabel} 尚未設定群組綁定資料源，這次無法完成綁定。`);
+    return true;
+  }
+  if (resolved.tenant && resolved.tenant.key !== tenant.key) {
+    await replyLine(event, `此群組已綁定 ${resolved.tenant.displayName}${resolved.binding?.groupName ? `：${resolved.binding.groupName}` : ''}，不會跨租戶重複綁定。`);
     return true;
   }
 
@@ -161,6 +160,7 @@ async function maybeHandleGroupOnboardingCommand(event, groupId, resolved = {}) 
     const projectPageId = command.projectName ? await findTenantProjectByName(tenant, command.projectName) : '';
     const properties = groupOnboardingProperties(command, groupId, { projectPageId, schema });
     let pageId = existing[0]?.row?.id || '';
+    const wasExisting = Boolean(pageId);
     if (pageId) {
       await platform.notionRequest(`/v1/pages/${encodeURIComponent(pageId)}`, {
         method: 'PATCH',
@@ -180,8 +180,8 @@ async function maybeHandleGroupOnboardingCommand(event, groupId, resolved = {}) 
     }
     router.invalidate(groupId);
     const statusLabel = properties['狀態']?.select?.name || '影子記錄';
-    logger.log(`AM Platform group bound (tenant=${tenant.key}, status=${statusLabel}, group=${groupId}, page=${pageId || 'unknown'}).`);
-    await replyLine(event, `已綁定 ${tenant.displayName}：${command.groupName}\n狀態：${statusLabel}`);
+    logger.log(`AM Platform group ${wasExisting ? 'updated' : 'bound'} (tenant=${tenant.key}, status=${statusLabel}, group=${groupId}, page=${pageId || 'unknown'}).`);
+    await replyLine(event, `${wasExisting ? '已更新綁定' : '已綁定'} ${tenant.displayName}：${command.groupName}\n狀態：${statusLabel}`);
   } catch (error) {
     logger.warn(`Group onboarding failed (tenant=${command.tenantKey}, group=${groupId}): ${error.message}`);
     await replyLine(event, `群組綁定失敗：${error.message.slice(0, 180)}`);
