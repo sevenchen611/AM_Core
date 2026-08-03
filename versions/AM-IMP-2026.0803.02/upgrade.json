@@ -3,7 +3,7 @@
   "name": "LINE group name repair",
   "type": "AM Platform / LINE onboarding / Group bindings",
   "portable": true,
-  "status": "Ready",
+  "status": "Deployed",
   "createdAt": "2026-08-03",
   "dependsOn": ["AM-IMP-2026.0803.01"],
   "installTargets": ["AM_PLATFORM", "HOZO_AM_2_0", "FOREST", "GREEN_HOTEL"],
