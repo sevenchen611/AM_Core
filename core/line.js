@@ -73,6 +73,18 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
     return profile.displayName || 'LINE 使用者';
   }
 
+  // 綁定時以 LINE 群組摘要為名稱唯一來源，避免舊口令將其他群名寫入目前群組。
+  async function resolveGroupName(groupId) {
+    if (!groupId) return '';
+    try {
+      const summary = await lineGet(`/v2/bot/group/${encodeURIComponent(groupId)}/summary`);
+      return String(summary?.groupName || '').trim();
+    } catch (error) {
+      logger.warn?.(`LINE group summary lookup failed (group=${String(groupId).slice(0, 8)}...): ${error.message}`);
+      return '';
+    }
+  }
+
   // 下載音檔/影片內容。LINE 對媒體訊息若後端仍在轉檔,會回 202 或 2xx 空 body,
   // 此時 response.ok 仍為 true —— 舊版直接回傳空 buffer,害下游(AssemblyAI upload 422、
   // Gemini upload 400「No file found」)全部拿到空檔而失敗。故對「未就緒(202 或空 body)」
@@ -237,6 +249,7 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
     resolveSenderName,
     listGroupMemberIds,
     resolveGroupMemberName,
+    resolveGroupName,
     downloadLineContent,
     peekLineContent,
     streamLineContent,

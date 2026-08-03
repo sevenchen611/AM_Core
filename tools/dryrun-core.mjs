@@ -6,7 +6,7 @@
 
 import assert from 'node:assert';
 import { bootstrap } from '../core/bootstrap.js';
-import { parseGroupOnboardingCommand } from '../core/group-onboarding.js';
+import { parseGroupOnboardingCommand, withResolvedGroupName } from '../core/group-onboarding.js';
 
 // ── 假 Notion 世界 ─────────────────────────────────────────
 const ENG_PAGE = 'aaaa1111aaaa1111aaaa1111aaaa1111';
@@ -48,6 +48,7 @@ globalThis.fetch = async (input, options = {}) => {
 
   // ── LINE ──
   if (u.host === 'api.line.me' && p.includes('/member/')) return jsonResponse({ displayName: '測試員' });
+  if (u.host === 'api.line.me' && /\/v2\/bot\/group\/[^/]+\/summary$/.test(p)) return jsonResponse({ groupName: '好住寓好--明義街46號' });
   if (u.host === 'api.line.me' && p.endsWith('/message/push')) {
     pushed.push({ to: body.to, text: body.messages?.[0]?.text || '' });
     return jsonResponse({});
@@ -258,8 +259,14 @@ await check('通用群組綁定指令可解析 Forest / Green / HOZO', () => {
 await check('舊 HOZO AM 2.0 群組綁定指令維持相容', () => {
   const command = parseGroupOnboardingCommand('<绑定 HOZOAM 2.0 群组>');
   assert.equal(command.tenantKey, 'hozo-am-2-0');
-  assert.equal(command.groupName, '營運處 VS 好住寓好');
-  assert.equal(command.projectName, '好住寓好');
+  assert.equal(command.groupName, '');
+  assert.equal(command.requiresLineGroupName, true);
+  assert.equal(withResolvedGroupName(command, '好住寓好--明義街46號').groupName, '好住寓好--明義街46號');
+  assert.throws(() => withResolvedGroupName(command, ''), /無法讀取目前 LINE 群組名稱/);
+});
+
+await check('群組綁定名稱由 LINE 群組摘要取得', async () => {
+  assert.equal(await platform.resolveGroupName('gLegacy'), '好住寓好--明義街46號');
 });
 
 // ── 報告 ──

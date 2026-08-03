@@ -1,0 +1,53 @@
+{
+  "id": "AM-IMP-2026.0803.02",
+  "name": "LINE group name repair",
+  "type": "AM Platform / LINE onboarding / Group bindings",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-08-03",
+  "dependsOn": ["AM-IMP-2026.0803.01"],
+  "installTargets": ["AM_PLATFORM", "HOZO_AM_2_0", "FOREST", "GREEN_HOTEL"],
+  "scope": [
+    "LINE group-summary lookup during onboarding",
+    "Legacy HOZO AM 2.0 command repair",
+    "Same-tenant binding metadata repair"
+  ],
+  "requiresDatabases": ["Existing tenant-local Group Bindings data source"],
+  "requiresEnv": ["LINE_CHANNEL_ACCESS_TOKEN", "LINE_CHANNEL_SECRET"],
+  "requiresScripts": [
+    "node --check core/line.js",
+    "node --check server.js",
+    "node tools/dryrun-core.mjs",
+    "node tools/check-upgrade-package.js AM-IMP-2026.0803.02"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "LINE groupId remains the routing key. Group-summary reads use the shared OA only for the current group, while all binding writes remain tenant-keyed and cross-tenant records are rejected."
+  },
+  "changes": [
+    "Legacy HOZO AM 2.0 onboarding no longer contains a fixed group name",
+    "Onboarding uses the current LINE group summary as the binding display name",
+    "A same-tenant resend repairs metadata without resetting governance fields"
+  ],
+  "definitionOfDone": [
+    "Package validation passes",
+    "Core dry run passes",
+    "Production health reports the repaired build",
+    "A same-tenant rebind preserves the LINE groupId and corrects the name"
+  ],
+  "files": [
+    "core/line.js",
+    "core/bootstrap.js",
+    "core/group-onboarding.js",
+    "server.js",
+    "tools/dryrun-core.mjs",
+    "versions/AM-IMP-2026.0803.02/README.md",
+    "versions/AM-IMP-2026.0803.02/INSTALL.md",
+    "versions/AM-IMP-2026.0803.02/VERIFY.md",
+    "versions/AM-IMP-2026.0803.02/ROLLBACK.md",
+    "versions/AM-IMP-2026.0803.02/upgrade.json"
+  ]
+}

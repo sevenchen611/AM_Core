@@ -11,8 +11,10 @@ import { sendJson, sendText, readBody } from './core/util.js';
 import {
   GROUP_ONBOARDING_BUILD,
   groupOnboardingProperties,
+  groupOnboardingRepairProperties,
   parseGroupOnboardingCommand,
   supportedGroupOnboardingExamples,
+  withResolvedGroupName,
 } from './core/group-onboarding.js';
 
 const ctx = await bootstrap(process.env);
@@ -149,6 +151,8 @@ async function maybeHandleGroupOnboardingCommand(event, groupId, resolved = {}) 
   }
 
   try {
+    const actualGroupName = await line.resolveGroupName(groupId);
+    const onboardingCommand = withResolvedGroupName(command, actualGroupName);
     const records = await existingGroupBindingRecords(groupId);
     const foreign = records.filter((record) => record.tenant.key !== tenant.key);
     if (foreign.length) {
@@ -157,8 +161,13 @@ async function maybeHandleGroupOnboardingCommand(event, groupId, resolved = {}) 
     const existing = records.filter((record) => record.tenant.key === tenant.key);
     if (existing.length > 1) throw new Error('同一個 LINE 群組 ID 已有多筆群組綁定，為避免誤綁已停止。');
     const schema = await groupBindingSchema(tenant);
-    const projectPageId = command.projectName ? await findTenantProjectByName(tenant, command.projectName) : '';
-    const properties = groupOnboardingProperties(command, groupId, { projectPageId, schema });
+    const isCurrentBinding = Boolean(resolved.tenant && resolved.tenant.key === tenant.key && existing.length === 1);
+    const projectPageId = !isCurrentBinding && onboardingCommand.projectName
+      ? await findTenantProjectByName(tenant, onboardingCommand.projectName)
+      : '';
+    const properties = isCurrentBinding
+      ? groupOnboardingRepairProperties(onboardingCommand, groupId, { schema })
+      : groupOnboardingProperties(onboardingCommand, groupId, { projectPageId, schema });
     let pageId = existing[0]?.row?.id || '';
     const wasExisting = Boolean(pageId);
     if (pageId) {
@@ -180,8 +189,11 @@ async function maybeHandleGroupOnboardingCommand(event, groupId, resolved = {}) 
     }
     router.invalidate(groupId);
     const statusLabel = properties['狀態']?.select?.name || '影子記錄';
-    logger.log(`AM Platform group ${wasExisting ? 'updated' : 'bound'} (tenant=${tenant.key}, status=${statusLabel}, group=${groupId}, page=${pageId || 'unknown'}).`);
-    await replyLine(event, `${wasExisting ? '已更新綁定' : '已綁定'} ${tenant.displayName}：${command.groupName}\n狀態：${statusLabel}`);
+    const action = isCurrentBinding ? '已校正目前群組綁定' : wasExisting ? '已更新綁定' : '已綁定';
+    logger.log(`AM Platform group ${isCurrentBinding ? 'repaired' : wasExisting ? 'updated' : 'bound'} (tenant=${tenant.key}, status=${statusLabel}, group=${groupId}, page=${pageId || 'unknown'}).`);
+    await replyLine(event, isCurrentBinding
+      ? `${action} ${tenant.displayName}：${onboardingCommand.groupName}`
+      : `${action} ${tenant.displayName}：${onboardingCommand.groupName}\n狀態：${statusLabel}`);
   } catch (error) {
     logger.warn(`Group onboarding failed (tenant=${command.tenantKey}, group=${groupId}): ${error.message}`);
     await replyLine(event, `群組綁定失敗：${error.message.slice(0, 180)}`);

@@ -90,6 +90,7 @@ export async function bootstrap(env = process.env, overrides = {}) {
     lineGet: line.lineGet,
     listGroupMemberIds: line.listGroupMemberIds,
     resolveGroupMemberName: line.resolveGroupMemberName,
+    resolveGroupName: line.resolveGroupName,
     downloadLineContent: line.downloadLineContent,
     peekLineContent: line.peekLineContent,
     streamLineContent: line.streamLineContent,

@@ -6,7 +6,7 @@
 
 import { textItem } from './util.js';
 
-export const GROUP_ONBOARDING_BUILD = 'hozo20-full-workflow-rebind-2026-08-03';
+export const GROUP_ONBOARDING_BUILD = 'group-name-repair-2026-08-03';
 export const LEGACY_HOZO20_BIND_COMMAND = '<绑定 HOZOAM 2.0 群组>';
 
 export const ONBOARDING_TENANTS = [
@@ -76,8 +76,8 @@ export function parseGroupOnboardingCommand(value) {
       isCommand: true,
       tenantKey: 'hozo-am-2-0',
       tenantLabel: 'HOZO AM 2.0',
-      groupName: '營運處 VS 好住寓好',
-      projectName: '好住寓好',
+      groupName: '',
+      requiresLineGroupName: true,
       sourceCommand: text,
       legacy: true,
     };
@@ -109,6 +109,15 @@ export function parseGroupOnboardingCommand(value) {
     groupName,
     sourceCommand: text,
   };
+}
+
+// 群組 ID 才是實際綁定鍵；名稱只供管理者辨識，應以 LINE 當下回傳的群名為準。
+export function withResolvedGroupName(command, lineGroupName) {
+  const resolvedName = String(lineGroupName || '').trim() || String(command?.groupName || '').trim();
+  if (!resolvedName) {
+    throw new Error('無法讀取目前 LINE 群組名稱，請確認葉小蝸仍在群組內後再發送綁定指令。');
+  }
+  return { ...command, groupName: resolvedName };
 }
 
 export function groupOnboardingProperties(command, groupId, { projectPageId = '', schema = null } = {}) {
@@ -144,4 +153,21 @@ export function groupOnboardingProperties(command, groupId, { projectPageId = ''
     if (!filtered[required]) throw new Error(`群組綁定資料源缺少必要欄位「${required}」。`);
   }
   return filtered;
+}
+
+// 同一個 groupId 已屬於同一租戶時，只校正容易被舊口令寫錯的辨識資料，
+// 不重設管理者後續在群組後台調整過的狀態、功能或專案關聯。
+export function groupOnboardingRepairProperties(command, groupId, { schema = null } = {}) {
+  const config = ONBOARDING_TENANTS.find((tenant) => tenant.key === command.tenantKey);
+  if (!config) throw new Error(`Unsupported onboarding tenant: ${command.tenantKey}`);
+  const has = (name) => !schema || Boolean(schema.properties?.[name]);
+  const properties = {
+    '群組名稱': { title: [textItem(command.groupName)] },
+    'LINE 群組 ID': { rich_text: [textItem(groupId)] },
+    '群組用途': { rich_text: [textItem(config.purpose(command.groupName))] },
+    '所屬目標': { rich_text: [textItem(command.groupName)] },
+    '最後設定時間': { date: { start: new Date().toISOString() } },
+    '最後設定者': { rich_text: [textItem(`LINE onboarding repair: ${command.sourceCommand}`)] },
+  };
+  return Object.fromEntries(Object.entries(properties).filter(([name]) => has(name)));
 }
