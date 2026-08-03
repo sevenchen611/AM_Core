@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 import { bootstrap } from './core/bootstrap.js';
 import { createAccessDirectory } from './core/access-directory.js';
 import { safePortalHandoffLocation } from './core/portal-handoff.js';
-import { sendJson, sendText, readBody } from './core/util.js';
+import { sendJson, sendText, readBody, textItem } from './core/util.js';
 
 const ctx = await bootstrap(process.env);
 const { tenants, line, router, dispatcher, portal, modules, platform, llm, logger } = ctx;
@@ -20,6 +20,10 @@ for (const t of tenants) {
 }
 
 const routes = dispatcher.collectRoutes();
+const HOZO20_BIND_COMMAND = '<绑定 HOZOAM 2.0 群组>';
+const HOZO20_BIND_TENANT_KEY = 'hozo-am-2-0';
+const HOZO20_BIND_GROUP_NAME = '營運處 VS 好住寓好';
+const HOZO20_BIND_PROJECT_NAME = '好住寓好';
 
 const html = (value) => String(value || '').replace(/[&<>"']/g, (c) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -67,6 +71,112 @@ function safeSecretEqual(left, right) {
 }
 const accessDirectory = createAccessDirectory({ tenants, notionRequest: platform.notionRequest, logger });
 
+const cleanBindCommand = (value) => String(value || '')
+  .trim()
+  .replace(/[＜]/g, '<')
+  .replace(/[＞]/g, '>')
+  .replace(/\s+/g, ' ');
+
+async function findTenantProjectByName(tenant, name) {
+  if (!tenant?.dataSources?.projects || !name) return '';
+  try {
+    const result = await platform.notionRequest(`/v1/data_sources/${encodeURIComponent(tenant.dataSources.projects)}/query`, {
+      method: 'POST',
+      tenantKey: tenant.key,
+      body: {
+        filter: { property: '專案名稱', title: { equals: name } },
+        page_size: 1,
+      },
+    });
+    return result.results?.[0]?.id || '';
+  } catch (error) {
+    logger.warn(`HOZO AM 2.0 onboarding could not resolve project "${name}": ${error.message}`);
+    return '';
+  }
+}
+
+async function queryHozo20Binding(tenant, groupId) {
+  const result = await platform.notionRequest(`/v1/data_sources/${encodeURIComponent(tenant.dataSources.groupBindings)}/query`, {
+    method: 'POST',
+    tenantKey: tenant.key,
+    body: {
+      filter: { property: 'LINE 群組 ID', rich_text: { equals: groupId } },
+      page_size: 2,
+    },
+  });
+  return result.results || [];
+}
+
+function hozo20BindingProperties({ groupId, projectPageId = '' }) {
+  const properties = {
+    '群組名稱': { title: [textItem(HOZO20_BIND_GROUP_NAME)] },
+    'LINE 群組 ID': { rich_text: [textItem(groupId)] },
+    '群組角色': { select: { name: '內部' } },
+    '工種': { select: { name: '營運' } },
+    '狀態': { select: { name: '影子記錄' } },
+    '成員對照': { rich_text: [textItem('{}')] },
+    '群組用途': { rich_text: [textItem('HOZO AM 2.0 營運處與好住寓好群組；先以影子模式保留來源訊息、圖片與會議，待驗證後再開正式控制。')] },
+    '啟用功能': { multi_select: [{ name: '訊息收集' }, { name: '會議' }, { name: '照片' }] },
+    '所屬目標': { rich_text: [textItem(`${HOZO20_BIND_PROJECT_NAME} / 營運處`)] },
+    '狀態更新權限': { select: { name: '總管' } },
+    '預設提醒對象': { rich_text: [] },
+    '最後設定時間': { date: { start: new Date().toISOString() } },
+    '最後設定者': { rich_text: [textItem(`Codex onboarding: ${HOZO20_BIND_COMMAND}`)] },
+  };
+  if (projectPageId) properties['專案'] = { relation: [{ id: projectPageId }] };
+  return properties;
+}
+
+async function maybeBindHozo20Group(event, groupId) {
+  const text = event.message?.type === 'text' ? String(event.message.text || '') : '';
+  if (!groupId || cleanBindCommand(text) !== HOZO20_BIND_COMMAND) return false;
+
+  const tenant = tenants.find((item) => item.key === HOZO20_BIND_TENANT_KEY);
+  if (!tenant?.notionConfigured || !tenant?.dataSources?.groupBindings) {
+    logger.warn('HOZO AM 2.0 onboarding command received, but tenant group binding is not configured.');
+    if (event.replyToken) {
+      await line.replyLineMessage(event.replyToken, 'HOZO AM 2.0 尚未設定群組綁定資料源，這次無法完成綁定。').catch(() => {});
+    }
+    return true;
+  }
+
+  try {
+    const existing = await queryHozo20Binding(tenant, groupId);
+    if (existing.length > 1) throw new Error('同一個 LINE 群組 ID 已有多筆 HOZO AM 2.0 綁定，為避免誤綁已停止。');
+    const projectPageId = await findTenantProjectByName(tenant, HOZO20_BIND_PROJECT_NAME);
+    const properties = hozo20BindingProperties({ groupId, projectPageId });
+    let pageId = existing[0]?.id || '';
+    if (pageId) {
+      await platform.notionRequest(`/v1/pages/${encodeURIComponent(pageId)}`, {
+        method: 'PATCH',
+        tenantKey: tenant.key,
+        body: { properties },
+      });
+    } else {
+      const created = await platform.notionRequest('/v1/pages', {
+        method: 'POST',
+        tenantKey: tenant.key,
+        body: {
+          parent: { type: 'data_source_id', data_source_id: tenant.dataSources.groupBindings },
+          properties,
+        },
+      });
+      pageId = created.id || '';
+    }
+    router.invalidate(groupId);
+    logger.log(`HOZO AM 2.0 group bound in shadow mode (group=${groupId}, page=${pageId || 'unknown'}).`);
+    if (event.replyToken) {
+      await line.replyLineMessage(event.replyToken, `已綁定 HOZO AM 2.0：${HOZO20_BIND_GROUP_NAME}\n狀態：影子記錄`).catch(() => {});
+    }
+  } catch (error) {
+    logger.warn(`HOZO AM 2.0 onboarding failed (group=${groupId}): ${error.message}`);
+    if (event.replyToken) {
+      await line.replyLineMessage(event.replyToken, `HOZO AM 2.0 綁定失敗：${error.message.slice(0, 120)}`).catch(() => {});
+    }
+  }
+  return true;
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const pathname = url.pathname.replace(/\/+$/, '') || '/';
@@ -76,7 +186,7 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, {
       ok: true,
       platform: 'am-core',
-      build: 'group-access-control-2026-07-17',
+      build: 'hozo20-group-onboarding-2026-08-03',
       lineConfigured: line.configured,
       driveConfigured: platform.driveConfigured,
       llm: { available: llm.available, chain: llm.backends },
@@ -257,6 +367,7 @@ async function handleEvent(event) {
   const groupId = event.source?.groupId || event.source?.roomId || '';
   const { tenant, binding } = await router.resolveGroupBinding(groupId);
   if (!tenant) {
+    if (await maybeBindHozo20Group(event, groupId)) return;
     logger.log(`Unbound message ${event.message.id} (group=${groupId || 'direct'}) — ignored.`);
     return;
   }
