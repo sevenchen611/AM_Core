@@ -182,7 +182,11 @@ function createSession(ctx, draftText = '') {
 
 function liffLink(tenant, session) {
   const liffId = claimsLiffId(tenant);
-  return `https://liff.line.me/${encodeURIComponent(liffId)}/claims/liff/${encodeURIComponent(makeSessionToken(session))}`;
+  // The LIFF URL suffix is appended to the registered Endpoint URL. The
+  // claims app endpoint already ends in /claims/liff, so only append the
+  // signed session token here; repeating the route prevents LIFF init from
+  // reaching its final redirect URL.
+  return `https://liff.line.me/${encodeURIComponent(liffId)}/${encodeURIComponent(makeSessionToken(session))}`;
 }
 
 function html(value) {
@@ -392,7 +396,7 @@ function liffTokenFromRequest(pathname, url) {
   const direct = String(pathname || '').match(/^\/claims\/liff\/([0-9a-f]{32}\.\d+\.[A-Za-z0-9_-]+)$/i);
   if (direct) return direct[1];
   const state = String(url?.searchParams?.get('liff.state') || '');
-  const fromState = state.match(/^\/(?:claims\/liff\/)?([0-9a-f]{32}\.\d+\.[A-Za-z0-9_-]+)(?:[?#].*)?$/i);
+  const fromState = state.match(/^\/?(?:claims\/liff\/)?([0-9a-f]{32}\.\d+\.[A-Za-z0-9_-]+)(?:[?#].*)?$/i);
   if (fromState) return fromState[1];
   return cleanText(url?.searchParams?.get('session'), 400);
 }
@@ -626,6 +630,8 @@ export const __test = {
   createSession,
   makeSessionToken,
   sessionFromToken,
+  liffLink,
+  liffTokenFromRequest,
   eventDedupe,
   sessions,
   cleanupMemory,

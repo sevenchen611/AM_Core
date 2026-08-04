@@ -8,6 +8,7 @@ import {
   GROUP_BINDING_V2_PROPERTIES,
 } from '../core/group-binding-schema.js';
 import groupModule, { __test as groups } from '../modules/groups/index.js';
+import claimsModule, { __test as claims } from '../modules/claims/index.js';
 
 const results = [];
 async function check(name, fn) {
@@ -134,6 +135,16 @@ await check('HOZO AM 2.0 keeps enabled claims settings scoped to HZ2 environment
   assert.equal(tenant.config.claims.rentalBaseUrl, 'https://rental.example.test');
   assert.equal(tenant.config.claims.rentalClaimsToken, 'test-claims-token');
   assert.equal(tenant.config.claims.rentalEventToken, 'test-event-token');
+});
+
+await check('LIFF claim deep link uses a token relative to its registered claims endpoint', () => {
+  claimsModule.init({ publicLinkSecret: 'claims-test-secret' });
+  const session = { id: 'a'.repeat(32), expiresAt: Date.now() + 60_000 };
+  const tenant = { config: { claims: { liffId: '2010966226-5pyR1QR4' } } };
+  const link = claims.liffLink(tenant, session);
+  const token = link.split('/').pop();
+  assert.equal(link.includes('/claims/liff/'), false);
+  assert.equal(claims.liffTokenFromRequest('/claims/liff', new URL(`https://example.test/claims/liff?liff.state=${token}`)), decodeURIComponent(token));
 });
 
 let passed = 0;
