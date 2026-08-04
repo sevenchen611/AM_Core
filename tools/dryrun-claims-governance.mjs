@@ -170,6 +170,9 @@ await check('LIFF claim page emits syntactically valid client JavaScript', () =>
   assert.ok(inlineScript, 'inline LIFF script is missing');
   assert.doesNotThrow(() => new vm.Script(inlineScript[1], { filename: 'claims-liff-client.js' }));
   assert.match(inlineScript[1], /split\(\/\\n\+\/\)/);
+  assert.match(page, />切換 LINE 帳號<\/button>/);
+  assert.match(inlineScript[1], /liff\.logout\(\)/);
+  assert.match(inlineScript[1], /location\.replace\(DATA\.apiPath\)/);
 });
 
 await check('LIFF OAuth callback restores its signed session from a short-lived secure cookie', () => {
