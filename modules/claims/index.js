@@ -386,6 +386,17 @@ function initialStatusMessage(result, payload) {
   return `${number} 已送出\n期間：${payload.claim.period}\n金額：${money(payload.claim.totals.requestedAmount, payload.claim.totals.currency)}\n狀態：待核准`;
 }
 
+async function notifyInitialStatus(session, binding, result, payload, deps = platform) {
+  if (!binding?.groupId) return false;
+  try {
+    await deps.pushLineMessage(binding.groupId, initialStatusMessage(result, payload), undefined, { retryKey: session.externalSubmissionId });
+    return true;
+  } catch (error) {
+    deps?.logger?.warn?.(`Claims initial LINE notification failed: ${error.message}`);
+    return false;
+  }
+}
+
 function liffHtml(session, tenant) {
   const data = {
     sessionToken: makeSessionToken(session),
@@ -485,7 +496,7 @@ async function handleLiff(req, res, { pathname, url, tenant = null, tenants = []
     // This ID only stays in the short-lived AM session so the initial safe status can go back to
     // the originating LINE group. It is never included in the Rental request or event API.
     const binding = session.binding;
-    if (binding?.groupId) await platform.pushLineMessage(binding.groupId, initialStatusMessage(result, payload), undefined, { retryKey: session.externalSubmissionId });
+    await notifyInitialStatus(session, binding, result, payload);
     return sendJson(res, 201, { ok: true, claimId: result.claimId, claimNumber: result.claimNumber, status: result.status || 'submitted' });
   } catch (error) {
     platform?.logger?.warn?.(`Claims LIFF request failed: ${error.message}${error.detail ? ` (${error.detail})` : ''}`);
@@ -684,6 +695,7 @@ export const __test = {
   liffHtml,
   liffSessionCookie,
   rentalClaimError,
+  notifyInitialStatus,
   eventDedupe,
   sessions,
   cleanupMemory,

@@ -4,6 +4,19 @@
 
 import crypto from 'node:crypto';
 
+const LINE_RETRY_KEY_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function normalizeLineRetryKey(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return crypto.randomUUID();
+  if (LINE_RETRY_KEY_PATTERN.test(raw)) return raw.toLowerCase();
+  const bytes = Buffer.from(crypto.createHash('sha256').update(`am-line-retry:${raw}`).digest().subarray(0, 16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 export function createLine({ channelAccessToken, channelSecret, logger = console, pushTimeoutMs = 8000 }) {
   // LINE webhook 簽章驗證(HMAC-SHA256, timing-safe)。
   function isValidSignature(rawBody, signature) {
@@ -195,7 +208,7 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
         substitution: { who: { type: 'mention', mentionee: { type: 'user', userId: mention.userId } } },
       };
     }
-    const retryKey = String(delivery.retryKey || crypto.randomUUID());
+    const retryKey = normalizeLineRetryKey(delivery.retryKey);
     const timeoutMs = Math.max(10, Number(delivery.timeoutMs || pushTimeoutMs) || 8000);
     const startedAt = Date.now();
     const targetHash = crypto.createHash('sha256').update(String(to || '')).digest('hex').slice(0, 10);
