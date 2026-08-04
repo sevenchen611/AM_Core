@@ -9,7 +9,7 @@ Environment prefix: `HZ2`
 | AM-IMP-2026.0718.01 | Deployed | Operational memory | Raw evidence → events → project/task state → decisions/knowledge | Notion, Drive, 15 data sources and the shared PostgreSQL tenant row are live. PostgreSQL 18, separated runtime role, forced RLS and Render production health passed. |
 | AM-IMP-2026.0803.01 | Deployed | Full workflow activation | Formal tasks, reminders, queue, group admin, triage, meeting todo creation | HOZO AM 2.0 tenant authorization is enabled, full workflow modules are loaded, meeting tasks can reach review-and-create mode, and new HOZO AM 2.0 group onboarding defaults to active full-function binding. |
 | AM-IMP-2026.0803.02 | Deployed | Group name repair | LINE group-summary name resolution and same-tenant binding repair | Production health reports `group-name-repair-2026-08-03`; legacy onboarding no longer writes a fixed historical group name. |
-| AM-IMP-2026.0804.01 | Ready | Claims group governance | Claim capability, stable LINE sender allowlist, claims LIFF and Rental integration configuration | Package and tenant configuration are prepared with claims disabled by default. Activate only after the claims module and Rental claim intake pass their target-environment smoke test. |
+| AM-IMP-2026.0804.01 | Deployed | Claims group governance | Claim capability, stable LINE sender allowlist, claims LIFF and Rental integration configuration | Claims is enabled only for the provisioned source group after the additive schema, secure runtime configuration, Rental intake, source, and approver checks were verified in production. |
 
 ## Tenant boundaries
 
