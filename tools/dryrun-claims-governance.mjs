@@ -1,6 +1,7 @@
 // Claims governance dry-run: no credentials, no LINE calls, and no Notion writes.
 import assert from 'node:assert';
 import { Readable } from 'node:stream';
+import vm from 'node:vm';
 import { loadTenants } from '../core/tenants.js';
 import {
   GROUP_CAPABILITIES,
@@ -146,6 +147,29 @@ await check('LIFF claim deep link uses a token relative to its registered claims
   assert.equal(new URL(link).pathname, '/2010966226-5pyR1QR4');
   assert.ok(token);
   assert.equal(claims.liffTokenFromRequest('/claims/liff', new URL(`https://example.test/claims/liff?liff.state=?session=${token}`)), token);
+});
+
+await check('LIFF claim page emits syntactically valid client JavaScript', () => {
+  claimsModule.init({ publicLinkSecret: 'claims-test-secret' });
+  const session = {
+    id: 'b'.repeat(32),
+    expiresAt: Date.now() + 60_000,
+    sourceGroupName: 'HOZO 公司群',
+    draftText: '勞健保\n電梯保養費',
+  };
+  const tenant = {
+    config: {
+      claims: {
+        liffId: '2010966226-5pyR1QR4',
+        claimTypes: ['勞健保費用', '共同營業費用'],
+      },
+    },
+  };
+  const page = claims.liffHtml(session, tenant);
+  const inlineScript = page.match(/<script>([\s\S]*?)<\/script>/);
+  assert.ok(inlineScript, 'inline LIFF script is missing');
+  assert.doesNotThrow(() => new vm.Script(inlineScript[1], { filename: 'claims-liff-client.js' }));
+  assert.match(inlineScript[1], /split\(\/\\n\+\/\)/);
 });
 
 let passed = 0;
