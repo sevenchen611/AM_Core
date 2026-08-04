@@ -120,7 +120,7 @@ await check('group API rejects claim-governance writes without tenant-all author
   assert.equal(writes.length, 0);
 });
 
-await check('HOZO AM 2.0 resolves claims settings only from HZ2 environment names', () => {
+await check('HOZO AM 2.0 keeps enabled claims settings scoped to HZ2 environment names', () => {
   const tenants = loadTenants({
     HZ2_CLAIMS_LIFF_ID: 'test-liff-id',
     HZ2_RENTAL_BASE_URL: 'https://rental.example.test/',
@@ -129,7 +129,7 @@ await check('HOZO AM 2.0 resolves claims settings only from HZ2 environment name
   }, { warn: () => {} });
   const tenant = tenants.find((item) => item.key === 'hozo-am-2-0');
   assert.ok(tenant?.modules.includes('claims'));
-  assert.equal(tenant.config.claims.enabled, false);
+  assert.equal(tenant.config.claims.enabled, true);
   assert.equal(tenant.config.claims.liffId, 'test-liff-id');
   assert.equal(tenant.config.claims.rentalBaseUrl, 'https://rental.example.test');
   assert.equal(tenant.config.claims.rentalClaimsToken, 'test-claims-token');
