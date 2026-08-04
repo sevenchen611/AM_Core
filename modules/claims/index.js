@@ -4,6 +4,7 @@ import { normalizeId, readBody, sendJson } from '../../core/util.js';
 let platform = null;
 
 const SESSION_TTL_MS = 15 * 60 * 1000;
+const LIFF_SESSION_COOKIE = 'am_claims_liff_session';
 const EVENT_DEDUPE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_BODY_BYTES = 256 * 1024;
 const COMMANDS = new Set(['請款', '我要請款', '#請款']);
@@ -394,7 +395,20 @@ async function init(){try{$('retry').classList.add('hidden');$('identity').class
 $('group').textContent='來源群組：'+DATA.sourceGroupName;$('type').innerHTML=DATA.claimTypes.map(type=>'<option value="'+type+'">'+type+'</option>').join('');addLine();parseDraft();$('retry').onclick=()=>init();$('add').onclick=()=>addLine();$('submit').onclick=async()=>{if(!identified)return;const button=$('submit'),result=$('result');button.disabled=true;result.className='status';result.textContent='送出中…';try{const lines=[...document.querySelectorAll('.line')].map(row=>({description:row.querySelector('.desc').value,amount:row.querySelector('.amount').value})).filter(line=>line.description||line.amount);const requestedAmount=lines.reduce((sum,line)=>sum+(Number(line.amount)||0),0);const companyExpenseAmount=$('companyExpense').value;const employeeRecoverableAmount=$('employeeRecoverable').value;const totals={requestedAmount,currency:'TWD'};if(companyExpenseAmount)totals.companyExpenseAmount=Number(companyExpenseAmount);if(employeeRecoverableAmount)totals.employeeRecoverableAmount=Number(employeeRecoverableAmount);const data=await api({action:'submit',sessionToken:DATA.sessionToken,type:$('type').value,period:$('period').value,lines,totals,dueDate:$('dueDate').value,note:$('note').value,attachments:files()});result.textContent=(data.claimNumber?'請款單 '+data.claimNumber:'請款單')+' 已送出，已同步回覆群組。';$('form').classList.add('hidden')}catch(error){result.className='status error';result.textContent=error.message||'送出失敗'}finally{button.disabled=false}};init();</script></main></body></html>`;
 }
 
-function liffTokenFromRequest(pathname, url) {
+function cookieValue(cookieHeader, name) {
+  for (const entry of String(cookieHeader || '').split(';')) {
+    const separator = entry.indexOf('=');
+    if (separator < 0 || entry.slice(0, separator).trim() !== name) continue;
+    try {
+      return decodeURIComponent(entry.slice(separator + 1).trim());
+    } catch {
+      return '';
+    }
+  }
+  return '';
+}
+
+function liffTokenFromRequest(pathname, url, cookieHeader = '') {
   const direct = String(pathname || '').match(/^\/claims\/liff\/([0-9a-f]{32}\.\d+\.[A-Za-z0-9_-]+)$/i);
   if (direct) return direct[1];
   const state = String(url?.searchParams?.get('liff.state') || '');
@@ -402,7 +416,15 @@ function liffTokenFromRequest(pathname, url) {
   if (fromState) return fromState[1];
   const stateSession = new URLSearchParams(state.replace(/^\?/, '').split('#', 1)[0]).get('session');
   if (stateSession) return cleanText(stateSession, 400);
-  return cleanText(url?.searchParams?.get('session'), 400);
+  const querySession = cleanText(url?.searchParams?.get('session'), 400);
+  if (querySession) return querySession;
+  const isOauthCallback = url?.searchParams?.has('code') && url?.searchParams?.has('state');
+  return isOauthCallback ? cleanText(cookieValue(cookieHeader, LIFF_SESSION_COOKIE), 400) : '';
+}
+
+function liffSessionCookie(session) {
+  const maxAge = Math.max(0, Math.ceil((session.expiresAt - Date.now()) / 1000));
+  return `${LIFF_SESSION_COOKIE}=${encodeURIComponent(makeSessionToken(session))}; Max-Age=${maxAge}; Path=/claims/liff; HttpOnly; Secure; SameSite=Lax`;
 }
 
 function tenantForSession(session, tenants, fallback) {
@@ -410,7 +432,7 @@ function tenantForSession(session, tenants, fallback) {
 }
 
 async function handleLiff(req, res, { pathname, url, tenant = null, tenants = [] }) {
-  const token = liffTokenFromRequest(pathname, url);
+  const token = liffTokenFromRequest(pathname, url, req.headers?.cookie);
   const session = sessionFromToken(token);
   if (!session) return sendJson(res, 404, { error: '請款連結已失效，請回到群組重新建立。' });
   const sessionTenant = tenantForSession(session, tenants, tenant);
@@ -418,7 +440,11 @@ async function handleLiff(req, res, { pathname, url, tenant = null, tenants = []
     return sendJson(res, 404, { error: '請款服務未設定。' });
   }
   if (req.method === 'GET') {
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'Set-Cookie': liffSessionCookie(session),
+    });
     return res.end(liffHtml(session, sessionTenant));
   }
   if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed.' });
@@ -642,6 +668,7 @@ export const __test = {
   liffLink,
   liffTokenFromRequest,
   liffHtml,
+  liffSessionCookie,
   eventDedupe,
   sessions,
   cleanupMemory,

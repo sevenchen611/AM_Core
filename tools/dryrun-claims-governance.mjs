@@ -172,6 +172,20 @@ await check('LIFF claim page emits syntactically valid client JavaScript', () =>
   assert.match(inlineScript[1], /split\(\/\\n\+\/\)/);
 });
 
+await check('LIFF OAuth callback restores its signed session from a short-lived secure cookie', () => {
+  claimsModule.init({ publicLinkSecret: 'claims-test-secret' });
+  const session = { id: 'c'.repeat(32), expiresAt: Date.now() + 60_000 };
+  const token = claims.makeSessionToken(session);
+  const cookie = claims.liffSessionCookie(session);
+  assert.match(cookie, /^am_claims_liff_session=/);
+  assert.match(cookie, /HttpOnly/);
+  assert.match(cookie, /Secure/);
+  assert.match(cookie, /SameSite=Lax/);
+  const callbackUrl = new URL('https://example.test/claims/liff?code=oauth-code&state=oauth-state');
+  assert.equal(claims.liffTokenFromRequest('/claims/liff', callbackUrl, cookie), token);
+  assert.equal(claims.liffTokenFromRequest('/claims/liff', new URL('https://example.test/claims/liff'), cookie), '');
+});
+
 let passed = 0;
 for (const [ok, name] of results) {
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}`);
