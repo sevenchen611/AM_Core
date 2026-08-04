@@ -55,6 +55,25 @@ assert.throws(() => __test.normalizeClaimSubmission({
   totals: { requestedAmount: 99, currency: 'TWD' }, attachments: [],
 }, session, tenant, { userId: 'U0123456789abcdef0123456789abcdef', displayName: 'Bonnie' }));
 
+const missingSourceError = __test.rentalClaimError(403, {
+  error: 'No active finance claim source matches this tenant and group binding.',
+});
+assert.equal(missingSourceError.message, '此群組尚未完成 Rental 請款來源設定，請聯絡財務管理員。');
+assert.match(missingSourceError.detail, /status=403/);
+assert.match(missingSourceError.detail, /No active finance claim source/);
+assert.equal(
+  __test.rentalClaimError(403, { error: 'Claim tenant identity does not match this configured source.' }).message,
+  '此群組的 Rental 租戶設定不一致，請聯絡財務管理員。',
+);
+assert.equal(
+  __test.rentalClaimError(400, { error: 'Claim line amounts must total the claim amount.' }).message,
+  '請款資料未通過 Rental 驗證，請檢查明細與總額後重試。',
+);
+assert.equal(
+  __test.rentalClaimError(503, { error: 'upstream unavailable' }).message,
+  'Rental 請款服務暫時無法處理，請稍後重試。',
+);
+
 const event = __test.normalizeClaimEvent({
   eventId: 'evt_claim_202606_0001', tenantKey: tenant.key, tenantId: tenant.tenantId,
   bindingId: session.bindingId, claimId: 'claim-001', claimNumber: 'CLM-202606-0001',

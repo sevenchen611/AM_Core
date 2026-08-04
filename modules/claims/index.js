@@ -348,7 +348,7 @@ async function createRentalClaim(tenant, payload) {
     const responseText = await response.text();
     let result = {};
     try { result = responseText ? JSON.parse(responseText) : {}; } catch { result = {}; }
-    if (!response.ok) throw Object.assign(new Error('Rental 請款服務暫時無法處理，請稍後重試。'), { statusCode: 502, detail: `status=${response.status}` });
+    if (!response.ok) throw rentalClaimError(response.status, result);
     return {
       claimId: cleanText(result.claimId || result.id, 160),
       claimNumber: cleanText(result.claimNumber || result.number, 120),
@@ -360,6 +360,20 @@ async function createRentalClaim(tenant, payload) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function rentalClaimError(status, result = {}) {
+  const downstreamError = cleanText(result?.error || result?.message, 300);
+  const detail = `status=${Number(status) || 0}${downstreamError ? `; error=${downstreamError}` : ''}`;
+  let message = 'Rental 請款服務暫時無法處理，請稍後重試。';
+  if (Number(status) === 403 && /no active finance claim source/i.test(downstreamError)) {
+    message = '此群組尚未完成 Rental 請款來源設定，請聯絡財務管理員。';
+  } else if (Number(status) === 403 && /tenant identity does not match/i.test(downstreamError)) {
+    message = '此群組的 Rental 租戶設定不一致，請聯絡財務管理員。';
+  } else if (Number(status) === 400) {
+    message = '請款資料未通過 Rental 驗證，請檢查明細與總額後重試。';
+  }
+  return Object.assign(new Error(message), { statusCode: 502, detail });
 }
 
 function money(value, currency = 'TWD') {
@@ -474,7 +488,7 @@ async function handleLiff(req, res, { pathname, url, tenant = null, tenants = []
     if (binding?.groupId) await platform.pushLineMessage(binding.groupId, initialStatusMessage(result, payload), undefined, { retryKey: session.externalSubmissionId });
     return sendJson(res, 201, { ok: true, claimId: result.claimId, claimNumber: result.claimNumber, status: result.status || 'submitted' });
   } catch (error) {
-    platform?.logger?.warn?.(`Claims LIFF request failed: ${error.message}`);
+    platform?.logger?.warn?.(`Claims LIFF request failed: ${error.message}${error.detail ? ` (${error.detail})` : ''}`);
     return sendJson(res, error.statusCode || 500, { error: error.message || '請款送出失敗。' });
   }
 }
@@ -669,6 +683,7 @@ export const __test = {
   liffTokenFromRequest,
   liffHtml,
   liffSessionCookie,
+  rentalClaimError,
   eventDedupe,
   sessions,
   cleanupMemory,
