@@ -1,0 +1,25 @@
+{
+  "id": "AM-IMP-2026.0804.01",
+  "name": "Claims group governance and tenant integration configuration",
+  "type": "Shared platform governance / tenant configuration",
+  "portable": true,
+  "installTargets": ["AM_PLATFORM", "HOZO_AM_2_0"],
+  "requiresDatabases": ["tenant-local group bindings v2"],
+  "requiresEnv": ["<PREFIX>_CLAIMS_LIFF_ID", "<PREFIX>_RENTAL_BASE_URL", "<PREFIX>_RENTAL_CLAIMS_TOKEN", "<PREFIX>_RENTAL_EVENT_TOKEN"],
+  "requiresScripts": ["tools/apply-group-binding-v2-schema.mjs", "tools/dryrun-groups.mjs", "tools/dryrun-claims-governance.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Claim submission authority is the active tenant-local binding page, its 請款 capability, and LINE user IDs stored from that binding's own member map. Group display names, browser group IDs, other tenant rows, and copied member maps are never authority."
+  },
+  "definitionOfDone": [
+    "The group schema offers 請款 capability, 請款送件權限, and 請款指定送件人 fields",
+    "Designated submitters are stored as validated LINE user IDs from the same binding member map",
+    "The HOZO AM 2.0 tenant requests the claims module but keeps tenant claims disabled by default",
+    "Claims runtime configuration resolves only from prefixed environment variables",
+    "Schema, groups, and claims-governance dry-runs pass without production credentials"
+  ],
+  "status": "Ready"
+}
