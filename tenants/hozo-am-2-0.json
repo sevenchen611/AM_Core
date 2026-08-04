@@ -6,7 +6,7 @@
   "envPrefix": "HZ2",
   "runtimeEnabled": true,
   "authorizationReady": true,
-  "modules": ["company-line-push", "collect", "media", "operational-memory", "meetings", "meeting-terms", "triage", "queue", "tasks", "reminders", "groups"],
+  "modules": ["company-line-push", "collect", "media", "operational-memory", "meetings", "meeting-terms", "triage", "queue", "tasks", "reminders", "groups", "claims"],
   "status": "正式全功能啟用：開放群組路由、正式待辦建立、正式提醒、會議待辦確認、任務佇列與完整群組管理工作流。",
   "operationalMemory": {
     "enabled": true,
@@ -49,6 +49,13 @@
       "sectionBy": "主題或專案",
       "workKindHint": "旅宿營運／專案會議",
       "projectCodes": {}
+    },
+    "claims": {
+      "enabled": false,
+      "requireActiveBinding": true,
+      "requireClaimCapability": true,
+      "requireNamedSubmitter": true,
+      "status": "預設關閉；僅在租戶明確啟用、群組綁定為啟用、群組啟用請款功能且送件人 LINE user ID 已列入白名單時才可送件。"
     }
   }
 }

@@ -6,6 +6,8 @@
 import { readBody, sendJson } from '../../core/util.js';
 import {
   GROUP_CAPABILITIES as CAPABILITIES,
+  GROUP_CLAIM_SUBMISSION_POLICIES as CLAIM_SUBMISSION_POLICIES,
+  GROUP_BINDING_CLAIMS_REQUIRED_FIELDS as CLAIMS_REQUIRED_FIELDS,
   GROUP_STATUS_UPDATE_POLICIES as STATUS_POLICIES,
   GROUP_BINDING_V2_REQUIRED_FIELDS as REQUIRED_FIELDS,
 } from '../../core/group-binding-schema.js';
@@ -19,12 +21,27 @@ const many = (prop) => (prop?.multi_select || []).map((x) => x.name).filter(Bool
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const text = (value) => value ? [{ type: 'text', text: { content: String(value).slice(0, 1900) } }] : [];
 
+function parseLineUserIds(value) {
+  if (Array.isArray(value)) return [...new Set(value.map((item) => String(item || '').trim()).filter(Boolean))];
+  const raw = String(value || '').trim();
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parseLineUserIds(parsed);
+  } catch {}
+  return [...new Set(raw.split(/[、,，\n]/).map((item) => item.trim()).filter(Boolean))];
+}
+
 function pageModel(page) {
   const p = page.properties || {};
   let members = {};
   try { members = JSON.parse(plain(p['成員對照'])) || {}; } catch {}
   if (!members || Array.isArray(members) || typeof members !== 'object') members = {};
-  const memberNames = Object.keys(members).filter((name) => members[name]).sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+  const memberEntries = Object.entries(members)
+    .filter(([name, userId]) => name && userId)
+    .map(([name, userId]) => ({ name, userId: String(userId) }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'));
+  const memberNames = memberEntries.map((member) => member.name);
   return {
     id: page.id,
     name: plain(p['群組名稱'], 'title'),
@@ -37,6 +54,10 @@ function pageModel(page) {
     goal: plain(p['所屬目標']),
     statusUpdatePolicy: select(p['狀態更新權限']),
     reminderTargets: plain(p['預設提醒對象']),
+    claimSubmissionPolicy: select(p['請款送件權限']) || CLAIM_SUBMISSION_POLICIES[0],
+    claimSubmitterUserIds: parseLineUserIds(plain(p['請款指定送件人'])),
+    members,
+    memberEntries,
     memberNames,
     memberCount: memberNames.length,
     editedAt: p['最後設定時間']?.date?.start || '',
@@ -66,8 +87,10 @@ async function authorize(req, tenant, portal, provided = null) {
   };
 }
 
-function missingSchemaFields(schema) {
-  return REQUIRED_FIELDS.filter((name) => !schema?.properties?.[name]);
+function missingSchemaFields(schema, tenant = null) {
+  const fields = [...REQUIRED_FIELDS];
+  if (tenant?.modules?.includes('claims')) fields.push(...CLAIMS_REQUIRED_FIELDS);
+  return fields.filter((name) => !schema?.properties?.[name]);
 }
 
 async function schemaFor(tenant, force = false) {
@@ -135,6 +158,19 @@ function memberSelect(field, value, members, { multiple = false, placeholder = '
   ].join('');
   return `<select data-field="${field}"${multiple ? ' multiple size="4"' : ''}${noMembers ? ' disabled' : ''}>${options}</select>`;
 }
+function memberIdSelect(field, userIds, members, { placeholder = '請選擇可送件的群組成員' } = {}) {
+  const selected = new Set(parseLineUserIds(userIds));
+  const available = [...members];
+  const known = new Set(available.map((member) => member.userId));
+  for (const userId of selected) {
+    if (!known.has(userId)) available.unshift({ name: `已不在成員對照：…${userId.slice(-6)}`, userId });
+  }
+  const noMembers = available.length === 0;
+  const options = [
+    ...available.map((member) => `<option value="${esc(member.userId)}"${selected.has(member.userId) ? ' selected' : ''}>${esc(member.name)}</option>`),
+  ].join('');
+  return `<select data-field="${field}" multiple size="4"${noMembers ? ' disabled' : ''} aria-label="${esc(placeholder)}">${options}</select>`;
+}
 function renderRow(row, disabled, canCore) {
   const memberControlsDisabled = disabled || !row.groupId;
   return `<tr data-page-id="${esc(row.id)}" data-group-id="${esc(row.groupId)}">
@@ -144,6 +180,7 @@ function renderRow(row, disabled, canCore) {
 <td>${canCore ? input('capabilities', row.capabilities.join('、'), '待辦、案件狀態') : `<span>${esc(row.capabilities.join('、') || '未設定')}</span><small>核心功能由租戶全群組管理者設定。</small>`}</td>
 <td>${input('goal', row.goal, '所屬專案或目標')}</td>
 <td>${selectInput('statusUpdatePolicy', row.statusUpdatePolicy || STATUS_POLICIES[0], STATUS_POLICIES)}${memberSelect('reminderTargets', row.reminderTargets, row.memberNames, { multiple: true })}<small>可複選提醒對象。</small></td>
+<td>${canCore ? `${selectInput('claimSubmissionPolicy', row.claimSubmissionPolicy, CLAIM_SUBMISSION_POLICIES)}${memberIdSelect('claimSubmitterUserIds', row.claimSubmitterUserIds, row.memberEntries)}<small>僅保存既有成員對照中的 LINE user ID；需同時啟用「請款」功能與群組狀態。</small>` : '<span>僅租戶全群組管理者可設定。</span>'}</td>
 <td>${canCore ? selectInput('status', row.status || '影子記錄', ['啟用', '影子記錄', '停用']) : `<span>${esc(row.status || '停用')}</span>`}<small>角色：${esc(row.role || '未設定')}<br>成員對照：${row.memberCount} 人</small></td>
 <td><button type="button" class="sync-members"${memberControlsDisabled ? ' disabled' : ''}>同步成員</button><button type="button" class="save"${disabled ? ' disabled' : ''}>儲存</button><small class="result">${esc(row.editedAt ? `最近設定：${row.editedAt}` : '')}</small></td></tr>`;
 }
@@ -152,13 +189,13 @@ function renderGroups(tenant, rows, missing, access) {
   const disabled = missing.length > 0;
   const key = encodeURIComponent(tenant.key);
   return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>群組設定｜${esc(tenant.displayName)}</title>
-<style>body{font-family:system-ui,'Noto Sans TC',sans-serif;margin:0;background:#f5f7f6;color:#22302a}main{max-width:1560px;margin:auto;padding:25px 18px}a{color:#246d46}h1{font-size:25px;margin:0}.sub{margin:7px 0 16px;color:#65756c}.notice{padding:12px 14px;border-radius:9px;margin:12px 0;background:#fff4e6;color:#88520a}.ok{padding:12px 14px;border-radius:9px;margin:12px 0;background:#edf7f0;color:#2d6541}.wrap{overflow:auto;background:#fff;border:1px solid #dce5df;border-radius:12px}table{border-collapse:collapse;width:100%;min-width:1350px}th,td{border-bottom:1px solid #e6ece8;vertical-align:top;padding:10px;text-align:left;font-size:13px}th{position:sticky;top:0;background:#eff5f1;color:#456054;white-space:nowrap}input,select{box-sizing:border-box;width:100%;padding:7px;border:1px solid #cfdad4;border-radius:6px;background:#fff;font:inherit}input:focus,select:focus{outline:2px solid #a8d3b6;border-color:#4b9b68}small{display:block;color:#77867d;font-size:11px;line-height:1.45;margin-top:5px}.save{border:0;border-radius:7px;padding:8px 11px;background:#2d7b4e;color:#fff;font-weight:700;cursor:pointer}.save:disabled{background:#aebbb3;cursor:not-allowed}.result.ok{padding:0;background:transparent;color:#267347}.result.err{padding:0;background:transparent;color:#a23d32}</style></head><body><main>
+<style>body{font-family:system-ui,'Noto Sans TC',sans-serif;margin:0;background:#f5f7f6;color:#22302a}main{max-width:1680px;margin:auto;padding:25px 18px}a{color:#246d46}h1{font-size:25px;margin:0}.sub{margin:7px 0 16px;color:#65756c}.notice{padding:12px 14px;border-radius:9px;margin:12px 0;background:#fff4e6;color:#88520a}.ok{padding:12px 14px;border-radius:9px;margin:12px 0;background:#edf7f0;color:#2d6541}.wrap{overflow:auto;background:#fff;border:1px solid #dce5df;border-radius:12px}table{border-collapse:collapse;width:100%;min-width:1530px}th,td{border-bottom:1px solid #e6ece8;vertical-align:top;padding:10px;text-align:left;font-size:13px}th{position:sticky;top:0;background:#eff5f1;color:#456054;white-space:nowrap}input,select{box-sizing:border-box;width:100%;padding:7px;border:1px solid #cfdad4;border-radius:6px;background:#fff;font:inherit}input:focus,select:focus{outline:2px solid #a8d3b6;border-color:#4b9b68}small{display:block;color:#77867d;font-size:11px;line-height:1.45;margin-top:5px}.save{border:0;border-radius:7px;padding:8px 11px;background:#2d7b4e;color:#fff;font-weight:700;cursor:pointer}.save:disabled{background:#aebbb3;cursor:not-allowed}.result.ok{padding:0;background:transparent;color:#267347}.result.err{padding:0;background:transparent;color:#a23d32}</style></head><body><main>
 <p><a href="/admin?tenant=${key}">← ${esc(tenant.displayName)} 後臺</a></p><h1>LINE 群組設定</h1><p class="sub">設定會立即影響這個租戶的群組路由與功能；請先按「同步成員」，再從下拉選單精準選擇主要負責人與提醒對象。</p>
 ${disabled ? `<p class="notice">此租戶的群組表尚缺少欄位：${esc(missing.join('、'))}。請先套用群組綁定 v2 結構，避免用不完整資料開始管理。</p>` : '<p class="ok">群組綁定 v2 已就緒。每次儲存後，群組路由快取會立即更新。</p>'}
-<div class="wrap"><table><thead><tr><th>群組</th><th>用途</th><th>主要負責人</th><th>啟用功能<br><small>以「、」分隔</small></th><th>所屬目標</th><th>案件狀態／提醒</th><th>啟用狀態</th><th></th></tr></thead><tbody>${rows.map((row) => renderRow(row, disabled, Boolean(access?.isTenantAll))).join('') || '<tr><td colspan="8">目前帳號沒有可管理的啟用群組。</td></tr>'}</tbody></table></div>
+<div class="wrap"><table><thead><tr><th>群組</th><th>用途</th><th>主要負責人</th><th>啟用功能<br><small>以「、」分隔</small></th><th>所屬目標</th><th>案件狀態／提醒</th><th>請款送件設定</th><th>啟用狀態</th><th></th></tr></thead><tbody>${rows.map((row) => renderRow(row, disabled, Boolean(access?.isTenantAll))).join('') || '<tr><td colspan="9">目前帳號沒有可管理的啟用群組。</td></tr>'}</tbody></table></div>
 </main><script>
 const tenant=${JSON.stringify(tenant.key)};
-function valuesFor(row){const values={};row.querySelectorAll('[data-field]').forEach(el=>{values[el.dataset.field]=el.multiple?[...el.selectedOptions].map(o=>o.value).filter(Boolean).join('、'):el.value;});return values;}
+function valuesFor(row){const values={};row.querySelectorAll('[data-field]').forEach(el=>{values[el.dataset.field]=el.multiple?[...el.selectedOptions].map(o=>o.value).filter(Boolean):el.value;});return values;}
 for(const button of document.querySelectorAll('.save'))button.addEventListener('click',async()=>{const row=button.closest('tr'),result=row.querySelector('.result'),values=valuesFor(row);button.disabled=true;result.className='result';result.textContent='儲存中…';try{const r=await fetch('/groups/api/update?tenant='+encodeURIComponent(tenant),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({pageId:row.dataset.pageId,...values})});const j=await r.json();if(!r.ok)throw Error(j.error||'儲存失敗');result.className='result ok';result.textContent='已儲存，設定已生效。'}catch(e){result.className='result err';result.textContent=e.message||'儲存失敗';}finally{button.disabled=false;}});
 for(const button of document.querySelectorAll('.sync-members'))button.addEventListener('click',async()=>{const row=button.closest('tr'),result=row.querySelector('.result');button.disabled=true;result.className='result';result.textContent='同步群組成員中…';try{const r=await fetch('/groups/api/sync-members?tenant='+encodeURIComponent(tenant),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({pageId:row.dataset.pageId})});const j=await r.json();if(!r.ok)throw Error(j.error||'同步失敗');result.className='result ok';result.textContent='已同步 '+j.memberCount+' 位成員，重新載入選單…';setTimeout(()=>location.reload(),400);}catch(e){result.className='result err';result.textContent=e.message||'同步失敗';button.disabled=false;}});
 </script></body></html>`;
@@ -172,7 +209,7 @@ function normaliseCapabilities(value) {
   return result;
 }
 
-function updateProperties(body, schema, actor) {
+function updateProperties(body, schema, actor, memberMap = {}) {
   const props = {};
   const add = (name, value) => { if (schema.properties?.[name]) props[name] = value; };
   const name = String(body.name || '').trim();
@@ -188,6 +225,18 @@ function updateProperties(body, schema, actor) {
   if (!STATUS_POLICIES.includes(policy)) throw new Error('案件狀態更新權限不正確。');
   add('狀態更新權限', { select: { name: policy } });
   add('預設提醒對象', { rich_text: text(String(body.reminderTargets || '').trim()) });
+  if (Object.prototype.hasOwnProperty.call(body, 'claimSubmissionPolicy') || Object.prototype.hasOwnProperty.call(body, 'claimSubmitterUserIds')) {
+    const policy = String(body.claimSubmissionPolicy || CLAIM_SUBMISSION_POLICIES[0]).trim();
+    if (!CLAIM_SUBMISSION_POLICIES.includes(policy)) throw new Error('請款送件權限不正確。');
+    // 停用時清空舊 allowlist，讓成員已離群或 member map 暫時不可用時仍可安全關閉請款。
+    const submitterUserIds = policy === '停用' ? [] : parseLineUserIds(body.claimSubmitterUserIds);
+    const memberIds = new Set(Object.values(memberMap).map((id) => String(id)));
+    const unknown = submitterUserIds.filter((userId) => !memberIds.has(userId));
+    if (unknown.length) throw new Error('請款送件人必須從此群現有成員對照中選擇。請先同步成員後重試。');
+    if (policy === '指定成員' && !submitterUserIds.length) throw new Error('指定請款送件權限時，至少要選擇一位群組成員。');
+    add('請款送件權限', { select: { name: policy } });
+    add('請款指定送件人', { rich_text: submitterUserIds.length ? text(JSON.stringify(submitterUserIds)) : [] });
+  }
   if (Object.prototype.hasOwnProperty.call(body, 'status')) {
     const status = String(body.status || '').trim();
     if (!['啟用', '影子記錄', '停用'].includes(status)) throw new Error('群組狀態只能是啟用、影子記錄或停用。');
@@ -244,7 +293,7 @@ async function handleGroups(req, res, rctx) {
   }
   try {
     const schema = await schemaFor(tenant);
-    const missing = missingSchemaFields(schema);
+    const missing = missingSchemaFields(schema, tenant);
     if (pathname === '/groups' && req.method === 'GET') {
       const rows = access.filterBindings(await listBindings(tenant), 'groups.read');
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
@@ -262,10 +311,11 @@ async function handleGroups(req, res, rctx) {
       const binding = (await listBindings(tenant)).find((row) => row.id === pageId);
       if (!binding) return sendJson(res, 404, { error: '找不到群組綁定。' });
       access.assert('groups.edit', binding.id, { status: binding.status });
-      if (!access.isTenantAll && (Object.prototype.hasOwnProperty.call(body, 'capabilities') || Object.prototype.hasOwnProperty.call(body, 'status'))) {
+      if (!access.isTenantAll && (Object.prototype.hasOwnProperty.call(body, 'capabilities') || Object.prototype.hasOwnProperty.call(body, 'status')
+        || Object.prototype.hasOwnProperty.call(body, 'claimSubmissionPolicy') || Object.prototype.hasOwnProperty.call(body, 'claimSubmitterUserIds'))) {
         return sendJson(res, 403, { error: '此帳號只能修改群組營運設定，不能停用群組或變更啟用功能。' });
       }
-      const props = updateProperties(body, schema, access.actor);
+      const props = updateProperties(body, schema, access.actor, binding.members);
       await platformRef.notionRequest(`/v1/pages/${encodeURIComponent(pageId)}`, {
         method: 'PATCH', tenantKey: tenant.key, body: { properties: props },
       });
@@ -313,4 +363,4 @@ export default {
   ],
 };
 
-export const __test = { normaliseCapabilities, pageModel, missingSchemaFields, updateProperties, memberMapFromProfiles };
+export const __test = { normaliseCapabilities, parseLineUserIds, pageModel, missingSchemaFields, updateProperties, memberMapFromProfiles };

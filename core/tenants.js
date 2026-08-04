@@ -60,6 +60,18 @@ function readConfig(rawConfig, env, prefix) {
   if (meetingsLiffId) {
     config.meetings = { ...(config.meetings || {}), liffId: meetingsLiffId };
   }
+  // 請款金鑰只存在執行期 tenant.config.claims，不回寫 tenant JSON，也不公開給 health/portal 端點。
+  // claims module 必須自行檢查 enabled + active binding + capability + member allowlist 四道閘門。
+  if (config.claims || env[`${prefix}_CLAIMS_LIFF_ID`] || env[`${prefix}_RENTAL_BASE_URL`]
+    || env[`${prefix}_RENTAL_CLAIMS_TOKEN`] || env[`${prefix}_RENTAL_EVENT_TOKEN`]) {
+    config.claims = {
+      ...(config.claims || {}),
+      liffId: prefixed(env, prefix, 'CLAIMS_LIFF_ID').trim(),
+      rentalBaseUrl: prefixed(env, prefix, 'RENTAL_BASE_URL').trim().replace(/\/+$/, ''),
+      rentalClaimsToken: prefixed(env, prefix, 'RENTAL_CLAIMS_TOKEN').trim(),
+      rentalEventToken: prefixed(env, prefix, 'RENTAL_EVENT_TOKEN').trim(),
+    };
+  }
   return config;
 }
 

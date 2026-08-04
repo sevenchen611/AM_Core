@@ -1,0 +1,24 @@
+{
+  "version": "AM-IMP-2026.0804.01",
+  "binding": {
+    "requiredStatus": "啟用",
+    "requiredCapability": "請款",
+    "submissionPolicyField": "請款送件權限",
+    "submissionPolicyValue": "指定成員",
+    "submitterUserIdsField": "請款指定送件人",
+    "memberMapField": "成員對照"
+  },
+  "tenant": {
+    "claimsEnabledField": "config.claims.enabled",
+    "env": {
+      "liffId": "<PREFIX>_CLAIMS_LIFF_ID",
+      "rentalBaseUrl": "<PREFIX>_RENTAL_BASE_URL",
+      "rentalClaimsToken": "<PREFIX>_RENTAL_CLAIMS_TOKEN",
+      "rentalEventToken": "<PREFIX>_RENTAL_EVENT_TOKEN"
+    }
+  },
+  "security": {
+    "authority": ["tenant", "binding page", "binding status", "binding capability", "member-map validated LINE user ID"],
+    "neverAuthority": ["group display name", "browser group ID", "member display name", "other tenant member map"]
+  }
+}
