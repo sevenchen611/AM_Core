@@ -182,11 +182,12 @@ function createSession(ctx, draftText = '') {
 
 function liffLink(tenant, session) {
   const liffId = claimsLiffId(tenant);
-  // The LIFF URL suffix is appended to the registered Endpoint URL. The
-  // claims app endpoint already ends in /claims/liff, so only append the
-  // signed session token here; repeating the route prevents LIFF init from
-  // reaching its final redirect URL.
-  return `https://liff.line.me/${encodeURIComponent(liffId)}/${encodeURIComponent(makeSessionToken(session))}`;
+  // Keep the LIFF endpoint path fixed and pass the signed session as query
+  // data. LINE restores this after liff.init(), avoiding a second page path
+  // transition inside the mobile LIFF browser.
+  const url = new URL(`https://liff.line.me/${encodeURIComponent(liffId)}`);
+  url.searchParams.set('session', makeSessionToken(session));
+  return url.toString();
 }
 
 function html(value) {
@@ -398,6 +399,8 @@ function liffTokenFromRequest(pathname, url) {
   const state = String(url?.searchParams?.get('liff.state') || '');
   const fromState = state.match(/^\/?(?:claims\/liff\/)?([0-9a-f]{32}\.\d+\.[A-Za-z0-9_-]+)(?:[?#].*)?$/i);
   if (fromState) return fromState[1];
+  const stateSession = new URLSearchParams(state.replace(/^\?/, '').split('#', 1)[0]).get('session');
+  if (stateSession) return cleanText(stateSession, 400);
   return cleanText(url?.searchParams?.get('session'), 400);
 }
 

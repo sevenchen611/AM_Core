@@ -142,9 +142,10 @@ await check('LIFF claim deep link uses a token relative to its registered claims
   const session = { id: 'a'.repeat(32), expiresAt: Date.now() + 60_000 };
   const tenant = { config: { claims: { liffId: '2010966226-5pyR1QR4' } } };
   const link = claims.liffLink(tenant, session);
-  const token = link.split('/').pop();
-  assert.equal(link.includes('/claims/liff/'), false);
-  assert.equal(claims.liffTokenFromRequest('/claims/liff', new URL(`https://example.test/claims/liff?liff.state=${token}`)), decodeURIComponent(token));
+  const token = new URL(link).searchParams.get('session');
+  assert.equal(new URL(link).pathname, '/2010966226-5pyR1QR4');
+  assert.ok(token);
+  assert.equal(claims.liffTokenFromRequest('/claims/liff', new URL(`https://example.test/claims/liff?liff.state=?session=${token}`)), token);
 });
 
 let passed = 0;
