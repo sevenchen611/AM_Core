@@ -74,6 +74,15 @@ assert.equal(
   'Rental 請款服務暫時無法處理，請稍後重試。',
 );
 
+const notificationWarnings = [];
+const notificationDelivered = await __test.notifyInitialStatus(session, { groupId: 'C0123456789abcdef0123456789abcdef' },
+  { claimNumber: 'CLM-202608-TEST' }, payload, {
+    pushLineMessage: async () => { throw new Error('simulated LINE failure'); },
+    logger: { warn: (message) => notificationWarnings.push(message) },
+  });
+assert.equal(notificationDelivered, false);
+assert.match(notificationWarnings[0], /simulated LINE failure/);
+
 const event = __test.normalizeClaimEvent({
   eventId: 'evt_claim_202606_0001', tenantKey: tenant.key, tenantId: tenant.tenantId,
   bindingId: session.bindingId, claimId: 'claim-001', claimNumber: 'CLM-202606-0001',

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createLine } from '../core/line.js';
+import { createLine, normalizeLineRetryKey } from '../core/line.js';
 
 const originalFetch = globalThis.fetch;
 const logs = [];
@@ -25,6 +25,13 @@ try {
   assert.equal(receipt.requestId, 'req-123');
   assert.deepEqual(receipt.messageIds, ['msg-123']);
   assert.ok(logs.some((line) => line.includes('requestId=req-123') && line.includes('messageIds=msg-123')));
+
+  const derivedRetryKey = normalizeLineRetryKey('amc_hozo-am-2-0_submission');
+  assert.match(derivedRetryKey, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.equal(derivedRetryKey, normalizeLineRetryKey('amc_hozo-am-2-0_submission'));
+  const derivedReceipt = await line.pushLineMessage('C_TEST', 'hello', undefined, { retryKey: 'amc_hozo-am-2-0_submission' });
+  assert.equal(capturedOptions.headers['X-Line-Retry-Key'], derivedRetryKey);
+  assert.equal(derivedReceipt.retryKey, derivedRetryKey);
 
   globalThis.fetch = async (_url, options) => new Promise((_resolve, reject) => {
     options.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true });
