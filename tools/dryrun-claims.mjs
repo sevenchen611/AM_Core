@@ -42,6 +42,8 @@ const payload = __test.normalizeClaimSubmission({
     { description: '陸昱晴個人負擔', amount: 851, employeeReference: 'Maggie' },
   ],
   totals: { requestedAmount: 4627, companyExpenseAmount: 3776, employeeRecoverableAmount: 851, currency: 'TWD' },
+  dueDate: '2026-07-10',
+  note: '請於到期日前完成付款。',
   attachments: [{ id: 'att-1', name: '2026-06-insurance.pdf', contentType: 'application/pdf', size: 1024 }],
 }, session, tenant, { userId: 'U0123456789abcdef0123456789abcdef', displayName: 'Bonnie' });
 assert.equal(payload.externalSubmissionId, session.externalSubmissionId);
@@ -73,6 +75,35 @@ assert.equal(
   __test.rentalClaimError(503, { error: 'upstream unavailable' }).message,
   'Rental 請款服務暫時無法處理，請稍後重試。',
 );
+
+const detailedPushes = [];
+const detailedResult = {
+  claimNumber: 'CLM-202608-TEST',
+  sourceName: '葉綠宿 -> 好住寓好 請款',
+  reviewerName: 'Maggie',
+  reviewerLineUserId: 'U480627aaad7650bdd40117714fa69bc1',
+  reviewUrl: 'https://rental.example.test/admin-finance.html?claim=CLM-202608-TEST#claim-requests-panel',
+};
+const detailedDelivered = await __test.notifyInitialStatus(session, { groupId: 'C0123456789abcdef0123456789abcdef' },
+  detailedResult, payload, {
+    pushLineMessage: async (to, text, mention, delivery) => detailedPushes.push({ to, text, mention, delivery }),
+    logger: { warn() {} },
+  });
+assert.equal(detailedDelivered, true);
+assert.equal(detailedPushes.length, 1);
+assert.deepEqual(detailedPushes[0].mention, { name: 'Maggie', userId: 'U480627aaad7650bdd40117714fa69bc1' });
+assert.match(detailedPushes[0].text, /Maggie，新請款已送出，待您核准/);
+assert.match(detailedPushes[0].text, /單號：CLM-202608-TEST/);
+assert.match(detailedPushes[0].text, /送件人：Bonnie/);
+assert.match(detailedPushes[0].text, /1\. 公司負擔：NT\$3,776/);
+assert.match(detailedPushes[0].text, /2\. 陸昱晴個人負擔：NT\$851/);
+assert.match(detailedPushes[0].text, /好住寓好公司負擔：NT\$3,776/);
+assert.match(detailedPushes[0].text, /員工應收／扣回：NT\$851/);
+assert.match(detailedPushes[0].text, /付款到期日：2026-07-10/);
+assert.match(detailedPushes[0].text, /附件：1 件（2026-06-insurance\.pdf）/);
+assert.match(detailedPushes[0].text, /開啟核准頁：https:\/\/rental\.example\.test/);
+assert.match(detailedPushes[0].delivery.retryKey, /notification:1$/);
+assert.equal(__test.splitLineMessage('明細'.repeat(3000)).length, 2);
 
 const notificationWarnings = [];
 const notificationDelivered = await __test.notifyInitialStatus(session, { groupId: 'C0123456789abcdef0123456789abcdef' },

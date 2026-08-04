@@ -16,6 +16,12 @@ const SAFE_EVENT_FIELDS = new Set([
   'eventId', 'tenantKey', 'tenantId', 'bindingId', 'claimId', 'claimNumber', 'status',
   'amount', 'currency', 'occurredAt', 'reasonCode', 'paymentReference', 'paidAt',
 ]);
+const CLAIM_TYPE_LABELS = new Map([
+  ['labor_health_insurance', '勞健保費用'],
+  ['social_insurance', '勞健保費用'],
+  ['shared_operating', '共同營業費用'],
+  ['other', '其他費用'],
+]);
 
 const sessions = new Map();
 const eventDedupe = new Map();
@@ -349,10 +355,20 @@ async function createRentalClaim(tenant, payload) {
     let result = {};
     try { result = responseText ? JSON.parse(responseText) : {}; } catch { result = {}; }
     if (!response.ok) throw rentalClaimError(response.status, result);
+    const reviewer = result?.reviewer && typeof result.reviewer === 'object' && !Array.isArray(result.reviewer)
+      ? result.reviewer : {};
+    const claimNumber = cleanText(result.claimNumber || result.number, 120);
     return {
       claimId: cleanText(result.claimId || result.id, 160),
-      claimNumber: cleanText(result.claimNumber || result.number, 120),
+      claimNumber,
       status: cleanText(result.status || 'submitted', 80),
+      sourceName: cleanText(result.sourceName, 240),
+      payeeName: cleanText(result.payeeName, 160),
+      reviewerUsername: cleanText(reviewer.username, 120),
+      reviewerName: cleanText(reviewer.displayName || reviewer.name || reviewer.username, 120),
+      reviewerLineUserId: cleanText(reviewer.lineUserId, 128),
+      reviewUrl: cleanText(result.reviewUrl, 1000)
+        || `${claimsBaseUrl(tenant)}/admin-finance.html?claim=${encodeURIComponent(claimNumber)}#claim-requests-panel`,
     };
   } catch (error) {
     if (controller.signal.aborted) throw Object.assign(new Error('Rental 請款服務逾時，請稍後重試。'), { statusCode: 504 });
@@ -378,18 +394,88 @@ function rentalClaimError(status, result = {}) {
 
 function money(value, currency = 'TWD') {
   const amountValue = amount(value);
-  return amountValue === null ? '' : new Intl.NumberFormat('zh-TW', { style: 'currency', currency, maximumFractionDigits: 2 }).format(amountValue);
+  if (amountValue === null) return '';
+  const label = String(currency || 'TWD').toUpperCase() === 'TWD' ? 'NT$' : `${String(currency || '').toUpperCase()} `;
+  return `${label}${new Intl.NumberFormat('zh-TW', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amountValue)}`;
+}
+
+function periodLabel(value) {
+  const match = String(value || '').match(/^(\d{4})-(\d{2})$/);
+  return match ? `${match[1]} 年 ${Number(match[2])} 月` : cleanText(value, 40);
+}
+
+function splitLineMessage(value, maxLength = 4800) {
+  const parts = [];
+  let current = '';
+  for (const rawLine of String(value || '').split('\n')) {
+    let line = rawLine;
+    while (line.length > maxLength) {
+      if (current) {
+        parts.push(current);
+        current = '';
+      }
+      parts.push(line.slice(0, maxLength));
+      line = line.slice(maxLength);
+    }
+    const candidate = current ? `${current}\n${line}` : line;
+    if (candidate.length > maxLength) {
+      if (current) parts.push(current);
+      current = line;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) parts.push(current);
+  return parts.filter(Boolean);
 }
 
 function initialStatusMessage(result, payload) {
-  const number = result.claimNumber ? `請款單 ${result.claimNumber}` : '請款單';
-  return `${number} 已送出\n期間：${payload.claim.period}\n金額：${money(payload.claim.totals.requestedAmount, payload.claim.totals.currency)}\n狀態：待核准`;
+  const claim = payload.claim || {};
+  const totals = claim.totals || {};
+  const reviewerName = cleanText(result.reviewerName, 120);
+  const lines = Array.isArray(claim.lines) ? claim.lines : [];
+  const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
+  const detailLines = lines.map((line, index) => `${index + 1}. ${cleanText(line.description, 500)}：${money(line.amount, totals.currency)}`);
+  const attachmentText = attachments.length
+    ? `${attachments.length} 件（${attachments.map((item) => cleanText(item.name, 180)).join('、')}）`
+    : '無';
+  return [
+    reviewerName ? `${reviewerName}，新請款已送出，待您核准` : '新請款已送出，等待核准',
+    `單號：${result.claimNumber || '建立中'}`,
+    `請款來源：${result.sourceName || payload.source?.groupNameSnapshot || '—'}`,
+    `來源群組：${payload.source?.groupNameSnapshot || '—'}`,
+    `送件人：${payload.source?.actor?.name || '—'}`,
+    `請款類型：${CLAIM_TYPE_LABELS.get(claim.type) || cleanText(claim.type, 80) || '—'}`,
+    `請款期間：${periodLabel(claim.period) || '—'}`,
+    `付款到期日：${claim.dueDate || '未指定'}`,
+    '',
+    '請款明細：',
+    ...detailLines,
+    '',
+    `好住寓好公司負擔：${money(totals.companyExpenseAmount ?? totals.requestedAmount, totals.currency)}`,
+    `員工應收／扣回：${money(totals.employeeRecoverableAmount ?? 0, totals.currency)}`,
+    `請款總額：${money(totals.requestedAmount, totals.currency)}`,
+    `備註：${claim.note || '無'}`,
+    `附件：${attachmentText}`,
+    '',
+    '目前狀態：待第一關核准',
+    reviewerName ? `核准人：${reviewerName}` : null,
+    result.reviewUrl ? `開啟核准頁：${result.reviewUrl}` : null,
+  ].filter((line) => line !== null && line !== undefined).join('\n');
 }
 
 async function notifyInitialStatus(session, binding, result, payload, deps = platform) {
   if (!binding?.groupId) return false;
   try {
-    await deps.pushLineMessage(binding.groupId, initialStatusMessage(result, payload), undefined, { retryKey: session.externalSubmissionId });
+    const mention = result.reviewerName && /^U[a-f0-9]{20,}$/i.test(result.reviewerLineUserId || '')
+      ? { name: result.reviewerName, userId: result.reviewerLineUserId }
+      : undefined;
+    const parts = splitLineMessage(initialStatusMessage(result, payload));
+    for (let index = 0; index < parts.length; index += 1) {
+      await deps.pushLineMessage(binding.groupId, parts[index], index === 0 ? mention : undefined, {
+        retryKey: `${session.externalSubmissionId}:notification:${index + 1}`,
+      });
+    }
     return true;
   } catch (error) {
     deps?.logger?.warn?.(`Claims initial LINE notification failed: ${error.message}`);
@@ -695,6 +781,8 @@ export const __test = {
   liffHtml,
   liffSessionCookie,
   rentalClaimError,
+  initialStatusMessage,
+  splitLineMessage,
   notifyInitialStatus,
   eventDedupe,
   sessions,

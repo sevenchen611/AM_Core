@@ -33,6 +33,16 @@ try {
   assert.equal(capturedOptions.headers['X-Line-Retry-Key'], derivedRetryKey);
   assert.equal(derivedReceipt.retryKey, derivedRetryKey);
 
+  await line.pushLineMessage('C_TEST', 'Maggie，新請款已送出，待您核准', {
+    name: 'Maggie', userId: 'U480627aaad7650bdd40117714fa69bc1',
+  }, { retryKey: 'claim-reviewer-mention' });
+  const mentionMessage = JSON.parse(capturedOptions.body).messages[0];
+  assert.equal(mentionMessage.type, 'textV2');
+  assert.match(mentionMessage.text, /^\{who\}，新請款已送出/);
+  assert.deepEqual(mentionMessage.substitution.who, {
+    type: 'mention', mentionee: { type: 'user', userId: 'U480627aaad7650bdd40117714fa69bc1' },
+  });
+
   globalThis.fetch = async (_url, options) => new Promise((_resolve, reject) => {
     options.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true });
   });

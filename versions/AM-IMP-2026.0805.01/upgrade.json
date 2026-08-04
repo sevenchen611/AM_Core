@@ -1,0 +1,25 @@
+{
+  "id": "AM-IMP-2026.0805.01",
+  "name": "Detailed claim notification and reviewer mention",
+  "type": "Shared claims integration",
+  "portable": true,
+  "installTargets": ["AM_PLATFORM", "HOZO_RENTAL"],
+  "requiresDatabases": ["Rental finance claim sources and permissions"],
+  "requiresEnv": ["<PREFIX>_RENTAL_BASE_URL", "<PREFIX>_RENTAL_CLAIMS_TOKEN"],
+  "requiresScripts": ["tools/dryrun-claims.mjs", "tools/verify-line-push-timeout.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Rental is the reviewer authority. AM receives only the assigned reviewer identity needed for the source-group notification and does not persist finance records."
+  },
+  "definitionOfDone": [
+    "Initial LINE notification includes complete submitted claim content",
+    "Assigned reviewer receives a real LINE mention when a LINE user ID is configured",
+    "Long notifications split safely without duplicate retry keys",
+    "Review link selects the matching Rental finance claim",
+    "A LINE notification failure cannot turn an already-created Rental claim into a failed submission"
+  ],
+  "status": "Ready"
+}
