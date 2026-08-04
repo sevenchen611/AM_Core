@@ -51,11 +51,11 @@
       "projectCodes": {}
     },
     "claims": {
-      "enabled": false,
+      "enabled": true,
       "requireActiveBinding": true,
       "requireClaimCapability": true,
       "requireNamedSubmitter": true,
-      "status": "預設關閉；僅在租戶明確啟用、群組綁定為啟用、群組啟用請款功能且送件人 LINE user ID 已列入白名單時才可送件。"
+      "status": "已啟用；僅在群組綁定為啟用、群組啟用請款功能且送件人 LINE user ID 已列入白名單時才可送件。"
     }
   }
 }
