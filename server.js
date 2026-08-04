@@ -204,6 +204,18 @@ async function maybeHandleGroupOnboardingCommand(event, groupId, resolved = {}) 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const pathname = url.pathname.replace(/\/+$/, '') || '/';
+  // LINE opens a LIFF deep link at its registered endpoint and carries the
+  // requested page in liff.state. Route only known public LIFF paths before
+  // the normal portal home handler, otherwise a claims form becomes a login
+  // page when the LIFF endpoint itself is the site root.
+  const liffState = String(url.searchParams.get('liff.state') || '');
+  const liffStatePath = liffState.split(/[?#]/, 1)[0].replace(/\/+$/, '') || '/';
+  const routedPathname = pathname === '/' && (
+    liffStatePath === '/claims/liff'
+    || liffStatePath.startsWith('/claims/liff/')
+    || liffStatePath === '/meetings/review'
+    || liffStatePath.startsWith('/meetings/review/')
+  ) ? liffStatePath : pathname;
 
   // ── 健康檢查:平台 + 各租戶設定狀態 ──
   if (req.method === 'GET' && pathname === '/health') {
@@ -278,7 +290,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ── 平台首頁：承接原工程後台網址，同時保留 tenant-aware 登入 ──
-  if (req.method === 'GET' && pathname === '/') {
+  if (req.method === 'GET' && routedPathname === '/') {
     const tenant = homeTenant(url);
     if (!tenant) return sendJson(res, 503, { error: 'No tenant configured' });
     const access = await portal.resolveAccess(req, tenant);
@@ -358,8 +370,8 @@ const server = http.createServer(async (req, res) => {
 
   // ── 模組 web routes(佇列 / 儀表板 …)──
   for (const { tenantKey, moduleName, route } of routes) {
-    const matched = typeof route.match === 'function' ? route.match(pathname)
-      : route.prefix ? (pathname === route.prefix || pathname.startsWith(`${route.prefix}/`))
+    const matched = typeof route.match === 'function' ? route.match(routedPathname)
+      : route.prefix ? (routedPathname === route.prefix || routedPathname.startsWith(`${route.prefix}/`))
         : false;
     if (!matched) continue;
     if (route.method && route.method !== req.method) continue;
@@ -374,12 +386,12 @@ const server = http.createServer(async (req, res) => {
       // A small number of protected HTML consoles provide their own friendly
       // sign-in page. They still receive the denied AccessContext and must fail
       // closed; JSON APIs continue to stop here with 401/403.
-      if (route.access?.denied === 'handler' && req.method === 'GET' && pathname === route.prefix) {
-        return route.handler(req, res, { pathname, url, tenant, tenants, portal, platform, access, routeAccess: route.access || null });
+      if (route.access?.denied === 'handler' && req.method === 'GET' && routedPathname === route.prefix) {
+        return route.handler(req, res, { pathname: routedPathname, url, tenant, tenants, portal, platform, access, routeAccess: route.access || null });
       }
       return sendJson(res, access?.user ? 403 : 401, { error: '沒有此租戶或對話群組的權限。' });
     }
-    return route.handler(req, res, { pathname, url, tenant, tenants, portal, platform, access, routeAccess: route.access || null });
+    return route.handler(req, res, { pathname: routedPathname, url, tenant, tenants, portal, platform, access, routeAccess: route.access || null });
   }
 
   return sendJson(res, 404, { error: 'Not found' });
