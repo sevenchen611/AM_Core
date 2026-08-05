@@ -6,7 +6,7 @@ let platform = null;
 const SESSION_TTL_MS = 15 * 60 * 1000;
 const LIFF_SESSION_COOKIE = 'am_claims_liff_session';
 const EVENT_DEDUPE_TTL_MS = 24 * 60 * 60 * 1000;
-const MAX_BODY_BYTES = 256 * 1024;
+const MAX_BODY_BYTES = 16 * 1024 * 1024;
 const COMMANDS = new Set(['請款', '我要請款', '#請款']);
 const EVENT_STATUSES = new Set([
   'submitted', 'supplement_requested', 'approved', 'rejected', 'awaiting_payment',
@@ -302,6 +302,19 @@ function normalizeAttachments(value) {
   });
 }
 
+function normalizeAttachmentUpload(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw Object.assign(new Error('附件格式不正確。'), { statusCode: 400 });
+  const attachment = normalizeAttachments([value])[0];
+  const dataUrl = cleanText(value.dataUrl || value.data_url, 16 * 1024 * 1024);
+  if (!dataUrl.startsWith(`data:${attachment.contentType};base64,`)) throw Object.assign(new Error('附件格式不正確。'), { statusCode: 400 });
+  const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+  const estimatedSize = Math.floor(base64.length * 3 / 4) - (base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0);
+  if (estimatedSize < 1 || estimatedSize > 10 * 1024 * 1024 || Math.abs(estimatedSize - attachment.size) > 4) {
+    throw Object.assign(new Error('附件大小與檔案內容不一致。'), { statusCode: 400 });
+  }
+  return { ...attachment, dataUrl };
+}
+
 function normalizeClaimSubmission(body, session, tenant, actor) {
   const type = cleanText(body.type, 80);
   const period = validPeriod(body.period);
@@ -359,6 +372,7 @@ async function createRentalClaim(tenant, payload) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 12_000);
   try {
+    const { attachments, ...claimPayload } = payload;
     const response = await fetch(`${claimsBaseUrl(tenant)}/api/integrations/finance/claims`, {
       method: 'POST',
       headers: {
@@ -367,7 +381,7 @@ async function createRentalClaim(tenant, payload) {
         'Idempotency-Key': payload.externalSubmissionId,
         'X-AM-Claims-Version': payload.schemaVersion,
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(claimPayload),
       signal: controller.signal,
     });
     const responseText = await response.text();
@@ -391,6 +405,38 @@ async function createRentalClaim(tenant, payload) {
     };
   } catch (error) {
     if (controller.signal.aborted) throw Object.assign(new Error('Rental 請款服務逾時，請稍後重試。'), { statusCode: 504 });
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function uploadRentalClaimAttachment(tenant, externalClaimId, attachment) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const response = await fetch(`${claimsBaseUrl(tenant)}/api/integrations/finance/claims/${encodeURIComponent(externalClaimId)}/attachments`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${claimsRentalToken(tenant)}`,
+        'Content-Type': 'application/json',
+        'X-AM-Claims-Version': 'am-claims-v1',
+      },
+      body: JSON.stringify({
+        fileName: attachment.name,
+        mimeType: attachment.contentType,
+        size: attachment.size,
+        dataUrl: attachment.dataUrl,
+      }),
+      signal: controller.signal,
+    });
+    const responseText = await response.text();
+    let result = {};
+    try { result = responseText ? JSON.parse(responseText) : {}; } catch { result = {}; }
+    if (!response.ok) throw rentalClaimError(response.status, result);
+    return { attachmentId: cleanText(result.attachmentId || result.id, 160), receiptUrl: cleanText(result.receiptUrl, 1000) };
+  } catch (error) {
+    if (controller.signal.aborted) throw Object.assign(new Error('Rental 附件上傳逾時，請稍後重試。'), { statusCode: 504 });
     throw error;
   } finally {
     clearTimeout(timeout);
@@ -513,7 +559,7 @@ function liffHtml(session, tenant) {
   };
   return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>請款單</title>
 <style>body{margin:0;background:#f3f6f4;color:#24352c;font-family:system-ui,'Noto Sans TC',sans-serif}main{max-width:680px;margin:auto;padding:20px 16px 44px}h1{font-size:22px;margin:0 0 4px}.sub{color:#68776f;font-size:13px;margin:0 0 18px}.panel{background:#fff;border:1px solid #dce6e0;border-radius:8px;padding:16px;margin-top:12px}label{display:block;font-size:13px;font-weight:700;margin:13px 0 6px}input,select,textarea,button{font:inherit;box-sizing:border-box}input,select,textarea{width:100%;border:1px solid #bdcfc4;border-radius:6px;padding:10px;background:#fff}textarea{min-height:72px;resize:vertical}.line{display:grid;grid-template-columns:1fr 132px;gap:8px;margin-top:8px}.total-box{border:1px solid #bdcfc4;border-radius:6px;background:#f9fbfa;padding:10px 12px;font-weight:800}.optional-box{border:1px dashed #bdcfc4;border-radius:8px;background:#fbfdfc;padding:2px 12px 12px;margin-top:14px}.optional-box>summary{cursor:pointer;font-size:13px;font-weight:800;padding:10px 0;color:#22643e}.secondary{background:#fff;color:#22643e;border:1px solid #68a47d}.actions{display:flex;gap:8px;margin-top:14px}.actions button{flex:1}button{border:0;border-radius:6px;padding:11px;background:#267348;color:#fff;font-weight:700;cursor:pointer}.status{font-size:13px;line-height:1.55;margin-top:12px}.error{color:#a13d32}.hidden{display:none}@media(max-width:520px){.line{grid-template-columns:1fr}.actions{display:block}}</style></head><body><main>
-<h1>請款單</h1><p class="sub" id="group"></p><section class="panel"><p class="status" id="identity">正在驗證 LINE 身分…</p><div id="form" class="hidden"><label>請款類型<select id="type"></select></label><label>請款期間<input id="period" type="month"></label><label>請款明細</label><div id="lines"></div><button class="secondary" id="add" type="button">新增明細</button><label>請款總金額</label><div class="total-box" id="requestedTotal">$0</div><details class="optional-box hidden" id="insuranceFields" open><summary>勞健保分攤欄位</summary><label>公司費用（選填）<input id="companyExpense" inputmode="decimal" placeholder="未填時預設為請款總金額"></label><label>員工應收／扣回（選填）<input id="employeeRecoverable" inputmode="decimal" placeholder="未填時預設為 0"></label><label>付款到期日（選填）<input id="dueDate" type="date"></label></details><label>備註（選填）<textarea id="note"></textarea></label><label>附件資訊（此版先登錄檔案資訊）<input id="attachments" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" multiple></label><div class="actions"><button id="submit" type="button">確認送出請款</button></div></div><p id="result" class="status"></p><button class="secondary hidden" id="retry" type="button">切換 LINE 帳號</button></section>
+<h1>請款單</h1><p class="sub" id="group"></p><section class="panel"><p class="status" id="identity">正在驗證 LINE 身分…</p><div id="form" class="hidden"><label>請款類型<select id="type"></select></label><label>請款期間<input id="period" type="month"></label><label>請款明細</label><div id="lines"></div><button class="secondary" id="add" type="button">新增明細</button><label>請款總金額</label><div class="total-box" id="requestedTotal">$0</div><details class="optional-box hidden" id="insuranceFields" open><summary>勞健保分攤欄位</summary><label>公司費用（選填）<input id="companyExpense" inputmode="decimal" placeholder="未填時預設為請款總金額"></label><label>員工應收／扣回（選填）<input id="employeeRecoverable" inputmode="decimal" placeholder="未填時預設為 0"></label><label>付款到期日（選填）<input id="dueDate" type="date"></label></details><label>備註（選填）<textarea id="note"></textarea></label><label>附件（PDF／圖片，可上傳）<input id="attachments" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" multiple></label><div class="actions"><button id="submit" type="button">確認送出請款</button></div></div><p id="result" class="status"></p><button class="secondary hidden" id="retry" type="button">切換 LINE 帳號</button></section>
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script><script>const DATA=${jsonScript(data)};const $=id=>document.getElementById(id);let token='';let identified=false;
 const api=async(body)=>{const r=await fetch(DATA.apiPath,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...body,liffAccessToken:token})});const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'操作失敗');return j};
 const trace=stage=>fetch(DATA.apiPath,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'telemetry',sessionToken:DATA.sessionToken,stage})}).catch(()=>{});
@@ -526,9 +572,11 @@ function syncTotal(){$('requestedTotal').textContent=money(lineTotal())}
 function syncTypeFields(){const show=isInsurance();$('insuranceFields').classList.toggle('hidden',!show);if(!show){$('companyExpense').value='';$('employeeRecoverable').value='';$('dueDate').value=''}}
 function addLine(description='',lineAmount=''){const row=document.createElement('div');row.className='line';row.innerHTML='<input class="desc" placeholder="項目說明"><input class="amount" inputmode="decimal" placeholder="金額">';row.querySelector('.desc').value=description;row.querySelector('.amount').value=lineAmount;row.querySelector('.amount').addEventListener('input',syncTotal);$('lines').append(row);syncTotal()}
 function parseDraft(){if(!DATA.draftText)return;const raw=DATA.draftText;const entries=raw.split(/\\n+/).map(x=>x.trim()).filter(Boolean);if(entries.length)entries.forEach(x=>addLine(x,''));}
-function files(){return [...$('attachments').files].map((file,index)=>({id:'client-'+index+'-'+file.name, name:file.name,contentType:file.type,size:file.size}))}
+function fileMeta(){return [...$('attachments').files].map((file,index)=>({id:'client-'+index+'-'+file.name, name:file.name,contentType:file.type,size:file.size}))}
+function readFile(file,index){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve({id:'client-'+index+'-'+file.name,name:file.name,contentType:file.type,size:file.size,dataUrl:String(reader.result||'')});reader.onerror=()=>reject(Error('附件讀取失敗：'+file.name));reader.readAsDataURL(file)})}
+async function uploadFiles(claimId){const selected=[...$('attachments').files];for(let index=0;index<selected.length;index+=1){const item=await readFile(selected[index],index);await api({action:'uploadAttachment',sessionToken:DATA.sessionToken,claimId,attachment:item})}}
 async function init(){try{$('retry').classList.add('hidden');$('identity').className='status';$('identity').textContent='正在啟動 LINE 身分元件…';trace('init_start');if(!window.liff)throw Error('LINE 登入元件載入失敗，請關閉後從群組連結重新開啟。');await within(liff.init({liffId:DATA.liffId,withLoginOnExternalBrowser:true}),10000,'LINE 身分元件初始化逾時，請按重新驗證或從群組重新開啟。');trace('init_ready');if(!liff.isLoggedIn()){$('identity').textContent='正在開啟 LINE 登入…';trace('login_redirect');liff.login({redirectUri:location.href});return}token=liff.getAccessToken?.()||'';if(!token)throw Error('沒有取得 LINE 登入權杖，請從群組重新開啟。');$('identity').textContent='正在向系統驗證 LINE 身分…';trace('identify_start');await within(api({action:'identify',sessionToken:DATA.sessionToken}),12000,'系統身分驗證逾時，請按重新驗證或從群組重新開啟。');identified=true;trace('identify_ready');$('identity').textContent='LINE 身分已驗證';$('form').classList.remove('hidden')}catch(error){trace('error');$('identity').className='status error';$('identity').textContent=error.message||'LINE 身分驗證失敗';$('retry').classList.remove('hidden')}}
-$('group').textContent='來源群組：'+DATA.sourceGroupName;$('type').innerHTML=DATA.claimTypes.map(type=>'<option value="'+type.value+'">'+type.label+'</option>').join('');addLine();parseDraft();syncTypeFields();$('type').addEventListener('change',syncTypeFields);$('retry').onclick=()=>{identified=false;token='';try{if(window.liff&&liff.isLoggedIn())liff.logout()}catch{}location.replace(DATA.apiPath)};$('add').onclick=()=>addLine();$('submit').onclick=async()=>{if(!identified)return;const button=$('submit'),result=$('result');button.disabled=true;result.className='status';result.textContent='送出中…';try{const lines=[...document.querySelectorAll('.line')].map(row=>({description:row.querySelector('.desc').value,amount:row.querySelector('.amount').value})).filter(line=>line.description||line.amount);const requestedAmount=Math.round(lineTotal()*100)/100;const totals={requestedAmount,currency:'TWD'};let dueDate='';if(isInsurance()){const rawCompany=$('companyExpense').value;const rawEmployee=$('employeeRecoverable').value;const employee=rawEmployee?Number(rawEmployee):0;const company=rawCompany?Number(rawCompany):Math.round((requestedAmount-employee)*100)/100;totals.companyExpenseAmount=company;totals.employeeRecoverableAmount=Math.round((requestedAmount-company)*100)/100;dueDate=$('dueDate').value}const data=await api({action:'submit',sessionToken:DATA.sessionToken,type:$('type').value,period:$('period').value,lines,totals,dueDate,note:$('note').value,attachments:files()});result.textContent=(data.claimNumber?'請款單 '+data.claimNumber:'請款單')+' 已送出，已同步回覆群組。';$('form').classList.add('hidden')}catch(error){result.className='status error';result.textContent=error.message||'送出失敗'}finally{button.disabled=false}};init();</script></main></body></html>`;
+$('group').textContent='來源群組：'+DATA.sourceGroupName;$('type').innerHTML=DATA.claimTypes.map(type=>'<option value="'+type.value+'">'+type.label+'</option>').join('');addLine();parseDraft();syncTypeFields();$('type').addEventListener('change',syncTypeFields);$('retry').onclick=()=>{identified=false;token='';try{if(window.liff&&liff.isLoggedIn())liff.logout()}catch{}location.replace(DATA.apiPath)};$('add').onclick=()=>addLine();$('submit').onclick=async()=>{if(!identified)return;const button=$('submit'),result=$('result');button.disabled=true;result.className='status';result.textContent='送出中…';try{const lines=[...document.querySelectorAll('.line')].map(row=>({description:row.querySelector('.desc').value,amount:row.querySelector('.amount').value})).filter(line=>line.description||line.amount);const requestedAmount=Math.round(lineTotal()*100)/100;const totals={requestedAmount,currency:'TWD'};let dueDate='';if(isInsurance()){const rawCompany=$('companyExpense').value;const rawEmployee=$('employeeRecoverable').value;const employee=rawEmployee?Number(rawEmployee):0;const company=rawCompany?Number(rawCompany):Math.round((requestedAmount-employee)*100)/100;totals.companyExpenseAmount=company;totals.employeeRecoverableAmount=Math.round((requestedAmount-company)*100)/100;dueDate=$('dueDate').value}const data=await api({action:'submit',sessionToken:DATA.sessionToken,type:$('type').value,period:$('period').value,lines,totals,dueDate,note:$('note').value,attachments:fileMeta()});if($('attachments').files.length){result.textContent='請款單已建立，附件上傳中…';await uploadFiles(data.claimId)}result.textContent=(data.claimNumber?'請款單 '+data.claimNumber:'請款單')+' 已送出，附件已同步保存並回覆群組。';$('form').classList.add('hidden')}catch(error){result.className='status error';result.textContent=error.message||'送出失敗'}finally{button.disabled=false}};init();</script></main></body></html>`;
 }
 
 function cookieValue(cookieHeader, name) {
@@ -597,6 +645,15 @@ async function handleLiff(req, res, { pathname, url, tenant = null, tenants = []
     session.binding = await bindingForEvent(sessionTenant, session.bindingId);
     const actor = await verifiedActor(session, sessionTenant, body.liffAccessToken, session.binding);
     if (action === 'identify') return sendJson(res, 200, { ok: true, actor: { name: actor.displayName }, draftText: session.draftText });
+    if (action === 'uploadAttachment') {
+      const claimId = cleanText(body.claimId, 160);
+      if (!session.submitted || !session.claimId || claimId !== session.claimId) {
+        return sendJson(res, 409, { error: '請先建立請款單後再上傳附件。' });
+      }
+      const attachment = normalizeAttachmentUpload(body.attachment);
+      const upload = await uploadRentalClaimAttachment(sessionTenant, session.claimId, attachment);
+      return sendJson(res, 201, { ok: true, ...upload });
+    }
     if (action !== 'submit') return sendJson(res, 400, { error: 'Unsupported action.' });
     if (session.submitted) return sendJson(res, 409, { error: '此請款單已送出。' });
     const payload = normalizeClaimSubmission(body, session, sessionTenant, actor);
@@ -793,6 +850,7 @@ export default {
 export const __test = {
   parseCommand,
   normalizeClaimSubmission,
+  normalizeAttachmentUpload,
   normalizeClaimEvent,
   eventMessage,
   isActiveBinding,
@@ -806,6 +864,7 @@ export const __test = {
   liffHtml,
   liffSessionCookie,
   rentalClaimError,
+  uploadRentalClaimAttachment,
   initialStatusMessage,
   splitLineMessage,
   notifyInitialStatus,
