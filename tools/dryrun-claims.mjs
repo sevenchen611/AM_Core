@@ -52,10 +52,31 @@ assert.equal(payload.source.actor.reference, 'U0123456789abcdef0123456789abcdef'
 assert.equal(payload.claim.totals.requestedAmount, 4627);
 assert.equal(payload.claim.lines.length, 2);
 assert.equal(JSON.stringify(payload).includes('groupId'), false);
+assert.equal(JSON.stringify(payload).includes('data:application/pdf'), false);
+const uploadPayload = __test.normalizeAttachmentUpload({
+  id: 'att-2',
+  name: 'receipt.pdf',
+  contentType: 'application/pdf',
+  size: 9,
+  dataUrl: 'data:application/pdf;base64,JVBERi0xLjQ=',
+});
+assert.equal(uploadPayload.dataUrl, 'data:application/pdf;base64,JVBERi0xLjQ=');
 assert.throws(() => __test.normalizeClaimSubmission({
   type: 'labor_health_insurance', period: '2026-06', lines: [{ description: '錯誤', amount: 100 }],
   totals: { requestedAmount: 99, currency: 'TWD' }, attachments: [],
 }, session, tenant, { userId: 'U0123456789abcdef0123456789abcdef', displayName: 'Bonnie' }));
+
+const originalFetch = globalThis.fetch;
+const uploadCalls = [];
+globalThis.fetch = async (url, options = {}) => {
+  uploadCalls.push({ url: String(url), options });
+  return new Response(JSON.stringify({ ok: true, attachmentId: 'claim-attachment-1', receiptUrl: '/api/finance/receipt?project=mingyi&id=docrcpt-1' }), { status: 201 });
+};
+const uploadResult = await __test.uploadRentalClaimAttachment(tenant, 'amc_claim_001', uploadPayload);
+globalThis.fetch = originalFetch;
+assert.equal(uploadResult.receiptUrl, '/api/finance/receipt?project=mingyi&id=docrcpt-1');
+assert.match(uploadCalls[0].url, /\/api\/integrations\/finance\/claims\/amc_claim_001\/attachments$/);
+assert.equal(JSON.parse(uploadCalls[0].options.body).dataUrl, uploadPayload.dataUrl);
 
 const missingSourceError = __test.rentalClaimError(403, {
   error: 'No active finance claim source matches this tenant and group binding.',
