@@ -188,13 +188,8 @@ function webRoute(handler) {
       res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(unauthPage());
     }
-    // 工程儀表板同時彙整附件、會議、待辦、變更單等專案級資料；在各資料表全面補齊
-    // 負責群組 relation 前，只允許租戶全群組／最高管理者，避免指定群組帳號旁路讀取。
-    if (ctx.routeAccess?.capability === 'construction.read' && !auth.access?.isTenantAll) {
-      if (/\/api\//.test(ctx.pathname)) return sendJson(res, 403, { error: '工程儀表板僅開放租戶全群組管理者。' });
-      res.writeHead(403, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-      return res.end(unauthPage().replace('需登入', '權限不足').replace('請透過 AM Portal 登入後再進入本頁。', '工程儀表板包含租戶全域資料，目前僅開放租戶全群組管理者。'));
-    }
+    // 工程儀表板的專案卡片與每個專案 API 都會再依 Portal 的館別 scope
+    // 過濾；不能把擁有工程 AM 系統權限誤當成可看全部館別。
     const deps = fullDeps(tenant);
     deps.access = auth.access;
     deps.actor = auth.access?.actor || '';
@@ -206,7 +201,7 @@ function webRoute(handler) {
     url.searchParams.delete('scope');
     if (auth.canBudget) url.searchParams.set('budget', '1');
     if (auth.canContract) url.searchParams.set('contract', '1');
-    const projectScopedCapability = ['construction.budget', 'construction.contracts'].includes(ctx.routeAccess?.capability);
+    const projectScopedCapability = ['construction.read', 'construction.budget', 'construction.contracts'].includes(ctx.routeAccess?.capability);
     if (projectScopedCapability && auth.scope != null) url.searchParams.set('scope', auth.scope);
     return handler(req, res, ctx.pathname, url, deps);
   };
