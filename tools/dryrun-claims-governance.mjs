@@ -161,7 +161,7 @@ await check('LIFF claim page emits syntactically valid client JavaScript', () =>
     config: {
       claims: {
         liffId: '2010966226-5pyR1QR4',
-        claimTypes: ['勞健保費用', '共同營業費用'],
+        claimTypes: ['labor_health_insurance', 'shared_operating', 'other'],
       },
     },
   };
@@ -173,6 +173,13 @@ await check('LIFF claim page emits syntactically valid client JavaScript', () =>
   assert.match(page, />切換 LINE 帳號<\/button>/);
   assert.match(inlineScript[1], /liff\.logout\(\)/);
   assert.match(inlineScript[1], /location\.replace\(DATA\.apiPath\)/);
+  assert.match(page, /勞健保費用/);
+  assert.match(page, /共同營業費用/);
+  assert.match(page, /其他費用/);
+  assert.match(page, /請款總金額/);
+  assert.match(page, /勞健保分攤欄位/);
+  assert.match(inlineScript[1], /syncTotal/);
+  assert.match(inlineScript[1], /syncTypeFields/);
 });
 
 await check('LIFF OAuth callback restores its signed session from a short-lived secure cookie', () => {
