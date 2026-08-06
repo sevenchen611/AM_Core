@@ -10,3 +10,6 @@
 8. Trigger or preview an engineering reminder and confirm its deep link starts with `/task`.
 9. Open a previously sent `/dashboard?tenant=engineering&doc=<known-task-id>` link and confirm it redirects to `/task`.
 10. Confirm a user outside the task's project scope receives a denial.
+11. For a meeting-origin task, confirm the origin shows the meeting date and title and that
+    `開啟完整會議記錄` opens the signed public meeting page.
+12. Confirm the origin shows the LINE group name and never renders the internal LINE group ID.

@@ -5,6 +5,10 @@ import { handleDashboardRequest } from '../modules/construction/dashboard.js';
 
 const taskId = '3b351c68-6dac-8165-b61d-f23a48367e76';
 const projectId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+const meetingId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+const groupBindingId = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+const publicMeetingUrl = `https://am.example/m/${meetingId.replaceAll('-', '')}-0123456789abcdef`;
+const legacyGroupId = 'C-do-not-display-this-id';
 const taskPage = {
   id: taskId,
   parent: { data_source_id: 'tasks-ds' },
@@ -18,6 +22,8 @@ const taskPage = {
     '來源': { type: 'select', select: { name: '會議' } },
     '來源證據': { type: 'rich_text', rich_text: [] },
     '專案': { type: 'relation', relation: [{ id: projectId }] },
+    '會議記錄': { type: 'relation', relation: [{ id: meetingId }] },
+    '負責群組': { type: 'relation', relation: [{ id: groupBindingId }] },
   },
 };
 
@@ -25,7 +31,7 @@ const calls = [];
 const deps = {
   tenantKey: 'engineering',
   actor: '測試同仁',
-  dataSources: { tasks: 'tasks-ds' },
+  dataSources: { tasks: 'tasks-ds', meetings: 'meetings-ds', groupBindings: 'group-bindings-ds' },
   async uploadFileToNotion(buffer, name, type) {
     calls.push({ kind: 'upload', size: buffer.length, name, type });
     return { id: 'upload-1' };
@@ -36,12 +42,27 @@ const deps = {
     if (pathname === `/v1/pages/${encodeURIComponent(projectId)}` && options.method === 'GET') {
       return { properties: { '專案名稱': { type: 'title', title: [{ plain_text: '草悟道館' }] } } };
     }
+    if (pathname === `/v1/pages/${encodeURIComponent(meetingId)}` && options.method === 'GET') {
+      return {
+        parent: { data_source_id: 'meetings-ds' },
+        properties: {
+          '會議': { type: 'title', title: [{ plain_text: '工程進度暨國稅局訪查準備會議' }] },
+          '日期': { type: 'date', date: { start: '2026-08-06' } },
+        },
+      };
+    }
+    if (pathname === `/v1/pages/${encodeURIComponent(groupBindingId)}` && options.method === 'GET') {
+      return {
+        parent: { data_source_id: 'group-bindings-ds' },
+        properties: { '群組名稱': { type: 'title', title: [{ plain_text: '草悟道工程群' }] } },
+      };
+    }
     if (pathname === '/v1/data_sources/tasks-ds' && options.method === 'GET') {
       return { properties: { '狀態': { select: { options: ['待辦', '進行中', '完成', '取消'].map((name) => ({ name })) } } } };
     }
     if (pathname.startsWith(`/v1/blocks/${encodeURIComponent(taskId)}/children?`) && options.method === 'GET') {
       return { results: [
-        { id: 'b1', type: 'paragraph', paragraph: { rich_text: [{ plain_text: '來源證據：來自 8/6 工程會議' }] } },
+        { id: 'b1', type: 'paragraph', paragraph: { rich_text: [{ plain_text: `來源證據：會議記錄：${publicMeetingUrl}；LINE 群組：${legacyGroupId}` }] } },
         { id: 'b2', type: 'heading_3', heading_3: { rich_text: [{ plain_text: '[處理紀錄] 開始整理文件' }] } },
       ], has_more: false };
     }
@@ -92,7 +113,17 @@ assert.equal(getRes.status, 200);
 const card = JSON.parse(getRes.body);
 assert.equal(card.title, '準備國稅局訪查相關文件');
 assert.equal(card.project, '草悟道館');
-assert.equal(card.sourceEvidence, '來自 8/6 工程會議');
+assert.equal(card.sourceEvidence, `會議記錄：${publicMeetingUrl}；LINE 群組：${legacyGroupId}`);
+assert.deepEqual(card.origin, {
+  summary: '',
+  meeting: {
+    date: '2026-08-06',
+    name: '工程進度暨國稅局訪查準備會議',
+    url: publicMeetingUrl,
+  },
+  lineGroup: { name: '草悟道工程群' },
+});
+assert.ok(!JSON.stringify(card.origin).includes(legacyGroupId), 'structured origin must not expose the LINE group ID');
 assert.equal(card.history.length, 1);
 assert.equal(card.history[0].spans[0].text, '[處理紀錄] 開始整理文件');
 

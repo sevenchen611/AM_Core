@@ -14,3 +14,8 @@ The engineering dashboard remains available only as a secondary link at the bott
 card. Previously sent `/dashboard?doc=...` reminder links redirect to the same task card,
 so old LINE messages gain the new workflow too. Non-construction tenants keep their existing
 reminder-link behavior.
+
+Meeting-origin tasks show the meeting date and title together with a clickable public meeting
+record link. LINE origins display the bound group name instead of the internal LINE group ID.
+The card resolves these labels from the task's Notion relations, with legacy source-text lookup
+as a fallback for previously created tasks.

@@ -49,6 +49,7 @@ async function buildTaskCard(deps, pageId, scope) {
       history.splice(evidenceIndex, 1);
     }
   }
+  const origin = await resolveTaskOrigin(deps, task, sourceEvidence);
 
   return {
     id: task.id,
@@ -59,11 +60,101 @@ async function buildTaskCard(deps, pageId, scope) {
     due: p['期限']?.date?.start || '',
     source: p['來源']?.select?.name || '',
     sourceEvidence,
+    origin,
     project: projectId ? await pageName(deps, projectId) : '',
     createdAt: task.created_time || '',
     updatedAt: task.last_edited_time || '',
     history,
   };
+}
+
+async function resolveTaskOrigin(deps, task, sourceEvidence) {
+  const properties = task.properties || {};
+  const meetingUrl = sourceUrl(sourceEvidence);
+  const meetingRelationId = properties['會議記錄']?.relation?.[0]?.id || '';
+  const meetingId = meetingRelationId || meetingIdFromUrl(meetingUrl);
+  const groupRelationId = properties['負責群組']?.relation?.[0]?.id || '';
+  const legacyGroupId = sourceLineGroupId(sourceEvidence);
+  const [meetingPage, groupPage] = await Promise.all([
+    safeRelatedPage(deps, meetingId, deps.dataSources.meetings),
+    resolveGroupPage(deps, groupRelationId, legacyGroupId),
+  ]);
+
+  const meeting = meetingId || meetingUrl ? {
+    date: meetingPage?.properties?.['日期']?.date?.start
+      || meetingPage?.properties?.['會議日期']?.date?.start
+      || '',
+    name: pageTitle(meetingPage) || '會議記錄',
+    url: meetingUrl,
+  } : null;
+  const groupName = pageTitle(groupPage);
+  const lineGroup = groupName
+    ? { name: groupName }
+    : (groupRelationId || legacyGroupId ? { name: '來源 LINE 群組（名稱尚未設定）' } : null);
+
+  return {
+    summary: sourceSummary(sourceEvidence),
+    meeting,
+    lineGroup,
+  };
+}
+
+async function safeRelatedPage(deps, pageId, expectedDataSourceId) {
+  if (!pageId) return null;
+  try {
+    const page = await deps.notionRequest(`/v1/pages/${encodeURIComponent(pageId)}`, { method: 'GET' });
+    if (expectedDataSourceId && !sameId(page.parent?.data_source_id, expectedDataSourceId)) return null;
+    return page;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveGroupPage(deps, relationId, legacyGroupId) {
+  const groupBindings = deps.dataSources.groupBindings;
+  if (!groupBindings) return null;
+  const related = await safeRelatedPage(deps, relationId, groupBindings);
+  if (related || !legacyGroupId) return related;
+  try {
+    const result = await deps.notionRequest(`/v1/data_sources/${encodeURIComponent(groupBindings)}/query`, {
+      method: 'POST',
+      body: {
+        filter: { property: 'LINE 群組 ID', rich_text: { equals: legacyGroupId } },
+        page_size: 1,
+      },
+    });
+    return result.results?.[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+function pageTitle(page) {
+  if (!page) return '';
+  for (const property of Object.values(page.properties || {})) {
+    if (property.type === 'title') return plain(property.title);
+  }
+  return '';
+}
+
+function sourceUrl(value) {
+  return String(value || '').match(/https?:\/\/[^\s；;]+/i)?.[0]?.replace(/[)）\]}>,，。]+$/, '') || '';
+}
+
+function meetingIdFromUrl(value) {
+  return String(value || '').match(/\/m\/([0-9a-f]{32})(?:-|[/?#]|$)/i)?.[1] || '';
+}
+
+function sourceLineGroupId(value) {
+  return String(value || '').match(/LINE\s*群組\s*[:：]\s*([^；;\s]+)/i)?.[1] || '';
+}
+
+function sourceSummary(value) {
+  return String(value || '')
+    .split(/[；;\n]+/)
+    .map((part) => part.trim())
+    .filter((part) => part && !/^會議記錄\s*[:：]/.test(part) && !/^LINE\s*群組\s*[:：]/i.test(part))
+    .join('\n');
 }
 
 async function updateTaskCard(deps, body, scope) {
@@ -252,7 +343,7 @@ export function renderTaskCardPage(tenantKey, initialDoc = '') {
 header{background:linear-gradient(135deg,var(--green),#1e4937);color:#fff;padding:16px 18px 28px}header .brand{font-size:13px;color:#d6e8de}header h1{font-size:20px;line-height:1.35;margin:8px 0 0;word-break:break-word}
 main{width:min(720px,100%);margin:-14px auto 0;padding:0 12px}.panel{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:16px;margin-bottom:12px}
 .meta{display:flex;flex-wrap:wrap;gap:7px}.chip{display:inline-flex;align-items:center;border-radius:999px;background:#edf1ef;padding:3px 10px;color:#516058;font-size:12px}.chip.status{background:var(--pale);color:var(--green);font-weight:700}.chip.overdue{background:#fbe9e7;color:var(--red)}
-h2{font-size:16px;margin:0 0 10px}.label{display:block;color:var(--dim);font-size:12px;font-weight:700;margin-bottom:5px}.origin{white-space:pre-wrap;word-break:break-word;font-size:14px}.muted{color:var(--dim);font-size:13px}
+h2{font-size:16px;margin:0 0 10px}.label{display:block;color:var(--dim);font-size:12px;font-weight:700;margin-bottom:5px}.origin{word-break:break-word;font-size:14px}.source-list{display:grid;gap:10px}.source-item{border:1px solid #e0e8e3;border-radius:11px;background:#fafcfb;padding:11px 12px}.source-kind{color:var(--dim);font-size:12px;font-weight:700;margin-bottom:2px}.source-title{font-weight:750;color:var(--ink)}.source-link{display:inline-block;margin-top:5px;color:var(--green);font-weight:700;text-decoration:none}.source-link:hover{text-decoration:underline}.source-summary{white-space:pre-wrap}.muted{color:var(--dim);font-size:13px}
 .timeline{border-left:2px solid #cfe0d7;margin-left:7px;padding-left:16px}.event{position:relative;padding:4px 0 13px;white-space:pre-wrap;word-break:break-word;font-size:14px}.event::before{content:'';position:absolute;left:-22px;top:12px;width:10px;height:10px;background:var(--green2);border:3px solid #fff;border-radius:50%;box-shadow:0 0 0 1px #bfd3c7}.event.heading_3{font-weight:750;color:var(--green);padding-top:10px}.event.image{white-space:normal}.event img{display:block;width:100%;max-height:520px;object-fit:contain;background:#eef1ef;border:1px solid var(--line);border-radius:12px}.caption{font-size:12px;color:var(--dim);margin-top:4px}.event a{color:var(--green);word-break:break-all}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}label.field{display:block;font-size:13px;font-weight:700;color:#4c5a52}select,textarea,input[type=file],button{font:inherit}select,textarea{width:100%;margin-top:5px;border:1px solid #bccbc2;border-radius:10px;background:#fff;padding:10px;color:var(--ink)}textarea{min-height:130px;resize:vertical;line-height:1.6}.help{font-size:12px;color:var(--dim);margin-top:5px}.upload{border:1px dashed #a8bdb1;border-radius:12px;background:#fafcfb;padding:12px;margin-top:12px}.upload input{display:block;width:100%}.previews{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:10px}.preview{position:relative;aspect-ratio:1;background:#edf1ef;border-radius:9px;overflow:hidden}.preview img{width:100%;height:100%;object-fit:cover}.preview button{position:absolute;right:4px;top:4px;border:0;border-radius:999px;width:25px;height:25px;background:#000a;color:#fff;padding:0}
 .save{width:100%;margin-top:14px;border:0;border-radius:11px;background:var(--green);color:#fff;font-weight:750;padding:13px;cursor:pointer}.save:disabled{opacity:.55;cursor:wait}.result{display:none;margin-top:10px;border-radius:10px;padding:10px 12px;font-size:13px}.result.show{display:block;background:#e9f5ee;color:#24553f}.result.error{background:#fbe9e7;color:#8d352d}
@@ -298,6 +389,7 @@ function fmt(value){if(!value)return '';const d=new Date(value);return Number.is
 function safeLink(href){if(!href)return '';try{const u=new URL(href,location.origin);return ['http:','https:'].includes(u.protocol)?u.href:''}catch{return ''}}
 function renderSpans(spans){return (spans||[]).map(s=>{const text=esc(s.text);const href=safeLink(s.href);return href?'<a href="'+esc(href)+'" target="_blank" rel="noopener">'+text+'</a>':text}).join('')}
 function renderHistory(items){if(!items.length)return '<div class="muted">尚無處理紀錄。本次更新後會從這裡開始保留。</div>';return items.map(item=>{if(item.type==='image'&&item.url)return '<div class="event image"><a href="'+esc(item.url)+'" target="_blank" rel="noopener"><img src="'+esc(item.url)+'" alt="'+esc(item.caption||'處理照片')+'"></a><div class="caption">'+esc(item.caption||'處理照片')+'</div></div>';const prefix=item.type==='to_do'?(item.checked?'☑ ':'☐ '):'';return '<div class="event '+esc(item.type)+'">'+prefix+renderSpans(item.spans)+'</div>'}).join('')}
+function renderOrigin(origin){const rows=[];const o=origin||{};if(o.meeting){const date=(o.meeting.date||'').slice(0,10);const name=o.meeting.name||'會議記錄';const link=safeLink(o.meeting.url);rows.push('<div class="source-item"><div class="source-kind">會議記錄</div><div class="source-title">'+(date?esc(date)+'｜':'')+esc(name)+'</div>'+(link?'<a class="source-link" href="'+esc(link)+'" target="_blank" rel="noopener">開啟完整會議記錄 ↗</a>':'<div class="muted">原始會議連結尚未建立</div>')+'</div>')}if(o.lineGroup?.name)rows.push('<div class="source-item"><div class="source-kind">LINE 群組</div><div class="source-title">'+esc(o.lineGroup.name)+'</div></div>');if(o.summary)rows.push('<div class="source-item source-summary">'+esc(o.summary)+'</div>');return rows.length?'<div class="source-list">'+rows.join('')+'</div>':'<span class="muted">此任務尚未填寫來源證據。</span>'}
 async function load(){
  if(!PAGE){showResult('缺少任務編號。',true);return}
  const r=await fetch('/task/api/card?tenant='+encodeURIComponent(TENANT)+'&page='+encodeURIComponent(PAGE));
@@ -305,7 +397,7 @@ async function load(){
  document.title=d.title+' · 工程任務卡';document.getElementById('title').textContent=d.title;
  const due=(d.due||'').slice(0,10);const overdue=due&&due<new Date().toISOString().slice(0,10)&&!['完成','取消'].includes(d.status);
  document.getElementById('meta').innerHTML='<span class="chip status">'+esc(d.status||'未設定')+'</span>'+(d.owner?'<span class="chip">👤 '+esc(d.owner)+'</span>':'')+(due?'<span class="chip '+(overdue?'overdue':'')+'">📅 '+esc(due)+'</span>':'')+(d.project?'<span class="chip">📁 '+esc(d.project)+'</span>':'')+(d.source?'<span class="chip">來源 '+esc(d.source)+'</span>':'');
- document.getElementById('origin').innerHTML=d.sourceEvidence?esc(d.sourceEvidence):'<span class="muted">此任務尚未填寫來源證據。</span>';
+ document.getElementById('origin').innerHTML=renderOrigin(d.origin);
  document.getElementById('history').innerHTML=renderHistory(d.history||[]);
  const opts=(d.statusOptions||[]).filter(Boolean);if(d.status&&!opts.includes(d.status))opts.unshift(d.status);
  document.getElementById('status').innerHTML=opts.map(o=>'<option '+(o===d.status?'selected':'')+'>'+esc(o)+'</option>').join('');
