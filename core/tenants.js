@@ -110,7 +110,9 @@ export function loadTenants(env = process.env, logger = console) {
     }
 
     const driveRootFolderId = env[`${prefix}_DRIVE_ROOT_FOLDER_ID`] || '';
-    const queueAccessKey = prefixed(env, prefix, 'QUEUE_ACCESS_KEY', env.AMCORE_QUEUE_ACCESS_KEY);
+    // BUILD_QUEUE_ACCESS_KEY is retained as a one-time cutover alias for old
+    // BuildAM public meeting links; new deployments should use ENG_QUEUE_ACCESS_KEY.
+    const queueAccessKey = prefixed(env, prefix, 'QUEUE_ACCESS_KEY', env.BUILD_QUEUE_ACCESS_KEY || env.AMCORE_QUEUE_ACCESS_KEY);
     const portalPin = prefixed(env, prefix, 'PORTAL_PIN', env.AMCORE_PORTAL_PIN);
     const line = readLineOverride(env, prefix);
     if (line && (line.accessToken !== (env.LINE_CHANNEL_ACCESS_TOKEN || '') || line.secret !== (env.LINE_CHANNEL_SECRET || ''))) {

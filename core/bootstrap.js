@@ -142,9 +142,10 @@ export async function bootstrap(env = process.env, overrides = {}) {
     // Preserve links issued with a tenant-specific key during the platform cutover.
     publicLinkSecrets: [...new Set([
       env.AMCORE_QUEUE_ACCESS_KEY || '',
+      env.BUILD_QUEUE_ACCESS_KEY || '',
       ...tenants.map((tenant) => tenant?.queueAccessKey || ''),
     ].filter(Boolean))],
-    publicLinkSecretForTenant: (tenant) => tenant?.queueAccessKey || env.AMCORE_QUEUE_ACCESS_KEY || '',
+    publicLinkSecretForTenant: (tenant) => tenant?.queueAccessKey || env.BUILD_QUEUE_ACCESS_KEY || env.AMCORE_QUEUE_ACCESS_KEY || '',
   };
 
   const router = createRouter({ tenants, notionRequest: notion.notionRequest, logger });
