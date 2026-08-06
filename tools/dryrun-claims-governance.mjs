@@ -180,6 +180,9 @@ await check('LIFF claim page emits syntactically valid client JavaScript', () =>
   assert.match(page, /勞健保分攤欄位/);
   assert.match(inlineScript[1], /syncTotal/);
   assert.match(inlineScript[1], /syncTypeFields/);
+  assert.match(inlineScript[1], /INSURANCE_DEFAULT_LINES/);
+  assert.match(inlineScript[1], /applyInsuranceDefaults/);
+  assert.match(inlineScript[1], /replaceChildren\(\)/);
 });
 
 await check('LIFF OAuth callback restores its signed session from a short-lived secure cookie', () => {

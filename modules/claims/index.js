@@ -567,9 +567,17 @@ const within=(promise,timeoutMs,message)=>new Promise((resolve,reject)=>{const t
 const money=value=>'$'+Number(value||0).toLocaleString('zh-TW',{maximumFractionDigits:2});
 const selectedType=()=>$('type').value;
 const isInsurance=()=>['labor_health_insurance','social_insurance'].includes(selectedType());
+const INSURANCE_DEFAULT_LINES=['勞保費','健保費','勞工退休金'];
 function lineTotal(){return [...document.querySelectorAll('.line .amount')].reduce((sum,input)=>sum+(Number(input.value)||0),0)}
 function syncTotal(){$('requestedTotal').textContent=money(lineTotal())}
-function syncTypeFields(){const show=isInsurance();$('insuranceFields').classList.toggle('hidden',!show);if(!show){$('companyExpense').value='';$('employeeRecoverable').value='';$('dueDate').value=''}}
+function applyInsuranceDefaults(){
+  const rows=[...document.querySelectorAll('.line')];
+  const hasEnteredLine=rows.some(row=>row.querySelector('.desc').value.trim()||row.querySelector('.amount').value.trim());
+  if(!isInsurance()||hasEnteredLine)return;
+  $('lines').replaceChildren();
+  INSURANCE_DEFAULT_LINES.forEach(description=>addLine(description,''));
+}
+function syncTypeFields(){const show=isInsurance();$('insuranceFields').classList.toggle('hidden',!show);if(!show){$('companyExpense').value='';$('employeeRecoverable').value='';$('dueDate').value=''}else applyInsuranceDefaults()}
 function addLine(description='',lineAmount=''){const row=document.createElement('div');row.className='line';row.innerHTML='<input class="desc" placeholder="項目說明"><input class="amount" inputmode="decimal" placeholder="金額">';row.querySelector('.desc').value=description;row.querySelector('.amount').value=lineAmount;row.querySelector('.amount').addEventListener('input',syncTotal);$('lines').append(row);syncTotal()}
 function parseDraft(){if(!DATA.draftText)return;const raw=DATA.draftText;const entries=raw.split(/\\n+/).map(x=>x.trim()).filter(Boolean);if(entries.length)entries.forEach(x=>addLine(x,''));}
 function fileMeta(){return [...$('attachments').files].map((file,index)=>({id:'client-'+index+'-'+file.name, name:file.name,contentType:file.type,size:file.size}))}
