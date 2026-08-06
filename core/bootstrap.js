@@ -139,6 +139,12 @@ export async function bootstrap(env = process.env, overrides = {}) {
     publicBaseUrl: (env.AMCORE_PUBLIC_BASE_URL || '').trim().replace(/\/+$/, ''),
     publicBaseUrlForTenant: (tenant) => tenant?.publicBaseUrl || (env.AMCORE_PUBLIC_BASE_URL || '').trim().replace(/\/+$/, ''),
     publicLinkSecret: env.AMCORE_QUEUE_ACCESS_KEY || '',
+    // Preserve links issued with a tenant-specific key during the platform cutover.
+    publicLinkSecrets: [...new Set([
+      env.AMCORE_QUEUE_ACCESS_KEY || '',
+      ...tenants.map((tenant) => tenant?.queueAccessKey || ''),
+    ].filter(Boolean))],
+    publicLinkSecretForTenant: (tenant) => tenant?.queueAccessKey || env.AMCORE_QUEUE_ACCESS_KEY || '',
   };
 
   const router = createRouter({ tenants, notionRequest: notion.notionRequest, logger });

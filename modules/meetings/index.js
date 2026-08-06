@@ -795,28 +795,42 @@ async function shareableUrl(pageId, fallbackUrl) {
 // 連結形如 /m/<32碼頁id>-<16碼簽章>。簽章用 platform.publicLinkSecret,
 // 確保只有「我們發出的會議連結」能開,無法用別的 Notion 頁 id 亂猜/亂讀。
 const normId = (id) => String(id || '').replace(/-/g, '').toLowerCase();
-function meetingSig(pageId) {
-  return crypto.createHmac('sha256', platform.publicLinkSecret || '').update(`meeting:${normId(pageId)}`).digest('hex').slice(0, 16);
+function publicLinkSecretForTenant(tenant = null) {
+  return platform.publicLinkSecretForTenant?.(tenant) || platform.publicLinkSecret || '';
+}
+function publicLinkSecrets() {
+  return [...new Set([
+    platform.publicLinkSecret || '',
+    ...(Array.isArray(platform.publicLinkSecrets) ? platform.publicLinkSecrets : []),
+  ].filter(Boolean))];
+}
+function meetingSig(pageId, secret = publicLinkSecretForTenant()) {
+  return crypto.createHmac('sha256', secret || '').update(`meeting:${normId(pageId)}`).digest('hex').slice(0, 16);
+}
+function meetingSigMatches(pageId, signature) {
+  return publicLinkSecrets().some((secret) => meetingSig(pageId, secret) === String(signature || '').toLowerCase());
 }
 function publicMeetingUrl(pageId, tenant = null) {
   const baseUrl = platform.publicBaseUrlForTenant?.(tenant) || platform.publicBaseUrl;
-  if (!baseUrl || !platform.publicLinkSecret) return '';
-  return `${String(baseUrl).replace(/\/+$/, '')}/m/${normId(pageId)}-${meetingSig(pageId)}`;
+  const secret = publicLinkSecretForTenant(tenant);
+  if (!baseUrl || !secret) return '';
+  return `${String(baseUrl).replace(/\/+$/, '')}/m/${normId(pageId)}-${meetingSig(pageId, secret)}`;
 }
-function reviewSig(sessionId) {
-  return crypto.createHmac('sha256', platform.publicLinkSecret || '').update(`meeting-review:${sessionId}`).digest('hex').slice(0, 16);
+function reviewSig(sessionId, tenant = null) {
+  return crypto.createHmac('sha256', publicLinkSecretForTenant(tenant)).update(`meeting-review:${sessionId}`).digest('hex').slice(0, 16);
 }
-function reviewPath(sessionId) {
-  return `/meetings/review/${sessionId}-${reviewSig(sessionId)}`;
+function reviewPath(sessionId, tenant = null) {
+  return `/meetings/review/${sessionId}-${reviewSig(sessionId, tenant)}`;
 }
 function reviewUrl(sessionId, tenant = null) {
   const liffId = String(tenant?.config?.meetings?.liffId || '').trim();
-  if (liffId && platform.publicLinkSecret) {
-    return `https://liff.line.me/${encodeURIComponent(liffId)}/${sessionId}-${reviewSig(sessionId)}`;
+  const secret = publicLinkSecretForTenant(tenant);
+  if (liffId && secret) {
+    return `https://liff.line.me/${encodeURIComponent(liffId)}/${sessionId}-${reviewSig(sessionId, tenant)}`;
   }
   const baseUrl = platform.publicBaseUrlForTenant?.(tenant) || platform.publicBaseUrl;
-  if (!baseUrl || !platform.publicLinkSecret) return '';
-  return `${String(baseUrl).replace(/\/+$/, '')}${reviewPath(sessionId)}`;
+  if (!baseUrl || !secret) return '';
+  return `${String(baseUrl).replace(/\/+$/, '')}${reviewPath(sessionId, tenant)}`;
 }
 
 async function pushMeetingReviewNotification(session, message, event, { attempts = 2, delayMs = 400, timeoutMs = 6000 } = {}) {
@@ -1332,7 +1346,7 @@ async function buildPublicSections(pageId) {
   return { legend, sections };
 }
 
-async function renderPublicMeetingHtml(pageId) {
+async function renderPublicMeetingHtml(pageId, tenant = null) {
   const page = await platform.notionRequest(`/v1/pages/${encodeURIComponent(pageId)}`, { method: 'GET' });
   const title = richText(page.properties?.['會議']?.title);
   if (!title) throw new Error('not a meeting page'); // 只服務會議頁,避免被拿去讀別的 Notion 頁
@@ -1344,8 +1358,9 @@ async function renderPublicMeetingHtml(pageId) {
     + `<div class="sec">${blocksToHtml(s.blocks) || '<p class="dim">(無內容)</p>'}</div></details>`).join('');
   // 講者對照只允許從已簽署的會議連結改寫；此流程依產品需求不再要求額外 PIN。
   const { speakers } = parseLegend(legend);
-  const editor = speakers.length && platform.publicLinkSecret
-    ? speakerWidgetHtml(speakers, { savePath: `/m/${normId(pageId)}-${meetingSig(pageId)}` })
+  const secret = publicLinkSecretForTenant(tenant);
+  const editor = speakers.length && secret
+    ? speakerWidgetHtml(speakers, { savePath: `/m/${normId(pageId)}-${meetingSig(pageId, secret)}` })
     : '';
   return `<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1419,7 +1434,7 @@ async function handlePublicRequest(req, res, pathname, { tenants = [] } = {}) {
   if (!m) return false;
   const [, id, sig] = m;
   const deny = () => { res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' }); res.end('<meta charset="utf-8"><p style="font-family:system-ui;padding:40px;text-align:center">找不到這份會議記錄(連結可能失效)。</p>'); };
-  if (!platform.publicLinkSecret || meetingSig(id) !== sig.toLowerCase()) { deny(); return true; }
+  if (!meetingSigMatches(id, sig)) { deny(); return true; }
 
   if (req.method === 'POST') {
     const sendJson = (status, obj) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(obj)); };
@@ -1443,7 +1458,8 @@ async function handlePublicRequest(req, res, pathname, { tenants = [] } = {}) {
   }
 
   try {
-    const html = await renderPublicMeetingHtml(id);
+    const tenant = await resolveTenantForPublicMeeting(id, tenants);
+    const html = await renderPublicMeetingHtml(id, tenant);
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' });
     res.end(html);
   } catch (e) {
@@ -1753,7 +1769,10 @@ async function handleMeetingReviewRequest(req, res, { pathname, url, tenant = nu
   const { sessionId, sig } = token;
   let session = reviewSessions.get(sessionId);
   if (!session) session = await loadReviewSessionFromMeeting(sessionId, tenants, tenant);
-  if (!platform.publicLinkSecret || reviewSig(sessionId) !== sig.toLowerCase() || !session) {
+  const reviewSignatureValid = session
+    && (reviewSig(sessionId, session.tenant || tenant) === sig.toLowerCase()
+      || publicLinkSecrets().some((secret) => reviewSig(sessionId, { queueAccessKey: secret }) === sig.toLowerCase()));
+  if (!reviewSignatureValid) {
     res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end('<meta charset="utf-8"><p style="font-family:system-ui;padding:40px;text-align:center">找不到這份待辦確認。</p>');
     return true;

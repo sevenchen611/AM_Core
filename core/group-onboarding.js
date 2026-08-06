@@ -6,7 +6,7 @@
 
 import { textItem } from './util.js';
 
-export const GROUP_ONBOARDING_BUILD = 'scoped-dashboard-2026-08-05';
+export const GROUP_ONBOARDING_BUILD = 'tenant-meeting-links-2026-08-06';
 export const LEGACY_HOZO20_BIND_COMMAND = '<绑定 HOZOAM 2.0 群组>';
 
 export const ONBOARDING_TENANTS = [
