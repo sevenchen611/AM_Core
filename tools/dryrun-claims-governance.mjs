@@ -182,6 +182,8 @@ await check('LIFF claim page emits syntactically valid client JavaScript', () =>
   assert.match(inlineScript[1], /syncTypeFields/);
   assert.match(inlineScript[1], /INSURANCE_DEFAULT_LINES/);
   assert.match(inlineScript[1], /applyInsuranceDefaults/);
+  assert.match(inlineScript[1], /removeUntouchedInsuranceDefaults/);
+  assert.match(inlineScript[1], /data-insurance-default/);
   assert.match(inlineScript[1], /replaceChildren\(\)/);
 });
 

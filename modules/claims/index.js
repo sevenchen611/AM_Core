@@ -570,15 +570,20 @@ const isInsurance=()=>['labor_health_insurance','social_insurance'].includes(sel
 const INSURANCE_DEFAULT_LINES=['勞保費','健保費','勞工退休金'];
 function lineTotal(){return [...document.querySelectorAll('.line .amount')].reduce((sum,input)=>sum+(Number(input.value)||0),0)}
 function syncTotal(){$('requestedTotal').textContent=money(lineTotal())}
+function removeUntouchedInsuranceDefaults(){
+  document.querySelectorAll('.line[data-insurance-default="true"]').forEach(row=>row.remove());
+  if(!document.querySelector('.line'))addLine();
+  syncTotal();
+}
 function applyInsuranceDefaults(){
   const rows=[...document.querySelectorAll('.line')];
   const hasEnteredLine=rows.some(row=>row.querySelector('.desc').value.trim()||row.querySelector('.amount').value.trim());
   if(!isInsurance()||hasEnteredLine)return;
   $('lines').replaceChildren();
-  INSURANCE_DEFAULT_LINES.forEach(description=>addLine(description,''));
+  INSURANCE_DEFAULT_LINES.forEach(description=>addLine(description,'',true));
 }
-function syncTypeFields(){const show=isInsurance();$('insuranceFields').classList.toggle('hidden',!show);if(!show){$('companyExpense').value='';$('employeeRecoverable').value='';$('dueDate').value=''}else applyInsuranceDefaults()}
-function addLine(description='',lineAmount=''){const row=document.createElement('div');row.className='line';row.innerHTML='<input class="desc" placeholder="項目說明"><input class="amount" inputmode="decimal" placeholder="金額">';row.querySelector('.desc').value=description;row.querySelector('.amount').value=lineAmount;row.querySelector('.amount').addEventListener('input',syncTotal);$('lines').append(row);syncTotal()}
+function syncTypeFields(){const show=isInsurance();$('insuranceFields').classList.toggle('hidden',!show);if(!show){removeUntouchedInsuranceDefaults();$('companyExpense').value='';$('employeeRecoverable').value='';$('dueDate').value=''}else applyInsuranceDefaults()}
+function addLine(description='',lineAmount='',insuranceDefault=false){const row=document.createElement('div');row.className='line';if(insuranceDefault)row.dataset.insuranceDefault='true';row.innerHTML='<input class="desc" placeholder="項目說明"><input class="amount" inputmode="decimal" placeholder="金額">';row.querySelector('.desc').value=description;row.querySelector('.amount').value=lineAmount;row.querySelectorAll('input').forEach(input=>input.addEventListener('input',()=>{delete row.dataset.insuranceDefault;syncTotal()}));$('lines').append(row);syncTotal()}
 function parseDraft(){if(!DATA.draftText)return;const raw=DATA.draftText;const entries=raw.split(/\\n+/).map(x=>x.trim()).filter(Boolean);if(entries.length)entries.forEach(x=>addLine(x,''));}
 function fileMeta(){return [...$('attachments').files].map((file,index)=>({id:'client-'+index+'-'+file.name, name:file.name,contentType:file.type,size:file.size}))}
 function readFile(file,index){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve({id:'client-'+index+'-'+file.name,name:file.name,contentType:file.type,size:file.size,dataUrl:String(reader.result||'')});reader.onerror=()=>reject(Error('附件讀取失敗：'+file.name));reader.readAsDataURL(file)})}
