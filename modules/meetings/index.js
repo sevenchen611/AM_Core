@@ -1400,9 +1400,52 @@ ${body || '<p class="dim">(此會議尚無內容)</p>'}
 </div></body></html>`;
 }
 
+let knownGroupMeetingSources = { at: 0, owners: new Map() };
+async function registerKnownGroupMeetingSources(tenants = []) {
+  if (Date.now() - knownGroupMeetingSources.at < 5 * 60 * 1000) return knownGroupMeetingSources.owners;
+  const owners = new Map();
+  for (const tenant of Array.isArray(tenants) ? tenants : []) {
+    const groupBindings = tenant?.dataSources?.groupBindings;
+    if (!groupBindings || !platform.registerTenantDataSource) continue;
+    try {
+      let cursor = '';
+      do {
+        const result = await platform.notionRequest(`/v1/data_sources/${encodeURIComponent(groupBindings)}/query`, {
+          method: 'POST',
+          tenantKey: tenant.key,
+          body: {
+            filter: { property: '會議資料庫', rich_text: { is_not_empty: true } },
+            page_size: 100,
+            ...(cursor ? { start_cursor: cursor } : {}),
+          },
+        });
+        for (const binding of result.results || []) {
+          const dataSourceId = plainRich(binding.properties?.['會議資料庫']);
+          if (!dataSourceId) continue;
+          try {
+            await platform.registerTenantDataSource(tenant, dataSourceId);
+            owners.set(normalizeId(dataSourceId), tenant);
+          } catch (error) {
+            console.warn(`group meeting source registration failed (${tenant.key}): ${error.message}`);
+          }
+        }
+        cursor = result.has_more ? result.next_cursor : '';
+      } while (cursor);
+    } catch (error) {
+      console.warn(`group meeting source lookup failed (${tenant.key}): ${error.message}`);
+    }
+  }
+  knownGroupMeetingSources = { at: Date.now(), owners };
+  return owners;
+}
+
 async function resolveTenantForPublicMeeting(pageId, tenants = []) {
   const list = Array.isArray(tenants) ? tenants : [];
   if (!list.length) return null;
+  // Per-group meeting data sources are runtime-created and are not present in
+  // environment configuration after a restart. Re-register the IDs recorded on
+  // trusted group-binding pages before attempting to read a signed meeting page.
+  const groupMeetingOwners = await registerKnownGroupMeetingSources(list);
   try {
     const children = await readChildren(pageId);
     for (const block of children) {
@@ -1419,7 +1462,9 @@ async function resolveTenantForPublicMeeting(pageId, tenants = []) {
     const page = await platform.notionRequest(`/v1/pages/${encodeURIComponent(pageId)}`, { method: 'GET' });
     const dataSourceId = normalizeId(page?.parent?.data_source_id || (page?.parent?.type === 'data_source_id' ? page.parent.data_source_id : ''));
     if (!dataSourceId) return null;
-    return list.find((tenant) => normalizeId(tenant?.dataSources?.meetings || '') === dataSourceId) || null;
+    return list.find((tenant) => normalizeId(tenant?.dataSources?.meetings || '') === dataSourceId)
+      || groupMeetingOwners.get(dataSourceId)
+      || null;
   } catch (error) {
     console.warn(`public meeting tenant parent lookup failed: ${error.message}`);
     return null;

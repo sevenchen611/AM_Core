@@ -94,9 +94,11 @@ function makeGetLineQuota() {
 function fullDeps(tenant) {
   const tenantAi = platform.aiForTenant?.(tenant) || tenant.ai || {};
   const deps = {
+    tenant,
     tenantKey: tenant.key,
     notionRequest: (pathname, opts = {}) => platform.notionRequest(pathname, { ...opts, tenantKey: tenant.key }),
     uploadFileToNotion: platform.uploadFileToNotion,
+    registerTenantDataSource: platform.registerTenantDataSource,
     dataSources: tenant.dataSources || {},
     queueAccessKey: tenantQueueAccessKey(tenant),
     driveConfigured: tenant.driveConfigured,

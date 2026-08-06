@@ -31,7 +31,11 @@ const calls = [];
 const deps = {
   tenantKey: 'engineering',
   actor: '測試同仁',
+  tenant: { key: 'engineering' },
   dataSources: { tasks: 'tasks-ds', meetings: 'meetings-ds', groupBindings: 'group-bindings-ds' },
+  async registerTenantDataSource(tenant, dataSourceId) {
+    calls.push({ kind: 'register-data-source', tenant: tenant.key, dataSourceId });
+  },
   async uploadFileToNotion(buffer, name, type) {
     calls.push({ kind: 'upload', size: buffer.length, name, type });
     return { id: 'upload-1' };
@@ -54,7 +58,10 @@ const deps = {
     if (pathname === `/v1/pages/${encodeURIComponent(groupBindingId)}` && options.method === 'GET') {
       return {
         parent: { data_source_id: 'group-bindings-ds' },
-        properties: { '群組名稱': { type: 'title', title: [{ plain_text: '草悟道工程群' }] } },
+        properties: {
+          '群組名稱': { type: 'title', title: [{ plain_text: '草悟道工程群' }] },
+          '會議資料庫': { type: 'rich_text', rich_text: [{ plain_text: 'per-group-meetings-ds' }] },
+        },
       };
     }
     if (pathname === '/v1/data_sources/tasks-ds' && options.method === 'GET') {
@@ -124,6 +131,11 @@ assert.deepEqual(card.origin, {
   lineGroup: { name: '草悟道工程群' },
 });
 assert.ok(!JSON.stringify(card.origin).includes(legacyGroupId), 'structured origin must not expose the LINE group ID');
+assert.deepEqual(calls.find((call) => call.kind === 'register-data-source'), {
+  kind: 'register-data-source',
+  tenant: 'engineering',
+  dataSourceId: 'per-group-meetings-ds',
+});
 assert.equal(card.history.length, 1);
 assert.equal(card.history[0].spans[0].text, '[處理紀錄] 開始整理文件');
 

@@ -75,13 +75,19 @@ async function resolveTaskOrigin(deps, task, sourceEvidence) {
   const meetingId = meetingRelationId || meetingIdFromUrl(meetingUrl);
   const groupRelationId = properties['負責群組']?.relation?.[0]?.id || '';
   const legacyGroupId = sourceLineGroupId(sourceEvidence);
-  const [meetingPage, groupPage] = await Promise.all([
-    // Engineering meetings may live in a per-group data source rather than the
-    // tenant's central meetings data source. The tenant-scoped Notion guard still
-    // enforces isolation, so accept the trusted task relation/source page here.
-    safeRelatedPage(deps, meetingId),
-    resolveGroupPage(deps, groupRelationId, legacyGroupId),
-  ]);
+  const groupPage = await resolveGroupPage(deps, groupRelationId, legacyGroupId);
+  const groupMeetingsDataSource = plain(groupPage?.properties?.['會議資料庫']?.rich_text);
+  if (groupMeetingsDataSource && deps.registerTenantDataSource && deps.tenant) {
+    try {
+      await deps.registerTenantDataSource(deps.tenant, groupMeetingsDataSource);
+    } catch (error) {
+      console.warn(`Task origin meeting data source registration failed: ${error.message}`);
+    }
+  }
+  // Engineering meetings may live in a per-group data source rather than the
+  // tenant's central meetings data source. Dynamic registration above verifies
+  // that source before the tenant-scoped page read is allowed.
+  const meetingPage = await safeRelatedPage(deps, meetingId);
 
   const meeting = meetingId || meetingUrl ? {
     date: meetingPage?.properties?.['日期']?.date?.start
