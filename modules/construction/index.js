@@ -29,6 +29,7 @@ import { handleBudgetRequest } from './budget.js';
 import { handleContractsRequest } from './contracts.js';
 import { SOP_STAGES, readSopState, writeSopCheck } from './sop.js';
 import { handleDashboardRequest } from './dashboard.js';
+import { handleTaskCardRequest } from './task-card.js';
 import { classify, classifyPhoto } from './classify.js';
 import { reminderPasses } from './reminders.js';
 import {
@@ -95,6 +96,7 @@ function fullDeps(tenant) {
   const deps = {
     tenantKey: tenant.key,
     notionRequest: (pathname, opts = {}) => platform.notionRequest(pathname, { ...opts, tenantKey: tenant.key }),
+    uploadFileToNotion: platform.uploadFileToNotion,
     dataSources: tenant.dataSources || {},
     queueAccessKey: tenantQueueAccessKey(tenant),
     driveConfigured: tenant.driveConfigured,
@@ -239,6 +241,7 @@ export default {
   name: 'construction',
   init,
   routes: [
+    { prefix: '/task', access: { kind: 'tenant', capability: 'construction.read' }, handler: webRoute(handleTaskCardRequest) },
     { prefix: '/dashboard', access: { kind: 'tenant', capability: 'construction.read' }, handler: webRoute(handleDashboardRequest) },
     { prefix: '/budget', access: { kind: 'tenant', capability: 'construction.budget' }, handler: webRoute(handleBudgetRequest) },
     { prefix: '/contracts', access: { kind: 'tenant', capability: 'construction.contracts' }, handler: webRoute(handleContractsRequest) },

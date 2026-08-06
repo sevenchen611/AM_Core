@@ -36,10 +36,13 @@ const taipeiNow = () => new Date(Date.now() + 8 * 3600 * 1000);
 const dayAfter = (day) => new Date(new Date(`${day}T00:00:00Z`).getTime() + 86400000).toISOString().slice(0, 10);
 const overdueDaysBetween = (today, deadline) => Math.round((new Date(`${today}T00:00:00Z`) - new Date(`${deadline}T00:00:00Z`)) / 86400000);
 
-function dashboardDocUrl(tenant, pageId) {
+function taskDocUrl(tenant, pageId) {
   const base = platform.publicBaseUrlForTenant?.(tenant) || tenant?.publicBaseUrl || platform.publicBaseUrl || '';
   if (!base || !pageId) return '';
-  const url = new URL('/dashboard', base);
+  // 工程租戶的 LINE 待辦直接開行動版任務卡，後臺僅作延伸入口。
+  // 其他未啟用 construction 的租戶保留原有連結，避免共用提醒模組跨租戶破壞。
+  const pathname = (tenant?.modules || []).includes('construction') ? '/task' : '/dashboard';
+  const url = new URL(pathname, base);
   url.searchParams.set('tenant', tenant.key);
   url.searchParams.set('doc', pageId);
   return url.toString();
@@ -148,7 +151,7 @@ async function pushTaskReminder(tenant, task, header, extra) {
   const dueLabel = due.includes('T') ? `${due.slice(0, 10)} ${due.slice(11, 16)}` : due.slice(0, 10);
   const who = owner || '負責人';
   const mention = info.members[who] ? { name: who, userId: info.members[who] } : null;
-  const link = dashboardDocUrl(tenant, task.id);
+  const link = taskDocUrl(tenant, task.id);
   const text = [header, `內容:${content}`, `期限:${dueLabel}`, link ? `開啟任務:${link}` : '', extra || `請 ${who} 留意。`].filter(Boolean).join('\n');
   await platform.pushLineMessage(info.groupId, text, mention);
   return true;
@@ -195,7 +198,7 @@ async function runTaskDailyPass(tenant, cfg, today) {
             try { members = JSON.parse(plain(ib.properties['成員對照']?.rich_text)) || {}; } catch {}
             const owner = cfg.escalationOwner;
             const mention = members[owner] ? { name: owner, userId: members[owner] } : null;
-            const link = dashboardDocUrl(tenant, task.id);
+            const link = taskDocUrl(tenant, task.id);
             await platform.pushLineMessage(gid, [
               `🚨 升級通知|待辦逾期 ${overdueDays} 天未完成`,
               `內容:${content}`,

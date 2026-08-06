@@ -1,0 +1,27 @@
+{
+  "id": "AM-IMP-2026.0806.01",
+  "name": "Engineering mobile task cards",
+  "type": "Engineering task execution UX",
+  "portable": true,
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "requiresDatabases": ["Engineering tenant Tasks data source"],
+  "requiresEnv": [],
+  "requiresScripts": ["tools/dryrun-task-card.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The task route verifies that the page belongs to the active tenant's Tasks data source and reapplies Portal project scope before every read or write."
+  },
+  "definitionOfDone": [
+    "Engineering LINE reminders open /task instead of /dashboard",
+    "Task card shows origin evidence and task-page history",
+    "Portal users can append handling notes and up to six validated images",
+    "Status changes are written with verified Portal actor and Taipei time",
+    "Completion requires a written result",
+    "Engineering dashboard remains available as a secondary link",
+    "Non-construction tenant reminder links do not change"
+  ],
+  "status": "Installed"
+}
