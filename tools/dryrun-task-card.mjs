@@ -15,7 +15,7 @@ const taskPage = {
     '負責人': { type: 'rich_text', rich_text: [{ plain_text: '昱晴 Maggie' }] },
     '期限': { type: 'date', date: { start: '2026-08-06' } },
     '來源': { type: 'select', select: { name: '會議' } },
-    '來源證據': { type: 'rich_text', rich_text: [{ plain_text: '來自 8/6 工程會議' }] },
+    '來源證據': { type: 'rich_text', rich_text: [] },
     '專案': { type: 'relation', relation: [{ id: projectId }] },
   },
 };
@@ -39,7 +39,10 @@ const deps = {
       return { properties: { '狀態': { select: { options: ['待辦', '進行中', '完成', '取消'].map((name) => ({ name })) } } } };
     }
     if (pathname.startsWith(`/v1/blocks/${encodeURIComponent(taskId)}/children?`) && options.method === 'GET') {
-      return { results: [{ id: 'b1', type: 'paragraph', paragraph: { rich_text: [{ plain_text: '建立時的討論內容' }] } }], has_more: false };
+      return { results: [
+        { id: 'b1', type: 'paragraph', paragraph: { rich_text: [{ plain_text: '來源證據：來自 8/6 工程會議' }] } },
+        { id: 'b2', type: 'heading_3', heading_3: { rich_text: [{ plain_text: '[處理紀錄] 開始整理文件' }] } },
+      ], has_more: false };
     }
     if (pathname === `/v1/blocks/${encodeURIComponent(taskId)}/children` && options.method === 'PATCH') return { ok: true };
     if (pathname === `/v1/pages/${encodeURIComponent(taskId)}` && options.method === 'PATCH') return { ok: true };
@@ -78,7 +81,8 @@ const card = JSON.parse(getRes.body);
 assert.equal(card.title, '準備國稅局訪查相關文件');
 assert.equal(card.project, '草悟道館');
 assert.equal(card.sourceEvidence, '來自 8/6 工程會議');
-assert.equal(card.history[0].spans[0].text, '建立時的討論內容');
+assert.equal(card.history.length, 1);
+assert.equal(card.history[0].spans[0].text, '[處理紀錄] 開始整理文件');
 
 const payload = JSON.stringify({
   page: taskId,

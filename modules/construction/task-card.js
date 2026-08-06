@@ -38,6 +38,17 @@ async function buildTaskCard(deps, pageId, scope) {
   const schema = await deps.notionRequest(`/v1/data_sources/${encodeURIComponent(deps.dataSources.tasks)}`, { method: 'GET' });
   const statusOptions = (schema.properties?.['狀態']?.select?.options || []).map((option) => option.name);
   const blocks = await listBlockChildren(deps, task.id);
+  const history = blocks.map(normalizeHistoryBlock).filter(Boolean);
+  let sourceEvidence = plain(p['來源證據']?.rich_text);
+  // 早期會議待辦將來源證據寫在任務內文，沒有同步到欄位。
+  // 卡片自動辨識這種舊資料，放回「任務來由」，並避免在處理時間軸重複。
+  if (!sourceEvidence) {
+    const evidenceIndex = history.findIndex((block) => /^來源證據\s*[:：]/.test(historyBlockText(block)));
+    if (evidenceIndex >= 0) {
+      sourceEvidence = historyBlockText(history[evidenceIndex]).replace(/^來源證據\s*[:：]\s*/, '');
+      history.splice(evidenceIndex, 1);
+    }
+  }
 
   return {
     id: task.id,
@@ -47,11 +58,11 @@ async function buildTaskCard(deps, pageId, scope) {
     owner: plain(p['負責人']?.rich_text),
     due: p['期限']?.date?.start || '',
     source: p['來源']?.select?.name || '',
-    sourceEvidence: plain(p['來源證據']?.rich_text),
+    sourceEvidence,
     project: projectId ? await pageName(deps, projectId) : '',
     createdAt: task.created_time || '',
     updatedAt: task.last_edited_time || '',
-    history: blocks.map(normalizeHistoryBlock).filter(Boolean),
+    history,
   };
 }
 
@@ -151,6 +162,10 @@ function normalizeHistoryBlock(block) {
   const spans = value.rich_text.map((item) => ({ text: item.plain_text || '', href: item.href || '' }));
   if (!spans.some((span) => span.text)) return null;
   return { id: block.id, type: block.type, checked: Boolean(value.checked), spans };
+}
+
+function historyBlockText(block) {
+  return (block?.spans || []).map((span) => span.text || '').join('');
 }
 
 function decodeImages(inputs) {
