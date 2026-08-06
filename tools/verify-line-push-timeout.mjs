@@ -26,6 +26,16 @@ try {
   assert.deepEqual(receipt.messageIds, ['msg-123']);
   assert.ok(logs.some((line) => line.includes('requestId=req-123') && line.includes('messageIds=msg-123')));
 
+  await line.pushLineMessage('C_TEST', { type: 'flex', altText: '請款申請', contents: { type: 'bubble' } }, undefined, { retryKey: 'claim-button-flex' });
+  const flexPushMessage = JSON.parse(capturedOptions.body).messages[0];
+  assert.equal(flexPushMessage.type, 'flex');
+  assert.equal(flexPushMessage.altText, '請款申請');
+
+  await line.replyLineMessage('reply-token', { type: 'flex', altText: '請款申請', contents: { type: 'bubble' } });
+  const flexReplyMessage = JSON.parse(capturedOptions.body).messages[0];
+  assert.equal(flexReplyMessage.type, 'flex');
+  assert.equal(flexReplyMessage.altText, '請款申請');
+
   const derivedRetryKey = normalizeLineRetryKey('amc_hozo-am-2-0_submission');
   assert.match(derivedRetryKey, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   assert.equal(derivedRetryKey, normalizeLineRetryKey('amc_hozo-am-2-0_submission'));

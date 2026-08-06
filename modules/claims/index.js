@@ -7,7 +7,7 @@ const SESSION_TTL_MS = 15 * 60 * 1000;
 const LIFF_SESSION_COOKIE = 'am_claims_liff_session';
 const EVENT_DEDUPE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_BODY_BYTES = 16 * 1024 * 1024;
-const COMMANDS = new Set(['請款', '我要請款', '#請款']);
+const COMMANDS = new Set(['請款', '我要請款', '請款按鈕', '開啟請款', '#請款']);
 const EVENT_STATUSES = new Set([
   'submitted', 'supplement_requested', 'approved', 'rejected', 'awaiting_payment',
   'payment_processing', 'partially_paid', 'paid', 'cancelled',
@@ -205,6 +205,56 @@ function liffLink(tenant, session) {
   const url = new URL(`https://liff.line.me/${encodeURIComponent(liffId)}`);
   url.searchParams.set('session', makeSessionToken(session));
   return url.toString();
+}
+
+function claimOpenMessage(link, session, commandKind = 'open') {
+  const draft = commandKind === 'draft';
+  const altText = draft ? '已建立請款草稿，請開啟請款單確認後送出。' : '請開啟請款單填寫資料。';
+  return {
+    type: 'flex',
+    altText,
+    contents: {
+      type: 'bubble',
+      size: 'mega',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          { type: 'text', text: draft ? '請款草稿已建立' : '請款申請', weight: 'bold', size: 'lg', color: '#1f5f3b' },
+          { type: 'text', text: session.sourceGroupName || 'HOZO AM 2.0', size: 'sm', color: '#6f7d73', margin: 'sm' },
+        ],
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'md',
+        contents: [
+          { type: 'text', text: draft ? '已帶入你剛剛輸入的草稿內容，請開啟表單確認明細、金額、附件後再送出。' : '請點下面按鈕開啟請款單，填寫明細、金額與附件後送出。', wrap: true, size: 'sm', color: '#2f3f35' },
+          { type: 'text', text: '連結有效 15 分鐘，且只限原送件人使用。', wrap: true, size: 'xs', color: '#7a877f' },
+        ],
+      },
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'button',
+            style: 'primary',
+            color: '#2d7b4e',
+            action: { type: 'uri', label: '開啟請款單', uri: link },
+          },
+        ],
+      },
+    },
+    quickReply: {
+      items: [
+        {
+          type: 'action',
+          action: { type: 'uri', label: '開啟請款單', uri: link },
+        },
+      ],
+    },
+  };
 }
 
 function html(value) {
@@ -832,9 +882,7 @@ async function onMessage(ctx) {
   const session = createSession({ ...ctx, binding }, command.draftText);
   session.binding = binding;
   const link = liffLink(ctx.tenant, session);
-  const message = command.kind === 'draft'
-    ? `已建立請款草稿預覽，請確認內容後再送出：\n${link}`
-    : `請開啟請款表單填寫資料：\n${link}`;
+  const message = claimOpenMessage(link, session, command.kind);
   await platform.replyLineMessage(ctx.event?.replyToken, message).catch(async () => {
     await platform.pushLineMessage(ctx.groupId, message, undefined, { retryKey: session.id });
   });
@@ -873,6 +921,7 @@ export const __test = {
   makeSessionToken,
   sessionFromToken,
   liffLink,
+  claimOpenMessage,
   liffTokenFromRequest,
   liffHtml,
   liffSessionCookie,

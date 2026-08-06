@@ -178,9 +178,14 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
   }
 
   // 推播(共用 OA);訊息含被點名者名字且已知 userId 時升級為 textV2 真 @mention。
+  function outboundMessage(value) {
+    if (value && typeof value === 'object' && !Array.isArray(value) && value.type) return value;
+    return { type: 'text', text: String(value).slice(0, 4900) };
+  }
+
   async function replyLineMessage(replyToken, text) {
     if (!replyToken) throw new Error('LINE replyToken is missing.');
-    const message = { type: 'text', text: String(text).slice(0, 4900) };
+    const message = outboundMessage(text);
     const response = await fetch('https://api.line.me/v2/bot/message/reply', {
       method: 'POST',
       headers: {
@@ -200,8 +205,8 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
   }
 
   async function pushLineMessage(to, text, mention, delivery = {}) {
-    let message = { type: 'text', text: String(text).slice(0, 4900) };
-    if (mention?.name && mention?.userId && String(text).includes(mention.name)) {
+    let message = outboundMessage(text);
+    if (typeof text === 'string' && mention?.name && mention?.userId && String(text).includes(mention.name)) {
       message = {
         type: 'textV2',
         text: String(text).replace(mention.name, '{who}').slice(0, 4900),

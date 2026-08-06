@@ -23,6 +23,7 @@ process.env.DRYRUN_EVENT_TOKEN = 'event-token';
 assert.equal(claims.name, 'claims');
 assert.deepEqual(__test.parseCommand('請款'), { kind: 'open', draftText: '' });
 assert.deepEqual(__test.parseCommand('我要請款'), { kind: 'open', draftText: '' });
+assert.deepEqual(__test.parseCommand('請款按鈕'), { kind: 'open', draftText: '' });
 assert.deepEqual(__test.parseCommand('#請款 勞健保 4,627'), { kind: 'draft', draftText: '勞健保 4,627' });
 assert.deepEqual(__test.parseCommand('請款明細如下'), { kind: 'none' });
 
@@ -173,8 +174,10 @@ const handled = await claims.onMessage({
 });
 assert.equal(handled, true);
 assert.equal(sent.length, 1);
-assert.match(sent[0], /草稿預覽/);
-assert.match(sent[0], /liff\.line\.me/);
+assert.equal(sent[0].type, 'flex');
+assert.equal(sent[0].contents.footer.contents[0].action.label, '開啟請款單');
+assert.match(sent[0].contents.footer.contents[0].action.uri, /liff\.line\.me/);
+assert.match(sent[0].altText, /草稿/);
 assert.equal(await claims.onMessage({ tenant, text: '這不是請款命令' }), false);
 
 console.log('claims dry-run passed: commands, draft-only opening, group allowlist, sanitized Rental payload, totals, and structured event validation.');
