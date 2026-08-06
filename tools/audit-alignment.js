@@ -12,6 +12,26 @@ const ACTIVE_STATUSES = new Set(['Ready', 'Installed', 'Deployed']);
 const errors = [];
 const warnings = [];
 
+// The shared registry keeps canonical deployment paths, but local worktrees can
+// live elsewhere.  A per-project root override keeps this audit deterministic
+// without rewriting the shared project-boundary configuration:
+//   AMCORE_HOZO_AM_ROOT=C:\\CodexRepos\\HOZO-AM
+//   AMCORE_SEVEN_AM_ROOT=G:\\...\\SevenAM
+function projectWithLocalRoot(project) {
+  const envKey = `AMCORE_${String(project.projectKey || '').replace(/[^A-Za-z0-9]/g, '_')}_ROOT`;
+  const override = String(process.env[envKey] || '').trim();
+  if (!override) return project;
+  const rootPath = path.resolve(override);
+  const manifestRelative = path.relative(project.localPath, project.manifestPath) || path.join('docs', 'project-improvement-manifest.md');
+  const upgradesRelative = path.relative(project.localPath, project.upgradeRecordsPath) || 'docs/upgrades';
+  return {
+    ...project,
+    localPath: rootPath,
+    manifestPath: path.join(rootPath, manifestRelative),
+    upgradeRecordsPath: path.join(rootPath, upgradesRelative),
+  };
+}
+
 function readText(filePath) {
   return fs.existsSync(filePath) ? fs.readFileSync(filePath, 'utf8') : '';
 }
@@ -140,10 +160,23 @@ function main() {
     }
   }
 
-  const projects = config.projects.map((project) => {
+  const projects = config.projects.map((configuredProject) => {
+    const project = projectWithLocalRoot(configuredProject);
     const manifest = expandManifestRanges(parseManifestTable(readText(project.manifestPath)), packages);
     const packageJsonPath = path.join(project.localPath, 'package.json');
-    const packageJson = JSON.parse(readText(packageJsonPath));
+    if (!fs.existsSync(packageJsonPath)) {
+      const finding = `${project.projectKey} project package.json is unavailable: ${packageJsonPath}`;
+      (project.active === false ? warnings : errors).push(finding);
+      return { project, manifest, scripts: [] };
+    }
+    let packageJson;
+    try {
+      packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+    } catch (error) {
+      const finding = `${project.projectKey} package.json is invalid: ${packageJsonPath} (${error.message})`;
+      (project.active === false ? warnings : errors).push(finding);
+      return { project, manifest, scripts: [] };
+    }
     const scripts = Object.keys(packageJson.scripts || {}).sort();
     return { project, manifest, scripts };
   });

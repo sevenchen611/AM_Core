@@ -11,15 +11,19 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const VALID_ROUTE_KINDS = new Set(['public', 'machine', 'tenant', 'group']);
 const ROUTE_POLICY = {
   'personal-assistant': [],
+  'company-line-push': ['machine'],
   collect: [],
   triage: [],
   media: [],
-  meetings: ['public'],
+  meetings: ['public', 'tenant'],
+  'meeting-terms': ['tenant'],
+  'operational-memory': ['tenant'],
   reminders: ['machine'],
   groups: ['group'],
   queue: ['group'],
   tasks: ['group'],
   construction: ['tenant', 'group'],
+  claims: ['public', 'machine'],
 };
 
 const tenantFiles = fs.readdirSync(path.join(ROOT, 'tenants'))
