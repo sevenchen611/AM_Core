@@ -76,7 +76,10 @@ async function resolveTaskOrigin(deps, task, sourceEvidence) {
   const groupRelationId = properties['負責群組']?.relation?.[0]?.id || '';
   const legacyGroupId = sourceLineGroupId(sourceEvidence);
   const [meetingPage, groupPage] = await Promise.all([
-    safeRelatedPage(deps, meetingId, deps.dataSources.meetings),
+    // Engineering meetings may live in a per-group data source rather than the
+    // tenant's central meetings data source. The tenant-scoped Notion guard still
+    // enforces isolation, so accept the trusted task relation/source page here.
+    safeRelatedPage(deps, meetingId),
     resolveGroupPage(deps, groupRelationId, legacyGroupId),
   ]);
 

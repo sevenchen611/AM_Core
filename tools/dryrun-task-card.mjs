@@ -44,7 +44,7 @@ const deps = {
     }
     if (pathname === `/v1/pages/${encodeURIComponent(meetingId)}` && options.method === 'GET') {
       return {
-        parent: { data_source_id: 'meetings-ds' },
+        parent: { data_source_id: 'per-group-meetings-ds' },
         properties: {
           '會議': { type: 'title', title: [{ plain_text: '工程進度暨國稅局訪查準備會議' }] },
           '日期': { type: 'date', date: { start: '2026-08-06' } },
