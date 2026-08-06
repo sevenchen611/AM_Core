@@ -12,6 +12,50 @@ import { createOperationalMemory } from './operational-memory.js';
 import { createRouter } from './router.js';
 import { loadModules, createDispatcher } from './modules.js';
 
+function createCalendarIntegration(env, logger = console) {
+  const baseUrl = String(env.HOZO_RENTAL_CALENDAR_BASE_URL || env.HOZO_RENTAL_BASE_URL || 'https://rental.hozorental.com').trim().replace(/\/+$/, '');
+  const token = String(env.HOZO_RENTAL_CALENDAR_MACHINE_TOKEN || '').trim();
+  const configured = token.length >= 32 && /^https:\/\//i.test(baseUrl);
+
+  async function post(pathname, body, idempotencyKey = '') {
+    if (!configured) return { ok: false, status: 503, error: 'Calendar integration is not configured.' };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8_000);
+    try {
+      const response = await fetch(`${baseUrl}${pathname}`, {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${token}`,
+          'content-type': 'application/json',
+          ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      const payload = await response.json().catch(() => ({}));
+      return { ...payload, ok: response.ok && payload?.ok !== false, status: response.status };
+    } catch (error) {
+      logger.warn?.(`Calendar integration request failed (${pathname}): ${error.message}`);
+      return { ok: false, status: 503, error: 'Calendar integration unavailable.' };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  return {
+    configured,
+    consumeBinding: ({ tenantKey, code, lineUserId, idempotencyKey }) => post(
+      '/api/integrations/calendar/line-bindings/consume',
+      { tenantKey, code, lineUserId },
+      idempotencyKey,
+    ),
+    resolveIdentity: ({ tenantKey, lineUserId }) => post(
+      '/api/integrations/calendar/identity/resolve',
+      { tenantKey, lineUserId },
+    ),
+  };
+}
+
 export async function bootstrap(env = process.env, overrides = {}) {
   const logger = overrides.logger || console;
 
@@ -56,6 +100,7 @@ export async function bootstrap(env = process.env, overrides = {}) {
     logger,
     poolFactory: overrides.operationalMemoryPoolFactory || null,
   });
+  const calendarIntegration = overrides.calendarIntegration || createCalendarIntegration(env, logger);
   const tenantLlms = new Map();
   if (!overrides.llm) {
     for (const tenant of tenants) {
@@ -109,6 +154,10 @@ export async function bootstrap(env = process.env, overrides = {}) {
     queueAccessKey: env.AMCORE_QUEUE_ACCESS_KEY || '',
     // Dedicated narrow key for HOZO Rental to send text into the HOZO company LINE group.
     rentalCompanyGroupPushKey: env.HZ2_RENTAL_COMPANY_GROUP_PUSH_KEY || env.HOZO_RENTAL_COMPANY_GROUP_PUSH_KEY || '',
+    // Dedicated AM→Rental Calendar identity integration. Secrets are never exposed to modules.
+    calendarIntegrationConfigured: calendarIntegration.configured,
+    calendarBindingConsume: calendarIntegration.consumeBinding,
+    calendarIdentityResolve: calendarIntegration.resolveIdentity,
     // LLM(統一備援鏈)。新模組一律用這個,不要自己接 AI 供應商。
     llm,
     operationalMemory,
@@ -148,7 +197,7 @@ export async function bootstrap(env = process.env, overrides = {}) {
     publicLinkSecretForTenant: (tenant) => tenant?.queueAccessKey || env.BUILD_QUEUE_ACCESS_KEY || env.AMCORE_QUEUE_ACCESS_KEY || '',
   };
 
-  const router = createRouter({ tenants, notionRequest: notion.notionRequest, logger });
+  const router = createRouter({ tenants, notionRequest: notion.notionRequest, logger, calendarIdentityResolve: calendarIntegration.resolveIdentity });
   // 網頁管理模組更新群組設定後可立即使路由快取失效；router 本身仍是 core 唯一擁有者。
   platform.router = router;
   const modules = await loadModules({ tenants, platform, logger });

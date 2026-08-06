@@ -1,0 +1,32 @@
+{
+  "version": "2026-08-06",
+  "tenantKey": "hozo-am-2-0",
+  "precondition": "The direct LINE event must already resolve through the enabled HOZO AM 2.0 group member map.",
+  "command": {
+    "pattern": "^綁定\\s+(\\d{6})[？?]?$",
+    "ttlSeconds": 300,
+    "singleUse": true
+  },
+  "amToRental": {
+    "method": "POST",
+    "path": "/api/integrations/calendar/line-bindings/consume",
+    "auth": "Authorization: Bearer <dedicated-machine-token>",
+    "headers": ["Idempotency-Key", "X-Request-Id"],
+    "body": ["tenantKey", "code", "lineUserId"],
+    "response": ["tenantKey", "personId", "displayName", "role", "capabilities", "status"]
+  },
+  "rentalBrowser": {
+    "createCode": "POST /api/calendar-v2/line-bindings/code",
+    "status": "GET /api/calendar-v2/line-bindings/code",
+    "revoke": "DELETE /api/calendar-v2/line-bindings/current"
+  },
+  "storage": {
+    "personId": "Rental admin_users.id",
+    "lineLookup": "HMAC-SHA-256(tenantKey + ':' + lineUserId)",
+    "linePushValue": "AES-GCM ciphertext",
+    "rawLineUserIdInLogs": false,
+    "rawCodeInLogs": false
+  },
+  "failureModes": ["401", "403", "409", "503"],
+  "writeBack": false
+}

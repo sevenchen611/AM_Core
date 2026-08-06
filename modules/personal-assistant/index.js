@@ -1,10 +1,36 @@
 // 葉小蝸一對一私人助理的第一階段入口。
-// 本版只證明身分與私人路由已成立，不查詢或改寫任務；後續 Calendar 功能從此 hook 擴充。
+// 本版只處理正式 LINE ↔ Rental Portal 身分綁定，不查詢或改寫任務；後續 Calendar 功能從此 hook 擴充。
 
 let platform;
 
 function identityLabel(ctx) {
   return ctx.personalBinding?.displayName || ctx.senderName || '夥伴';
+}
+
+function parseBindingCommand(text) {
+  const match = String(text || '').trim().match(/^綁定\s+(\d{6})[？?]?$/u);
+  return match ? { code: match[1] } : null;
+}
+
+function isRevokeBindingCommand(text) {
+  return /^(?:解除|撤銷)(?:LINE)?(?:身分|綁定)[？?]?$/u.test(String(text || '').trim());
+}
+
+function bindingRequestId(ctx) {
+  const eventId = ctx.event?.webhookEventId || ctx.event?.eventId || ctx.message?.id || '';
+  return `line-binding:${String(eventId || crypto.randomUUID())}`;
+}
+
+function bindingFailureMessage(result) {
+  if (result?.status === 401) return '⚠️ 綁定碼已過期或無效，請回到 Rental Portal 重新產生一次性綁定碼。';
+  if (result?.status === 409) return '⚠️ 這個 LINE 或 Portal 帳號已有其他有效綁定，為避免身分混用，這次沒有變更。';
+  if (result?.status === 503) return '⚠️ Calendar 身分綁定服務目前尚未就緒，請稍後再試。';
+  return '⚠️ 身分綁定沒有完成，請稍後再試或聯絡管理者。';
+}
+
+function bindingSuccessMessage(result) {
+  const name = result?.displayName || '你的 Portal 帳號';
+  return `✅ 已綁定到 HOZO Rental 帳號「${name}」。\n之後 Calendar 私人資料會依這個 Portal 身分授權。`;
 }
 
 function responseFor(ctx) {
@@ -24,10 +50,29 @@ export default {
   async onDirectMessage(ctx) {
     if (ctx.tenant?.config?.personalAssistant?.enabled !== true) return false;
     if (!ctx.event?.replyToken) return false;
+    const binding = parseBindingCommand(ctx.text);
+    if (binding) {
+      if (!platform?.calendarIntegrationConfigured || typeof platform.calendarBindingConsume !== 'function') {
+        await platform.replyLineMessage(ctx.event.replyToken, '⚠️ Rental Calendar 身分綁定尚未設定完成，這次沒有寫入任何資料。');
+        return true;
+      }
+      const result = await platform.calendarBindingConsume({
+        tenantKey: ctx.tenant.key,
+        code: binding.code,
+        lineUserId: ctx.directUserId,
+        idempotencyKey: bindingRequestId(ctx),
+      });
+      await platform.replyLineMessage(ctx.event.replyToken, result?.ok ? bindingSuccessMessage(result) : bindingFailureMessage(result));
+      return true;
+    }
+    if (isRevokeBindingCommand(ctx.text)) {
+      await platform.replyLineMessage(ctx.event.replyToken, '請登入 HOZO Rental Portal 的個人設定，在「LINE 私人助理綁定」執行撤銷；葉小蝸不會直接替你撤銷帳號身分。');
+      return true;
+    }
     await platform.replyLineMessage(ctx.event.replyToken, responseFor(ctx));
     return true;
   },
   routes: [],
 };
 
-export { responseFor };
+export { responseFor, parseBindingCommand, bindingSuccessMessage, bindingFailureMessage, isRevokeBindingCommand };

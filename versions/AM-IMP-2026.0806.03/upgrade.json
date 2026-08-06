@@ -1,0 +1,27 @@
+{
+  "id": "AM-IMP-2026.0806.03",
+  "name": "HOZO Calendar Portal identity binding",
+  "type": "Calendar foundation identity integration",
+  "portable": true,
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0", "RENTAL:calendar-v2-foundation"],
+  "requiresDatabases": ["Rental Calendar V2 additive schema 0042", "HOZO AM 2.0 enabled group member maps"],
+  "requiresEnv": ["HOZO_RENTAL_CALENDAR_MACHINE_TOKEN", "CALENDAR_BINDING_CODE_SECRET", "CALENDAR_IDENTITY_HMAC_SECRET", "CALENDAR_IDENTITY_ENCRYPTION_SECRET"],
+  "requiresScripts": ["tools/dryrun-personal-calendar-binding.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Only an already-resolved HOZO AM 2.0 direct LINE event may consume a one-time code; Rental authorizes the active admin_users.id and stores no raw LINE user ID in logs or AMCore."
+  },
+  "definitionOfDone": [
+    "Rental creates a one-time five-minute binding code for the authenticated Portal user",
+    "AM accepts only the exact 綁定 123456 command from an existing safe private route",
+    "AM calls Rental with a dedicated machine token and Idempotency-Key",
+    "Rental creates one active identity link per LINE user and Portal person",
+    "Unknown, expired, reused, conflicting, inactive and unauthorized requests fail closed",
+    "Repeated requests with the same Idempotency-Key do not create duplicate links",
+    "No raw LINE user ID, token, code or private message is stored in AMCore"
+  ],
+  "status": "Ready"
+}
