@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 import { handleTaskCardRequest, renderTaskCardPage } from '../modules/construction/task-card.js';
+import { handleDashboardRequest } from '../modules/construction/dashboard.js';
 
 const taskId = '3b351c68-6dac-8165-b61d-f23a48367e76';
 const projectId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
@@ -59,6 +60,17 @@ function responseCapture() {
     end(body = '') { this.body = String(body); },
   };
 }
+
+const legacyRes = responseCapture();
+await handleDashboardRequest(
+  { method: 'GET' },
+  legacyRes,
+  '/dashboard',
+  new URL(`https://am.example/dashboard?tenant=engineering&doc=${taskId}`),
+  { tenantKey: 'engineering' },
+);
+assert.equal(legacyRes.status, 302);
+assert.equal(legacyRes.headers.Location, `/task?tenant=engineering&doc=${encodeURIComponent(taskId)}`);
 
 const html = renderTaskCardPage('engineering', taskId);
 assert.match(html, /新增處理紀錄/);

@@ -16,8 +16,14 @@ export async function handleDashboardRequest(req, res, pathname, url, deps) {
   const tenantKey = deps.tenantKey;
   try {
     if (req.method === 'GET' && pathname === '/dashboard') {
+      const linkedTaskId = url.searchParams.get('doc') || '';
+      if (linkedTaskId) {
+        const location = `/task?tenant=${encodeURIComponent(tenantKey)}&doc=${encodeURIComponent(linkedTaskId)}`;
+        res.writeHead(302, { Location: location, 'Cache-Control': 'no-store' });
+        return res.end();
+      }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
-      return res.end(renderDashboardPage(tenantKey, canBudget, canContract, url.searchParams.get('doc') || ''));
+      return res.end(renderDashboardPage(tenantKey, canBudget, canContract));
     }
     if (req.method === 'GET' && pathname === '/dashboard/api/summary') {
       const summary = await buildSummary(deps);
@@ -316,7 +322,7 @@ async function buildGantt(deps, projectId) {
   return { rows };
 }
 
-function renderDashboardPage(tenantKey, canBudget, canContract, initialDoc = '') {
+function renderDashboardPage(tenantKey, canBudget, canContract) {
   const t = encodeURIComponent(tenantKey);
   const headerLinks = [
     ...(canBudget ? [`<a href="/budget?tenant=${t}">→ 💰 預算控制</a>`] : []),
@@ -399,7 +405,6 @@ function renderDashboardPage(tenantKey, canBudget, canContract, initialDoc = '')
 <div id="modal"><button class="close" onclick="closeDoc()">✕</button><div id="modalBody"></div></div>
 <script>
 const TENANT = ${JSON.stringify(tenantKey)};
-const INITIAL_DOC = ${JSON.stringify(initialDoc)};
 async function api(path) {
   const sep = path.includes('?') ? '&' : '?';
   const r = await fetch('/dashboard/api/' + path + sep + 'tenant=' + encodeURIComponent(TENANT));
@@ -435,7 +440,6 @@ async function loadSummary() {
     </div>\`;
   }).join('');
   if (summary.length) openProject(summary[0].id);
-  if (INITIAL_DOC) openDoc(INITIAL_DOC);
 }
 async function openProject(id) {
   summary.forEach(c => document.getElementById('pc-' + c.id)?.classList.toggle('active', c.id === id));

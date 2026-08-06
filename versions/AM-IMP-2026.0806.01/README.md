@@ -11,4 +11,6 @@ Changing a task to `完成` requires a written completion result. Uploaded image
 as Notion image blocks and receive fresh temporary display URLs whenever the card reloads.
 
 The engineering dashboard remains available only as a secondary link at the bottom of the
-card. Non-construction tenants keep their existing reminder-link behavior.
+card. Previously sent `/dashboard?doc=...` reminder links redirect to the same task card,
+so old LINE messages gain the new workflow too. Non-construction tenants keep their existing
+reminder-link behavior.

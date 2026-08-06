@@ -8,4 +8,5 @@
 6. Confirm `完成` is rejected without a written result and succeeds with one.
 7. Confirm the bottom link opens `/dashboard?tenant=engineering`.
 8. Trigger or preview an engineering reminder and confirm its deep link starts with `/task`.
-9. Confirm a user outside the task's project scope receives a denial.
+9. Open a previously sent `/dashboard?tenant=engineering&doc=<known-task-id>` link and confirm it redirects to `/task`.
+10. Confirm a user outside the task's project scope receives a denial.
