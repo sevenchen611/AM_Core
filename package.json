@@ -9,6 +9,7 @@
     "dev": "node --env-file=.env --watch server.js",
     "check": "node --check server.js",
     "dryrun": "node --experimental-vm-modules tools/dryrun-core.mjs",
+    "dryrun:personal-line": "node tools/dryrun-personal-line-routing.mjs",
     "dryrun:engineering": "node tools/dryrun-engineering-convergence.mjs",
     "dryrun:task-card": "node tools/dryrun-task-card.mjs",
     "dryrun:groups": "node tools/dryrun-groups.mjs"

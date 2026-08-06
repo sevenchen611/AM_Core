@@ -5,6 +5,7 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { bootstrap } from './core/bootstrap.js';
+import { routeDirectLineEvent } from './core/direct-line.js';
 import { createAccessDirectory } from './core/access-directory.js';
 import { safePortalHandoffLocation } from './core/portal-handoff.js';
 import { sendJson, sendText, readBody } from './core/util.js';
@@ -399,6 +400,14 @@ const server = http.createServer(async (req, res) => {
 
 // 收到一則事件 → 解析租戶/綁定 → 交分派器。未綁定 = 不落庫、不回話(照 BuildAM)。
 async function handleEvent(event) {
+  const direct = await routeDirectLineEvent({
+    event,
+    router,
+    dispatcher,
+    replyLineMessage: line.replyLineMessage,
+    logger,
+  });
+  if (direct.matched) return;
   if (event.type !== 'message' || !event.message) return;
   const groupId = event.source?.groupId || event.source?.roomId || '';
   const { tenant, binding } = await router.resolveGroupBinding(groupId);

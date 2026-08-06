@@ -177,6 +177,46 @@ export function createDispatcher({ tenants, modules, platform, logger = console 
     }
   }
 
+  // 一對一私人訊息只交給明確宣告 onDirectMessage 的模組。
+  // 原本的 onMessage（collect / triage / meetings 等）完全不會收到私人訊息。
+  async function dispatchDirectMessage({ tenant, personalBinding, event }) {
+    const message = event.message;
+    const senderName = await platform.resolveSenderName(event.source);
+    const text = message?.type === 'text' ? String(message.text || '') : '';
+    const ctx = {
+      tenant,
+      binding: null,
+      personalBinding,
+      conversationType: 'direct',
+      directUserId: String(event.source?.userId || ''),
+      groupId: '',
+      isMaster: false,
+      senderName,
+      event,
+      message,
+      text,
+      principal: {
+        kind: 'line-user',
+        source: 'line-direct',
+        userId: String(event.source?.userId || ''),
+        bindingSource: personalBinding?.source || '',
+      },
+      notionRequest: (pathname, opts = {}) => platform.notionRequest(pathname, { ...opts, tenantKey: tenant.key }),
+      pushLineMessage: platform.pushLineMessage,
+      replyLineMessage: platform.replyLineMessage,
+    };
+
+    for (const mod of tenantModules(tenant)) {
+      if (typeof mod.onDirectMessage !== 'function') continue;
+      try {
+        if (await mod.onDirectMessage(ctx) === true) return true;
+      } catch (error) {
+        logger.warn(`Module "${mod.name}" failed on direct message (tenant=${tenant.key}): ${error.message}`);
+      }
+    }
+    return false;
+  }
+
   // 蒐集所有租戶 × 已啟用模組的 web routes。每筆帶其租戶,供 web 端點按需切租戶。
   function collectRoutes() {
     const routes = [];
@@ -212,5 +252,5 @@ export function createDispatcher({ tenants, modules, platform, logger = console 
     }
   }
 
-  return { dispatchMessage, collectRoutes, runTicks };
+  return { dispatchMessage, dispatchDirectMessage, collectRoutes, runTicks };
 }

@@ -60,7 +60,8 @@ export default {
 
 ### `ctx` — 每次呼叫(帶「現在服務哪個租戶」的脈絡)
 
-- **共同**：`{ tenant, binding, groupId, isMaster, senderName, event, message, principal }`
+- **群組共同**：`{ tenant, binding, groupId, isMaster, senderName, event, message, principal }`
+- **私人訊息**：`{ tenant, personalBinding, conversationType:'direct', directUserId, senderName, event, message, principal }`
   - `tenant`：`{ key, displayName, envPrefix, modules, parentPageId, dataSources, driveConfigured, driveRootFolderId, queueAccessKey, calendars, reminders, ai }`
 - `binding`：該群的綁定 `{ pageId, groupId, groupName, projectPageId, projectName, role, trade, purpose, owner, capabilities, statusUpdatePolicy, defaultReminderTargets, members }`(未綁定不會進到模組)
   - `isMaster`：`binding.role === '總管'`(總管群跨專案，模組據此決定是否自動判掛)
@@ -162,6 +163,7 @@ routes: [
 | `groups` | `group` | 無 | 清單與更新逐筆核對群組綁定。 |
 | `queue` | `group` | 無 | 訊息、附件、批次、開單全部逐筆核對來源群組。 |
 | `tasks` | `group` | LINE 建單可由 system principal 呼叫 | 清單／狀態更新依 `負責群組`；缺 relation 為待分派。 |
+| `personal-assistant` | 無 web route | 一對一 LINE `line-user principal` | 只接 `onDirectMessage`；身分必須由唯一租戶的正式啟用群組成員對照取得，不進群組收集流程。 |
 | `construction` | `tenant`（專案型）＋`group`（案件型） | 工程提醒由 scheduler 呼叫 | 回饋單依 `負責群組`；預算／合約維持專案特殊權限。 |
 
 執行 `node tools/audit-module-authorization.mjs` 可核對每個租戶啟用的模組都已列入上述政策、所有 route 都有合法 access、Webhook／排程由 Core 注入 system principal，且 tenant-locked Notion 句柄沒有遺失。

@@ -1,0 +1,28 @@
+{
+  "version": "AM-IMP-2026.0806.02",
+  "identityKey": "LINE userId",
+  "identitySource": "tenant-local active group binding member map",
+  "eligibleGroupStatuses": ["啟用"],
+  "ineligibleGroupStatuses": ["影子記錄", "停用"],
+  "tenantGate": {
+    "module": "personal-assistant",
+    "config": "config.personalAssistant.enabled",
+    "requireUniqueTenant": true
+  },
+  "directDispatch": {
+    "hook": "onDirectMessage",
+    "principalKind": "line-user",
+    "forbiddenHooks": ["onMessage", "onAudio"]
+  },
+  "failurePolicy": {
+    "unknown": "reply with binding guidance and do not dispatch",
+    "ambiguous": "fail closed and do not identify any tenant",
+    "lookupFailure": "fail closed without caching the failure",
+    "displayNameOnly": "never bind"
+  },
+  "storage": {
+    "amcoreStoresLiveIdentityData": false,
+    "amcoreStoresPrivateMessages": false,
+    "tenantDataRemainsLocal": true
+  }
+}

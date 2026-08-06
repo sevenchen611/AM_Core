@@ -11,6 +11,7 @@ Environment prefix: `HZ2`
 | AM-IMP-2026.0803.02 | Deployed | Group name repair | LINE group-summary name resolution and same-tenant binding repair | Production health reports `group-name-repair-2026-08-03`; legacy onboarding no longer writes a fixed historical group name. |
 | AM-IMP-2026.0804.01 | Deployed | Claims group governance | Claim capability, stable LINE sender allowlist, claims LIFF and Rental integration configuration | Claims is enabled only for the provisioned source group after the additive schema, secure runtime configuration, Rental intake, source, and approver checks were verified in production. |
 | AM-IMP-2026.0806.01 | Deployed | Claims shortcut card | LINE Flex claim-entry card and quick-reply URI button | Claim commands now return a visible `開啟請款單` button card in eligible HOZO AM 2.0 groups while preserving the signed LIFF session, submitter allowlist and fallback push behavior. |
+| AM-IMP-2026.0806.02 | Installed | Personal LINE identity routing | One-to-one LINE user ID binding and tenant-safe private dispatch | Local implementation derives identity only from exact user IDs in formally enabled HOZO AM 2.0 group member maps; ambiguous, shadow, disabled and lookup-failure cases fail closed, and direct messages never enter group collection modules. Production deployment and a fresh LINE reply remain pending. |
 
 ## Tenant boundaries
 

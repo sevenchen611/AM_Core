@@ -6,7 +6,7 @@
   "envPrefix": "HZ2",
   "runtimeEnabled": true,
   "authorizationReady": true,
-  "modules": ["company-line-push", "collect", "media", "operational-memory", "meetings", "meeting-terms", "triage", "queue", "tasks", "reminders", "groups", "claims"],
+  "modules": ["personal-assistant", "company-line-push", "collect", "media", "operational-memory", "meetings", "meeting-terms", "triage", "queue", "tasks", "reminders", "groups", "claims"],
   "status": "正式全功能啟用：開放群組路由、正式待辦建立、正式提醒、會議待辦確認、任務佇列與完整群組管理工作流。",
   "operationalMemory": {
     "enabled": true,
@@ -20,6 +20,12 @@
   },
   "config": {
     "homeRoute": "/admin",
+    "personalAssistant": {
+      "enabled": true,
+      "identitySource": "active-group-member-map",
+      "requireUniqueTenant": true,
+      "privateMessagesOnly": true
+    },
     "portal": {
       "label": "HOZO AM 2.0",
       "authorizationNote": "全新平台租戶，與既有 HOZO AM 完全隔離；完成資料源及群組綁定驗證後才可分派權限。"

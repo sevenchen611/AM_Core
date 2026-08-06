@@ -1,6 +1,6 @@
 # AM Platform（葉小蝸 AI 小幫手）
 
-> 一支付費 LINE OA → 一個 webhook（`/webhook/line`）→ Core 依群組綁定解析租戶 → 模組處理 → 各租戶自己的 Notion 母頁。
+> 一支付費 LINE OA → 一個 webhook（`/webhook/line`）→ Core 依群組或私人身分解析租戶 → 模組處理 → 各租戶自己的 Notion 母頁。
 
 `AM_Core` 就是平台原始碼與運行時。工程 AM 不再維護第二套功能程式；原工程服務只在正式切換完成前作短期回退，不接受新功能。
 
@@ -33,6 +33,14 @@ collect → meetings → media → triage → queue → tasks → reminders → 
 3. 命中後建立 tenant-locked `ctx`。所有 Notion 請求必須帶 `tenantKey`。
 4. Core 只放行該租戶宣告過、且實際位於該租戶母頁下的資料來源；跨租戶存取直接拒絕。
 5. Portal 個人帳號先通過租戶 `amAccess`，再以群組綁定 Page ID 限縮群組設定、佇列、待辦與案件；任何 Notion 寫入仍需再通過第 4 點的租戶守衛。
+
+### 一對一私人訊息路由
+
+- 私人訊息只在租戶明確啟用 `personal-assistant` 時處理。
+- Core 用穩定 LINE `userId` 精確比對正式啟用群組的「成員對照」，不使用顯示名稱猜測。
+- 只有唯一租戶命中才建立私人身分；跨租戶重複、任一查核失敗、影子或停用群組全部 fail closed。
+- 私人事件只呼叫模組的 `onDirectMessage`，不會進入群組 `collect`、`triage`、`meetings` 或一般 `onMessage`。
+- 第一階段身分來源是租戶自己的群組綁定資料，不在 AMCore 保存夥伴 userId、訊息或個人工作資料。
 
 ## 固定外部連線
 

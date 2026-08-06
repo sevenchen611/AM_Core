@@ -1,0 +1,26 @@
+{
+  "id": "AM-IMP-2026.0806.02",
+  "name": "HOZO AM 2.0 personal LINE identity routing",
+  "type": "LINE private assistant foundation",
+  "portable": true,
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
+  "requiresDatabases": ["HOZO AM 2.0 group bindings with exact member user IDs"],
+  "requiresEnv": [],
+  "requiresScripts": ["tools/dryrun-personal-line-routing.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "A private LINE event routes only when its stable user ID occurs in formally enabled group member maps of exactly one tenant that explicitly enables personal-assistant. Direct events never enter group onMessage hooks."
+  },
+  "definitionOfDone": [
+    "A unique active HOZO AM 2.0 member user ID resolves to the HOZO AM 2.0 tenant",
+    "Shadow, disabled, unknown, ambiguous and lookup-failure identities fail closed",
+    "Direct LINE events invoke only onDirectMessage handlers",
+    "Group events retain the existing group routing path",
+    "A bound direct message receives an identity-confirmation reply",
+    "No private identity data or messages are committed to AMCore"
+  ],
+  "status": "Installed"
+}

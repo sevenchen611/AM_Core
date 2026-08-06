@@ -10,6 +10,7 @@ import { createDispatcher } from '../core/modules.js';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const VALID_ROUTE_KINDS = new Set(['public', 'machine', 'tenant', 'group']);
 const ROUTE_POLICY = {
+  'personal-assistant': [],
   collect: [],
   triage: [],
   media: [],
@@ -62,8 +63,8 @@ for (const [name, tenantKeys] of [...requestedBy.entries()].sort(([a], [b]) => a
   }
   const expectedKinds = new Set(ROUTE_POLICY[name]);
   assert.deepEqual([...actualKinds].sort(), [...expectedKinds].sort(), `${name} route 授權種類與政策不一致`);
-  assert.ok(routes.length || typeof mod.onMessage === 'function' || typeof mod.onAudio === 'function' || typeof mod.tick === 'function', `${name} 沒有可執行介面`);
-  coverage.push({ name, tenants: tenantKeys, routeKinds: [...actualKinds].sort(), eventHooks: ['onMessage', 'onAudio', 'tick'].filter((key) => typeof mod[key] === 'function') });
+  assert.ok(routes.length || typeof mod.onMessage === 'function' || typeof mod.onAudio === 'function' || typeof mod.onDirectMessage === 'function' || typeof mod.tick === 'function', `${name} 沒有可執行介面`);
+  coverage.push({ name, tenants: tenantKeys, routeKinds: [...actualKinds].sort(), eventHooks: ['onMessage', 'onAudio', 'onDirectMessage', 'tick'].filter((key) => typeof mod[key] === 'function') });
 }
 
 // 用最小探針確認 Core 注入的 principal 與 tenant-locked notionRequest，不靠模組自行約定。

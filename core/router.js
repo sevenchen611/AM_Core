@@ -1,5 +1,7 @@
 // AM Platform core — 路由器 / 租戶解析
-// 收到事件 → 取 groupId → 對「各租戶的群組綁定庫」逐一查(狀態=啟用),命中即該租戶。
+// 收到群組事件 → 取 groupId → 對「各租戶的群組綁定庫」逐一查,命中即該租戶。
+// 收到一對一事件 → 用穩定 LINE userId 反查已啟用群組的「成員對照」；
+// 只有唯一命中且租戶明確開啟 personal-assistant 時才建立私人路由。
 // 快取 groupId → { tenant, binding }(TTL)。找不到 = 未綁定(照 BuildAM 行為,不落庫、不回話)。
 //
 // resolveGroupBinding 放在 core(路由器要用);模組從 ctx.binding 取,不必自己查。
@@ -8,6 +10,8 @@ const BINDING_CACHE_TTL_MS = 5 * 60 * 1000;
 // 「影子記錄」已完成租戶歸屬，但只允許來源保存與候選抽取；
 // 它必須能被路由，否則無法建立任何影子紀錄。
 const ROUTABLE_BINDING_STATUSES = ['啟用', '影子記錄'];
+// 影子群組只能保存來源，不足以授予私人助理存取；私人身分必須來自正式啟用群組。
+const DIRECT_IDENTITY_STATUSES = ['啟用'];
 const plain = (prop, kind = 'rich_text') => (prop?.[kind] || []).map((t) => t.plain_text || t.text?.content || '').join('');
 const selected = (prop) => prop?.select?.name || '';
 const selectedMany = (prop) => (prop?.multi_select || []).map((x) => x.name).filter(Boolean);
@@ -15,6 +19,28 @@ const selectedMany = (prop) => (prop?.multi_select || []).map((x) => x.name).fil
 export function createRouter({ tenants, notionRequest, logger = console }) {
   // groupId → { tenant, binding, at }。binding 可為 null(已查過、確定未綁定)以避免重複打 Notion。
   const cache = new Map();
+  // LINE userId → { tenant, binding, reason, at }。只存在執行期記憶體，不寫進 AMCore。
+  const directCache = new Map();
+
+  function directTenantEnabled(tenant) {
+    return tenant?.runtimeEnabled !== false
+      && tenant?.notionConfigured
+      && tenant?.config?.personalAssistant?.enabled === true
+      && Array.isArray(tenant?.modules)
+      && tenant.modules.includes('personal-assistant');
+  }
+
+  function parseMembers(page) {
+    try {
+      const raw = (page.properties?.['成員對照']?.rich_text || [])
+        .map((item) => item.plain_text || item.text?.content || '')
+        .join('');
+      const parsed = JSON.parse(raw || '{}');
+      return parsed && !Array.isArray(parsed) && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
 
   // 查單一租戶的群組綁定庫。命中回 binding 物件,否則 null。
   async function queryTenantBinding(tenant, groupId) {
@@ -106,10 +132,99 @@ export function createRouter({ tenants, notionRequest, logger = console }) {
     return hit;
   }
 
+  // 查單一租戶中，哪些正式啟用群組曾以穩定 LINE userId 記錄這位成員。
+  async function queryTenantDirectIdentity(tenant, userId) {
+    const groupBindings = tenant.dataSources.groupBindings;
+    if (!groupBindings) return [];
+    const result = await notionRequest(`/v1/data_sources/${encodeURIComponent(groupBindings)}/query`, {
+      method: 'POST',
+      tenantKey: tenant.key,
+      body: {
+        filter: { property: '成員對照', rich_text: { contains: userId } },
+        page_size: 100,
+      },
+    });
+
+    const matches = [];
+    for (const page of result.results || []) {
+      const status = selected(page.properties?.['狀態']);
+      if (!DIRECT_IDENTITY_STATUSES.includes(status)) continue;
+      const memberNames = Object.entries(parseMembers(page))
+        .filter(([, mappedUserId]) => String(mappedUserId || '').trim() === userId)
+        .map(([name]) => String(name || '').trim())
+        .filter(Boolean);
+      if (!memberNames.length) continue; // Notion contains 是候選搜尋，仍須用完整 userId 精確比對。
+      matches.push({
+        pageId: page.id,
+        groupId: plain(page.properties?.['LINE 群組 ID']),
+        groupName: plain(page.properties?.['群組名稱'], 'title'),
+        memberNames,
+      });
+    }
+    return matches;
+  }
+
+  // 一對一 LINE 身分只在「唯一租戶」時成立。任一候選租戶查核失敗即 fail closed。
+  async function resolveDirectBinding(rawUserId) {
+    const userId = String(rawUserId || '').trim();
+    if (!userId) return { tenant: null, binding: null, reason: 'not_found' };
+    const cached = directCache.get(userId);
+    if (cached && Date.now() - cached.at < BINDING_CACHE_TTL_MS) {
+      return { tenant: cached.tenant, binding: cached.binding, reason: cached.reason };
+    }
+
+    const candidates = [];
+    let lookupFailed = false;
+    for (const tenant of tenants) {
+      if (!directTenantEnabled(tenant)) continue;
+      try {
+        const groupMatches = await queryTenantDirectIdentity(tenant, userId);
+        if (groupMatches.length) candidates.push({ tenant, groupMatches });
+      } catch (error) {
+        lookupFailed = true;
+        logger.warn(`Direct LINE identity lookup failed (tenant=${tenant.key}): ${error.message}`);
+      }
+    }
+
+    if (lookupFailed) return { tenant: null, binding: null, reason: 'lookup_failed' };
+    let resolved = { tenant: null, binding: null, reason: 'not_found' };
+    if (candidates.length > 1) {
+      logger.warn(`Ambiguous direct LINE identity across tenants (count=${candidates.length}) — ignored.`);
+      resolved = { tenant: null, binding: null, reason: 'ambiguous' };
+    } else if (candidates.length === 1) {
+      const { tenant, groupMatches } = candidates[0];
+      const memberNames = [...new Set(groupMatches.flatMap((item) => item.memberNames))];
+      resolved = {
+        tenant,
+        reason: 'bound',
+        binding: {
+          kind: 'direct',
+          userId,
+          displayName: memberNames[0] || '',
+          memberNames,
+          status: '啟用',
+          source: 'active-group-member-map',
+          groupBindingIds: [...new Set(groupMatches.map((item) => item.pageId).filter(Boolean))],
+          groupIds: [...new Set(groupMatches.map((item) => item.groupId).filter(Boolean))],
+          groupNames: [...new Set(groupMatches.map((item) => item.groupName).filter(Boolean))],
+        },
+      };
+    }
+
+    directCache.set(userId, { ...resolved, at: Date.now() });
+    return resolved;
+  }
+
   // 供模組更新成員對照後即時失效快取(下次重查),或測試用。
   function invalidate(groupId) {
     if (groupId) cache.delete(groupId); else cache.clear();
+    // 群組成員或群組狀態可能已改變；私人身分候選也必須重新查核。
+    directCache.clear();
   }
 
-  return { resolveGroupBinding, invalidate };
+  function invalidateDirect(userId) {
+    if (userId) directCache.delete(String(userId)); else directCache.clear();
+  }
+
+  return { resolveGroupBinding, resolveDirectBinding, invalidate, invalidateDirect };
 }
