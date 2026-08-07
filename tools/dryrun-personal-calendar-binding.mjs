@@ -8,8 +8,11 @@ assert.deepEqual(parseBindingCommand('綁定：123456'), { code: '123456' });
 assert.deepEqual(parseBindingCommand('綁定碼 123456'), { code: '123456' });
 assert.deepEqual(parseBindingCommand('綁定　１２３４５６'), { code: '123456' });
 assert.deepEqual(parseBindingCommand('綁\u200B定 123456'), { code: '123456' });
+assert.deepEqual(parseBindingCommand('綁訂 123456'), { code: '123456' });
+assert.deepEqual(parseBindingCommand('綁 定 123456。'), { code: '123456' });
 assert.equal(parseBindingCommand('綁定 12345'), null);
 assert.equal(parseBindingCommand('綁定 1234567'), null);
+assert.equal(parseBindingCommand('123456 78'), null);
 assert.equal(isRevokeBindingCommand('撤銷綁定'), true);
 
 const replies = [];

@@ -26,8 +26,19 @@ function normalizeBindingText(value) {
 
 function parseBindingCommand(text) {
   const normalized = normalizeBindingText(text);
-  const match = normalized.match(/^(?:綁定(?:碼)?\s*[:：]?\s*)?(\d{6})[？?]?$/u);
-  return match ? { code: match[1] } : null;
+  const exact = normalized.match(/^(?:綁定(?:碼)?\s*[:：]?\s*)?(\d{6})[？?]?$/u);
+  if (exact) return { code: exact[1] };
+
+  // LINE desktop/mobile input can introduce unexpected separators or typos in
+  // the prefix. In a private assistant chat, a short message that contains
+  // exactly one six-digit token is safest treated as a Rental binding attempt:
+  // valid codes bind, invalid/expired codes return the normal binding failure
+  // message instead of falling through to the generic assistant reply.
+  if (normalized.length <= 40) {
+    const digitGroups = [...normalized.matchAll(/\d+/gu)].map((item) => item[0]);
+    if (digitGroups.length === 1 && digitGroups[0].length === 6) return { code: digitGroups[0] };
+  }
+  return null;
 }
 
 function isRevokeBindingCommand(text) {
