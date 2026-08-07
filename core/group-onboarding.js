@@ -6,7 +6,7 @@
 
 import { textItem } from './util.js';
 
-export const GROUP_ONBOARDING_BUILD = 'claims-shortcut-card-2026-08-06';
+export const GROUP_ONBOARDING_BUILD = 'rich-menu-actions-2026-08-07';
 export const LEGACY_HOZO20_BIND_COMMAND = '<绑定 HOZOAM 2.0 群组>';
 
 export const ONBOARDING_TENANTS = [

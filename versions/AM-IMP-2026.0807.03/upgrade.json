@@ -1,0 +1,31 @@
+{
+  "id": "AM-IMP-2026.0807.03",
+  "name": "HOZO Rich Menu action binding",
+  "type": "LINE direct action routing",
+  "portable": true,
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
+  "requiresDatabases": [],
+  "requiresEnv": ["LINE_CHANNEL_ACCESS_TOKEN"],
+  "requiresScripts": [
+    "tools/dryrun-calendar-line-operations.mjs",
+    "tools/dryrun-personal-line-routing.mjs",
+    "versions/AM-IMP-2026.0807.03/scripts/apply-rich-menu-actions.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Rich Menu buttons send text commands only. Runtime handlers resolve the LINE user and tenant through existing HOZO AM 2.0 direct identity routing before any private calendar or claim data is read."
+  },
+  "definitionOfDone": [
+    "The six HOZO Rich Menu button texts are recognized by the direct-message runtime",
+    "Standalone 新增待辦 replies with a guided create example and does not create a blank item",
+    "我的行事曆 maps to the supported weekly calendar query until a full calendar chooser exists",
+    "昨日未完成 maps to the existing yesterday unfinished query",
+    "身份設定 and 身分設定 return identity status without promising unopened notification settings",
+    "Claims routing continues to own 我要請款",
+    "A non-secret Rich Menu action contract and optional LINE API apply script are provided"
+  ],
+  "status": "Installed"
+}

@@ -1,4 +1,4 @@
-import { isCalendarCommand, queryKind } from './commands.js';
+import { isCalendarCommand, isCreateGuideCommand, queryKind } from './commands.js';
 
 let platform;
 const pendingCreates = new Map();
@@ -78,6 +78,19 @@ function parseCreateCommand(value) {
   return { title, scheduledDate, startAt };
 }
 
+function createGuideMessage() {
+  return [
+    '請直接把日期和內容一起丟給我，我會先幫你整理，再等你確認才寫入。',
+    '',
+    '範例：',
+    '新增待辦 明天 10:00 回覆房東',
+    '新增工作 今天 整理請款附件',
+    '安排行程 8/10 15:30 和 Bonnie 確認合約',
+    '',
+    '送出後回覆「確認新增」才會真正建立；回覆「取消新增」就不寫入。',
+  ].join('\n');
+}
+
 function parseItemAction(value) {
   const text = clean(value);
   let matched = text.match(/^(完成|取消|刪除)\s*(\d+)$/u);
@@ -149,6 +162,12 @@ async function handleCreate(ctx) {
   return true;
 }
 
+async function handleCreateGuide(ctx) {
+  if (!isCreateGuideCommand(ctx.text)) return false;
+  await reply(ctx, createGuideMessage());
+  return true;
+}
+
 async function handleCreateConfirmation(ctx) {
   const text = clean(ctx.text);
   if (!['確認新增', '取消新增'].includes(text)) return false;
@@ -202,6 +221,7 @@ export default {
       return true;
     }
     if (await handleCreateConfirmation(ctx)) return true;
+    if (await handleCreateGuide(ctx)) return true;
     if (await handleCreate(ctx)) return true;
     if (await handleItemAction(ctx)) return true;
     const kind = queryKind(ctx.text);
@@ -210,4 +230,4 @@ export default {
   routes: [],
 };
 
-export { dateAtOffset, parseCreateCommand, parseItemAction, queryRange };
+export { createGuideMessage, dateAtOffset, parseCreateCommand, parseItemAction, queryRange };

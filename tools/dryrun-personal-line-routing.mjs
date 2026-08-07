@@ -232,6 +232,19 @@ await check('請款指令會交給後續 claims 模組，不被私人助理 fall
   assert.equal(replied, false);
 });
 
+await check('Rich Menu 身分設定按鈕回覆身分狀態且不承諾未開放設定', async () => {
+  const replies = [];
+  personalAssistant.init({ replyLineMessage: async (_token, message) => replies.push(message) });
+  assert.equal(await personalAssistant.onDirectMessage({
+    tenant: hozo,
+    personalBinding: { displayName: 'Seven' },
+    text: '身份設定',
+    event: { replyToken: 'r6' },
+  }), true);
+  assert.match(replies.at(-1), /LINE 已綁定/);
+  assert.match(replies.at(-1), /通知設定與安靜時段尚未開放/);
+});
+
 for (const result of checks) {
   console.log(`${result.ok ? 'PASS' : 'FAIL'} ${result.name}${result.error ? ` — ${result.error}` : ''}`);
 }

@@ -46,7 +46,11 @@ function bindingSuccessMessage(result) {
 function responseFor(ctx) {
   const name = identityLabel(ctx);
   const tenant = ctx.tenant?.displayName || 'HOZO';
-  if (/^(?:我的)?(?:身分|綁定狀態|我是誰)[？?]?$/u.test(String(ctx.text || '').trim())) {
+  const text = String(ctx.text || '').trim();
+  if (/^(?:我的)?(?:身分|身份|綁定狀態|我是誰)(?:設定)?[？?]?$/u.test(text)) {
+    if (/(?:設定)/u.test(text)) {
+      return `✅ ${name}，你的 LINE 已綁定到 ${tenant}。\n身分來源：已啟用工作群組的 LINE user ID。\n\n目前這個按鈕先提供身分與綁定狀態確認；通知設定與安靜時段尚未開放。`;
+    }
     return `✅ ${name}，你的 LINE 已綁定到 ${tenant}。\n身分來源：已啟用工作群組的 LINE user ID。`;
   }
   return `✅ ${name}，已用你的 ${tenant} 身分進入葉小蝸私人助理。\n\n一對一私人路由已啟用；這則訊息不會進入公司群組或其他租戶。\n「我的今天」、個人待辦與行事曆查詢會從這個入口接續開放。`;

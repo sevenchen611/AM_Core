@@ -1,0 +1,39 @@
+{
+  "name": "HOZO Rich Menu v1 - private assistant actions",
+  "chatBarText": "葉小蝸",
+  "selected": true,
+  "default": true,
+  "size": { "width": 2500, "height": 1686 },
+  "areas": [
+    {
+      "label": "我的今日",
+      "bounds": { "x": 0, "y": 0, "width": 833, "height": 843 },
+      "action": { "type": "message", "label": "我的今日", "text": "我的今日" }
+    },
+    {
+      "label": "我的行事曆",
+      "bounds": { "x": 833, "y": 0, "width": 834, "height": 843 },
+      "action": { "type": "message", "label": "我的行事曆", "text": "我的行事曆" }
+    },
+    {
+      "label": "新增待辦",
+      "bounds": { "x": 1667, "y": 0, "width": 833, "height": 843 },
+      "action": { "type": "message", "label": "新增待辦", "text": "新增待辦" }
+    },
+    {
+      "label": "昨日未完成",
+      "bounds": { "x": 0, "y": 843, "width": 833, "height": 843 },
+      "action": { "type": "message", "label": "昨日未完成", "text": "昨日未完成" }
+    },
+    {
+      "label": "我要請款",
+      "bounds": { "x": 833, "y": 843, "width": 834, "height": 843 },
+      "action": { "type": "message", "label": "我要請款", "text": "我要請款" }
+    },
+    {
+      "label": "身份設定",
+      "bounds": { "x": 1667, "y": 843, "width": 833, "height": 843 },
+      "action": { "type": "message", "label": "身份設定", "text": "身份設定" }
+    }
+  ]
+}
