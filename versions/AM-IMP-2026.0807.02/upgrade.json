@@ -22,5 +22,5 @@
     "AM source items cannot be modified or cancelled through the personal Calendar commands",
     "The Rental Calendar APIs and AM Platform module are deployed and verified in their own production services"
   ],
-  "status": "Installed"
+  "status": "Deployed"
 }
