@@ -16,6 +16,7 @@ const SEN_TASKS = 's0000000000000000000000000000004';
 
 // 假 platform:notionRequest 只記錄呼叫,不打真 API。
 const calls = [];
+const calendarCalls = [];
 let pageSeq = 0;
 const platform = {
   logger: { ...console, warn: () => {}, log: () => {} },
@@ -25,11 +26,16 @@ const platform = {
     if (/\/query$/.test(pathname)) return { results: [] };
     return {};
   },
+  calendarSourceUpsert: async (payload) => {
+    calendarCalls.push(payload);
+    return { ok: true };
+  },
 };
 tasks.init(platform);
 
 const engTenant = { key: 'engineering', displayName: '工程', dataSources: { tasks: ENG_TASKS } };
 const senTenant = { key: 'forest', displayName: '森在', dataSources: { tasks: SEN_TASKS } };
+const hozoTenant = { key: 'hozo-am-2-0', displayName: 'HOZO AM 2.0', dataSources: { tasks: 'h0000000000000000000000000000004' } };
 
 const results = [];
 function check(name, fn) {
@@ -145,6 +151,27 @@ await check('listOpen 過濾未完成+有期限', async () => {
   assert.ok(and[0].or.some((o) => o.property === '狀態' && o.select.equals === '待辦'));
   assert.ok(and[0].or.some((o) => o.property === '狀態' && o.select.equals === '進行中'));
   assert.deepEqual(and[1], { property: '期限', date: { is_not_empty: true } });
+});
+
+// 9) HOZO 有日期、有明確 owner 且有來源證據的任務，建立後同步 Calendar。
+await check('HOZO 任務具 owner+日期+證據時自動同步 Calendar', async () => {
+  calendarCalls.length = 0;
+  const id = await tasks.createTask(
+    { tenant: hozoTenant, groupId: 'gHOZO' },
+    {
+      content: '確認租約資料',
+      owner: 'Seven',
+      due: '2026-08-10 09:30',
+      source: '會議',
+      sourceEvidence: '會議記錄 2026-08-07 的勾選事項',
+    },
+  );
+  assert.equal(calendarCalls.length, 1);
+  assert.equal(calendarCalls[0].item.sourceId, id);
+  assert.equal(calendarCalls[0].item.ownerDisplayName, 'Seven');
+  assert.equal(calendarCalls[0].item.scheduledDate, '2026-08-10');
+  assert.equal(calendarCalls[0].item.status, 'planned');
+  assert.match(calendarCalls[0].item.sourceSummary, /會議記錄/);
 });
 
 // ── 報告 ──

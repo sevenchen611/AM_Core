@@ -1,0 +1,26 @@
+{
+  "id": "AM-IMP-2026.0807.02",
+  "name": "Personal Calendar LINE operations",
+  "type": "LINE personal calendar control and evidence-backed task projection",
+  "portable": true,
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0", "RENTAL_CALENDAR:production"],
+  "requiresDatabases": ["Rental Calendar V2 foundation schema with active LINE identity links"],
+  "requiresEnv": ["<PREFIX>_RENTAL_CALENDAR_BASE_URL", "<PREFIX>_RENTAL_CALENDAR_MACHINE_TOKEN"],
+  "requiresScripts": ["tools/dryrun-calendar-line-operations.mjs", "tools/dryrun-tasks.mjs", "tools/audit-module-authorization.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Every request resolves the active project-local Rental identity link from the stable LINE user ID; personal writes require personal_edit, while AM task projections remain view_only and require source evidence."
+  },
+  "definitionOfDone": [
+    "A bound direct-message user can query personal Calendar items through LINE",
+    "A bound direct-message user can create an explicitly dated personal item after confirmation",
+    "A bound direct-message user can complete, cancel, reschedule, rename, or set a reminder on a personal_edit item",
+    "Evidence-backed AM tasks with a due date and an unambiguous explicit owner are projected idempotently as view_only Calendar items",
+    "AM source items cannot be modified or cancelled through the personal Calendar commands",
+    "The Rental Calendar APIs and AM Platform module are deployed and verified in their own production services"
+  ],
+  "status": "Installed"
+}

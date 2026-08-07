@@ -11,6 +11,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const VALID_ROUTE_KINDS = new Set(['public', 'machine', 'tenant', 'group']);
 const ROUTE_POLICY = {
   'personal-assistant': [],
+  calendar: [],
   'company-line-push': ['machine'],
   collect: [],
   triage: [],
