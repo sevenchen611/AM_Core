@@ -915,6 +915,11 @@ async function eligibleDirectClaimBindings(ctx) {
       const access = activeClaimsContext({ tenant: ctx.tenant, binding, userId: lineUserId(ctx) });
       if (access.ok) bindings.push(binding);
     } catch (error) {
+      // A partner's private identity normally includes ordinary LINE groups
+      // that are not claim sources. Those are ineligible candidates, not
+      // lookup failures. Keep failing closed for malformed IDs, tenant-boundary
+      // errors, Notion/API failures, and every other unexpected condition.
+      if (Number(error?.statusCode) === 409 && error?.message === 'Binding is not active for claims.') continue;
       lookupFailed = true;
       platform?.logger?.warn?.(`Direct claims binding lookup failed (tenant=${ctx.tenant?.key || 'unknown'}): ${error.message}`);
     }
