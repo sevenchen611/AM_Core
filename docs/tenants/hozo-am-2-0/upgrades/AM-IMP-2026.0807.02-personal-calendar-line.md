@@ -7,5 +7,10 @@ LINE assistant. Every query and write resolves the active Rental identity link.
 Personal creates require explicit confirmation; AM-originated items remain
 source-backed and read-only.
 
-Production status is updated only after the merged AM Core commit is live and a
-fresh LINE query/create/update smoke test succeeds.
+Production deployments verified on 2026-08-07:
+
+- Rental Calendar `aae1796`: Seven identity query, personal create/cancel, AM
+  source upsert/close, evidence gate, and source read-only guard passed.
+- AM Platform `680b58b`: `calendar` is loaded for HOZO AM 2.0 and the deployed
+  direct-message flow handled query, confirmed create, list, and cancel without
+  warnings.
