@@ -150,7 +150,11 @@ const sent = [];
 claims.init({
   publicLinkSecret: 'dryrun-public-secret',
   logger: { warn() {} },
-  notionRequest: async () => ({
+  notionRequest: async (path) => {
+    if (String(path).includes('fedcba9876543210fedcba9876543210')) {
+      throw Object.assign(new Error('Binding is not active for claims.'), { statusCode: 409 });
+    }
+    return ({
     parent: { type: 'data_source_id', data_source_id: tenant.dataSources.groupBindings },
     properties: {
       'LINE 群組 ID': { rich_text: [{ plain_text: 'C0123456789abcdef0123456789abcdef' }] },
@@ -160,7 +164,8 @@ claims.init({
       請款送件權限: { select: { name: '指定成員' } },
       請款指定送件人: { rich_text: [{ plain_text: '["U0123456789abcdef0123456789abcdef"]' }] },
     },
-  }),
+    });
+  },
   replyLineMessage: async (_, message) => sent.push(message),
   pushLineMessage: async (_, message) => sent.push(message),
 });
@@ -168,7 +173,7 @@ const directHandled = await claims.onDirectMessage({
   tenant,
   personalBinding: {
     displayName: 'Bonnie',
-    groupBindingIds: [session.bindingId],
+    groupBindingIds: ['fedcba9876543210fedcba9876543210', session.bindingId],
   },
   senderName: 'Bonnie',
   directUserId: 'U0123456789abcdef0123456789abcdef',
