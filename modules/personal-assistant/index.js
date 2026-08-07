@@ -17,8 +17,16 @@ function identityLabel(ctx) {
   return ctx.personalBinding?.displayName || ctx.senderName || '夥伴';
 }
 
+function normalizeBindingText(value) {
+  return String(value || '')
+    .normalize('NFKC')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .trim();
+}
+
 function parseBindingCommand(text) {
-  const match = String(text || '').trim().match(/^綁定\s+(\d{6})[？?]?$/u);
+  const normalized = normalizeBindingText(text);
+  const match = normalized.match(/^(?:綁定(?:碼)?\s*[:：]?\s*)?(\d{6})[？?]?$/u);
   return match ? { code: match[1] } : null;
 }
 
