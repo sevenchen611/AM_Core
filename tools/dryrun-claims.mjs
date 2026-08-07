@@ -190,6 +190,30 @@ assert.equal(sent[0].contents.footer.contents[0].action.label, '開啟請款單'
 assert.match(sent[0].contents.footer.contents[0].action.uri, /liff\.line\.me/);
 assert.match(sent[0].contents.header.contents[1].text, /好住寓好/);
 
+const multiSourceHandled = await claims.onDirectMessage({
+  tenant,
+  personalBinding: {
+    displayName: 'Bonnie',
+    groupBindingIds: [session.bindingId, 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'],
+  },
+  senderName: 'Bonnie',
+  directUserId: 'U0123456789abcdef0123456789abcdef',
+  event: {
+    replyToken: 'direct-multi-source-reply-token',
+    source: { type: 'user', userId: 'U0123456789abcdef0123456789abcdef' },
+  },
+  text: '我要請款',
+});
+assert.equal(multiSourceHandled, true);
+assert.equal(sent.length, 2);
+assert.equal(sent[1].type, 'flex');
+assert.equal(sent[1].altText, '請選擇請款來源後開啟請款單。');
+assert.equal(sent[1].contents.type, 'carousel');
+assert.equal(sent[1].contents.contents.length, 2);
+const sourceLinks = sent[1].contents.contents.map((bubble) => bubble.footer.contents[0].action.uri);
+assert.equal(new Set(sourceLinks).size, 2);
+sourceLinks.forEach((link) => assert.match(link, /liff\.line\.me/));
+
 const handled = await claims.onMessage({
   tenant,
   binding: { pageId: session.bindingId, groupId: 'C0123456789abcdef0123456789abcdef', groupName: '舊名稱', status: '啟用', capabilities: ['請款'] },
@@ -199,11 +223,11 @@ const handled = await claims.onMessage({
   text: '#請款 6 月勞健保費 4,627 元',
 });
 assert.equal(handled, true);
-assert.equal(sent.length, 2);
-assert.equal(sent[1].type, 'flex');
-assert.equal(sent[1].contents.footer.contents[0].action.label, '開啟請款單');
-assert.match(sent[1].contents.footer.contents[0].action.uri, /liff\.line\.me/);
-assert.match(sent[1].altText, /草稿/);
+assert.equal(sent.length, 3);
+assert.equal(sent[2].type, 'flex');
+assert.equal(sent[2].contents.footer.contents[0].action.label, '開啟請款單');
+assert.match(sent[2].contents.footer.contents[0].action.uri, /liff\.line\.me/);
+assert.match(sent[2].altText, /草稿/);
 assert.equal(await claims.onMessage({ tenant, text: '這不是請款命令' }), false);
 
 console.log('claims dry-run passed: commands, draft-only opening, group allowlist, sanitized Rental payload, totals, and structured event validation.');
