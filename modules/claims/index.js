@@ -257,6 +257,21 @@ function claimOpenMessage(link, session, commandKind = 'open') {
   };
 }
 
+function claimSourceChooserMessage(tenant, sessions, commandKind = 'open') {
+  return {
+    type: 'flex',
+    altText: '請選擇請款來源後開啟請款單。',
+    contents: {
+      type: 'carousel',
+      contents: sessions.map((session) => claimOpenMessage(
+        liffLink(tenant, session),
+        session,
+        commandKind,
+      ).contents),
+    },
+  };
+}
+
 function html(value) {
   return String(value || '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
 }
@@ -928,6 +943,16 @@ async function eligibleDirectClaimBindings(ctx) {
   return { bindings: unique, lookupFailed };
 }
 
+function createDirectClaimSession(ctx, binding, draftText = '') {
+  const session = createSession({
+    ...ctx,
+    binding,
+    senderName: ctx.personalBinding?.displayName || ctx.senderName,
+  }, draftText);
+  session.binding = binding;
+  return session;
+}
+
 async function onDirectMessage(ctx) {
   const command = parseCommand(ctx.text);
   if (command.kind === 'none') return false;
@@ -942,17 +967,23 @@ async function onDirectMessage(ctx) {
     return true;
   }
   if (bindings.length > 1) {
-    await replyDirectClaim(ctx, '你的帳號目前對應到多個請款來源。為避免款項歸錯來源，請回到要請款的工作群組輸入「我要請款」。');
+    if (bindings.length > 12) {
+      await replyDirectClaim(ctx, '你的帳號可使用的請款來源超過 12 個，暫時無法完整顯示。請聯絡管理者整理來源權限後再試。');
+      return true;
+    }
+    const sessions = [...bindings]
+      .sort((left, right) => cleanText(left.groupName).localeCompare(cleanText(right.groupName), 'zh-Hant'))
+      .map((binding) => createDirectClaimSession(ctx, binding, command.draftText));
+    await replyDirectClaim(
+      ctx,
+      claimSourceChooserMessage(ctx.tenant, sessions, command.kind),
+      `direct-claim-sources:${sessions[0].id}`,
+    );
     return true;
   }
 
   const binding = bindings[0];
-  const session = createSession({
-    ...ctx,
-    binding,
-    senderName: ctx.personalBinding?.displayName || ctx.senderName,
-  }, command.draftText);
-  session.binding = binding;
+  const session = createDirectClaimSession(ctx, binding, command.draftText);
   const message = claimOpenMessage(liffLink(ctx.tenant, session), session, command.kind);
   await replyDirectClaim(ctx, message, session.id);
   return true;
@@ -992,6 +1023,7 @@ export const __test = {
   sessionFromToken,
   liffLink,
   claimOpenMessage,
+  claimSourceChooserMessage,
   liffTokenFromRequest,
   liffHtml,
   liffSessionCookie,
