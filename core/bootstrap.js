@@ -53,6 +53,25 @@ function createCalendarIntegration(env, logger = console) {
       '/api/integrations/calendar/identity/resolve',
       { tenantKey, lineUserId },
     ),
+    queryPersonalItems: ({ tenantKey, lineUserId, fromDate, toDate, includeClosed = false }) => post(
+      '/api/integrations/calendar/personal-items/query',
+      { tenantKey, lineUserId, fromDate, toDate, includeClosed },
+    ),
+    createPersonalItem: ({ tenantKey, lineUserId, item, idempotencyKey }) => post(
+      '/api/integrations/calendar/personal-items/create',
+      { tenantKey, lineUserId, ...item },
+      idempotencyKey,
+    ),
+    updatePersonalItem: ({ tenantKey, lineUserId, update, idempotencyKey }) => post(
+      '/api/integrations/calendar/personal-items/update',
+      { tenantKey, lineUserId, ...update },
+      idempotencyKey,
+    ),
+    upsertSourceItem: ({ item, idempotencyKey }) => post(
+      '/api/integrations/calendar/items/upsert',
+      item,
+      idempotencyKey,
+    ),
   };
 }
 
@@ -158,6 +177,10 @@ export async function bootstrap(env = process.env, overrides = {}) {
     calendarIntegrationConfigured: calendarIntegration.configured,
     calendarBindingConsume: calendarIntegration.consumeBinding,
     calendarIdentityResolve: calendarIntegration.resolveIdentity,
+    calendarPersonalQuery: calendarIntegration.queryPersonalItems,
+    calendarPersonalCreate: calendarIntegration.createPersonalItem,
+    calendarPersonalUpdate: calendarIntegration.updatePersonalItem,
+    calendarSourceUpsert: calendarIntegration.upsertSourceItem,
     // LLM(統一備援鏈)。新模組一律用這個,不要自己接 AI 供應商。
     llm,
     operationalMemory,

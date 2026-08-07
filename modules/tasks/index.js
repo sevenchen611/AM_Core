@@ -54,6 +54,54 @@ function toNotionDate(due) {
   return d ? { start: d[0] } : null;
 }
 
+function calendarStatus(status) {
+  return ({ '待辦': 'planned', '進行中': 'in_progress', '完成': 'completed', '取消': 'cancelled' })[normStatus(status)] || 'planned';
+}
+
+function notionPageUrl(pageId) {
+  const compact = String(pageId || '').replace(/-/g, '');
+  return compact ? `https://www.notion.so/${compact}` : '';
+}
+
+async function syncCreatedTaskToCalendar(ctx, task, pageId, due) {
+  if (ctx.tenant?.key !== 'hozo-am-2-0' || !due?.start || typeof platform?.calendarSourceUpsert !== 'function') return;
+  const explicitLineUserId = String(task.ownerLineUserId || '').trim();
+  const senderLineUserId = String(ctx.event?.source?.userId || '').trim();
+  const ownerMatchesSender = task.owner && ctx.senderName
+    && String(task.owner).trim().toLocaleLowerCase('zh-Hant') === String(ctx.senderName).trim().toLocaleLowerCase('zh-Hant');
+  const ownerLineUserId = explicitLineUserId || (ownerMatchesSender ? senderLineUserId : '');
+  const ownerDisplayName = String(task.owner || '').trim();
+  const sourceEvidence = String(task.sourceEvidence || '').trim();
+  if ((!ownerLineUserId && !ownerDisplayName) || !sourceEvidence) return;
+  const idempotencyKey = `am-task-create:${pageId}`;
+  try {
+    const result = await platform.calendarSourceUpsert({
+      idempotencyKey,
+      item: {
+        tenantKey: ctx.tenant.key,
+        sourceSystem: 'am-platform',
+        sourceType: 'task',
+        sourceId: pageId,
+        sourceUrl: notionPageUrl(pageId),
+        sourceSummary: sourceEvidence,
+        evidenceRef: pageId,
+        ownerLineUserId,
+        ownerDisplayName,
+        title: String(task.content || '').trim(),
+        scheduledDate: due.start.slice(0, 10),
+        dueAt: due.start.includes('T') ? due.start : '',
+        status: calendarStatus(task.status),
+        sourceVersion: String(Date.now()),
+        sourceUpdatedAt: new Date().toISOString(),
+        projectId: task.projectPageId || '',
+      },
+    });
+    if (!result?.ok) (platform?.logger || console).warn(`Calendar task sync rejected (task=${pageId}, status=${result?.status || 'unknown'}).`);
+  } catch (error) {
+    (platform?.logger || console).warn(`Calendar task sync failed (task=${pageId}): ${error.message}`);
+  }
+}
+
 // 取「租戶鎖定」的 notionRequest:優先用 dispatcher 給的 ctx.notionRequest(已鎖 tenantKey);
 //   服務由別模組直呼(只帶 ctx.tenant)時,補上 tenantKey 走嚴格綁定,確保碰不到別租戶。
 function reqFor(ctx) {
@@ -132,6 +180,7 @@ async function createTask(ctx, task = {}) {
     },
   });
   rememberLast(tenant, ctx.groupId, page.id, task.content);
+  await syncCreatedTaskToCalendar(ctx, task, page.id, due);
   return page.id;
 }
 
@@ -301,4 +350,4 @@ export default {
 };
 
 // 測試用內部匯出(不影響正式流程)
-export const __test = { toNotionDate, normStatus, normSource, taskRow };
+export const __test = { toNotionDate, normStatus, normSource, calendarStatus, taskRow };

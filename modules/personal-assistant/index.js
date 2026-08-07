@@ -2,13 +2,15 @@
 // 本版處理正式 LINE ↔ Rental Portal 身分綁定，並把功能指令交給對應模組；
 // 不在私人助理 fallback 內查詢或改寫任務。
 
+import { isCalendarCommand } from '../calendar/commands.js';
+
 let platform;
 
 const DELEGATED_COMMANDS = new Set(['請款', '我要請款', '請款按鈕', '開啟請款', '#請款']);
 
 function isDelegatedCommand(value) {
   const text = String(value || '').trim();
-  return DELEGATED_COMMANDS.has(text) || /^#請款\s+[\s\S]+$/u.test(text);
+  return DELEGATED_COMMANDS.has(text) || /^#請款\s+[\s\S]+$/u.test(text) || isCalendarCommand(text);
 }
 
 function identityLabel(ctx) {

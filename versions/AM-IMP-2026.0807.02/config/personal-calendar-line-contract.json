@@ -1,0 +1,11 @@
+{
+  "tenantKey": "hozo-am-2-0",
+  "timezone": "Asia/Taipei",
+  "queryCommands": ["我的今天", "我的行程", "昨天未完", "這週"],
+  "createConfirmation": ["確認新增", "取消新增"],
+  "numberedActions": ["完成", "延到明天", "改期", "取消", "提醒我"],
+  "stateTtlMinutes": 15,
+  "personalActionPolicy": "personal_edit",
+  "sourceActionPolicy": "view_only",
+  "sourceEvidenceRequired": true
+}
