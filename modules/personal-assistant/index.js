@@ -49,7 +49,7 @@ function responseFor(ctx) {
   const text = String(ctx.text || '').trim();
   if (/^(?:我的)?(?:身分|身份|綁定狀態|我是誰)(?:設定)?[？?]?$/u.test(text)) {
     if (/(?:設定)/u.test(text)) {
-      return `✅ ${name}，你的 LINE 已綁定到 ${tenant}。\n身分來源：已啟用工作群組的 LINE user ID。\n\n目前這個按鈕先提供身分與綁定狀態確認；通知設定與安靜時段尚未開放。`;
+      return `✅ ${name}，你的 LINE 已綁定到 ${tenant}。\n身分來源：已啟用工作群組的 LINE user ID。\n\nCalendar 私人行程另需 HOZO Rental Portal 綁定；若尚未綁定，請到 Portal 個人設定產生 6 碼，再回 LINE 輸入：綁定 123456。\n\n目前這個按鈕先提供身分與綁定狀態確認；通知設定與安靜時段尚未開放。`;
     }
     return `✅ ${name}，你的 LINE 已綁定到 ${tenant}。\n身分來源：已啟用工作群組的 LINE user ID。`;
   }

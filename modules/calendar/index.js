@@ -134,7 +134,16 @@ async function handleQuery(ctx, kind) {
     includeClosed: false,
   });
   if (!result?.ok) {
-    await reply(ctx, result?.status === 403 ? '⚠️ Rental Calendar 身分尚未綁定，請先完成 Portal 綁定。' : '⚠️ 目前無法讀取個人行程，系統已保留錯誤紀錄。');
+    await reply(ctx, result?.status === 403
+      ? [
+        '⚠️ Rental Calendar 身分尚未綁定，暫時不能讀取你的私人行程。',
+        '',
+        '請先到 HOZO Rental Portal 的個人設定產生一次性 6 碼綁定碼，',
+        '再回到葉小蝸一對一聊天室輸入：綁定 123456',
+        '',
+        '完成後再點「我的今日」或「我的行事曆」即可測試。',
+      ].join('\n')
+      : '⚠️ 目前無法讀取個人行程，系統已保留錯誤紀錄。');
     return true;
   }
   const items = (result.items || []).slice(0, 20);

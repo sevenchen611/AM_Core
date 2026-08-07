@@ -23,11 +23,20 @@ let queryItems = [{
   id: 'personal-1', title: '整理本週工作', scheduledDate: dateAtOffset(0), startAt: '',
   status: 'planned', sourceSystem: 'line', actionPolicy: 'personal_edit',
 }];
+let nextQueryResult = null;
 
 calendar.init({
   calendarIntegrationConfigured: true,
   replyLineMessage: async (_token, message) => replies.push(message),
-  calendarPersonalQuery: async (payload) => { queries.push(payload); return { ok: true, items: queryItems }; },
+  calendarPersonalQuery: async (payload) => {
+    queries.push(payload);
+    if (nextQueryResult) {
+      const result = nextQueryResult;
+      nextQueryResult = null;
+      return result;
+    }
+    return { ok: true, items: queryItems };
+  },
   calendarPersonalCreate: async (payload) => {
     creates.push(payload);
     return { ok: true, item: { id: 'personal-2', ...payload.item } };
@@ -51,6 +60,11 @@ function ctx(text, eventId) {
 assert.equal(await calendar.onDirectMessage(ctx('我的今天', 'query-1')), true);
 assert.equal(queries.length, 1);
 assert.match(replies.at(-1), /整理本週工作/);
+
+nextQueryResult = { ok: false, status: 403 };
+assert.equal(await calendar.onDirectMessage(ctx('我的今天', 'query-unbound')), true);
+assert.match(replies.at(-1), /一次性 6 碼綁定碼/);
+assert.match(replies.at(-1), /綁定 123456/);
 
 assert.equal(await calendar.onDirectMessage(ctx('我的行事曆', 'query-week')), true);
 assert.equal(queries.at(-1).fromDate <= dateAtOffset(0), true);

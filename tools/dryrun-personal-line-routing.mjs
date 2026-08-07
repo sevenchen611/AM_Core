@@ -242,6 +242,7 @@ await check('Rich Menu 身分設定按鈕回覆身分狀態且不承諾未開放
     event: { replyToken: 'r6' },
   }), true);
   assert.match(replies.at(-1), /LINE 已綁定/);
+  assert.match(replies.at(-1), /Calendar 私人行程另需 HOZO Rental Portal 綁定/);
   assert.match(replies.at(-1), /通知設定與安靜時段尚未開放/);
 });
 
