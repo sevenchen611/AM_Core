@@ -164,6 +164,27 @@ claims.init({
   replyLineMessage: async (_, message) => sent.push(message),
   pushLineMessage: async (_, message) => sent.push(message),
 });
+const directHandled = await claims.onDirectMessage({
+  tenant,
+  personalBinding: {
+    displayName: 'Bonnie',
+    groupBindingIds: [session.bindingId],
+  },
+  senderName: 'Bonnie',
+  directUserId: 'U0123456789abcdef0123456789abcdef',
+  event: {
+    replyToken: 'direct-reply-token',
+    source: { type: 'user', userId: 'U0123456789abcdef0123456789abcdef' },
+  },
+  text: '我要請款',
+});
+assert.equal(directHandled, true);
+assert.equal(sent.length, 1);
+assert.equal(sent[0].type, 'flex');
+assert.equal(sent[0].contents.footer.contents[0].action.label, '開啟請款單');
+assert.match(sent[0].contents.footer.contents[0].action.uri, /liff\.line\.me/);
+assert.match(sent[0].contents.header.contents[1].text, /好住寓好/);
+
 const handled = await claims.onMessage({
   tenant,
   binding: { pageId: session.bindingId, groupId: 'C0123456789abcdef0123456789abcdef', groupName: '舊名稱', status: '啟用', capabilities: ['請款'] },
@@ -173,11 +194,11 @@ const handled = await claims.onMessage({
   text: '#請款 6 月勞健保費 4,627 元',
 });
 assert.equal(handled, true);
-assert.equal(sent.length, 1);
-assert.equal(sent[0].type, 'flex');
-assert.equal(sent[0].contents.footer.contents[0].action.label, '開啟請款單');
-assert.match(sent[0].contents.footer.contents[0].action.uri, /liff\.line\.me/);
-assert.match(sent[0].altText, /草稿/);
+assert.equal(sent.length, 2);
+assert.equal(sent[1].type, 'flex');
+assert.equal(sent[1].contents.footer.contents[0].action.label, '開啟請款單');
+assert.match(sent[1].contents.footer.contents[0].action.uri, /liff\.line\.me/);
+assert.match(sent[1].altText, /草稿/);
 assert.equal(await claims.onMessage({ tenant, text: '這不是請款命令' }), false);
 
 console.log('claims dry-run passed: commands, draft-only opening, group allowlist, sanitized Rental payload, totals, and structured event validation.');

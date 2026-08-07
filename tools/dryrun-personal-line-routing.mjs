@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createRouter } from '../core/router.js';
 import { createDispatcher } from '../core/modules.js';
 import { routeDirectLineEvent } from '../core/direct-line.js';
-import { responseFor } from '../modules/personal-assistant/index.js';
+import personalAssistant, { isDelegatedCommand, responseFor } from '../modules/personal-assistant/index.js';
 
 function text(value) {
   return value ? { rich_text: [{ plain_text: value }] } : { rich_text: [] };
@@ -221,6 +221,15 @@ await check('私人助理第一階段回覆清楚標示身分與資料邊界', (
   assert.match(reply, /Maggie/);
   assert.match(reply, /HOZO AM 2.0/);
   assert.match(reply, /LINE user ID/);
+});
+
+await check('請款指令會交給後續 claims 模組，不被私人助理 fallback 攔截', async () => {
+  let replied = false;
+  personalAssistant.init({ replyLineMessage: async () => { replied = true; } });
+  assert.equal(isDelegatedCommand('我要請款'), true);
+  assert.equal(isDelegatedCommand('#請款 6 月費用 1000'), true);
+  assert.equal(await personalAssistant.onDirectMessage({ tenant: hozo, text: '我要請款', event: { replyToken: 'r5' } }), false);
+  assert.equal(replied, false);
 });
 
 for (const result of checks) {

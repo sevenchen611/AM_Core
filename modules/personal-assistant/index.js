@@ -1,7 +1,15 @@
 // 葉小蝸一對一私人助理的第一階段入口。
-// 本版只處理正式 LINE ↔ Rental Portal 身分綁定，不查詢或改寫任務；後續 Calendar 功能從此 hook 擴充。
+// 本版處理正式 LINE ↔ Rental Portal 身分綁定，並把功能指令交給對應模組；
+// 不在私人助理 fallback 內查詢或改寫任務。
 
 let platform;
+
+const DELEGATED_COMMANDS = new Set(['請款', '我要請款', '請款按鈕', '開啟請款', '#請款']);
+
+function isDelegatedCommand(value) {
+  const text = String(value || '').trim();
+  return DELEGATED_COMMANDS.has(text) || /^#請款\s+[\s\S]+$/u.test(text);
+}
 
 function identityLabel(ctx) {
   return ctx.personalBinding?.displayName || ctx.senderName || '夥伴';
@@ -49,6 +57,10 @@ export default {
   },
   async onDirectMessage(ctx) {
     if (ctx.tenant?.config?.personalAssistant?.enabled !== true) return false;
+    // Feature commands must continue through the direct-message dispatcher.
+    // The personal assistant is the friendly fallback, not a catch-all that
+    // prevents claims/calendar modules from handling their own commands.
+    if (isDelegatedCommand(ctx.text)) return false;
     if (!ctx.event?.replyToken) return false;
     const binding = parseBindingCommand(ctx.text);
     if (binding) {
@@ -75,4 +87,11 @@ export default {
   routes: [],
 };
 
-export { responseFor, parseBindingCommand, bindingSuccessMessage, bindingFailureMessage, isRevokeBindingCommand };
+export {
+  bindingFailureMessage,
+  bindingSuccessMessage,
+  isDelegatedCommand,
+  isRevokeBindingCommand,
+  parseBindingCommand,
+  responseFor,
+};

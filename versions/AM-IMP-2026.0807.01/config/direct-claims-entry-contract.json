@@ -1,0 +1,30 @@
+{
+  "command": "我要請款",
+  "surface": "line-direct-rich-menu-text-action",
+  "identity": "exact-line-user-id",
+  "sourceCandidates": "personalBinding.groupBindingIds",
+  "requiredSourceCount": 1,
+  "requiredChecks": [
+    "tenant claims enabled",
+    "active binding",
+    "claims capability",
+    "named submitter allowlist",
+    "LIFF configured",
+    "Rental endpoint configured",
+    "Rental machine token configured"
+  ],
+  "success": "reply with a newly signed 15-minute LIFF Flex card",
+  "failClosed": [
+    "identity unavailable",
+    "binding lookup failure",
+    "zero eligible sources",
+    "multiple eligible sources"
+  ],
+  "prohibited": [
+    "fixed signed LIFF URL in Rich Menu",
+    "display-name authorization",
+    "arbitrary first-source selection",
+    "claim approval",
+    "payment release"
+  ]
+}

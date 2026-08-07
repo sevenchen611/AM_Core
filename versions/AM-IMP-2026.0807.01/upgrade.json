@@ -1,0 +1,27 @@
+{
+  "id": "AM-IMP-2026.0807.01",
+  "name": "HOZO private LINE claims entry",
+  "type": "LINE private assistant claims routing",
+  "portable": true,
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
+  "requiresDatabases": ["HOZO AM 2.0 group bindings with claim governance fields and exact member user IDs"],
+  "requiresEnv": ["<PREFIX>_CLAIMS_LIFF_ID", "<PREFIX>_RENTAL_BASE_URL", "<PREFIX>_RENTAL_CLAIMS_TOKEN"],
+  "requiresScripts": ["tools/dryrun-claims.mjs", "tools/dryrun-personal-line-routing.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "A direct claim command may create a signed LIFF session only when the exact LINE user ID resolves to one tenant and exactly one active, claim-enabled, allowlisted source binding."
+  },
+  "definitionOfDone": [
+    "The personal-assistant fallback delegates claim commands to later direct-message modules",
+    "The claims module handles direct claim commands without sending them through group collection",
+    "Exactly one active claim-enabled allowlisted source creates a signed 15-minute LIFF card",
+    "No eligible source, multiple eligible sources, and lookup failure all fail closed",
+    "Existing group claims behavior remains unchanged",
+    "The production Rich Menu action `我要請款` returns a claim card for an authorized known partner",
+    "Opening the card verifies LINE identity and renders the correct source form without submitting a financial transaction"
+  ],
+  "status": "Installed"
+}
