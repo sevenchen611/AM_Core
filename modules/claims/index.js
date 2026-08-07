@@ -889,10 +889,75 @@ async function onMessage(ctx) {
   return true;
 }
 
+async function replyDirectClaim(ctx, message, retryKey = '') {
+  try {
+    await platform.replyLineMessage(ctx.event?.replyToken, message);
+  } catch (error) {
+    const userId = lineUserId(ctx);
+    if (!userId) throw error;
+    await platform.pushLineMessage(userId, message, undefined, { retryKey: retryKey || `direct-claim:${Date.now()}` });
+  }
+}
+
+async function eligibleDirectClaimBindings(ctx) {
+  const ids = [...new Set((Array.isArray(ctx.personalBinding?.groupBindingIds)
+    ? ctx.personalBinding.groupBindingIds
+    : [])
+    .map((item) => cleanText(item, 128))
+    .filter(Boolean))];
+  if (!ids.length) return { bindings: [], lookupFailed: false };
+
+  const bindings = [];
+  let lookupFailed = false;
+  for (const bindingId of ids) {
+    try {
+      const binding = await bindingForEvent(ctx.tenant, bindingId);
+      const access = activeClaimsContext({ tenant: ctx.tenant, binding, userId: lineUserId(ctx) });
+      if (access.ok) bindings.push(binding);
+    } catch (error) {
+      lookupFailed = true;
+      platform?.logger?.warn?.(`Direct claims binding lookup failed (tenant=${ctx.tenant?.key || 'unknown'}): ${error.message}`);
+    }
+  }
+  const unique = [...new Map(bindings.map((binding) => [binding.pageId, binding])).values()];
+  return { bindings: unique, lookupFailed };
+}
+
+async function onDirectMessage(ctx) {
+  const command = parseCommand(ctx.text);
+  if (command.kind === 'none') return false;
+
+  const { bindings, lookupFailed } = await eligibleDirectClaimBindings(ctx);
+  if (lookupFailed) {
+    await replyDirectClaim(ctx, '請款來源目前無法安全確認，請稍後再試；這次不會建立請款單。');
+    return true;
+  }
+  if (!bindings.length) {
+    await replyDirectClaim(ctx, '你的 LINE 身分已確認，但目前沒有可使用的請款來源。請聯絡管理者確認請款群組與送件權限。');
+    return true;
+  }
+  if (bindings.length > 1) {
+    await replyDirectClaim(ctx, '你的帳號目前對應到多個請款來源。為避免款項歸錯來源，請回到要請款的工作群組輸入「我要請款」。');
+    return true;
+  }
+
+  const binding = bindings[0];
+  const session = createSession({
+    ...ctx,
+    binding,
+    senderName: ctx.personalBinding?.displayName || ctx.senderName,
+  }, command.draftText);
+  session.binding = binding;
+  const message = claimOpenMessage(liffLink(ctx.tenant, session), session, command.kind);
+  await replyDirectClaim(ctx, message, session.id);
+  return true;
+}
+
 export default {
   name: 'claims',
   init,
   onMessage,
+  onDirectMessage,
   routes: [
     {
       prefix: '/claims/liff',
@@ -930,6 +995,7 @@ export const __test = {
   initialStatusMessage,
   splitLineMessage,
   notifyInitialStatus,
+  eligibleDirectClaimBindings,
   eventDedupe,
   sessions,
   cleanupMemory,
