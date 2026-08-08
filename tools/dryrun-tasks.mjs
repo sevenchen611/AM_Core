@@ -153,11 +153,26 @@ await check('listOpen 過濾未完成+有期限', async () => {
   assert.deepEqual(and[1], { property: '期限', date: { is_not_empty: true } });
 });
 
-// 9) HOZO 有日期、有明確 owner 且有來源證據的任務，建立後同步 Calendar。
-await check('HOZO 任務具 owner+日期+證據時自動同步 Calendar', async () => {
+// 9) HOZO 預設不再把 AM 任務寫入 Rental Calendar；必須明確開啟投影才同步。
+await check('HOZO 任務預設不再同步 Calendar', async () => {
+  calendarCalls.length = 0;
+  await tasks.createTask(
+    { tenant: hozoTenant, groupId: 'gHOZO' },
+    {
+      content: '確認租約資料',
+      owner: 'Seven',
+      due: '2026-08-10 09:30',
+      source: '會議',
+      sourceEvidence: '會議記錄 2026-08-07 的勾選事項',
+    },
+  );
+  assert.equal(calendarCalls.length, 0);
+});
+
+await check('HOZO 明確開啟 Calendar 投影才同步', async () => {
   calendarCalls.length = 0;
   const id = await tasks.createTask(
-    { tenant: hozoTenant, groupId: 'gHOZO' },
+    { tenant: { ...hozoTenant, config: { calendarProjection: { enabled: true } } }, groupId: 'gHOZO' },
     {
       content: '確認租約資料',
       owner: 'Seven',
@@ -172,6 +187,17 @@ await check('HOZO 任務具 owner+日期+證據時自動同步 Calendar', async 
   assert.equal(calendarCalls[0].item.scheduledDate, '2026-08-10');
   assert.equal(calendarCalls[0].item.status, 'planned');
   assert.match(calendarCalls[0].item.sourceSummary, /會議記錄/);
+});
+
+await check('listByOwner 用負責人與日期範圍查私人待辦', async () => {
+  calls.length = 0;
+  await tasks.listByOwner({ tenant: engTenant }, { owner: 'Seven', fromDate: '2026-08-08', toDate: '2026-08-08' });
+  const c = calls[calls.length - 1];
+  assert.match(c.pathname, new RegExp(`/v1/data_sources/${ENG_TASKS}/query`));
+  const filters = c.body.filter.and;
+  assert.deepEqual(filters[0], { property: '負責人', rich_text: { equals: 'Seven' } });
+  assert.ok(filters.some((f) => f.property === '期限' && f.date.on_or_after === '2026-08-08'));
+  assert.ok(filters.some((f) => f.property === '期限' && f.date.on_or_before === '2026-08-08'));
 });
 
 // ── 報告 ──

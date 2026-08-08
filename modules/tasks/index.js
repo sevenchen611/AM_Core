@@ -25,7 +25,7 @@ function init(injected) {
   platform = injected;
   // 把服務掛到共用 platform 物件:其它模組於自己 init 捕捉的同一個 platform 即可
   //   呼叫 platform.tasks.createTask(...)。載入期全部 init 完才會有訊息進來,故執行期必在。
-  platform.tasks = { createTask, expandTasks, setStatus, listOpen, markReminded, reminderRecord, lastTask };
+  platform.tasks = { createTask, expandTasks, setStatus, listOpen, listByOwner, markReminded, reminderRecord, lastTask, taskRow };
 }
 
 // ── 純工具 ────────────────────────────────────────────────
@@ -64,6 +64,7 @@ function notionPageUrl(pageId) {
 }
 
 async function syncCreatedTaskToCalendar(ctx, task, pageId, due) {
+  if (ctx.tenant?.config?.calendarProjection?.enabled !== true) return;
   if (ctx.tenant?.key !== 'hozo-am-2-0' || !due?.start || typeof platform?.calendarSourceUpsert !== 'function') return;
   const explicitLineUserId = String(task.ownerLineUserId || '').trim();
   const senderLineUserId = String(ctx.event?.source?.userId || '').trim();
@@ -268,6 +269,34 @@ async function listOpen(ctx) {
   return checked.filter(Boolean);
 }
 
+async function listByOwner(ctx, { owner, fromDate = '', toDate = '', includeClosed = false, limit = 50 } = {}) {
+  const tasksDs = ctx.tenant?.dataSources?.tasks;
+  if (!tasksDs) return [];
+  const cleanOwner = String(owner || '').trim();
+  if (!cleanOwner) return [];
+  const filters = [
+    { property: '負責人', rich_text: { equals: cleanOwner } },
+  ];
+  if (!includeClosed) {
+    filters.push({ or: [
+      { property: '狀態', select: { equals: '待辦' } },
+      { property: '狀態', select: { equals: '進行中' } },
+    ] });
+  }
+  if (fromDate) filters.push({ property: '期限', date: { on_or_after: fromDate } });
+  if (toDate) filters.push({ property: '期限', date: { on_or_before: toDate } });
+
+  const result = await reqFor(ctx)(`/v1/data_sources/${encodeURIComponent(tasksDs)}/query`, {
+    method: 'POST',
+    body: {
+      filter: { and: filters },
+      sorts: [{ property: '期限', direction: 'ascending' }],
+      page_size: Math.max(1, Math.min(Number(limit) || 50, 100)),
+    },
+  });
+  return result.results || [];
+}
+
 // ── 提醒記錄(JSON 存在「提醒記錄」rich_text)────────────────
 // reminders 記「哪些提醒已發過」;等同 BuildAM markTaskReminded / taskReminderRecord。
 function reminderRecord(task) {
@@ -343,6 +372,7 @@ export default {
   expandTasks,     // (ctx, todos[], common) → ids   一次展開多筆(會議/回饋單)
   setStatus,       // (ctx, taskOrId, status) → name 狀態機(待辦/進行中/完成/取消)
   listOpen,        // (ctx) → task[]                 未完成且有期限(reminders 用)
+  listByOwner,     // (ctx, { owner, fromDate, toDate }) → task[]
   markReminded,    // (ctx, task, key, value)        記已發提醒
   reminderRecord,  // (task) → obj                   讀提醒記錄
   lastTask,        // (tenant, groupId) → { id, content, at } | null
@@ -350,4 +380,4 @@ export default {
 };
 
 // 測試用內部匯出(不影響正式流程)
-export const __test = { toNotionDate, normStatus, normSource, calendarStatus, taskRow };
+export const __test = { toNotionDate, normStatus, normSource, calendarStatus, taskRow, listByOwner };

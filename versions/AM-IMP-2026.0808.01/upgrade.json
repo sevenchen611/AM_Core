@@ -1,0 +1,33 @@
+{
+  "id": "AM-IMP-2026.0808.01",
+  "name": "Unified private assistant tasks",
+  "type": "LINE direct task routing",
+  "portable": true,
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
+  "requiresDatabases": ["Tenant-local AM tasks data source"],
+  "requiresEnv": ["LINE_CHANNEL_ACCESS_TOKEN", "HZ2_TASKS_DATA_SOURCE_ID", "MINIMAX_API_KEY or HZ2_MINIMAX_API_KEY"],
+  "requiresScripts": [
+    "tools/dryrun-personal-line-routing.mjs",
+    "tools/dryrun-tasks.mjs",
+    "tools/check-upgrade-package.js AM-IMP-2026.0808.01",
+    "tools/audit-alignment.js",
+    "tools/compare-project-manifests.js"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Private LINE messages resolve to exactly one HOZO AM 2.0 line-user principal before any AM task read or write. Created tasks are tenant-scoped through the existing Notion request guard and carry LINE direct source evidence."
+  },
+  "definitionOfDone": [
+    "HOZO direct Rich Menu actions for 我的今日, 我的行事曆, 新增待辦 and 昨日未完成 are handled by the personal assistant task controller",
+    "Natural-language and numbered multi-task create requests are previewed and require 確認新增 before AM task writes",
+    "Private tasks write to AM tasks with owner, due date, manual source and source evidence",
+    "Rental Calendar personal item create/update/query and Portal binding are not required for private task use",
+    "AM task Calendar projection is disabled unless a tenant explicitly sets config.calendarProjection.enabled=true",
+    "HOZO LLM cheap profile uses MiniMax-M3 through the tenant LLM interface",
+    "Non-text direct messages no longer trigger repeated identity fallback replies"
+  ],
+  "status": "Installed"
+}

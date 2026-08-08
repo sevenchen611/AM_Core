@@ -48,6 +48,7 @@ function readAi(env, prefix) {
     assemblyKey: prefixed(env, prefix, 'ASSEMBLYAI_API_KEY', env.ASSEMBLYAI_API_KEY),
     geminiKey: prefixed(env, prefix, 'GEMINI_API_KEY', env.GEMINI_API_KEY),
     minimaxApiKey: prefixed(env, prefix, 'MINIMAX_API_KEY', env.MINIMAX_API_KEY),
+    minimaxModel: prefixed(env, prefix, 'MINIMAX_MODEL', env.MINIMAX_MODEL),
     minimaxBaseUrl: prefixed(env, prefix, 'MINIMAX_API_BASE_URL', env.MINIMAX_API_BASE_URL || 'https://api.minimax.io/v1').replace(/\/+$/, ''),
   };
 }

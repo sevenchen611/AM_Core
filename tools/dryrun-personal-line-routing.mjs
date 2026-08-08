@@ -242,8 +242,65 @@ await check('Rich Menu 身分設定按鈕回覆身分狀態且不承諾未開放
     event: { replyToken: 'r6' },
   }), true);
   assert.match(replies.at(-1), /LINE 已綁定/);
-  assert.match(replies.at(-1), /Calendar 私人行程另需 HOZO Rental Portal 綁定/);
+  assert.match(replies.at(-1), /私人待辦會直接寫入 AM 任務/);
+  assert.doesNotMatch(replies.at(-1), /HOZO Rental Portal 綁定/);
   assert.match(replies.at(-1), /通知設定與安靜時段尚未開放/);
+});
+
+await check('圖片等非文字私人訊息不再重複回覆身分確認', async () => {
+  let replied = false;
+  personalAssistant.init({ replyLineMessage: async () => { replied = true; } });
+  assert.equal(await personalAssistant.onDirectMessage({
+    tenant: hozo,
+    personalBinding: { displayName: 'Seven' },
+    text: '',
+    message: { type: 'image' },
+    event: { replyToken: 'r7' },
+  }), false);
+  assert.equal(replied, false);
+});
+
+await check('私人助理可一次整理多筆新增待辦並確認寫入 AM tasks', async () => {
+  const replies = [];
+  const created = [];
+  personalAssistant.init({
+    logger,
+    replyLineMessage: async (_token, message) => replies.push(message),
+    llmForTenant: () => ({ available: false }),
+    tasks: {
+      createTask: async (_ctx, task) => {
+        created.push(task);
+        return `task_${created.length}`;
+      },
+      listByOwner: async () => [],
+      setStatus: async () => '完成',
+    },
+  });
+  const base = {
+    tenant: { ...hozo, dataSources: { ...hozo.dataSources, tasks: 'tasks-hozo' } },
+    personalBinding: { displayName: 'Seven' },
+    directUserId: 'U_HOZO',
+    senderName: 'Seven',
+    message: { type: 'text', id: 'm-task' },
+  };
+  assert.equal(await personalAssistant.onDirectMessage({
+    ...base,
+    text: '新增待辦：\n1. 10:00 回臺北\n2. 下午1:00 帶家人去吃飯\n3. 晚上19:00 回家',
+    event: { replyToken: 'r8', timestamp: Date.UTC(2026, 7, 8, 0, 0, 0), source: { userId: 'U_HOZO' } },
+  }), true);
+  assert.match(replies.at(-1), /整理成 3 筆待辦/);
+  assert.equal(await personalAssistant.onDirectMessage({
+    ...base,
+    text: '確認新增',
+    event: { replyToken: 'r9', timestamp: Date.UTC(2026, 7, 8, 0, 1, 0), source: { userId: 'U_HOZO' } },
+  }), true);
+  assert.equal(created.length, 3);
+  assert.equal(created[0].owner, 'Seven');
+  assert.equal(created[0].source, '手動');
+  assert.match(created[0].due, /^\d{4}-\d{2}-\d{2} 10:00$/);
+  assert.match(created[1].due, /13:00$/);
+  assert.match(created[2].due, /19:00$/);
+  assert.match(created[0].sourceEvidence, /LINE 一對一私人助理/);
 });
 
 for (const result of checks) {
