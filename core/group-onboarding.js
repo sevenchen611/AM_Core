@@ -6,7 +6,7 @@
 
 import { textItem } from './util.js';
 
-export const GROUP_ONBOARDING_BUILD = 'calendar-binding-token-parser-2026-08-07';
+export const GROUP_ONBOARDING_BUILD = 'unified-private-assistant-tasks-2026-08-08';
 export const LEGACY_HOZO20_BIND_COMMAND = '<绑定 HOZOAM 2.0 群组>';
 
 export const ONBOARDING_TENANTS = [

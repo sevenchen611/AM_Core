@@ -29,5 +29,5 @@
     "HOZO LLM cheap profile uses MiniMax-M3 through the tenant LLM interface",
     "Non-text direct messages no longer trigger repeated identity fallback replies"
   ],
-  "status": "Installed"
+  "status": "Deployed"
 }

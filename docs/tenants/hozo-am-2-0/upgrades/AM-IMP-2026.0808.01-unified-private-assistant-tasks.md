@@ -18,3 +18,8 @@ Local verification passed:
 
 - `node tools/dryrun-personal-line-routing.mjs`
 - `node tools/dryrun-tasks.mjs`
+
+Production verification:
+
+- `/health` showed HOZO AM 2.0 modules loaded without `calendar`.
+- `/health` showed the LLM chain starting with `minimax` model `MiniMax-M3`.
