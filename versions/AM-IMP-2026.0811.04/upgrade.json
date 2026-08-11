@@ -1,0 +1,38 @@
+{
+  "id": "AM-IMP-2026.0811.04",
+  "name": "Editable Engineering Gantt Items",
+  "type": "AM Platform / Construction dashboard / Gantt editing",
+  "portable": true,
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "dependencies": ["AM-IMP-2026.0811.01"],
+  "requiresDatabases": ["Engineering Projects", "Engineering Work Items"],
+  "requiresEnv": [
+    "NOTION_TOKEN",
+    "ENG_PROJECTS_DATA_SOURCE_ID",
+    "ENG_WORK_ITEMS_DATA_SOURCE_ID"
+  ],
+  "requiresScripts": [
+    "modules/construction/dashboard.js",
+    "modules/construction/master-data.js",
+    "tools/dryrun-construction-dashboard-management.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Every edit uses tenant-locked notionRequest and revalidates the scoped project, Work Items data-source ownership, and Work Item-project relation before patching Notion."
+  },
+  "definitionOfDone": [
+    "Gantt Work Item labels and time bars both open the same edit modal",
+    "The modal edits Work Item name, planned start, planned end, and status",
+    "Successful edits patch the tenant-local Notion Work Item and append an audit note",
+    "The Gantt and space-by-trade matrix refresh after saving",
+    "Cross-project and cross-data-source edits are rejected",
+    "Same-space duplicate Work Item names are rejected",
+    "Syntax, dashboard dry-run, package, and alignment verification pass",
+    "Production Render deployment and live modal proof are recorded before status becomes Deployed"
+  ],
+  "projectStatus": { "AM_PLATFORM:engineering": "Ready" },
+  "status": "Ready"
+}

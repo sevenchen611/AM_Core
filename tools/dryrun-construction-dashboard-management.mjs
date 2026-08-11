@@ -5,6 +5,7 @@ import {
   createDashboardSpace,
   createDashboardTrade,
   createDashboardWorkItem,
+  editDashboardWorkItem,
   dashboardSetupOptions,
 } from '../modules/construction/master-data.js';
 import { clearTradeCache } from '../modules/construction/trades.js';
@@ -13,6 +14,7 @@ const PROJECT = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const OTHER_PROJECT = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 const SPACE = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 const SPACE_TWO = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+const WORK_ITEM = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
 const DS_PROJECTS = 'ds-projects';
 const DS_SPACES = 'ds-spaces';
 const DS_WORK_ITEMS = 'ds-work-items';
@@ -40,7 +42,7 @@ const schemas = {
   } },
 };
 
-function makeHarness({ spaceProject = PROJECT, secondSpaceProject = PROJECT, spaces = null, workItems = [] } = {}) {
+function makeHarness({ spaceProject = PROJECT, secondSpaceProject = PROJECT, workItemProject = PROJECT, spaces = null, workItems = [] } = {}) {
   const calls = [];
   let created = 0;
   const projectSpaces = spaces ?? [
@@ -98,6 +100,20 @@ function makeHarness({ spaceProject = PROJECT, secondSpaceProject = PROJECT, spa
           },
         };
       }
+      if (pathname === `/v1/pages/${encodeURIComponent(WORK_ITEM)}` && options.method === 'GET') {
+        return {
+          id: WORK_ITEM,
+          parent: { data_source_id: DS_WORK_ITEMS },
+          properties: {
+            '工項': { title: rt('301浴室水電配管') },
+            '專案': { relation: [{ id: workItemProject }] },
+            '空間': { relation: [{ id: SPACE }] },
+            '狀態': { select: { name: '未開始' } },
+            '預計開始': { date: { start: '2026-08-20' } },
+            '預計完成': { date: { start: '2026-08-24' } },
+          },
+        };
+      }
       if (pathname === `/v1/data_sources/${encodeURIComponent(DS_SPACES)}` && options.method === 'GET') return schemas[DS_SPACES];
       if (pathname === `/v1/data_sources/${encodeURIComponent(DS_WORK_ITEMS)}` && options.method === 'GET') return schemas[DS_WORK_ITEMS];
       if (pathname === `/v1/data_sources/${encodeURIComponent(DS_SPACES)}/query` && options.method === 'POST') {
@@ -125,6 +141,8 @@ function makeHarness({ spaceProject = PROJECT, secondSpaceProject = PROJECT, spa
         return { results: [], has_more: false };
       }
       if (pathname === `/v1/data_sources/${encodeURIComponent(DS_WORK_ITEMS)}` && options.method === 'PATCH') return { ok: true };
+      if (pathname === `/v1/pages/${encodeURIComponent(WORK_ITEM)}` && options.method === 'PATCH') return { id: WORK_ITEM };
+      if (pathname === `/v1/blocks/${encodeURIComponent(WORK_ITEM)}/children` && options.method === 'PATCH') return { ok: true };
       if (pathname === '/v1/pages' && options.method === 'POST') {
         created += 1;
         return { id: `created-${created}`, url: `https://notion.so/created-${created}` };
@@ -286,6 +304,75 @@ function responseCapture() {
 }
 
 {
+  const { deps, calls } = makeHarness();
+  const payload = JSON.stringify({
+    page: WORK_ITEM,
+    project: PROJECT,
+    name: '301浴室給排水配管',
+    status: '進行中',
+    plannedStart: '2026-08-21',
+    plannedEnd: '2026-08-26',
+  });
+  const req = Readable.from([Buffer.from(payload)]);
+  req.method = 'POST';
+  const res = responseCapture();
+  await handleDashboardRequest(
+    req,
+    res,
+    '/dashboard/api/work-item-edit',
+    new URL('https://am.example/dashboard/api/work-item-edit?tenant=engineering&scope=HZ'),
+    deps,
+  );
+  assert.equal(res.status, 200);
+  assert.equal(JSON.parse(res.body).status, '進行中');
+  const patch = calls.find((call) => call.pathname === `/v1/pages/${encodeURIComponent(WORK_ITEM)}` && call.options.method === 'PATCH');
+  assert.equal(patch.options.body.properties['工項'].title[0].text.content, '301浴室給排水配管');
+  assert.equal(patch.options.body.properties['預計完成'].date.start, '2026-08-26');
+  assert.ok(calls.some((call) => call.pathname === `/v1/blocks/${encodeURIComponent(WORK_ITEM)}/children` && call.options.method === 'PATCH'));
+}
+
+{
+  const { deps, calls } = makeHarness({ workItemProject: OTHER_PROJECT });
+  await assert.rejects(() => editDashboardWorkItem(deps, new Set(['HZ']), {
+    page: WORK_ITEM,
+    project: PROJECT,
+    name: '跨案修改',
+    status: '進行中',
+    plannedStart: '2026-08-21',
+    plannedEnd: '2026-08-26',
+  }), /所選工項不屬於目前案件/);
+  assert.equal(calls.filter((call) => call.pathname === `/v1/pages/${encodeURIComponent(WORK_ITEM)}` && call.options.method === 'PATCH').length, 0);
+}
+
+{
+  const ganttItem = {
+    id: WORK_ITEM,
+    properties: {
+      '工項': { title: rt('301浴室水電配管') },
+      '專案': { relation: [{ id: PROJECT }] },
+      '空間': { relation: [{ id: SPACE }] },
+      '工種': { select: { name: '水電' } },
+      '狀態': { select: { name: '未開始' } },
+      '預計開始': { date: { start: '2026-08-20' } },
+      '預計完成': { date: { start: '2026-08-24' } },
+    },
+  };
+  const { deps } = makeHarness({ workItems: [ganttItem] });
+  const req = Readable.from([]);
+  req.method = 'GET';
+  const res = responseCapture();
+  await handleDashboardRequest(
+    req,
+    res,
+    '/dashboard/api/gantt',
+    new URL(`https://am.example/dashboard/api/gantt?tenant=engineering&scope=HZ&project=${PROJECT}`),
+    deps,
+  );
+  assert.equal(res.status, 200);
+  assert.equal(JSON.parse(res.body).rows[0].id, WORK_ITEM);
+}
+
+{
   const { deps } = makeHarness();
   const req = Readable.from([]);
   req.method = 'GET';
@@ -318,6 +405,9 @@ function responseCapture() {
   assert.match(res.body, /input\[name="mSpace"\]:checked/);
   assert.match(res.body, /class="notion-link"/);
   assert.match(res.body, /onclick="event\.stopPropagation\(\)"/);
+  assert.match(res.body, /openGanttEditor/);
+  assert.match(res.body, /work-item-edit/);
+  assert.match(res.body, /點工項標題或時間長條即可編輯/);
 }
 
 {
@@ -337,4 +427,4 @@ function responseCapture() {
   assert.match(JSON.parse(res.body).error, /管理權限/);
 }
 
-console.log(JSON.stringify({ ok: true, checks: 11, writes: ['space', 'trade', 'multiSpaceWorkItems'], projectNotionLinks: true, isolation: true }));
+console.log(JSON.stringify({ ok: true, checks: 14, writes: ['space', 'trade', 'multiSpaceWorkItems', 'ganttWorkItemEdit'], projectNotionLinks: true, isolation: true }));

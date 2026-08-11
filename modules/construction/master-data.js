@@ -262,4 +262,56 @@ export async function createDashboardWorkItem(deps, scope, input = {}) {
   };
 }
 
+export async function editDashboardWorkItem(deps, scope, input = {}) {
+  const projectId = clean(input.project, 80);
+  const pageId = clean(input.page, 80);
+  const name = requiredText(input.name, '工項名稱');
+  const status = clean(input.status, 30) || '未開始';
+  if (!WORK_ITEM_STATUSES.has(status)) throw publicError(400, '工項狀態不正確');
+  const start = dateOnly(input.plannedStart, '預計開始日');
+  const end = dateOnly(input.plannedEnd, '預計完成日');
+  if (start > end) throw publicError(400, '預計完成日不可早於預計開始日');
+
+  await assertManagedProject(deps, scope, projectId);
+  const [target, schema, existing] = await Promise.all([
+    ownedPage(deps, pageId, deps.dataSources?.workItems, '工項'),
+    dataSourceSchema(deps, 'workItems', '工項'),
+    queryAll(deps, deps.dataSources.workItems, { property: '專案', relation: { contains: projectId } }),
+  ]);
+  const targetProjectId = target.properties?.['專案']?.relation?.[0]?.id || '';
+  if (!sameId(targetProjectId, projectId)) throw publicError(400, '所選工項不屬於目前案件');
+
+  requireProperty(schema, '工項', 'title');
+  requireProperty(schema, '專案', 'relation');
+  requireProperty(schema, '空間', 'relation');
+  requireProperty(schema, '狀態', 'select');
+  requireProperty(schema, '預計開始', 'date');
+  requireProperty(schema, '預計完成', 'date');
+
+  const targetSpaceId = target.properties?.['空間']?.relation?.[0]?.id || '';
+  const duplicate = existing.some((page) => {
+    if (sameId(page.id, pageId)) return false;
+    const sameName = plain(page.properties?.['工項']?.title).localeCompare(name, 'zh-Hant', { sensitivity: 'accent' }) === 0;
+    const existingSpaceId = page.properties?.['空間']?.relation?.[0]?.id || '';
+    const sameSpace = targetSpaceId ? sameId(existingSpaceId, targetSpaceId) : !existingSpaceId;
+    return sameName && sameSpace;
+  });
+  if (duplicate) throw publicError(409, `此空間已經有「${name}」工項`);
+
+  await deps.notionRequest(`/v1/pages/${encodeURIComponent(pageId)}`, {
+    method: 'PATCH',
+    body: { properties: {
+      '工項': { title: textFrag(name) },
+      '狀態': { select: { name: status } },
+      '預計開始': { date: { start } },
+      '預計完成': { date: { start: end } },
+    } },
+  });
+  await deps.notionRequest(`/v1/blocks/${encodeURIComponent(pageId)}/children`, {
+    method: 'PATCH',
+    body: { children: auditChildren(deps.actor, `編輯工項：${name}；預計 ${start} 至 ${end}；狀態：${status}`) },
+  }).catch(() => {});
+  return { ok: true, id: pageId, name, start, end, status };
+}
+
 export const __test = { clean, dateOnly, safeSelectOptions, selectedSpaceIds };
