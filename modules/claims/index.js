@@ -10,11 +10,12 @@ const MAX_BODY_BYTES = 16 * 1024 * 1024;
 const COMMANDS = new Set(['請款', '我要請款', '請款按鈕', '開啟請款', '#請款']);
 const EVENT_STATUSES = new Set([
   'submitted', 'supplement_requested', 'approved', 'rejected', 'awaiting_payment',
-  'payment_processing', 'partially_paid', 'paid', 'cancelled',
+  'payment_processing', 'bank_review_approved', 'partially_paid', 'paid', 'cancelled',
 ]);
 const SAFE_EVENT_FIELDS = new Set([
   'eventId', 'tenantKey', 'tenantId', 'bindingId', 'claimId', 'claimNumber', 'status',
   'amount', 'currency', 'occurredAt', 'reasonCode', 'paymentReference', 'paidAt',
+  'claimTitle', 'expectedDisbursementDate',
 ]);
 const CLAIM_TYPE_LABELS = new Map([
   ['labor_health_insurance', '勞健保費用'],
@@ -828,12 +829,22 @@ function normalizeClaimEvent(body, tenant) {
   const paidAt = cleanText(body.paidAt, 64);
   const paymentReference = cleanText(body.paymentReference, 80);
   const reasonCode = cleanText(body.reasonCode, 80);
+  const claimTitle = cleanText(body.claimTitle, 240);
+  const expectedDisbursementDate = cleanText(body.expectedDisbursementDate, 10);
+  const expectedDisbursementTimestamp = Date.parse(`${expectedDisbursementDate}T00:00:00Z`);
   if (!/^[A-Za-z0-9:_-]{8,160}$/.test(eventId) || tenantKey !== tenant.key || tenantId !== cleanText(tenant.tenantId, 120)
     || !/^[a-f0-9]{32}$/.test(bindingId) || !EVENT_STATUSES.has(status) || !claimId || !claimNumber
-    || amountValue === null || currency !== 'TWD' || (occurredAt && Number.isNaN(Date.parse(occurredAt))) || (paidAt && Number.isNaN(Date.parse(paidAt)))) {
+    || amountValue === null || currency !== 'TWD' || (occurredAt && Number.isNaN(Date.parse(occurredAt))) || (paidAt && Number.isNaN(Date.parse(paidAt)))
+    || (expectedDisbursementDate && (!/^\d{4}-\d{2}-\d{2}$/.test(expectedDisbursementDate)
+      || Number.isNaN(expectedDisbursementTimestamp)
+      || new Date(expectedDisbursementTimestamp).toISOString().slice(0, 10) !== expectedDisbursementDate))) {
     throw Object.assign(new Error('Invalid claim event payload.'), { statusCode: 400 });
   }
-  return { eventId, tenantKey, tenantId, bindingId, claimId, claimNumber, status, amount: amountValue, currency, occurredAt, paidAt, paymentReference, reasonCode };
+  return {
+    eventId, tenantKey, tenantId, bindingId, claimId, claimNumber, status,
+    amount: amountValue, currency, occurredAt, paidAt, paymentReference, reasonCode,
+    claimTitle, expectedDisbursementDate,
+  };
 }
 
 function eventMessage(event) {
@@ -847,6 +858,7 @@ function eventMessage(event) {
     rejected: `${subject} 未核准\n狀態：已退回${suffix}`,
     awaiting_payment: `${subject} 已列入應付款\n狀態：待付款${suffix}`,
     payment_processing: `${subject} 正在付款處理\n狀態：付款處理中${suffix}`,
+    bank_review_approved: `${subject} 網銀審核已通過\n名目：${event.claimTitle || '未填寫'}\n審核通過金額：${value}\n預計放款：${event.expectedDisbursementDate || '尚未排定（待銀行最終放行後，以網銀實際入帳時間為準）'}\n狀態：審核完成，尚未放行\n提醒：本通知不代表款項已實際放行或入帳。`,
     partially_paid: `${subject} 已部分付款\n狀態：部分付款${suffix}`,
     paid: `${subject} 已完成付款\n付款金額：${value}\n狀態：已付款`,
     cancelled: `${subject} 已取消\n狀態：已取消${suffix}`,
