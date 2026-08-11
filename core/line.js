@@ -213,6 +213,10 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
         substitution: { who: { type: 'mention', mentionee: { type: 'user', userId: mention.userId } } },
       };
     }
+    const additionalMessages = (Array.isArray(delivery.additionalMessages) ? delivery.additionalMessages : [])
+      .filter((item) => item && typeof item === 'object' && !Array.isArray(item) && item.type)
+      .slice(0, 4);
+    const messages = [message, ...additionalMessages].slice(0, 5);
     const retryKey = normalizeLineRetryKey(delivery.retryKey);
     const timeoutMs = Math.max(10, Number(delivery.timeoutMs || pushTimeoutMs) || 8000);
     const startedAt = Date.now();
@@ -227,7 +231,7 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
           'Content-Type': 'application/json',
           'X-Line-Retry-Key': retryKey,
         },
-        body: JSON.stringify({ to, messages: [message] }),
+        body: JSON.stringify({ to, messages }),
         signal: controller.signal,
       });
       const responseText = await response.text();

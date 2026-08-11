@@ -85,7 +85,15 @@ assert.equal(pushCalls.length, 0);
 
 res = await call(rentalRoute, {
   headers: { 'x-hozo-rental-key': 'rental-only-key' },
-  body: { message: 'rental production message', retryKey: 'retry-1', timeoutMs: 1000 },
+  body: {
+    message: 'rental production message',
+    retryKey: 'retry-1',
+    timeoutMs: 1000,
+    imageUrls: [
+      'https://rental.hozorental.com/api/finance/bank-payment-draft-artifacts?file=one.png&share=abc',
+      'http://insecure.example.test/two.png',
+    ],
+  },
 });
 assert.equal(res.status, 200);
 assert.equal(res.payload.ok, true);
@@ -94,6 +102,12 @@ assert.equal(pushCalls.length, 1);
 assert.equal(pushCalls[0].to, HOZO_GROUP_ID);
 assert.equal(pushCalls[0].text, 'rental production message');
 assert.equal(pushCalls[0].delivery.retryKey, 'retry-1');
+assert.equal(res.payload.imageCount, 1);
+assert.deepEqual(pushCalls[0].delivery.additionalMessages, [{
+  type: 'image',
+  originalContentUrl: 'https://rental.hozorental.com/api/finance/bank-payment-draft-artifacts?file=one.png&share=abc',
+  previewImageUrl: 'https://rental.hozorental.com/api/finance/bank-payment-draft-artifacts?file=one.png&share=abc',
+}]);
 
 res = await call(controlRoute, {
   headers: { authorization: 'Bearer rental-only-key' },
