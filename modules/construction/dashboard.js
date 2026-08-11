@@ -7,6 +7,12 @@
 
 import { plain, sameId, queryAll, pageName, sendJson, readJsonBody, parseScope, assertProjectInScope } from './common.js';
 import { SOP_STAGES } from './sop.js';
+import {
+  createDashboardSpace,
+  createDashboardTrade,
+  createDashboardWorkItem,
+  dashboardSetupOptions,
+} from './master-data.js';
 
 // 沿用 BuildAM 原簽名 handler(req,res,pathname,url,deps);budget/contract/scope 由 webRoute 注入 URL。
 export async function handleDashboardRequest(req, res, pathname, url, deps) {
@@ -46,6 +52,18 @@ export async function handleDashboardRequest(req, res, pathname, url, deps) {
       await assertProjectInScope(deps, scope, projectId);
       return sendJson(res, 200, await buildGantt(deps, projectId));
     }
+    if (req.method === 'GET' && pathname === '/dashboard/api/setup-options') {
+      return sendJson(res, 200, await dashboardSetupOptions(deps, scope, url.searchParams.get('project')));
+    }
+    if (req.method === 'POST' && pathname === '/dashboard/api/spaces') {
+      return sendJson(res, 201, await createDashboardSpace(deps, scope, await readJsonBody(req)));
+    }
+    if (req.method === 'POST' && pathname === '/dashboard/api/trades') {
+      return sendJson(res, 201, await createDashboardTrade(deps, await readJsonBody(req)));
+    }
+    if (req.method === 'POST' && pathname === '/dashboard/api/work-items') {
+      return sendJson(res, 201, await createDashboardWorkItem(deps, scope, await readJsonBody(req)));
+    }
     if (req.method === 'POST' && pathname === '/dashboard/api/doc-edit') {
       return sendJson(res, 200, await editDocField(deps, await readJsonBody(req), canBudget));
     }
@@ -69,8 +87,8 @@ export async function handleDashboardRequest(req, res, pathname, url, deps) {
     }
     return sendJson(res, 404, { error: 'Not found' });
   } catch (error) {
-    console.error('Dashboard error:', error);
-    return sendJson(res, 500, { error: error.message });
+    if (!error.statusCode || error.statusCode >= 500) console.error('Dashboard error:', error);
+    return sendJson(res, error.statusCode || 500, { error: error.message });
   }
 }
 
@@ -395,6 +413,21 @@ function renderDashboardPage(tenantKey, canBudget, canContract) {
   .gbar.b-進行中 { background:#e3b93f; }
   .gbar.b-待複驗 { background:#7c9bd6; }
   .gbar.b-完成 { background:#2e7d52; }
+  .managebar { background:#fff; border:1px solid var(--line); border-radius:12px; padding:10px 12px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .managebar strong { color:var(--green); margin-right:auto; font-size:14px; }
+  .managebar button,.manage-primary,.manage-secondary { border-radius:8px; padding:8px 12px; font-size:13px; cursor:pointer; }
+  .managebar button,.manage-primary { border:1px solid var(--green); background:var(--green); color:#fff; }
+  .managebar button.secondary,.manage-secondary { border:1px solid var(--line); background:#fff; color:#22302a; }
+  #manageBg { display:none; position:fixed; inset:0; background:rgba(20,30,25,.5); z-index:30; }
+  #manageModal { display:none; position:fixed; z-index:31; left:50%; top:50%; transform:translate(-50%,-50%); width:min(520px,94vw); max-height:88vh; overflow-y:auto; background:#fff; border-radius:16px; padding:18px; }
+  #manageModal h2 { font-size:17px; color:var(--green); margin:0 28px 12px 0; }
+  #manageModal .close { position:absolute; top:10px; right:12px; border:none; background:#eef2f0; border-radius:8px; padding:6px 10px; }
+  #manageModal label { display:block; font-size:13px; color:var(--dim); margin-top:10px; }
+  #manageModal input,#manageModal select { width:100%; margin-top:4px; padding:9px 10px; border:1px solid var(--line); border-radius:8px; font:inherit; background:#fff; color:#22302a; }
+  #manageModal .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  #manageModal .actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+  #manageModal .hint { color:var(--dim); font-size:12px; line-height:1.6; margin-top:8px; }
+  @media (max-width:560px) { #manageModal .grid2 { grid-template-columns:1fr; gap:0; } }
 </style>
 </head>
 <body>
@@ -403,11 +436,18 @@ function renderDashboardPage(tenantKey, canBudget, canContract) {
 <div class="section" id="detail"></div>
 <div id="modalBg" onclick="closeDoc()"></div>
 <div id="modal"><button class="close" onclick="closeDoc()">✕</button><div id="modalBody"></div></div>
+<div id="manageBg" onclick="closeManager()"></div>
+<div id="manageModal"><button class="close" onclick="closeManager()">✕</button><div id="manageBody"></div></div>
 <script>
 const TENANT = ${JSON.stringify(tenantKey)};
-async function api(path) {
+async function api(path, options = {}) {
   const sep = path.includes('?') ? '&' : '?';
-  const r = await fetch('/dashboard/api/' + path + sep + 'tenant=' + encodeURIComponent(TENANT));
+  const config = Object.assign({}, options);
+  if (config.body && typeof config.body !== 'string') {
+    config.headers = Object.assign({'Content-Type':'application/json'}, config.headers || {});
+    config.body = JSON.stringify(config.body);
+  }
+  const r = await fetch('/dashboard/api/' + path + sep + 'tenant=' + encodeURIComponent(TENANT), config);
   const j = await r.json();
   if (!r.ok) throw new Error(j.error || r.status);
   return j;
@@ -418,6 +458,8 @@ function daysTo(d) {
   return Math.round((new Date(d) - new Date(new Date().toISOString().slice(0,10))) / 86400000);
 }
 let summary = [];
+let currentProjectId = '';
+let currentSetup = { spaces: [], trades: [] };
 async function loadSummary() {
   const data = await api('summary');
   summary = data.cards;
@@ -442,10 +484,15 @@ async function loadSummary() {
   if (summary.length) openProject(summary[0].id);
 }
 async function openProject(id) {
+  currentProjectId = id;
   summary.forEach(c => document.getElementById('pc-' + c.id)?.classList.toggle('active', c.id === id));
   const el = document.getElementById('detail');
   el.innerHTML = '<div class="empty">載入專案明細…</div>';
-  const d = await api('project?project=' + id);
+  const [d, setup] = await Promise.all([
+    api('project?project=' + id),
+    api('setup-options?project=' + id).catch(() => ({ spaces: [], trades: [] })),
+  ]);
+  currentSetup = setup;
   const tickets = d.openTickets.length ? d.openTickets.map(t => \`
     <div class="tcard"><b>\${esc(t.number)}</b> \${t.level?'['+esc(t.level.slice(0,1))+'級]':''} \${esc(t.status)}
       \${t.overdue?'<span class="red">逾期</span>':''} ・ 期限 \${esc(t.deadline||'未設')}
@@ -489,6 +536,11 @@ async function openProject(id) {
     : '<div class="empty">此專案尚未建立行事曆</div>';
 
   el.innerHTML = \`
+    <div class="managebar"><strong>專案規劃設定</strong>
+      <button class="secondary" onclick="openManager('space')">＋ 新增空間</button>
+      <button class="secondary" onclick="openManager('trade')">＋ 新增工種</button>
+      <button onclick="openManager('workItem')">＋ 新增工項</button>
+    </div>
     <h3>專案行事曆(會議與行程,可訂閱同步手機)</h3>\${calendar}
     <h3>甘特圖(預計時程,依會議修正)</h3><div id="ganttArea"><div class="empty">載入中…</div></div>
     <h3>待辦任務(\${d.tasks.length})</h3>\${tasks}
@@ -499,6 +551,89 @@ async function openProject(id) {
     <h3>照片瀏覽(選空間看時間軸)</h3><div class="spaces">\${spacesBtns}</div>
     <div class="photos" id="photoArea"></div>\`;
   loadGantt(id).catch(() => {});
+}
+function managerField(label, control, hint) {
+  return '<label>' + esc(label) + control + (hint ? '<div class="hint">' + esc(hint) + '</div>' : '') + '</label>';
+}
+function managerActions() {
+  return '<div class="actions"><button type="button" class="manage-secondary" onclick="closeManager()">取消</button>'
+    + '<button id="manageSave" type="submit" class="manage-primary">儲存至 Notion</button></div>';
+}
+function openManager(kind) {
+  if (!currentProjectId) return;
+  window.currentManagerKind = kind;
+  const body = document.getElementById('manageBody');
+  let html = '';
+  if (kind === 'space') {
+    html = '<h2>新增空間</h2><form id="managementForm" onsubmit="submitManager(event)">'
+      + managerField('空間名稱 *','<input id="mName" maxlength="100" required placeholder="例如：3F-301浴室">')
+      + '<div class="grid2">'
+      + managerField('區／棟或樓層','<input id="mZone" maxlength="100" placeholder="例如：3F">')
+      + managerField('空間類型','<input id="mType" list="spaceTypeList" maxlength="50" placeholder="客房／公區／機房／外部"><datalist id="spaceTypeList"><option value="客房"><option value="公區"><option value="機房"><option value="外部"></datalist>')
+      + '</div>'
+      + managerField('別名','<input id="mAlias" maxlength="500" placeholder="例如：301房、三樓A房">','供 LINE 訊息與照片自動辨識使用，可用逗號分隔。')
+      + managerActions() + '</form>';
+  } else if (kind === 'trade') {
+    html = '<h2>新增工種</h2><form id="managementForm" onsubmit="submitManager(event)">'
+      + managerField('工種名稱 *','<input id="mName" maxlength="50" required placeholder="例如：空調">','新增後會成為此工程租戶所有案件可選用的工種。')
+      + managerActions() + '</form>';
+  } else {
+    const spaces = currentSetup.spaces.map(s => '<option value="' + esc(s.id) + '">' + esc(s.name) + (s.zone ? '（' + esc(s.zone) + '）' : '') + '</option>').join('');
+    const trades = currentSetup.trades.map(t => '<option value="' + esc(t) + '">' + esc(t) + '</option>').join('');
+    html = '<h2>新增工項</h2><form id="managementForm" onsubmit="submitManager(event)">'
+      + managerField('工項名稱 *','<input id="mName" maxlength="100" required placeholder="例如：301浴室水電配管">')
+      + '<div class="grid2">'
+      + managerField('空間 *','<select id="mSpace" required><option value="">請選擇空間</option>' + spaces + '</select>')
+      + managerField('工種 *','<select id="mTrade" required><option value="">請選擇工種</option>' + trades + '</select>')
+      + '</div><div class="grid2">'
+      + managerField('預計開始 *','<input id="mStart" type="date" required>')
+      + managerField('預計完成 *','<input id="mEnd" type="date" required>')
+      + '</div><div class="grid2">'
+      + managerField('狀態','<select id="mStatus"><option>未開始</option><option>進行中</option><option>待複驗</option><option>完成</option></select>')
+      + managerField('負責工班','<input id="mContractor" maxlength="200" placeholder="工班或負責人">')
+      + '</div><div class="hint">工項儲存後會立即出現在甘特圖與空間 × 工種矩陣。</div>'
+      + managerActions() + '</form>';
+  }
+  body.innerHTML = html;
+  document.getElementById('manageBg').style.display = 'block';
+  document.getElementById('manageModal').style.display = 'block';
+  document.getElementById('mName')?.focus();
+}
+function closeManager() {
+  document.getElementById('manageBg').style.display = 'none';
+  document.getElementById('manageModal').style.display = 'none';
+}
+async function submitManager(event) {
+  event.preventDefault();
+  const kind = window.currentManagerKind;
+  const save = document.getElementById('manageSave');
+  save.disabled = true;
+  save.textContent = '儲存中…';
+  let result;
+  try {
+    let path;
+    let body;
+    if (kind === 'space') {
+      path = 'spaces';
+      body = { project:currentProjectId, name:document.getElementById('mName').value, zone:document.getElementById('mZone').value, type:document.getElementById('mType').value, alias:document.getElementById('mAlias').value };
+    } else if (kind === 'trade') {
+      path = 'trades';
+      body = { name:document.getElementById('mName').value };
+    } else {
+      path = 'work-items';
+      body = { project:currentProjectId, name:document.getElementById('mName').value, space:document.getElementById('mSpace').value, trade:document.getElementById('mTrade').value, plannedStart:document.getElementById('mStart').value, plannedEnd:document.getElementById('mEnd').value, status:document.getElementById('mStatus').value, contractor:document.getElementById('mContractor').value };
+    }
+    result = await api(path, { method:'POST', body });
+  } catch (e) {
+    alert('儲存失敗：' + e.message);
+    save.disabled = false;
+    save.textContent = '儲存至 Notion';
+    return;
+  }
+  closeManager();
+  alert(result.existed ? '這個工種已經存在，可以直接使用。' : '已儲存至 Notion。');
+  try { await openProject(currentProjectId); }
+  catch (e) { alert('已儲存至 Notion，但畫面刷新失敗：' + e.message); }
 }
 async function openDoc(pageId) {
   document.getElementById('modalBg').style.display = 'block';
