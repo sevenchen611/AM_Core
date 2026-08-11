@@ -11,6 +11,7 @@ import {
   createDashboardSpace,
   createDashboardTrade,
   createDashboardWorkItem,
+  editDashboardWorkItem,
   dashboardSetupOptions,
 } from './master-data.js';
 
@@ -63,6 +64,9 @@ export async function handleDashboardRequest(req, res, pathname, url, deps) {
     }
     if (req.method === 'POST' && pathname === '/dashboard/api/work-items') {
       return sendJson(res, 201, await createDashboardWorkItem(deps, scope, await readJsonBody(req)));
+    }
+    if (req.method === 'POST' && pathname === '/dashboard/api/work-item-edit') {
+      return sendJson(res, 200, await editDashboardWorkItem(deps, scope, await readJsonBody(req)));
     }
     if (req.method === 'POST' && pathname === '/dashboard/api/doc-edit') {
       return sendJson(res, 200, await editDocField(deps, await readJsonBody(req), canBudget));
@@ -329,6 +333,7 @@ async function buildGantt(deps, projectId) {
     if (!start || !end) continue;
     const spaceId = p['空間']?.relation?.[0]?.id || '';
     rows.push({
+      id: w.id,
       name: plain(p['工項']?.title),
       space: spaceId ? await pageName(deps, spaceId) : '',
       trade: p['工種']?.select?.name || '',
@@ -412,9 +417,11 @@ function renderDashboardPage(tenantKey, canBudget, canContract) {
   .gmonths { position:relative; height:18px; font-size:11px; color:var(--dim); min-width:560px; }
   .gmonths span { position:absolute; border-left:1px solid var(--line); padding-left:3px; }
   .grow { display:flex; align-items:center; min-width:560px; }
-  .glabel { width:150px; flex:none; font-size:12px; padding:3px 6px 3px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .glabel { width:150px; flex:none; font-size:12px; padding:3px 6px 3px 0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; border:0; background:transparent; color:inherit; text-align:left; cursor:pointer; }
+  .glabel:hover { color:var(--green); text-decoration:underline; }
   .gtrack { position:relative; flex:1; height:20px; border-left:1px solid var(--line); }
-  .gbar { position:absolute; top:3px; height:14px; border-radius:7px; background:#c9d8d0; }
+  .gbar { position:absolute; top:3px; height:14px; border:0; border-radius:7px; background:#c9d8d0; cursor:pointer; }
+  .gbar:hover,.gbar:focus-visible { outline:2px solid var(--green); outline-offset:1px; }
   .gbar.b-進行中 { background:#e3b93f; }
   .gbar.b-待複驗 { background:#7c9bd6; }
   .gbar.b-完成 { background:#2e7d52; }
@@ -590,7 +597,7 @@ function openManager(kind) {
     html = '<h2>新增工種</h2><form id="managementForm" onsubmit="submitManager(event)">'
       + managerField('工種名稱 *','<input id="mName" maxlength="50" required placeholder="例如：空調">','新增後會成為此工程租戶所有案件可選用的工種。')
       + managerActions() + '</form>';
-  } else {
+  } else if (kind === 'workItem') {
     const spaces = currentSetup.spaces.map(s => '<label class="space-option"><input type="checkbox" name="mSpace" value="' + esc(s.id) + '"><span>' + esc(s.name) + (s.zone ? '（' + esc(s.zone) + '）' : '') + '</span></label>').join('');
     const trades = currentSetup.trades.map(t => '<option value="' + esc(t) + '">' + esc(t) + '</option>').join('');
     html = '<h2>新增工項</h2><form id="managementForm" onsubmit="submitManager(event)">'
@@ -607,6 +614,20 @@ function openManager(kind) {
       + managerField('狀態','<select id="mStatus"><option>未開始</option><option>進行中</option><option>待複驗</option><option>完成</option></select>')
       + managerField('負責工班','<input id="mContractor" maxlength="200" placeholder="工班或負責人">')
       + '</div><div class="hint">工項儲存後會立即出現在甘特圖與空間 × 工種矩陣。</div>'
+      + managerActions() + '</form>';
+  } else {
+    const item = window.currentEditingWorkItem;
+    if (!item) return;
+    const statuses = ['未開始','進行中','待複驗','完成'].map(status => '<option' + (status === item.status ? ' selected' : '') + '>' + status + '</option>').join('');
+    html = '<h2>編輯甘特圖工項</h2><form id="managementForm" onsubmit="submitManager(event)">'
+      + managerField('工項名稱 *','<input id="mName" maxlength="100" required value="' + esc(item.name) + '">')
+      + '<div class="hint">空間：' + esc(item.space || '未分空間') + (item.trade ? '　工種：' + esc(item.trade) : '') + '</div>'
+      + '<div class="grid2">'
+      + managerField('預計開始 *','<input id="mStart" type="date" required value="' + esc(item.start) + '">')
+      + managerField('預計完成 *','<input id="mEnd" type="date" required value="' + esc(item.end) + '">')
+      + '</div>'
+      + managerField('狀態','<select id="mStatus">' + statuses + '</select>')
+      + '<div class="hint">儲存後會寫回 Notion，並立即更新甘特圖與空間 × 工種矩陣。</div>'
       + managerActions() + '</form>';
   }
   body.innerHTML = html;
@@ -637,11 +658,14 @@ async function submitManager(event) {
     } else if (kind === 'trade') {
       path = 'trades';
       body = { name:document.getElementById('mName').value };
-    } else {
+    } else if (kind === 'workItem') {
       const spaces = [...document.querySelectorAll('input[name="mSpace"]:checked')].map(input => input.value);
       if (!spaces.length) throw new Error('請至少選擇一個施作空間');
       path = 'work-items';
       body = { project:currentProjectId, name:document.getElementById('mName').value, spaces, trade:document.getElementById('mTrade').value, plannedStart:document.getElementById('mStart').value, plannedEnd:document.getElementById('mEnd').value, status:document.getElementById('mStatus').value, contractor:document.getElementById('mContractor').value };
+    } else {
+      path = 'work-item-edit';
+      body = { page:window.currentEditingWorkItem.id, project:currentProjectId, name:document.getElementById('mName').value, plannedStart:document.getElementById('mStart').value, plannedEnd:document.getElementById('mEnd').value, status:document.getElementById('mStatus').value };
     }
     result = await api(path, { method:'POST', body });
   } catch (e) {
@@ -653,6 +677,8 @@ async function submitManager(event) {
   closeManager();
   if (kind === 'workItem') {
     alert('已為 ' + result.createdCount + ' 個空間建立工項並儲存至 Notion。' + (result.skippedCount ? '另有 ' + result.skippedCount + ' 個空間已有同名工項，已自動略過。' : ''));
+  } else if (kind === 'workItemEdit') {
+    alert('工項與時程已更新至 Notion。');
   } else {
     alert(result.existed ? '這個工種已經存在，可以直接使用。' : '已儲存至 Notion。');
   }
@@ -727,6 +753,12 @@ async function toggleTodo(blockId, checked) {
     method: 'POST', body: JSON.stringify({ block: blockId, checked }),
   }).catch(() => {});
 }
+function openGanttEditor(pageId) {
+  const item = (window.ganttRows || []).find(row => row.id === pageId);
+  if (!item) return;
+  window.currentEditingWorkItem = item;
+  openManager('workItemEdit');
+}
 function closeDoc() {
   document.getElementById('modalBg').style.display = 'none';
   document.getElementById('modal').style.display = 'none';
@@ -734,6 +766,7 @@ function closeDoc() {
 async function loadGantt(projectId) {
   const el = document.getElementById('ganttArea');
   const d = await api('gantt?project=' + projectId);
+  window.ganttRows = d.rows;
   if (!d.rows.length) { el.innerHTML = '<div class="empty">工項尚無時程(填入預計開始/完成後顯示)</div>'; return; }
   const t0 = new Date(d.rows.reduce((a, r) => r.start < a ? r.start : a, d.rows[0].start)).getTime();
   const t1 = new Date(d.rows.reduce((a, r) => r.end > a ? r.end : a, d.rows[0].end)).getTime() + 86400000;
@@ -749,11 +782,11 @@ async function loadGantt(projectId) {
         const l = pct(r.start);
         const w = Math.max(pct(r.end) - l + (86400000 / (t1 - t0) * 100), 1.5);
         const label = r.name + (r.space ? '｜' + r.space : '');
-        return '<div class="grow"><div class="glabel" title="' + esc(label) + '">' + esc(label) + '</div><div class="gtrack">'
-          + '<div class="gbar b-' + esc(r.status) + '" style="left:' + l.toFixed(1) + '%;width:' + w.toFixed(1) + '%" title="' + r.start + '→' + r.end + (r.fee ? ' ' + (r.fee / 10000) + '萬' : '') + ' [' + r.status + ']"></div>'
+        return '<div class="grow"><button type="button" class="glabel" onclick="openGanttEditor(\'' + esc(r.id) + '\')" title="編輯 ' + esc(label) + '">' + esc(label) + '</button><div class="gtrack">'
+          + '<button type="button" class="gbar b-' + esc(r.status) + '" onclick="openGanttEditor(\'' + esc(r.id) + '\')" style="left:' + l.toFixed(1) + '%;width:' + w.toFixed(1) + '%" aria-label="編輯 ' + esc(label) + ' ' + r.start + ' 到 ' + r.end + '" title="點擊編輯｜' + r.start + '→' + r.end + (r.fee ? ' ' + (r.fee / 10000) + '萬' : '') + ' [' + r.status + ']"></button>'
           + '</div></div>';
       }).join('')
-    + '<div style="font-size:11px;color:var(--dim);margin-top:6px">灰=未開始 黃=進行中 藍=待複驗 綠=完成;點長條看日期與預算</div></div>';
+    + '<div style="font-size:11px;color:var(--dim);margin-top:6px">灰=未開始 黃=進行中 藍=待複驗 綠=完成；點工項標題或時間長條即可編輯</div></div>';
 }
 async function sopCheck(projectId, itemId, checked) {
   try {
