@@ -62,6 +62,7 @@ construction 拆 **三個 session**,**整合者 = 8A**:
   - `platform.listTrades`(queue 工種清單的取用把手)——`({tenant}) => 工種陣列`;非工程租戶容錯回 `[]`。
 - **routes**:`/dashboard`、`/budget`、`/contracts`、`/tickets`、`/tickets/api/*`,皆經內聯的 `webRoute`(core.portal 授權 → 重算並注入 budget/contract/scope → 委派子 handler `(req,res,pathname,url,deps)`)。
 - **儀表板主檔維護**:`/dashboard/api/spaces`、`/dashboard/api/trades`、`/dashboard/api/work-items` 直接寫入目前租戶的 Notion 主檔；寫入前重新驗證案件 scope、資料庫歸屬及空間－案件 relation。工項建立支援多空間勾選與全選，會為每個空間建立可獨立追蹤的 Notion 工項，略過既有同名工項，並在成功後立即刷新甘特圖與矩陣。工種寫入工項資料庫的 `工種` select schema，因此同一工程租戶的所有案件共用。
+- **專案 Notion 入口**:專案摘要 API 回傳各 Notion 專案頁自身的 `page.url`，每張工程專案卡片在名稱後方顯示 `Notion ↗`，另開原始頁且不觸發案件卡片切換。
 - **授權殼內聯於 `index.js`**(不依賴外部共用檔):`resolveAuth` 走 `core.portal`,權限鍵 per-tenant(`am-<tenant>-budget/-contract/-<館別代碼>`);`fullDeps(tenant)` 逐呼叫組出隔離 deps。
 
 ## ③ 已完成:AI 初判分類器 + 工程到期/擱置 pass(切 server.js)

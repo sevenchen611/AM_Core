@@ -16,6 +16,8 @@ const SPACE_TWO = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
 const DS_PROJECTS = 'ds-projects';
 const DS_SPACES = 'ds-spaces';
 const DS_WORK_ITEMS = 'ds-work-items';
+const DS_FEEDBACK_TICKETS = 'ds-feedback-tickets';
+const DS_CHANGE_ORDERS = 'ds-change-orders';
 
 const rt = (value) => [{ plain_text: value }];
 const schemas = {
@@ -60,7 +62,13 @@ function makeHarness({ spaceProject = PROJECT, secondSpaceProject = PROJECT, spa
   const deps = {
     tenantKey: `engineering-test-${Math.random()}`,
     actor: 'Seven',
-    dataSources: { projects: DS_PROJECTS, spaces: DS_SPACES, workItems: DS_WORK_ITEMS },
+    dataSources: {
+      projects: DS_PROJECTS,
+      spaces: DS_SPACES,
+      workItems: DS_WORK_ITEMS,
+      feedbackTickets: DS_FEEDBACK_TICKETS,
+      changeOrders: DS_CHANGE_ORDERS,
+    },
     async notionRequest(pathname, options = {}) {
       calls.push({ pathname, options });
       if (pathname === `/v1/pages/${encodeURIComponent(PROJECT)}` && options.method === 'GET') {
@@ -100,6 +108,21 @@ function makeHarness({ spaceProject = PROJECT, secondSpaceProject = PROJECT, spa
       }
       if (pathname === `/v1/data_sources/${encodeURIComponent(DS_WORK_ITEMS)}/query` && options.method === 'POST') {
         return { results: workItems, has_more: false };
+      }
+      if (pathname === `/v1/data_sources/${encodeURIComponent(DS_PROJECTS)}/query` && options.method === 'POST') {
+        return { results: [{
+          id: PROJECT,
+          url: 'https://www.notion.so/engineering-project-hz',
+          properties: {
+            '專案名稱': { title: rt('草悟道館') },
+            '館別代碼': { rich_text: rt('HZ') },
+            '狀態': { select: { name: '審圖' } },
+            '目標動工日': { date: null },
+          },
+        }], has_more: false };
+      }
+      if ([DS_FEEDBACK_TICKETS, DS_CHANGE_ORDERS].some((id) => pathname === `/v1/data_sources/${encodeURIComponent(id)}/query`) && options.method === 'POST') {
+        return { results: [], has_more: false };
       }
       if (pathname === `/v1/data_sources/${encodeURIComponent(DS_WORK_ITEMS)}` && options.method === 'PATCH') return { ok: true };
       if (pathname === '/v1/pages' && options.method === 'POST') {
@@ -270,6 +293,22 @@ function responseCapture() {
   await handleDashboardRequest(
     req,
     res,
+    '/dashboard/api/summary',
+    new URL('https://am.example/dashboard/api/summary?tenant=engineering&scope=HZ'),
+    deps,
+  );
+  assert.equal(res.status, 200);
+  assert.equal(JSON.parse(res.body).cards[0].notionUrl, 'https://www.notion.so/engineering-project-hz');
+}
+
+{
+  const { deps } = makeHarness();
+  const req = Readable.from([]);
+  req.method = 'GET';
+  const res = responseCapture();
+  await handleDashboardRequest(
+    req,
+    res,
     '/dashboard',
     new URL('https://am.example/dashboard?tenant=engineering&scope=HZ'),
     deps,
@@ -277,6 +316,8 @@ function responseCapture() {
   assert.equal(res.status, 200);
   assert.match(res.body, /全選所有空間/);
   assert.match(res.body, /input\[name="mSpace"\]:checked/);
+  assert.match(res.body, /class="notion-link"/);
+  assert.match(res.body, /onclick="event\.stopPropagation\(\)"/);
 }
 
 {
@@ -296,4 +337,4 @@ function responseCapture() {
   assert.match(JSON.parse(res.body).error, /管理權限/);
 }
 
-console.log(JSON.stringify({ ok: true, checks: 10, writes: ['space', 'trade', 'multiSpaceWorkItems'], isolation: true }));
+console.log(JSON.stringify({ ok: true, checks: 11, writes: ['space', 'trade', 'multiSpaceWorkItems'], projectNotionLinks: true, isolation: true }));
