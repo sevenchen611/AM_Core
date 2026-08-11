@@ -143,6 +143,25 @@ const event = __test.normalizeClaimEvent({
 }, tenant);
 assert.equal(event.status, 'paid');
 assert.match(__test.eventMessage(event), /CLM-202606-0001/);
+const bankReviewEvent = __test.normalizeClaimEvent({
+  eventId: 'bank-review-claim-001-12345678', tenantKey: tenant.key, tenantId: tenant.tenantId,
+  bindingId: session.bindingId, claimId: 'claim-001', claimNumber: 'CLM-202606-0001',
+  status: 'bank_review_approved', amount: 4627, currency: 'TWD',
+  claimTitle: '6 月份勞健保', expectedDisbursementDate: '2026-08-12',
+  occurredAt: '2026-08-11T10:00:00+08:00',
+}, tenant);
+const bankReviewMessage = __test.eventMessage(bankReviewEvent);
+assert.match(bankReviewMessage, /名目：6 月份勞健保/);
+assert.match(bankReviewMessage, /審核通過金額：NT\$4,627/);
+assert.match(bankReviewMessage, /預計放款：2026-08-12/);
+assert.match(bankReviewMessage, /尚未放行/);
+assert.match(bankReviewMessage, /不代表款項已實際放行或入帳/);
+assert.throws(() => __test.normalizeClaimEvent({ ...bankReviewEvent, expectedDisbursementDate: '2026-13-40' }, tenant));
+assert.throws(() => __test.normalizeClaimEvent({ ...bankReviewEvent, expectedDisbursementDate: '2026-02-30' }, tenant));
+const unscheduledBankReview = __test.normalizeClaimEvent({
+  ...bankReviewEvent, eventId: 'bank-review-claim-001-87654321', expectedDisbursementDate: '',
+}, tenant);
+assert.match(__test.eventMessage(unscheduledBankReview), /尚未排定（待銀行最終放行後，以網銀實際入帳時間為準）/);
 assert.throws(() => __test.normalizeClaimEvent({ ...event, text: '不允許的任意訊息' }, tenant));
 assert.throws(() => __test.normalizeClaimEvent({ ...event, groupId: 'C0123456789' }, tenant));
 

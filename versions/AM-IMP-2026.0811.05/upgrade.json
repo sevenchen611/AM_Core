@@ -1,0 +1,28 @@
+{
+  "id": "AM-IMP-2026.0811.05",
+  "name": "Claim bank-review source-group notice",
+  "type": "AM Platform / Claims / LINE notification",
+  "portable": true,
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
+  "dependencies": ["AM-IMP-2026.0804.01"],
+  "requiresDatabases": ["HOZO AM 2.0 active claim-enabled group bindings"],
+  "requiresEnv": ["<PREFIX>_RENTAL_EVENT_TOKEN"],
+  "requiresScripts": ["modules/claims/index.js", "tools/dryrun-claims.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The source LINE group is resolved only from the event's exact tenant-local claim binding; arbitrary group IDs and arbitrary message text remain rejected."
+  },
+  "definitionOfDone": [
+    "The claims event schema accepts the fixed bank_review_approved status and only its approved structured fields",
+    "The source-group message includes claim title, reviewed amount, and scheduled disbursement date or an explicit unplanned fallback",
+    "The message states that review approval is not final funds release or bank credit",
+    "Existing unsupported event fields and cross-tenant or inactive bindings remain rejected",
+    "Claims dry-run, syntax, package, and alignment checks pass",
+    "AM Platform production health confirms the claims module is loaded from the deployed commit"
+  ],
+  "projectStatus": { "AM_PLATFORM:hozo-am-2-0": "Ready" },
+  "status": "Ready"
+}
