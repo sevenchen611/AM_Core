@@ -1,0 +1,44 @@
+{
+  "id": "AM-IMP-2026.0811.01",
+  "name": "Engineering Dashboard Master Data Creation",
+  "type": "AM Platform / Construction dashboard / Notion master data",
+  "portable": true,
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "dependencies": ["AM-IMP-2026.0726.01", "AM-IMP-2026.0806.01"],
+  "requiresDatabases": [
+    "Engineering Projects",
+    "Engineering Spaces",
+    "Engineering Work Items"
+  ],
+  "requiresEnv": [
+    "NOTION_TOKEN",
+    "ENG_PROJECTS_DATA_SOURCE_ID",
+    "ENG_SPACES_DATA_SOURCE_ID",
+    "ENG_WORK_ITEMS_DATA_SOURCE_ID"
+  ],
+  "requiresScripts": [
+    "modules/construction/dashboard.js",
+    "modules/construction/master-data.js",
+    "tools/dryrun-construction-dashboard-management.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Every write uses tenant-locked notionRequest and revalidates the project data source, project scope, space data source, and space-project relation."
+  },
+  "definitionOfDone": [
+    "Every visible engineering project shows create Space, Trade, and Work Item controls",
+    "Created Spaces are related to the selected project in the tenant-local Notion data source",
+    "Created Trades persist as Work Items data-source select options and are available across that engineering tenant's projects",
+    "Created Work Items require project, space, trade, planned start, and planned end and appear in the Gantt and matrix after refresh",
+    "Cross-project space relations and out-of-scope project writes are rejected",
+    "Syntax, mock Notion write, package, and alignment verification pass",
+    "Production Render deployment and live Notion write proof are recorded before status becomes Deployed"
+  ],
+  "projectStatus": {
+    "AM_PLATFORM:engineering": "Ready"
+  },
+  "status": "Ready"
+}
