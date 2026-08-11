@@ -782,8 +782,8 @@ async function loadGantt(projectId) {
         const l = pct(r.start);
         const w = Math.max(pct(r.end) - l + (86400000 / (t1 - t0) * 100), 1.5);
         const label = r.name + (r.space ? '｜' + r.space : '');
-        return '<div class="grow"><button type="button" class="glabel" onclick="openGanttEditor(\\\'' + esc(r.id) + '\\\')" title="編輯 ' + esc(label) + '">' + esc(label) + '</button><div class="gtrack">'
-          + '<button type="button" class="gbar b-' + esc(r.status) + '" onclick="openGanttEditor(\\\'' + esc(r.id) + '\\\')" style="left:' + l.toFixed(1) + '%;width:' + w.toFixed(1) + '%" aria-label="編輯 ' + esc(label) + ' ' + r.start + ' 到 ' + r.end + '" title="點擊編輯｜' + r.start + '→' + r.end + (r.fee ? ' ' + (r.fee / 10000) + '萬' : '') + ' [' + r.status + ']"></button>'
+        return '<div class="grow"><button type="button" class="glabel" data-page="' + esc(r.id) + '" onclick="openGanttEditor(this.dataset.page)" title="編輯 ' + esc(label) + '">' + esc(label) + '</button><div class="gtrack">'
+          + '<button type="button" class="gbar b-' + esc(r.status) + '" data-page="' + esc(r.id) + '" onclick="openGanttEditor(this.dataset.page)" style="left:' + l.toFixed(1) + '%;width:' + w.toFixed(1) + '%" aria-label="編輯 ' + esc(label) + ' ' + r.start + ' 到 ' + r.end + '" title="點擊編輯｜' + r.start + '→' + r.end + (r.fee ? ' ' + (r.fee / 10000) + '萬' : '') + ' [' + r.status + ']"></button>'
           + '</div></div>';
       }).join('')
     + '<div style="font-size:11px;color:var(--dim);margin-top:6px">灰=未開始 黃=進行中 藍=待複驗 綠=完成；點工項標題或時間長條即可編輯</div></div>';
