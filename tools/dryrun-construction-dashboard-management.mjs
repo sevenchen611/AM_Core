@@ -408,6 +408,8 @@ function responseCapture() {
   assert.match(res.body, /openGanttEditor/);
   assert.match(res.body, /work-item-edit/);
   assert.match(res.body, /點工項標題或時間長條即可編輯/);
+  const clientScript = res.body.match(/<script>([\s\S]*?)<\/script>/)?.[1] || '';
+  assert.doesNotThrow(() => new Function(clientScript));
 }
 
 {
