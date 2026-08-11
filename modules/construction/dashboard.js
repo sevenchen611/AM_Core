@@ -108,6 +108,7 @@ async function buildSummary(deps) {
     ] });
     cards.push({
       id: projectId,
+      notionUrl: page.url || '',
       name: plain(p['專案名稱']?.title),
       code: plain(p['館別代碼']?.rich_text),
       status: p['狀態']?.select?.name || '',
@@ -366,8 +367,10 @@ function renderDashboardPage(tenantKey, canBudget, canContract) {
   .cards { display:flex; flex-wrap:wrap; gap:10px; padding:12px; }
   .pcard { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; flex:1 1 280px; cursor:pointer; }
   .pcard.active { border-color:var(--green); box-shadow:0 0 0 2px #2e7d5233; }
-  .pcard h2 { font-size:16px; display:flex; gap:8px; align-items:center; }
+  .pcard h2 { font-size:16px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   .pcard .chip { border-radius:20px; padding:2px 9px; font-size:12px; background:#eef2f0; }
+  .pcard .notion-link { margin-left:auto; color:#8a6d1a; background:#fff8d8; border:1px solid #efd974; border-radius:8px; padding:4px 9px; font-size:12px; font-weight:600; text-decoration:none; white-space:nowrap; }
+  .pcard .notion-link:hover { background:#ffef9e; }
   .stats { display:flex; gap:14px; margin-top:10px; flex-wrap:wrap; }
   .stat { text-align:center; min-width:56px; }
   .stat b { font-size:22px; display:block; }
@@ -480,7 +483,7 @@ async function loadSummary() {
   document.getElementById('cards').innerHTML = summary.map(c => {
     const dd = daysTo(c.startDate);
     return \`<div class="pcard" id="pc-\${c.id}" onclick="openProject('\${c.id}')">
-      <h2>\${esc(c.name)} <span class="chip">\${esc(c.code)}</span><span class="chip">\${esc(c.status)}</span></h2>
+      <h2>\${esc(c.name)} <span class="chip">\${esc(c.code)}</span><span class="chip">\${esc(c.status)}</span>\${c.notionUrl ? '<a class="notion-link" href="' + esc(c.notionUrl) + '" target="_blank" rel="noopener" onclick="event.stopPropagation()">Notion ↗</a>' : ''}</h2>
       <div style="font-size:12px;color:var(--dim);margin-top:4px">\${c.startDate ? '目標動工 ' + c.startDate + (dd!==null ? '(' + (dd>=0?'還有 '+dd+' 天':'已過 '+(-dd)+' 天') + ')' : '') : '未設目標動工日'}</div>
       <div class="stats">
         <div class="stat\${c.openCount?'':''}"><b>\${c.openCount}</b><span>未銷項</span></div>

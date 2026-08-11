@@ -1,0 +1,32 @@
+{
+  "id": "AM-IMP-2026.0811.03",
+  "name": "Engineering Project Notion Links",
+  "type": "AM Platform / Construction dashboard / Project navigation",
+  "portable": true,
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "dependencies": ["AM-IMP-2026.0811.01"],
+  "requiresDatabases": ["Engineering Projects"],
+  "requiresEnv": ["NOTION_TOKEN", "ENG_PROJECTS_DATA_SOURCE_ID"],
+  "requiresScripts": [
+    "modules/construction/dashboard.js",
+    "tools/dryrun-construction-dashboard-management.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Only the page.url returned with each project from the tenant-locked Projects data source is exposed on that scoped dashboard card."
+  },
+  "definitionOfDone": [
+    "Every visible engineering project card shows its own Notion link after the project name and chips",
+    "The summary API returns the project page URL without a hard-coded Notion ID",
+    "The link opens in a new tab with noopener isolation",
+    "Clicking the link does not trigger the project-card click handler",
+    "Projects without a URL do not render an empty link",
+    "Syntax, dashboard dry-run, package, and alignment verification pass",
+    "Production Render deployment and live project-card proof are recorded before status becomes Deployed"
+  ],
+  "projectStatus": { "AM_PLATFORM:engineering": "Ready" },
+  "status": "Ready"
+}
