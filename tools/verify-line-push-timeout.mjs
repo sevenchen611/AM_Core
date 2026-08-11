@@ -26,6 +26,19 @@ try {
   assert.deepEqual(receipt.messageIds, ['msg-123']);
   assert.ok(logs.some((line) => line.includes('requestId=req-123') && line.includes('messageIds=msg-123')));
 
+  await line.pushLineMessage('C_TEST', 'result text', undefined, {
+    retryKey: 'bank-draft-images',
+    additionalMessages: [{
+      type: 'image',
+      originalContentUrl: 'https://rental.hozorental.com/screenshot.png',
+      previewImageUrl: 'https://rental.hozorental.com/screenshot.png',
+    }],
+  });
+  const mixedMessages = JSON.parse(capturedOptions.body).messages;
+  assert.equal(mixedMessages.length, 2);
+  assert.equal(mixedMessages[0].type, 'text');
+  assert.equal(mixedMessages[1].type, 'image');
+
   await line.pushLineMessage('C_TEST', { type: 'flex', altText: '請款申請', contents: { type: 'bubble' } }, undefined, { retryKey: 'claim-button-flex' });
   const flexPushMessage = JSON.parse(capturedOptions.body).messages[0];
   assert.equal(flexPushMessage.type, 'flex');

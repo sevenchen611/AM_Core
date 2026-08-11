@@ -97,6 +97,20 @@ async function readJson(req) {
   }
 }
 
+function normalizeImageUrls(value) {
+  const urls = Array.isArray(value) ? value : [];
+  return [...new Set(urls.map((item) => String(item || '').trim()).filter(Boolean))]
+    .filter((item) => {
+      try {
+        const url = new URL(item);
+        return url.protocol === 'https:' && !url.username && !url.password && item.length <= 1800;
+      } catch {
+        return false;
+      }
+    })
+    .slice(0, 4);
+}
+
 async function resolveCompanyGroup(ctx) {
   const dataSourceId = ctx.tenant?.dataSources?.groupBindings;
   if (!dataSourceId) throw new Error('HOZO group bindings data source is not configured.');
@@ -129,6 +143,7 @@ async function pushToCompanyGroup(req, res, ctx, source = 'control') {
     const text = String(body.text || body.message || '').trim();
     if (!text) return sendJson(res, 400, { ok: false, error: 'Missing text.' });
     if (text.length > 4900) return sendJson(res, 400, { ok: false, error: 'Text is too long.' });
+    const imageUrls = normalizeImageUrls(body.imageUrls || body.image_urls);
 
     const target = await resolveCompanyGroup(ctx);
     if (body.dryRun === true) {
@@ -136,6 +151,7 @@ async function pushToCompanyGroup(req, res, ctx, source = 'control') {
         ok: true,
         dryRun: true,
         source,
+        imageCount: imageUrls.length,
         target: { name: target.name || 'HOZO company group', maskedId: maskLineId(target.groupId) },
       });
     }
@@ -143,10 +159,16 @@ async function pushToCompanyGroup(req, res, ctx, source = 'control') {
     const receipt = await platform.pushLineMessage(target.groupId, text, undefined, {
       retryKey: body.retryKey || crypto.randomUUID(),
       timeoutMs: body.timeoutMs,
+      additionalMessages: imageUrls.map((url) => ({
+        type: 'image',
+        originalContentUrl: url,
+        previewImageUrl: url,
+      })),
     });
     return sendJson(res, 200, {
       ok: true,
       source,
+      imageCount: imageUrls.length,
       target: { name: target.name || 'HOZO company group', maskedId: maskLineId(target.groupId) },
       line: {
         status: receipt.status,
