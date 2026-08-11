@@ -1,0 +1,46 @@
+{
+  "id": "AM-IMP-2026.0811.02",
+  "name": "Multi-Space Work Item Creation",
+  "type": "AM Platform / Construction dashboard / Notion work items",
+  "portable": true,
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "dependencies": ["AM-IMP-2026.0811.01"],
+  "requiresDatabases": [
+    "Engineering Projects",
+    "Engineering Spaces",
+    "Engineering Work Items"
+  ],
+  "requiresEnv": [
+    "NOTION_TOKEN",
+    "ENG_PROJECTS_DATA_SOURCE_ID",
+    "ENG_SPACES_DATA_SOURCE_ID",
+    "ENG_WORK_ITEMS_DATA_SOURCE_ID"
+  ],
+  "requiresScripts": [
+    "modules/construction/dashboard.js",
+    "modules/construction/master-data.js",
+    "tools/dryrun-construction-dashboard-management.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Every selected space is loaded from the tenant-local Spaces data source and validated against the selected project before any Work Item is created."
+  },
+  "definitionOfDone": [
+    "The Work Item form supports selecting one, many, or all spaces in the current project",
+    "One Notion Work Item is created per selected space",
+    "All selected spaces are validated before the first write",
+    "Existing same-name work items in a selected space are skipped during retries",
+    "Single-space API payloads remain backward compatible",
+    "Gantt labels identify the related space for repeated work-item names",
+    "Gantt and space-by-trade matrix refresh after bulk creation",
+    "Syntax, mock Notion write, package, and alignment verification pass",
+    "Production Render deployment and live UI proof are recorded before status becomes Deployed"
+  ],
+  "projectStatus": {
+    "AM_PLATFORM:engineering": "Ready"
+  },
+  "status": "Ready"
+}

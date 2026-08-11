@@ -12,6 +12,7 @@ import { clearTradeCache } from '../modules/construction/trades.js';
 const PROJECT = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const OTHER_PROJECT = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
 const SPACE = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+const SPACE_TWO = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
 const DS_PROJECTS = 'ds-projects';
 const DS_SPACES = 'ds-spaces';
 const DS_WORK_ITEMS = 'ds-work-items';
@@ -37,9 +38,25 @@ const schemas = {
   } },
 };
 
-function makeHarness({ spaceProject = PROJECT, spaces = [] } = {}) {
+function makeHarness({ spaceProject = PROJECT, secondSpaceProject = PROJECT, spaces = null, workItems = [] } = {}) {
   const calls = [];
   let created = 0;
+  const projectSpaces = spaces ?? [
+    {
+      id: SPACE,
+      properties: {
+        '名稱': { title: rt('3F-301浴室') },
+        '專案': { relation: [{ id: spaceProject }] },
+      },
+    },
+    {
+      id: SPACE_TWO,
+      properties: {
+        '名稱': { title: rt('3F-302浴室') },
+        '專案': { relation: [{ id: secondSpaceProject }] },
+      },
+    },
+  ];
   const deps = {
     tenantKey: `engineering-test-${Math.random()}`,
     actor: 'Seven',
@@ -63,13 +80,26 @@ function makeHarness({ spaceProject = PROJECT, spaces = [] } = {}) {
           },
         };
       }
+      if (pathname === `/v1/pages/${encodeURIComponent(SPACE_TWO)}` && options.method === 'GET') {
+        return {
+          id: SPACE_TWO,
+          parent: { data_source_id: DS_SPACES },
+          properties: {
+            '名稱': { title: rt('3F-302浴室') },
+            '專案': { relation: [{ id: secondSpaceProject }] },
+          },
+        };
+      }
       if (pathname === `/v1/data_sources/${encodeURIComponent(DS_SPACES)}` && options.method === 'GET') return schemas[DS_SPACES];
       if (pathname === `/v1/data_sources/${encodeURIComponent(DS_WORK_ITEMS)}` && options.method === 'GET') return schemas[DS_WORK_ITEMS];
       if (pathname === `/v1/data_sources/${encodeURIComponent(DS_SPACES)}/query` && options.method === 'POST') {
-        return { results: spaces, has_more: false };
+        return {
+          results: projectSpaces.filter((space) => space.properties?.['專案']?.relation?.some((relation) => relation.id === PROJECT)),
+          has_more: false,
+        };
       }
       if (pathname === `/v1/data_sources/${encodeURIComponent(DS_WORK_ITEMS)}/query` && options.method === 'POST') {
-        return { results: [], has_more: false };
+        return { results: workItems, has_more: false };
       }
       if (pathname === `/v1/data_sources/${encodeURIComponent(DS_WORK_ITEMS)}` && options.method === 'PATCH') return { ok: true };
       if (pathname === '/v1/pages' && options.method === 'POST') {
@@ -97,6 +127,7 @@ function responseCapture() {
     id: SPACE,
     properties: {
       '名稱': { title: rt('3F-301浴室') },
+      '專案': { relation: [{ id: PROJECT }] },
       '區/棟': { rich_text: rt('3F') },
       '類型': { select: { name: '客房' } },
     },
@@ -108,7 +139,7 @@ function responseCapture() {
 }
 
 {
-  const { deps, calls } = makeHarness();
+  const { deps, calls } = makeHarness({ spaces: [] });
   const created = await createDashboardSpace(deps, new Set(['HZ']), {
     project: PROJECT,
     name: '3F-301浴室',
@@ -147,6 +178,7 @@ function responseCapture() {
     contractor: '王師傅',
   });
   assert.equal(created.start, '2026-08-20');
+  assert.equal(created.createdCount, 1);
   const write = calls.find((call) => call.pathname === '/v1/pages' && call.options.method === 'POST');
   assert.deepEqual(write.options.body.properties['空間'].relation, [{ id: SPACE }]);
   assert.equal(write.options.body.properties['預計完成'].date.start, '2026-08-24');
@@ -154,22 +186,62 @@ function responseCapture() {
 }
 
 {
-  const { deps } = makeHarness({ spaceProject: OTHER_PROJECT });
+  const { deps, calls } = makeHarness({ secondSpaceProject: OTHER_PROJECT });
   await assert.rejects(() => createDashboardWorkItem(deps, new Set(['HZ']), {
     project: PROJECT,
-    space: SPACE,
+    spaces: [SPACE, SPACE_TWO],
     name: '錯誤跨案工項',
     trade: '水電',
     plannedStart: '2026-08-20',
     plannedEnd: '2026-08-24',
   }), /所選空間不屬於目前案件/);
+  assert.equal(calls.filter((call) => call.pathname === '/v1/pages' && call.options.method === 'POST').length, 0);
+}
+
+{
+  const { deps, calls } = makeHarness();
+  const created = await createDashboardWorkItem(deps, new Set(['HZ']), {
+    project: PROJECT,
+    spaces: [SPACE, SPACE_TWO, SPACE],
+    name: '全館浴室防水',
+    trade: '防水',
+    plannedStart: '2026-09-01',
+    plannedEnd: '2026-09-10',
+  });
+  assert.equal(created.createdCount, 2);
+  assert.equal(created.skippedCount, 0);
+  const writes = calls.filter((call) => call.pathname === '/v1/pages' && call.options.method === 'POST');
+  assert.deepEqual(writes.map((write) => write.options.body.properties['空間'].relation[0].id), [SPACE, SPACE_TWO]);
+}
+
+{
+  const duplicate = {
+    id: 'existing-work-item',
+    properties: {
+      '工項': { title: rt('全館浴室防水') },
+      '空間': { relation: [{ id: SPACE }] },
+    },
+  };
+  const { deps, calls } = makeHarness({ workItems: [duplicate] });
+  const created = await createDashboardWorkItem(deps, new Set(['HZ']), {
+    project: PROJECT,
+    spaces: [SPACE, SPACE_TWO],
+    name: '全館浴室防水',
+    trade: '防水',
+    plannedStart: '2026-09-01',
+    plannedEnd: '2026-09-10',
+  });
+  assert.equal(created.createdCount, 1);
+  assert.equal(created.skippedCount, 1);
+  const writes = calls.filter((call) => call.pathname === '/v1/pages' && call.options.method === 'POST');
+  assert.equal(writes[0].options.body.properties['空間'].relation[0].id, SPACE_TWO);
 }
 
 {
   const { deps } = makeHarness();
   const payload = JSON.stringify({
     project: PROJECT,
-    space: SPACE,
+    spaces: [SPACE, SPACE_TWO],
     name: '儀表板路由工項',
     trade: '木作',
     plannedStart: '2026-08-25',
@@ -187,6 +259,24 @@ function responseCapture() {
   );
   assert.equal(res.status, 201);
   assert.equal(JSON.parse(res.body).name, '儀表板路由工項');
+  assert.equal(JSON.parse(res.body).createdCount, 2);
+}
+
+{
+  const { deps } = makeHarness();
+  const req = Readable.from([]);
+  req.method = 'GET';
+  const res = responseCapture();
+  await handleDashboardRequest(
+    req,
+    res,
+    '/dashboard',
+    new URL('https://am.example/dashboard?tenant=engineering&scope=HZ'),
+    deps,
+  );
+  assert.equal(res.status, 200);
+  assert.match(res.body, /全選所有空間/);
+  assert.match(res.body, /input\[name="mSpace"\]:checked/);
 }
 
 {
@@ -206,4 +296,4 @@ function responseCapture() {
   assert.match(JSON.parse(res.body).error, /管理權限/);
 }
 
-console.log(JSON.stringify({ ok: true, checks: 7, writes: ['space', 'trade', 'workItem'], isolation: true }));
+console.log(JSON.stringify({ ok: true, checks: 10, writes: ['space', 'trade', 'multiSpaceWorkItems'], isolation: true }));
