@@ -22,6 +22,19 @@ function requiredText(value, label, max = 100) {
   return result;
 }
 
+function selectedSpaceIds(input = {}) {
+  const raw = Array.isArray(input.spaces) ? input.spaces : [input.space];
+  const unique = new Map();
+  for (const value of raw) {
+    const id = clean(value, 80);
+    if (id) unique.set(id.replace(/-/g, '').toLowerCase(), id);
+  }
+  const ids = [...unique.values()];
+  if (!ids.length) throw publicError(400, '請至少選擇一個空間');
+  if (ids.length > 100) throw publicError(400, '一次最多選擇 100 個空間');
+  return ids;
+}
+
 function dateOnly(value, label) {
   const result = clean(value, 10);
   if (!DATE_RE.test(result) || new Date(`${result}T00:00:00Z`).toISOString().slice(0, 10) !== result) {
@@ -170,7 +183,7 @@ export async function createDashboardTrade(deps, input = {}) {
 
 export async function createDashboardWorkItem(deps, scope, input = {}) {
   const projectId = clean(input.project, 80);
-  const spaceId = clean(input.space, 80);
+  const spaceIds = selectedSpaceIds(input);
   const name = requiredText(input.name, '工項名稱');
   const trade = requiredText(input.trade, '工種', 50);
   const status = clean(input.status, 30) || '未開始';
@@ -181,13 +194,13 @@ export async function createDashboardWorkItem(deps, scope, input = {}) {
   if (start > end) throw publicError(400, '預計完成日不可早於預計開始日');
 
   await assertManagedProject(deps, scope, projectId);
-  const [space, schema, existing] = await Promise.all([
-    ownedPage(deps, spaceId, deps.dataSources?.spaces, '空間'),
+  const [projectSpaces, schema, existing] = await Promise.all([
+    listProjectSpaces(deps, projectId),
     dataSourceSchema(deps, 'workItems', '工項'),
     queryAll(deps, deps.dataSources.workItems, { property: '專案', relation: { contains: projectId } }),
   ]);
-  const spaceProjectId = space.properties?.['專案']?.relation?.[0]?.id || '';
-  if (!sameId(spaceProjectId, projectId)) throw publicError(400, '所選空間不屬於目前案件');
+  const spaces = spaceIds.map((spaceId) => projectSpaces.find((space) => sameId(space.id, spaceId)));
+  if (spaces.some((space) => !space)) throw publicError(400, '所選空間不屬於目前案件');
 
   requireProperty(schema, '工項', 'title');
   requireProperty(schema, '專案', 'relation');
@@ -197,36 +210,56 @@ export async function createDashboardWorkItem(deps, scope, input = {}) {
   requireProperty(schema, '預計開始', 'date');
   requireProperty(schema, '預計完成', 'date');
 
-  const duplicate = existing.some((page) => {
+  const duplicateSpaceIds = new Set();
+  for (const page of existing) {
     const sameName = plain(page.properties?.['工項']?.title).localeCompare(name, 'zh-Hant', { sensitivity: 'accent' }) === 0;
-    const existingSpace = page.properties?.['空間']?.relation?.[0]?.id || '';
-    return sameName && sameId(existingSpace, spaceId);
-  });
-  if (duplicate) throw publicError(409, `此空間已經有「${name}」工項`);
-
-  const properties = {
-    '工項': { title: textFrag(name) },
-    '專案': { relation: [{ id: projectId }] },
-    '空間': { relation: [{ id: spaceId }] },
-    '工種': { select: { name: trade } },
-    '狀態': { select: { name: status } },
-    '預計開始': { date: { start } },
-    '預計完成': { date: { start: end } },
-  };
-  if (contractor && optionalProperty(schema, '負責工班', 'rich_text')) {
-    properties['負責工班'] = { rich_text: textFrag(contractor) };
+    if (!sameName) continue;
+    for (const relation of page.properties?.['空間']?.relation || []) {
+      const matched = spaceIds.find((spaceId) => sameId(relation.id, spaceId));
+      if (matched) duplicateSpaceIds.add(matched.replace(/-/g, '').toLowerCase());
+    }
   }
 
-  const created = await deps.notionRequest('/v1/pages', {
-    method: 'POST',
-    body: {
-      parent: { type: 'data_source_id', data_source_id: deps.dataSources.workItems },
-      properties,
-      children: auditChildren(deps.actor, `工項：${name}`),
-    },
-  });
+  const pending = spaces.filter((space) => !duplicateSpaceIds.has(space.id.replace(/-/g, '').toLowerCase()));
+  const created = [];
+  for (const space of pending) {
+    const properties = {
+      '工項': { title: textFrag(name) },
+      '專案': { relation: [{ id: projectId }] },
+      '空間': { relation: [{ id: space.id }] },
+      '工種': { select: { name: trade } },
+      '狀態': { select: { name: status } },
+      '預計開始': { date: { start } },
+      '預計完成': { date: { start: end } },
+    };
+    if (contractor && optionalProperty(schema, '負責工班', 'rich_text')) {
+      properties['負責工班'] = { rich_text: textFrag(contractor) };
+    }
+    try {
+      const page = await deps.notionRequest('/v1/pages', {
+        method: 'POST',
+        body: {
+          parent: { type: 'data_source_id', data_source_id: deps.dataSources.workItems },
+          properties,
+          children: auditChildren(deps.actor, `工項：${name}；空間：${space.name || space.id}`),
+        },
+      });
+      created.push({ id: page.id, url: page.url || '', space: space.id });
+    } catch {
+      throw publicError(502, `已建立 ${created.length} 個空間的工項，剩餘空間寫入失敗；可重新送出，系統會略過已建立項目。`);
+    }
+  }
   clearTradeCache(deps.tenantKey);
-  return { ok: true, id: created.id, url: created.url || '', name, start, end };
+  return {
+    ok: true,
+    name,
+    start,
+    end,
+    created,
+    createdCount: created.length,
+    skippedCount: duplicateSpaceIds.size,
+    existed: created.length === 0,
+  };
 }
 
-export const __test = { clean, dateOnly, safeSelectOptions };
+export const __test = { clean, dateOnly, safeSelectOptions, selectedSpaceIds };

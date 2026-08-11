@@ -61,7 +61,7 @@ construction 拆 **三個 session**,**整合者 = 8A**:
   - `platform.createFeedbackTicket`(queue 開單的取用把手)——`(ctx={tenant,...body}) => createTicket`;租戶閘門在 `svcDeps`,queue 另以 501 先擋非工程租戶。
   - `platform.listTrades`(queue 工種清單的取用把手)——`({tenant}) => 工種陣列`;非工程租戶容錯回 `[]`。
 - **routes**:`/dashboard`、`/budget`、`/contracts`、`/tickets`、`/tickets/api/*`,皆經內聯的 `webRoute`(core.portal 授權 → 重算並注入 budget/contract/scope → 委派子 handler `(req,res,pathname,url,deps)`)。
-- **儀表板主檔維護**:`/dashboard/api/spaces`、`/dashboard/api/trades`、`/dashboard/api/work-items` 直接寫入目前租戶的 Notion 主檔；寫入前重新驗證案件 scope、資料庫歸屬及空間－案件 relation。工項建立要求預計起訖日，成功後立即刷新甘特圖與矩陣。工種寫入工項資料庫的 `工種` select schema，因此同一工程租戶的所有案件共用。
+- **儀表板主檔維護**:`/dashboard/api/spaces`、`/dashboard/api/trades`、`/dashboard/api/work-items` 直接寫入目前租戶的 Notion 主檔；寫入前重新驗證案件 scope、資料庫歸屬及空間－案件 relation。工項建立支援多空間勾選與全選，會為每個空間建立可獨立追蹤的 Notion 工項，略過既有同名工項，並在成功後立即刷新甘特圖與矩陣。工種寫入工項資料庫的 `工種` select schema，因此同一工程租戶的所有案件共用。
 - **授權殼內聯於 `index.js`**(不依賴外部共用檔):`resolveAuth` 走 `core.portal`,權限鍵 per-tenant(`am-<tenant>-budget/-contract/-<館別代碼>`);`fullDeps(tenant)` 逐呼叫組出隔離 deps。
 
 ## ③ 已完成:AI 初判分類器 + 工程到期/擱置 pass(切 server.js)
@@ -91,4 +91,4 @@ construction 拆 **三個 session**,**整合者 = 8A**:
 ### 驗證
 - `node --check modules/construction/classify.js`、`modules/construction/reminders.js`:通過。
 - `node tools/dryrun-construction.mjs`:**12/12**(mock 網路,不打真 API):classify 產 judgement 且不寫訊息頁、正規化/守門、回饋單到期→推播+升級、擱置復活(重提日/觸發工項)、reminderPasses 契約、非工程租戶略過。
-- `node tools/dryrun-construction-dashboard-management.mjs`:空間／工種／工項 Notion 寫入、日期欄位、跨案件阻擋與 API 狀態碼驗證。
+- `node tools/dryrun-construction-dashboard-management.mjs`:空間／工種／多空間工項 Notion 寫入、日期欄位、批次去重、跨案件全批阻擋與 API 狀態碼驗證。

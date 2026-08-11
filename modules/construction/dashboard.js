@@ -326,8 +326,10 @@ async function buildGantt(deps, projectId) {
     const start = (p['預計開始']?.date?.start || '').slice(0, 10);
     const end = (p['預計完成']?.date?.start || '').slice(0, 10);
     if (!start || !end) continue;
+    const spaceId = p['空間']?.relation?.[0]?.id || '';
     rows.push({
       name: plain(p['工項']?.title),
+      space: spaceId ? await pageName(deps, spaceId) : '',
       trade: p['工種']?.select?.name || '',
       status: p['狀態']?.select?.name || '未開始',
       start, end,
@@ -425,9 +427,17 @@ function renderDashboardPage(tenantKey, canBudget, canContract) {
   #manageModal label { display:block; font-size:13px; color:var(--dim); margin-top:10px; }
   #manageModal input,#manageModal select { width:100%; margin-top:4px; padding:9px 10px; border:1px solid var(--line); border-radius:8px; font:inherit; background:#fff; color:#22302a; }
   #manageModal .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  #manageModal .space-picker-field { margin:10px 0 0; padding:10px; border:1px solid var(--line); border-radius:10px; }
+  #manageModal .space-picker-field legend { padding:0 4px; color:var(--dim); font-size:13px; }
+  #manageModal .space-picker-actions { display:flex; gap:8px; margin-bottom:8px; }
+  #manageModal .space-picker-actions button { border:1px solid var(--line); background:#fff; border-radius:7px; padding:5px 9px; cursor:pointer; color:#22302a; }
+  #manageModal .space-picker { display:grid; grid-template-columns:1fr 1fr; gap:4px 10px; max-height:220px; overflow:auto; }
+  #manageModal .space-option { display:flex; align-items:flex-start; gap:7px; margin:0; padding:6px; border-radius:7px; color:#22302a; }
+  #manageModal .space-option:hover { background:#f3f7f5; }
+  #manageModal .space-option input { width:auto; margin:2px 0 0; padding:0; }
   #manageModal .actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
   #manageModal .hint { color:var(--dim); font-size:12px; line-height:1.6; margin-top:8px; }
-  @media (max-width:560px) { #manageModal .grid2 { grid-template-columns:1fr; gap:0; } }
+  @media (max-width:560px) { #manageModal .grid2,#manageModal .space-picker { grid-template-columns:1fr; gap:0; } }
 </style>
 </head>
 <body>
@@ -578,14 +588,16 @@ function openManager(kind) {
       + managerField('工種名稱 *','<input id="mName" maxlength="50" required placeholder="例如：空調">','新增後會成為此工程租戶所有案件可選用的工種。')
       + managerActions() + '</form>';
   } else {
-    const spaces = currentSetup.spaces.map(s => '<option value="' + esc(s.id) + '">' + esc(s.name) + (s.zone ? '（' + esc(s.zone) + '）' : '') + '</option>').join('');
+    const spaces = currentSetup.spaces.map(s => '<label class="space-option"><input type="checkbox" name="mSpace" value="' + esc(s.id) + '"><span>' + esc(s.name) + (s.zone ? '（' + esc(s.zone) + '）' : '') + '</span></label>').join('');
     const trades = currentSetup.trades.map(t => '<option value="' + esc(t) + '">' + esc(t) + '</option>').join('');
     html = '<h2>新增工項</h2><form id="managementForm" onsubmit="submitManager(event)">'
       + managerField('工項名稱 *','<input id="mName" maxlength="100" required placeholder="例如：301浴室水電配管">')
-      + '<div class="grid2">'
-      + managerField('空間 *','<select id="mSpace" required><option value="">請選擇空間</option>' + spaces + '</select>')
+      + '<fieldset class="space-picker-field"><legend>施作空間 *</legend>'
+      + '<div class="space-picker-actions"><button type="button" onclick="toggleAllSpaces(true)">全選所有空間</button><button type="button" onclick="toggleAllSpaces(false)">清除選取</button></div>'
+      + '<div class="space-picker">' + (spaces || '<div class="hint">此案件尚未建立空間，請先新增空間。</div>') + '</div>'
+      + '<div class="hint">可同時選擇多個空間；系統會為每個空間建立可獨立追蹤的工項。</div></fieldset>'
       + managerField('工種 *','<select id="mTrade" required><option value="">請選擇工種</option>' + trades + '</select>')
-      + '</div><div class="grid2">'
+      + '<div class="grid2">'
       + managerField('預計開始 *','<input id="mStart" type="date" required>')
       + managerField('預計完成 *','<input id="mEnd" type="date" required>')
       + '</div><div class="grid2">'
@@ -602,6 +614,9 @@ function openManager(kind) {
 function closeManager() {
   document.getElementById('manageBg').style.display = 'none';
   document.getElementById('manageModal').style.display = 'none';
+}
+function toggleAllSpaces(checked) {
+  document.querySelectorAll('input[name="mSpace"]').forEach(input => { input.checked = checked; });
 }
 async function submitManager(event) {
   event.preventDefault();
@@ -620,8 +635,10 @@ async function submitManager(event) {
       path = 'trades';
       body = { name:document.getElementById('mName').value };
     } else {
+      const spaces = [...document.querySelectorAll('input[name="mSpace"]:checked')].map(input => input.value);
+      if (!spaces.length) throw new Error('請至少選擇一個施作空間');
       path = 'work-items';
-      body = { project:currentProjectId, name:document.getElementById('mName').value, space:document.getElementById('mSpace').value, trade:document.getElementById('mTrade').value, plannedStart:document.getElementById('mStart').value, plannedEnd:document.getElementById('mEnd').value, status:document.getElementById('mStatus').value, contractor:document.getElementById('mContractor').value };
+      body = { project:currentProjectId, name:document.getElementById('mName').value, spaces, trade:document.getElementById('mTrade').value, plannedStart:document.getElementById('mStart').value, plannedEnd:document.getElementById('mEnd').value, status:document.getElementById('mStatus').value, contractor:document.getElementById('mContractor').value };
     }
     result = await api(path, { method:'POST', body });
   } catch (e) {
@@ -631,7 +648,11 @@ async function submitManager(event) {
     return;
   }
   closeManager();
-  alert(result.existed ? '這個工種已經存在，可以直接使用。' : '已儲存至 Notion。');
+  if (kind === 'workItem') {
+    alert('已為 ' + result.createdCount + ' 個空間建立工項並儲存至 Notion。' + (result.skippedCount ? '另有 ' + result.skippedCount + ' 個空間已有同名工項，已自動略過。' : ''));
+  } else {
+    alert(result.existed ? '這個工種已經存在，可以直接使用。' : '已儲存至 Notion。');
+  }
   try { await openProject(currentProjectId); }
   catch (e) { alert('已儲存至 Notion，但畫面刷新失敗：' + e.message); }
 }
@@ -724,7 +745,8 @@ async function loadGantt(projectId) {
     + d.rows.map(r => {
         const l = pct(r.start);
         const w = Math.max(pct(r.end) - l + (86400000 / (t1 - t0) * 100), 1.5);
-        return '<div class="grow"><div class="glabel" title="' + esc(r.name) + '">' + esc(r.name) + '</div><div class="gtrack">'
+        const label = r.name + (r.space ? '｜' + r.space : '');
+        return '<div class="grow"><div class="glabel" title="' + esc(label) + '">' + esc(label) + '</div><div class="gtrack">'
           + '<div class="gbar b-' + esc(r.status) + '" style="left:' + l.toFixed(1) + '%;width:' + w.toFixed(1) + '%" title="' + r.start + '→' + r.end + (r.fee ? ' ' + (r.fee / 10000) + '萬' : '') + ' [' + r.status + ']"></div>'
           + '</div></div>';
       }).join('')
