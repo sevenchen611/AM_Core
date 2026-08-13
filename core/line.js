@@ -183,16 +183,20 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
     return { type: 'text', text: String(value).slice(0, 4900) };
   }
 
-  async function replyLineMessage(replyToken, text) {
+  async function replyLineMessages(replyToken, messages) {
     if (!replyToken) throw new Error('LINE replyToken is missing.');
-    const message = outboundMessage(text);
+    const normalized = (Array.isArray(messages) ? messages : [messages])
+      .filter(Boolean)
+      .map(outboundMessage)
+      .slice(0, 5);
+    if (!normalized.length) throw new Error('LINE reply requires at least one message.');
     const response = await fetch('https://api.line.me/v2/bot/message/reply', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${channelAccessToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ replyToken, messages: [message] }),
+      body: JSON.stringify({ replyToken, messages: normalized }),
     });
     const responseText = await response.text();
     if (!response.ok) {
@@ -202,6 +206,10 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
       });
     }
     return { ok: true, status: response.status };
+  }
+
+  async function replyLineMessage(replyToken, message) {
+    return replyLineMessages(replyToken, outboundMessage(message));
   }
 
   async function pushLineMessage(to, text, mention, delivery = {}) {
@@ -276,6 +284,7 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
     peekLineContent,
     streamLineContent,
     resolveLineFilename,
+    replyLineMessages,
     replyLineMessage,
     pushLineMessage,
     configured: Boolean(channelAccessToken && channelSecret),

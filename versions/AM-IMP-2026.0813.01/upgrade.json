@@ -1,0 +1,30 @@
+{
+  "id": "AM-IMP-2026.0813.01",
+  "name": "Interactive LINE Task Control",
+  "type": "Core / LINE task control",
+  "portable": true,
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0", "AM_PLATFORM:seven-am"],
+  "requiresDatabases": ["Project-local Tasks data source with task-control fields", "Project-local LINE Group Bindings"],
+  "requiresEnv": ["NOTION_TOKEN", "<TENANT_PREFIX>_TASKS_DATA_SOURCE_ID", "LINE_CHANNEL_ACCESS_TOKEN", "LINE_CHANNEL_SECRET"],
+  "requiresScripts": ["tools/apply-line-task-control-schema.mjs", "tools/dryrun-line-task-control.mjs"],
+  "dependencies": ["AM-IMP-2026.0718.01", "AM-IMP-2026.0803.01"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Every query and write uses the resolved tenant Tasks data source and rejects a task whose Group Binding relation is not the current LINE group's binding."
+  },
+  "definitionOfDone": [
+    "Shared LINE postback and task-control module pass dry-run verification",
+    "Target tenant receives additive Tasks fields only in its own data source",
+    "Today, week, completed, and keyword/task-text search cards are available from LINE",
+    "Completion and progress/next-step/blocker/keyword updates append auditable LINE evidence",
+    "Target tenant manifest and upgrade record are updated after local verification"
+  ],
+  "projectStatus": {
+    "AM_PLATFORM:hozo-am-2-0": "Installed",
+    "AM_PLATFORM:seven-am": "Ready"
+  },
+  "status": "Installed"
+}

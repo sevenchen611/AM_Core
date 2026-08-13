@@ -1,0 +1,17 @@
+{
+  "version": "AM-IMP-2026.0813.01",
+  "commands": ["今天待辦", "本週待辦", "已完成待辦", "搜尋待辦 <query>"],
+  "line": {
+    "interaction": "Flex Message postback",
+    "postbackPrefix": "am-task-1",
+    "nativeCheckbox": false
+  },
+  "scope": {
+    "tenantLocked": true,
+    "bindingRelation": "負責群組",
+    "directChatEnabled": false
+  },
+  "updates": ["complete", "progress", "blocker", "next_step", "keywords"],
+  "evidence": ["action", "actor", "Taipei timestamp", "LINE group", "LINE sender", "webhook event"],
+  "sensitiveCompletion": "confirm-required"
+}
