@@ -1,6 +1,6 @@
 {
   "version": "AM-IMP-2026.0813.01",
-  "commands": ["今天待辦", "本週待辦", "已完成待辦", "搜尋待辦 <query>"],
+  "commands": ["今天待辦", "本週待辦", "已完成待辦", "搜尋待辦 <query>", "我的今天", "我的行事曆"],
   "line": {
     "interaction": "Flex Message postback",
     "postbackPrefix": "am-task-1",
@@ -9,9 +9,12 @@
   "scope": {
     "tenantLocked": true,
     "bindingRelation": "負責群組",
-    "directChatEnabled": false
+    "directChatEnabled": true,
+    "directOwnerMatchRequired": true,
+    "directBoundGroupScopeRequiredWhenAssigned": true,
+    "directLookupTimeoutMessageRequired": true
   },
   "updates": ["complete", "progress", "blocker", "next_step", "keywords"],
-  "evidence": ["action", "actor", "Taipei timestamp", "LINE group", "LINE sender", "webhook event"],
+  "evidence": ["action", "actor", "Taipei timestamp", "LINE conversation scope", "LINE sender", "webhook event"],
   "sensitiveCompletion": "confirm-required"
 }

@@ -1,6 +1,8 @@
 // 一對一 LINE 事件入口。
 // 這一層只做身分解析與安全分流；不把私人訊息交給原本的群組 collect/triage 流程。
 
+const DIRECT_BINDING_TIMEOUT_MS = 5 * 1000;
+
 function directSource(event) {
   const source = event?.source || {};
   return source.type === 'user' && source.userId && !source.groupId && !source.roomId;
@@ -10,10 +12,18 @@ function unresolvedMessage(reason) {
   if (reason === 'ambiguous') {
     return '⚠️ 你的 LINE 身分目前對應到多個工作空間，為避免資料混用，葉小蝸暫不提供私人資料。請聯絡管理者確認唯一歸屬。';
   }
-  if (reason === 'lookup_failed') {
+  if (reason === 'lookup_failed' || reason === 'lookup_timeout') {
     return '⚠️ 葉小蝸目前無法安全確認你的工作身分，請稍後再試。這次訊息不會寫入任何專案。';
   }
   return '尚未完成 HOZO 私人助理身分綁定。請先在已啟用的 HOZO 工作群組傳送一則訊息，或請管理者確認群組的成員對照。';
+}
+
+function withTimeout(promise, timeoutMs) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(new Error('Direct LINE identity lookup timed out.'), { code: 'DIRECT_LOOKUP_TIMEOUT' })), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 async function safeReply(replyLineMessage, event, message, logger) {
@@ -37,7 +47,14 @@ export async function routeDirectLineEvent({
   if (!directSource(event)) return { matched: false };
 
   const userId = String(event.source.userId || '').trim();
-  const resolved = await router.resolveDirectBinding(userId);
+  let resolved;
+  try {
+    resolved = await withTimeout(router.resolveDirectBinding(userId), DIRECT_BINDING_TIMEOUT_MS);
+  } catch (error) {
+    logger?.warn?.(`Direct LINE identity lookup timed out or failed: ${error.message}`);
+    await safeReply(replyLineMessage, event, unresolvedMessage('lookup_timeout'), logger);
+    return { matched: true, routed: false, reason: 'lookup_timeout' };
+  }
   if (!resolved?.tenant || !resolved?.binding) {
     await safeReply(replyLineMessage, event, unresolvedMessage(resolved?.reason), logger);
     return { matched: true, routed: false, reason: resolved?.reason || 'not_found' };
@@ -52,6 +69,18 @@ export async function routeDirectLineEvent({
       logger,
     );
     return { matched: true, routed: true, reason: 'bound', tenant: resolved.tenant };
+  }
+
+  if (event.type === 'postback') {
+    const handled = await dispatcher.dispatchDirectPostback({
+      tenant: resolved.tenant,
+      personalBinding: resolved.binding,
+      event,
+    });
+    if (!handled) {
+      await safeReply(replyLineMessage, event, '這個任務按鈕目前無法使用，請重新開啟待辦清單後再試。', logger);
+    }
+    return { matched: true, routed: true, handled, reason: 'bound', tenant: resolved.tenant };
   }
 
   if (event.type !== 'message' || !event.message) {
@@ -74,4 +103,4 @@ export async function routeDirectLineEvent({
   return { matched: true, routed: true, handled, reason: 'bound', tenant: resolved.tenant };
 }
 
-export { directSource, unresolvedMessage };
+export { directSource, unresolvedMessage, withTimeout };

@@ -5,8 +5,8 @@ Status: Installed
 
 ## Intended outcome
 
-From an active HOZO AM 2.0 LINE group, users can request today's, this week's,
-completed, or searched tasks. A task card supports checkbox-style completion,
+From an active HOZO AM 2.0 LINE group or the bound one-to-one assistant, users
+can request today's, this week's, completed, or searched tasks. A task card supports checkbox-style completion,
 opening detail, and recording progress, blockers, next steps, and keywords.
 Completed tasks remain searchable together with their audit evidence.
 
@@ -34,17 +34,20 @@ dry run, package completeness check, and alignment audit passed.
 No task, LINE message, group binding, Notion ID, environment value, or secret
 was copied into AMCore.
 
-## Deployment gate
+## Production canary status
 
-The package is locally installed, not yet production-verified. Before changing
-the status to `Deployed`, deploy the AM Platform runtime and run the LINE canary
-cases from the package `VERIFY.md`, including cross-group rejection, duplicate
-completion idempotency, evidence append, sensitive completion confirmation, and
-completed-task search.
+The first production runtime deployment loaded `task-control`, but the
+2026-08-13 one-to-one Rich Menu canary exposed two gaps: direct commands were
+still consumed by the text-only personal assistant, and direct task postbacks
+were not dispatched. The repair delegates `我的今天` / `我的行事曆` to
+`task-control`, adds owner-and-group-scoped direct postbacks, and adds explicit
+timeouts so a slow identity or task query cannot remain silent.
+
+Keep the status `Installed` until the repaired production deployment passes
+the direct-chat and group canaries in `VERIFY.md`.
 
 The schema can be rechecked safely from the secure runtime environment with:
 
 ```text
-node --env-file=.env tools/apply-line-task-control-schema.mjs --tenant=hozo-am-2-0 --dry-run
 node --env-file=.env tools/apply-line-task-control-schema.mjs --tenant=hozo-am-2-0 --dry-run
 ```

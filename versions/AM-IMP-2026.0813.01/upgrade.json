@@ -19,6 +19,8 @@
     "Shared LINE postback and task-control module pass dry-run verification",
     "Target tenant receives additive Tasks fields only in its own data source",
     "Today, week, completed, and keyword/task-text search cards are available from LINE",
+    "Bound one-to-one Rich Menu commands return the same interactive task cards with owner and active-group scope checks",
+    "Slow direct identity or task queries return an explicit retry message instead of remaining silent",
     "Completion and progress/next-step/blocker/keyword updates append auditable LINE evidence",
     "Target tenant manifest and upgrade record are updated after local verification"
   ],

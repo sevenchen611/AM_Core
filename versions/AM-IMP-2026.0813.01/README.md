@@ -19,10 +19,12 @@ from the project-local task record.
 - `modules/task-control/` handles only recognized assistant commands and its
   own postbacks. These commands must not enter normal conversation-to-task
   extraction as real-world tasks.
-- Every task query is locked to both the tenant task data source and the
+- Every group task query is locked to both the tenant task data source and the
   current group's `負責群組` relation.
+- Direct-chat task queries require an exact personal owner name and, when a
+  task has `負責群組`, membership in one of the user's active bound groups.
 - A completion/progress update appends an event block that states the action,
-  operator, Taiwan time, group, LINE sender ID, and webhook evidence.
+  operator, Taiwan time, conversation scope, LINE sender ID, and webhook evidence.
 - A second completion click re-reads the task under a task lock and becomes a
   no-op; it must not append another completion event.
 - Sensitive financial, contractual, HR, tax, legal, complaint, compensation,

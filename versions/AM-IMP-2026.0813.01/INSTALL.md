@@ -9,7 +9,7 @@ projects.
 Install the shared changes that provide:
 
 - `core/line.js` multi-message replies;
-- postback dispatch in `server.js` and `core/modules.js`;
+- group and direct-chat postback dispatch in `server.js` and `core/modules.js`;
 - `modules/task-control/`.
 
 Enable `task-control` only in the target tenant's module list. For the first
@@ -40,8 +40,10 @@ In an active bound LINE group, send:
 ```
 
 Use the returned cards to complete normal tasks or to record progress, blockers,
-next steps, and keywords. The first version is group-scoped; direct-chat task
-control is intentionally not enabled by this package.
+next steps, and keywords. In the bound one-to-one assistant, the Rich Menu
+commands `我的今天` and `我的行事曆` return the same interactive cards. Direct
+task actions are owner-locked and limited to the user's active group scope;
+unassigned personal tasks still require an exact owner match.
 
 ## 4. Project record
 

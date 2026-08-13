@@ -6,7 +6,12 @@ let platform;
 const STATE_TTL_MS = 20 * 60 * 1000;
 const pendingCreates = new Map();
 const recentLists = new Map();
-const DELEGATED_COMMANDS = new Set(['請款', '我要請款', '請款按鈕', '開啟請款', '#請款']);
+const DELEGATED_COMMANDS = new Set([
+  '請款', '我要請款', '請款按鈕', '開啟請款', '#請款',
+  // 交給 task-control，讓 Rich Menu 私聊與群組共用同一套 Flex 卡片及 checkbox。
+  '我的今天', '我的今日', '我的行事曆', '今天待辦', '今日待辦', '本週待辦', '這週待辦',
+  '已完成待辦', '完成待辦',
+]);
 
 function clean(value) {
   return String(value || '').normalize('NFKC').replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
@@ -14,7 +19,9 @@ function clean(value) {
 
 function isDelegatedCommand(value) {
   const text = clean(value);
-  return DELEGATED_COMMANDS.has(text) || /^#請款\s+[\s\S]+$/u.test(text);
+  return DELEGATED_COMMANDS.has(text)
+    || /^#請款\s+[\s\S]+$/u.test(text)
+    || /^(?:搜尋|查找|找)(?:待辦|任務)?[：:\s]+.+$/u.test(text);
 }
 
 function identityLabel(ctx) {
