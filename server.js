@@ -408,12 +408,16 @@ async function handleEvent(event) {
     logger,
   });
   if (direct.matched) return;
-  if (event.type !== 'message' || !event.message) return;
+  if (!['message', 'postback'].includes(event.type)) return;
   const groupId = event.source?.groupId || event.source?.roomId || '';
   const { tenant, binding } = await router.resolveGroupBinding(groupId);
-  if (await maybeHandleGroupOnboardingCommand(event, groupId, { tenant, binding })) return;
+  if (event.type === 'message' && await maybeHandleGroupOnboardingCommand(event, groupId, { tenant, binding })) return;
   if (!tenant) {
-    logger.log(`Unbound message ${event.message.id} (group=${groupId || 'direct'}) — ignored.`);
+    logger.log(`Unbound ${event.type} (group=${groupId || 'direct'}) — ignored.`);
+    return;
+  }
+  if (event.type === 'postback') {
+    await dispatcher.dispatchPostback({ tenant, binding, event });
     return;
   }
   await dispatcher.dispatchMessage({ tenant, binding, event });

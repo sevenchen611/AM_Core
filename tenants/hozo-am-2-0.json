@@ -6,7 +6,7 @@
   "envPrefix": "HZ2",
   "runtimeEnabled": true,
   "authorizationReady": true,
-  "modules": ["personal-assistant", "company-line-push", "collect", "media", "operational-memory", "meetings", "meeting-terms", "triage", "queue", "tasks", "reminders", "groups", "claims"],
+  "modules": ["personal-assistant", "company-line-push", "collect", "task-control", "media", "operational-memory", "meetings", "meeting-terms", "triage", "queue", "tasks", "reminders", "groups", "claims"],
   "status": "正式全功能啟用：開放群組路由、正式待辦建立、正式提醒、會議待辦確認、任務佇列與完整群組管理工作流。",
   "operationalMemory": {
     "enabled": true,

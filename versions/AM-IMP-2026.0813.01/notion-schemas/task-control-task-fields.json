@@ -1,0 +1,11 @@
+{
+  "properties": {
+    "目前進度": { "rich_text": {} },
+    "下一步": { "rich_text": {} },
+    "阻礙": { "rich_text": {} },
+    "關鍵字": { "multi_select": { "options": [] } },
+    "最近更新": { "date": {} }
+  },
+  "mode": "additive-only",
+  "doNotOverwriteExisting": true
+}
