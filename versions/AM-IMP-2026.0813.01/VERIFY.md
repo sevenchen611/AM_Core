@@ -35,5 +35,13 @@ print a token, data-source ID, task title, or LINE identity.
 6. Attempt a card action for another group's task; the server rejects it.
 7. Use a task title that signals a sensitive external commitment; confirm the
    explicit completion confirmation is required.
+8. In the bound one-to-one assistant, tap Rich Menu `我的今天` and
+   `我的行事曆`; confirm each returns Flex task cards rather than a silent or
+   text-only response.
+9. Complete and update an owned task from the direct-chat card. Attempt a task
+   owned by someone else or related only to a group outside the user's active
+   bindings; confirm it is rejected.
+10. Simulate a slow identity or task query; confirm the user receives an
+    explicit retry message before the LINE reply token expires.
 
 Run the AMCore alignment audit after the target manifest record is updated.

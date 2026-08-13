@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createRouter } from '../core/router.js';
 import { createDispatcher } from '../core/modules.js';
-import { routeDirectLineEvent } from '../core/direct-line.js';
+import { routeDirectLineEvent, withTimeout } from '../core/direct-line.js';
 import personalAssistant, { isDelegatedCommand, responseFor } from '../modules/personal-assistant/index.js';
 
 function text(value) {
@@ -187,6 +187,27 @@ await check('已綁定的一對一訊息會帶正確租戶與私人身分進入 
   assert.equal(dispatched.personalBinding.displayName, 'Maggie');
 });
 
+await check('已綁定的一對一 postback 只交給私人 postback dispatcher', async () => {
+  let dispatched = null;
+  const result = await routeDirectLineEvent({
+    event: { type: 'postback', replyToken: 'r3p', source: { type: 'user', userId: 'U_HOZO' }, postback: { data: 'am-task-1:detail:a1b2c3d4' } },
+    router: { resolveDirectBinding: async () => ({ tenant: hozo, binding: { source: 'active-group-member-map', displayName: 'Maggie' }, reason: 'bound' }) },
+    dispatcher: { async dispatchDirectPostback(input) { dispatched = input; return true; } },
+    replyLineMessage: async () => { throw new Error('handled direct postback must not use fallback reply'); },
+    logger,
+  });
+  assert.equal(result.matched, true);
+  assert.equal(result.handled, true);
+  assert.equal(dispatched.personalBinding.displayName, 'Maggie');
+});
+
+await check('私人身分查詢具備逾時閘門', async () => {
+  await assert.rejects(
+    withTimeout(new Promise(() => {}), 5),
+    (error) => error.code === 'DIRECT_LOOKUP_TIMEOUT',
+  );
+});
+
 await check('已綁定的 follow 事件只回覆身分確認，不進入訊息 dispatcher', async () => {
   const replies = [];
   let dispatched = false;
@@ -228,6 +249,9 @@ await check('請款指令會交給後續 claims 模組，不被私人助理 fall
   personalAssistant.init({ replyLineMessage: async () => { replied = true; } });
   assert.equal(isDelegatedCommand('我要請款'), true);
   assert.equal(isDelegatedCommand('#請款 6 月費用 1000'), true);
+  assert.equal(isDelegatedCommand('我的今天'), true);
+  assert.equal(isDelegatedCommand('我的行事曆'), true);
+  assert.equal(isDelegatedCommand('搜尋待辦 招募'), true);
   assert.equal(await personalAssistant.onDirectMessage({ tenant: hozo, text: '我要請款', event: { replyToken: 'r5' } }), false);
   assert.equal(replied, false);
 });

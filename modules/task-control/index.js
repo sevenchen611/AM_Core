@@ -3,6 +3,7 @@
 
 let platform = null;
 const PENDING_TTL_MS = 15 * 60 * 1000;
+const DIRECT_QUERY_TIMEOUT_MS = 8 * 1000;
 const pendingInputs = new Map();
 const taskLocks = new Map();
 const schemaCache = new Map();
@@ -77,6 +78,18 @@ function bindingId(ctx) {
   return String(ctx.binding?.pageId || '');
 }
 
+function isDirect(ctx) {
+  return ctx.conversationType === 'direct' && Boolean(ctx.personalBinding);
+}
+
+function personalNames(ctx) {
+  return [...new Set([
+    ctx.personalBinding?.displayName,
+    ...(ctx.personalBinding?.memberNames || []),
+    ctx.senderName,
+  ].map((value) => String(value || '').trim()).filter(Boolean))];
+}
+
 function sameId(left, right) {
   const normalize = (value) => String(value || '').replace(/-/g, '').toLowerCase();
   return Boolean(normalize(left)) && normalize(left) === normalize(right);
@@ -88,11 +101,41 @@ function taskBelongsToBinding(page, ctx) {
   return (page.properties?.['負責群組']?.relation || []).some((item) => sameId(item.id, id));
 }
 
+function taskBelongsToPersonalScope(page, ctx) {
+  if (!isDirect(ctx)) return false;
+  const owner = plain(page.properties?.['負責人']).toLocaleLowerCase('zh-Hant');
+  const ownerMatches = personalNames(ctx).some((name) => name.toLocaleLowerCase('zh-Hant') === owner);
+  if (!ownerMatches) return false;
+  const taskGroups = page.properties?.['負責群組']?.relation || [];
+  if (!taskGroups.length) return true;
+  const allowedGroups = ctx.personalBinding?.groupBindingIds || [];
+  return taskGroups.some((group) => allowedGroups.some((allowed) => sameId(group.id, allowed)));
+}
+
+function taskBelongsToContext(page, ctx) {
+  return isDirect(ctx) ? taskBelongsToPersonalScope(page, ctx) : taskBelongsToBinding(page, ctx);
+}
+
+function withTimeout(promise, timeoutMs, message) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(new Error(message), { code: 'TASK_QUERY_TIMEOUT' })), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+function request(ctx, pathname, options) {
+  const pending = ctx.notionRequest(pathname, options);
+  return isDirect(ctx)
+    ? withTimeout(pending, DIRECT_QUERY_TIMEOUT_MS, '私人待辦查詢逾時')
+    : pending;
+}
+
 async function schemaFor(ctx) {
   const cacheKey = ctx.tenant.key;
   const cached = schemaCache.get(cacheKey);
   if (cached && cached.expires > Date.now()) return cached.schema;
-  const schema = await ctx.notionRequest(`/v1/data_sources/${encodeURIComponent(ctx.tenant.dataSources.tasks)}`, { method: 'GET' });
+  const schema = await request(ctx, `/v1/data_sources/${encodeURIComponent(ctx.tenant.dataSources.tasks)}`, { method: 'GET' });
   schemaCache.set(cacheKey, { schema, expires: Date.now() + 60 * 1000 });
   return schema;
 }
@@ -109,9 +152,9 @@ async function requireSchema(ctx) {
 }
 
 async function loadTask(ctx, id) {
-  const task = await ctx.notionRequest(`/v1/pages/${encodeURIComponent(id)}`, { method: 'GET' });
-  if (!sameId(task.parent?.data_source_id, ctx.tenant.dataSources.tasks) || !taskBelongsToBinding(task, ctx)) {
-    const error = new Error('這筆任務不屬於目前群組，無法操作。');
+  const task = await request(ctx, `/v1/pages/${encodeURIComponent(id)}`, { method: 'GET' });
+  if (!sameId(task.parent?.data_source_id, ctx.tenant.dataSources.tasks) || !taskBelongsToContext(task, ctx)) {
+    const error = new Error(isDirect(ctx) ? '這筆任務不屬於你的私人待辦範圍，無法操作。' : '這筆任務不屬於目前群組，無法操作。');
     error.code = 'TASK_SCOPE_DENIED';
     throw error;
   }
@@ -119,6 +162,20 @@ async function loadTask(ctx, id) {
 }
 
 async function listPages(ctx) {
+  if (isDirect(ctx)) {
+    if (typeof platform.tasks?.listByOwner !== 'function') return [];
+    const queries = personalNames(ctx).slice(0, 5).map((owner) => platform.tasks.listByOwner(ctx, {
+      owner,
+      includeClosed: true,
+      limit: 100,
+    }));
+    const batches = await withTimeout(Promise.all(queries), DIRECT_QUERY_TIMEOUT_MS, '私人待辦查詢逾時');
+    const unique = new Map();
+    for (const page of batches.flat()) {
+      if (taskBelongsToPersonalScope(page, ctx)) unique.set(page.id, page);
+    }
+    return [...unique.values()];
+  }
   if (!bindingId(ctx)) return [];
   const pages = [];
   let cursor = '';
@@ -129,7 +186,7 @@ async function listPages(ctx) {
       sorts: [{ property: '期限', direction: 'ascending' }],
     };
     if (cursor) body.start_cursor = cursor;
-    const result = await ctx.notionRequest(`/v1/data_sources/${encodeURIComponent(ctx.tenant.dataSources.tasks)}/query`, {
+    const result = await request(ctx, `/v1/data_sources/${encodeURIComponent(ctx.tenant.dataSources.tasks)}/query`, {
       method: 'POST',
       body,
     });
@@ -141,9 +198,10 @@ async function listPages(ctx) {
 
 async function appendEvent(ctx, task, kind, detail) {
   const actor = String(ctx.senderName || 'LINE 使用者');
-  const source = `LINE 群組=${ctx.groupId || '-'}；使用者=${ctx.event?.source?.userId || '-'}；事件=${ctx.event?.webhookEventId || ctx.event?.timestamp || '-'}`;
+  const conversation = isDirect(ctx) ? 'LINE 一對一私人助理' : `LINE 群組=${ctx.groupId || '-'}`;
+  const source = `${conversation}；使用者=${ctx.event?.source?.userId || '-'}；事件=${ctx.event?.webhookEventId || ctx.event?.timestamp || '-'}`;
   const content = [`[任務操作｜${kind}] ${stampTaipei()}`, `操作者：${actor}`, `內容：${detail}`, `來源證據：${source}`].join('\n');
-  await ctx.notionRequest(`/v1/blocks/${encodeURIComponent(task.id)}/children`, {
+  await request(ctx, `/v1/blocks/${encodeURIComponent(task.id)}/children`, {
     method: 'PATCH',
     body: { children: [{ object: 'block', type: 'paragraph', paragraph: { rich_text: richText(content) } }] },
   });
@@ -156,7 +214,7 @@ async function updateTask(ctx, task, properties, kind, detail) {
     if (schema.properties?.[name]) safeProperties[name] = value;
   }
   if (Object.keys(safeProperties).length) {
-    await ctx.notionRequest(`/v1/pages/${encodeURIComponent(task.id)}`, { method: 'PATCH', body: { properties: safeProperties } });
+    await request(ctx, `/v1/pages/${encodeURIComponent(task.id)}`, { method: 'PATCH', body: { properties: safeProperties } });
   }
   await appendEvent(ctx, task, kind, detail);
 }
@@ -239,6 +297,8 @@ async function reply(ctx, messages) {
 
 function parseCommand(value) {
   const text = String(value || '').trim();
+  if (/^我的(?:今天|今日)$/.test(text)) return { type: 'list', range: 'today' };
+  if (/^我的行事曆$/.test(text)) return { type: 'list', range: 'week' };
   if (/^(今天|今日)(的)?待辦$/.test(text)) return { type: 'list', range: 'today' };
   if (/^(本週|這週|本周|這周)(的)?待辦$/.test(text)) return { type: 'list', range: 'week' };
   if (/^(已完成|完成)(的)?待辦$/.test(text)) return { type: 'list', range: 'completed' };
@@ -352,10 +412,30 @@ async function onMessage(ctx) {
   return true;
 }
 
+async function onDirectMessage(ctx) {
+  if (!ctx.text || !isDirect(ctx)) return false;
+  const pending = pendingInputs.get(key(ctx));
+  const command = parseCommand(ctx.text);
+  if (!pending && !command) return false;
+  try {
+    if (!await requireSchema(ctx)) return true;
+    if (pending) return captureInput(ctx, pending);
+    if (command.type === 'search') await replySearch(ctx, command.query);
+    else await replyList(ctx, command.range);
+  } catch (error) {
+    platform.logger?.warn?.(`Direct task control failed (tenant=${ctx.tenant?.key || '-'}): ${error.message}`);
+    const message = error.code === 'TASK_QUERY_TIMEOUT'
+      ? '私人待辦查詢時間較久，這次沒有完成。請稍後再按一次；系統已保留錯誤紀錄。'
+      : '私人待辦目前無法讀取，這次沒有更動任何任務。請稍後再試。';
+    await reply(ctx, { type: 'text', text: message });
+  }
+  return true;
+}
+
 async function onPostback(ctx) {
   const data = String(ctx.postback?.data || '');
   const match = data.match(/^am-task-1:(detail|complete|confirm-complete|progress|blocker|next|keywords):([0-9a-f-]{8,})$/i);
-  if (!match || !bindingId(ctx)) return false;
+  if (!match || (!bindingId(ctx) && !isDirect(ctx))) return false;
   if (!await requireSchema(ctx)) return true;
   const [, action, taskId] = match;
   let task;
@@ -393,6 +473,20 @@ async function onPostback(ctx) {
   return true;
 }
 
-export default { name: 'task-control', init, onMessage, onPostback };
+async function onDirectPostback(ctx) {
+  if (!isDirect(ctx)) return false;
+  try {
+    return await onPostback(ctx);
+  } catch (error) {
+    platform.logger?.warn?.(`Direct task postback failed (tenant=${ctx.tenant?.key || '-'}): ${error.message}`);
+    const message = error.code === 'TASK_QUERY_TIMEOUT'
+      ? '任務操作逾時，這次沒有完成，請稍後再試。'
+      : '任務操作失敗，這次沒有更動任務。請稍後再試。';
+    await reply(ctx, { type: 'text', text: message });
+    return true;
+  }
+}
 
-export const __test = { parseCommand, inRange, matches, taskAction, taskBelongsToBinding, row, sameId, weekEndTaipei, REQUIRED_FIELDS };
+export default { name: 'task-control', init, onMessage, onDirectMessage, onPostback, onDirectPostback };
+
+export const __test = { parseCommand, inRange, matches, taskAction, taskBelongsToBinding, taskBelongsToPersonalScope, row, sameId, weekEndTaipei, withTimeout, REQUIRED_FIELDS };

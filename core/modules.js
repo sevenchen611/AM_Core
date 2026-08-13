@@ -179,11 +179,11 @@ export function createDispatcher({ tenants, modules, platform, logger = console 
 
   // 一對一私人訊息只交給明確宣告 onDirectMessage 的模組。
   // 原本的 onMessage（collect / triage / meetings 等）完全不會收到私人訊息。
-  async function dispatchDirectMessage({ tenant, personalBinding, event }) {
-    const message = event.message;
+  async function directCtx({ tenant, personalBinding, event }) {
+    const message = event.message || null;
     const senderName = await platform.resolveSenderName(event.source);
     const text = message?.type === 'text' ? String(message.text || '') : '';
-    const ctx = {
+    return {
       tenant,
       binding: null,
       personalBinding,
@@ -205,6 +205,10 @@ export function createDispatcher({ tenants, modules, platform, logger = console 
       pushLineMessage: platform.pushLineMessage,
       replyLineMessage: platform.replyLineMessage,
     };
+  }
+
+  async function dispatchDirectMessage({ tenant, personalBinding, event }) {
+    const ctx = await directCtx({ tenant, personalBinding, event });
 
     for (const mod of tenantModules(tenant)) {
       if (typeof mod.onDirectMessage !== 'function') continue;
@@ -212,6 +216,20 @@ export function createDispatcher({ tenants, modules, platform, logger = console 
         if (await mod.onDirectMessage(ctx) === true) return true;
       } catch (error) {
         logger.warn(`Module "${mod.name}" failed on direct message (tenant=${tenant.key}): ${error.message}`);
+      }
+    }
+    return false;
+  }
+
+  async function dispatchDirectPostback({ tenant, personalBinding, event }) {
+    const ctx = await directCtx({ tenant, personalBinding, event });
+    ctx.postback = event.postback || {};
+    for (const mod of tenantModules(tenant)) {
+      if (typeof mod.onDirectPostback !== 'function') continue;
+      try {
+        if (await mod.onDirectPostback(ctx) === true) return true;
+      } catch (error) {
+        logger.warn(`Module "${mod.name}" failed on direct postback (tenant=${tenant.key}): ${error.message}`);
       }
     }
     return false;
@@ -277,5 +295,5 @@ export function createDispatcher({ tenants, modules, platform, logger = console 
     }
   }
 
-  return { dispatchMessage, dispatchDirectMessage, dispatchPostback, collectRoutes, runTicks };
+  return { dispatchMessage, dispatchDirectMessage, dispatchDirectPostback, dispatchPostback, collectRoutes, runTicks };
 }
