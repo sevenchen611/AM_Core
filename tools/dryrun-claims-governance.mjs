@@ -162,6 +162,7 @@ await check('LIFF claim page emits syntactically valid client JavaScript', () =>
       claims: {
         liffId: '2010966226-5pyR1QR4',
         claimTypes: ['labor_health_insurance', 'shared_operating', 'other'],
+        businessUnits: [{ type: 'headquarters', id: 'company', name: '好住 寓好總部' }],
       },
     },
   };
@@ -175,8 +176,11 @@ await check('LIFF claim page emits syntactically valid client JavaScript', () =>
   assert.match(inlineScript[1], /location\.replace\(DATA\.apiPath\)/);
   assert.match(page, /勞健保費用/);
   assert.match(page, /共同營業費用/);
-  assert.match(page, /其他費用/);
+  assert.match(page, /一般費用/);
   assert.match(page, /請款總金額/);
+  assert.match(page, /公司間往來－代開發票稅額/);
+  assert.match(inlineScript[1], /suggestedCategory/);
+  assert.match(inlineScript[1], /businessUnitType/);
   assert.match(page, /勞健保分攤欄位/);
   assert.match(inlineScript[1], /syncTotal/);
   assert.match(inlineScript[1], /syncTypeFields/);
