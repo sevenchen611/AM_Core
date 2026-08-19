@@ -1,0 +1,31 @@
+{
+  "id": "AM-IMP-2026.0819.01",
+  "name": "Claim Line Accounting Classification V2",
+  "type": "Core / Finance claims",
+  "portable": true,
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
+  "requiresDatabases": ["Rental D1 finance claim workflow with additive claim-line classification schema"],
+  "requiresEnv": ["<TENANT_PREFIX>_CLAIMS_LIFF_ID", "<TENANT_PREFIX>_RENTAL_BASE_URL", "<TENANT_PREFIX>_RENTAL_CLAIMS_TOKEN"],
+  "requiresScripts": ["tools/dryrun-claims.mjs", "tools/dryrun-claims-governance.mjs"],
+  "dependencies": ["AM-IMP-2026.0804.01", "AM-IMP-2026.0806.01"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Each submission remains bound to its signed tenant and source binding; category and business-unit identifiers are validated against the tenant configuration and Rental allowlist."
+  },
+  "definitionOfDone": [
+    "The form requires an explicit claim type instead of selecting the first type implicitly",
+    "Every line includes description, amount, category, service month, and business unit",
+    "Description-based suggestions remain editable and unknown items fail closed",
+    "Intercompany invoice tax is labeled as company-current clearing and never as deductible input VAT",
+    "Rental approval shows the claim type and an accounting preview before posting",
+    "A paid claim can be reclassified with an auditable journal while preserving its payment record",
+    "Claims and governance dry runs, package check, and alignment audit pass"
+  ],
+  "projectStatus": {
+    "AM_PLATFORM:hozo-am-2-0": "Ready"
+  },
+  "status": "Ready"
+}
