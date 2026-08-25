@@ -39,3 +39,21 @@ Use dry run before production wiring:
 ```
 
 The caller cannot provide a LINE group id. The module resolves exactly one group binding whose fields contain `HOZO 公司群`, masks the target id in responses, and sends through the shared LINE OA.
+
+## HOZO Rental Finance API
+
+```http
+POST /control/hozo/rental/finance-group/push
+Authorization: Bearer <HZ2_RENTAL_COMPANY_GROUP_PUSH_KEY>
+Content-Type: application/json
+```
+
+Body:
+
+```json
+{ "text": "finance workflow message from HOZO Rental" }
+```
+
+This endpoint uses the same machine credential as the Rental company-group API,
+but resolves exactly one group binding whose fields contain `HOZO 財務群組`.
+The caller still cannot provide a LINE group id.

@@ -4,6 +4,7 @@ import { readBody, sendJson } from '../../core/util.js';
 let platform = null;
 
 const COMPANY_GROUP_RE = /HOZO\s*\u516c\u53f8[\u7fa4\u7d44]*/i;
+const FINANCE_GROUP_RE = /HOZO\s*\u8ca1\u52d9\u7fa4\u7d44/i;
 const LINE_GROUP_ID_RE = /^C[a-f0-9]{20,}$/i;
 const HOZO_TENANT_KEY = 'hozo-am-2-0';
 
@@ -111,7 +112,7 @@ function normalizeImageUrls(value) {
     .slice(0, 4);
 }
 
-async function resolveCompanyGroup(ctx) {
+async function resolveGroup(ctx, matcher, label) {
   const dataSourceId = ctx.tenant?.dataSources?.groupBindings;
   if (!dataSourceId) throw new Error('HOZO group bindings data source is not configured.');
 
@@ -127,14 +128,14 @@ async function resolveCompanyGroup(ctx) {
       groupId: extractLineGroupId(page),
       text: pageText(page),
     }))
-    .filter((item) => item.groupId && COMPANY_GROUP_RE.test(item.text));
+    .filter((item) => item.groupId && matcher.test(item.text));
 
-  if (matches.length === 0) throw new Error('HOZO company group binding was not found.');
-  if (matches.length > 1) throw new Error('Multiple HOZO company group bindings were found.');
+  if (matches.length === 0) throw new Error(`HOZO ${label} group binding was not found.`);
+  if (matches.length > 1) throw new Error(`Multiple HOZO ${label} group bindings were found.`);
   return matches[0];
 }
 
-async function pushToCompanyGroup(req, res, ctx, source = 'control') {
+async function pushToGroup(req, res, ctx, { source = 'control', matcher = COMPANY_GROUP_RE, label = 'company' } = {}) {
   if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'Method not allowed.' });
   if (ctx.tenant?.key !== HOZO_TENANT_KEY) return sendJson(res, 404, { ok: false, error: 'Not found.' });
 
@@ -145,14 +146,14 @@ async function pushToCompanyGroup(req, res, ctx, source = 'control') {
     if (text.length > 4900) return sendJson(res, 400, { ok: false, error: 'Text is too long.' });
     const imageUrls = normalizeImageUrls(body.imageUrls || body.image_urls);
 
-    const target = await resolveCompanyGroup(ctx);
+    const target = await resolveGroup(ctx, matcher, label);
     if (body.dryRun === true) {
       return sendJson(res, 200, {
         ok: true,
         dryRun: true,
         source,
         imageCount: imageUrls.length,
-        target: { name: target.name || 'HOZO company group', maskedId: maskLineId(target.groupId) },
+        target: { name: target.name || `HOZO ${label} group`, maskedId: maskLineId(target.groupId) },
       });
     }
 
@@ -169,7 +170,7 @@ async function pushToCompanyGroup(req, res, ctx, source = 'control') {
       ok: true,
       source,
       imageCount: imageUrls.length,
-      target: { name: target.name || 'HOZO company group', maskedId: maskLineId(target.groupId) },
+      target: { name: target.name || `HOZO ${label} group`, maskedId: maskLineId(target.groupId) },
       line: {
         status: receipt.status,
         requestId: receipt.requestId || '',
@@ -193,7 +194,7 @@ async function handlePush(req, res, ctx) {
   if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'Method not allowed.' });
   if (ctx.tenant?.key !== HOZO_TENANT_KEY) return sendJson(res, 404, { ok: false, error: 'Not found.' });
   if (!isAuthorized(req, ctx)) return sendJson(res, 401, { ok: false, error: 'Unauthorized.' });
-  return pushToCompanyGroup(req, res, ctx, 'control');
+  return pushToGroup(req, res, ctx, { source: 'control' });
 }
 
 async function handleRentalPush(req, res, ctx) {
@@ -203,7 +204,21 @@ async function handleRentalPush(req, res, ctx) {
     return sendJson(res, 503, { ok: false, error: 'Rental company-group push key is not configured.' });
   }
   if (!isRentalAuthorized(req, ctx)) return sendJson(res, 401, { ok: false, error: 'Unauthorized.' });
-  return pushToCompanyGroup(req, res, ctx, 'hozo-rental');
+  return pushToGroup(req, res, ctx, { source: 'hozo-rental' });
+}
+
+async function handleRentalFinancePush(req, res, ctx) {
+  if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'Method not allowed.' });
+  if (ctx.tenant?.key !== HOZO_TENANT_KEY) return sendJson(res, 404, { ok: false, error: 'Not found.' });
+  if (!platform?.rentalCompanyGroupPushKey) {
+    return sendJson(res, 503, { ok: false, error: 'Rental finance-group push key is not configured.' });
+  }
+  if (!isRentalAuthorized(req, ctx)) return sendJson(res, 401, { ok: false, error: 'Unauthorized.' });
+  return pushToGroup(req, res, ctx, {
+    source: 'hozo-rental-finance',
+    matcher: FINANCE_GROUP_RE,
+    label: 'finance',
+  });
 }
 
 export default {
@@ -221,6 +236,12 @@ export default {
       method: 'POST',
       access: { kind: 'machine', scope: 'tenant', capability: 'line.push.company-group.rental' },
       handler: handleRentalPush,
+    },
+    {
+      prefix: '/control/hozo/rental/finance-group/push',
+      method: 'POST',
+      access: { kind: 'machine', scope: 'tenant', capability: 'line.push.finance-group.rental' },
+      handler: handleRentalFinancePush,
     },
   ],
 };
