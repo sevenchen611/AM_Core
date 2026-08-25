@@ -3,6 +3,7 @@ import { Readable } from 'node:stream';
 import companyLinePush from '../modules/company-line-push/index.js';
 
 const HOZO_GROUP_ID = 'C1234567890abcdef123456';
+const HOZO_FINANCE_GROUP_ID = 'Cabcdef1234567890abcdef';
 
 function request(body, headers = {}, url = 'https://am.example.test/control/hozo/rental/company-group/push') {
   const req = Readable.from([Buffer.from(JSON.stringify(body))]);
@@ -56,6 +57,12 @@ companyLinePush.init({
             LineId: { type: 'rich_text', rich_text: [{ plain_text: HOZO_GROUP_ID }] },
           },
         },
+        {
+          properties: {
+            Name: { type: 'title', title: [{ plain_text: 'HOZO 財務群組' }] },
+            LineId: { type: 'rich_text', rich_text: [{ plain_text: HOZO_FINANCE_GROUP_ID }] },
+          },
+        },
       ],
     };
   },
@@ -66,8 +73,10 @@ companyLinePush.init({
 });
 
 const rentalRoute = companyLinePush.routes.find((route) => route.prefix === '/control/hozo/rental/company-group/push');
+const rentalFinanceRoute = companyLinePush.routes.find((route) => route.prefix === '/control/hozo/rental/finance-group/push');
 const controlRoute = companyLinePush.routes.find((route) => route.prefix === '/control/hozo/company-group/push');
 assert.ok(rentalRoute, 'Rental company-group push route should exist.');
+assert.ok(rentalFinanceRoute, 'Rental finance-group push route should exist.');
 assert.ok(controlRoute, 'Control company-group push route should exist.');
 
 let res = await call(rentalRoute, { body: { text: 'hello' } });
@@ -122,4 +131,16 @@ res = await call(controlRoute, {
 assert.equal(res.status, 200);
 assert.equal(res.payload.source, 'control');
 
-console.log('Company LINE push verification passed: Rental endpoint auth, dry-run, push routing, and control separation are working.');
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' },
+  body: { text: 'finance workflow completed', retryKey: 'finance-retry-1' },
+});
+assert.equal(res.status, 200);
+assert.equal(res.payload.source, 'hozo-rental-finance');
+assert.equal(res.payload.target.name, 'HOZO 財務群組');
+assert.equal(pushCalls.length, 2);
+assert.equal(pushCalls[1].to, HOZO_FINANCE_GROUP_ID);
+assert.equal(pushCalls[1].text, 'finance workflow completed');
+assert.equal(pushCalls[1].delivery.retryKey, 'finance-retry-1');
+
+console.log('Company LINE push verification passed: company and finance routing, Rental auth, dry-run, and control separation are working.');
