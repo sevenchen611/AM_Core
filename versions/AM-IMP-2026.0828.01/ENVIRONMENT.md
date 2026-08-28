@@ -8,8 +8,9 @@ declares names and validation rules; it contains no values.
 | `ENG_CONTRACTS_SIGNING_ENABLED` | No | Yes | Start at `0`; set to `1` only after pilot verification. |
 | `ENG_CONTRACTS_DATABASE_URL` | Yes | Yes | PostgreSQL connection for the isolated `engineering_contracts` schema. |
 | `ENG_CONTRACTS_DATABASE_DEDICATED` | No | Yes | Must be `1`; confirms this credential/database is dedicated to Engineering contract evidence while the schema has no cross-tenant RLS. |
-| `ENG_CONTRACTS_DATABASE_SSL_MODE` | No | Yes | Runtime supports `require` for disposable/local environments; production must use `verify-full`. |
-| `ENG_CONTRACTS_DATABASE_CA` | Yes | Yes | Trusted PostgreSQL CA PEM; runtime must reject an untrusted certificate or hostname. |
+| `ENG_CONTRACTS_DATABASE_SSL_MODE` | No | Yes | Runtime supports `require` for disposable/local environments; production must use `verify-full` or `verify-pinned`. |
+| `ENG_CONTRACTS_DATABASE_CA` | Yes | Yes | Trusted PostgreSQL CA PEM. For `verify-pinned`, set this to the exact self-signed certificate exposed by the private database endpoint. |
+| `ENG_CONTRACTS_DATABASE_CERT_SHA256` | No | With `verify-pinned` | Exact SHA-256 fingerprint of the private endpoint leaf certificate (64 hex characters, optional colons). |
 | `ENG_CONTRACTS_LIFF_ID` | No | Yes | LIFF app used to verify the designated external signer. |
 | `ENG_CONTRACTS_LIFF_ENDPOINT_URL` | No | Yes | Must exactly equal `${ENG_PUBLIC_BASE_URL}/contract-sign`. |
 | `ENG_PUBLIC_BASE_URL` | No | Yes | HTTPS origin for signer links; no path, query, or fragment. |
@@ -96,5 +97,9 @@ signing operations if any required value is absent, the fixed TTL is not seven d
 database schema version differs, Drive is unavailable, or the public base URL is
 not an exact HTTPS origin, the LIFF endpoint differs, trusted proxy settings are
 empty, the database is not explicitly dedicated, or PostgreSQL TLS is not
-`verify-full` with a CA. Read-only management may remain available with a clear degraded-state
+`verify-full` with a CA, or `verify-pinned` with the exact self-signed CA and an
+independently configured SHA-256 leaf-certificate fingerprint. `verify-pinned`
+keeps `rejectUnauthorized=true`; it replaces only DNS hostname matching because
+the Render private certificate has no usable SAN. Any CA-chain or pin mismatch
+fails closed. Read-only management may remain available with a clear degraded-state
 banner; issue and sign operations must not degrade open.

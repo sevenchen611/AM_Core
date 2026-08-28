@@ -54,8 +54,8 @@
       "secret": false,
       "required": true,
       "type": "enum",
-      "allowedValues": ["require", "verify-full"],
-      "productionAllowedValues": ["verify-full"]
+      "allowedValues": ["require", "verify-full", "verify-pinned"],
+      "productionAllowedValues": ["verify-full", "verify-pinned"]
     },
     {
       "name": "ENG_CONTRACTS_DATABASE_CA",
@@ -63,6 +63,15 @@
       "secret": true,
       "required": true,
       "type": "pemCertificateAuthority",
+      "browserExposed": false
+    },
+    {
+      "name": "ENG_CONTRACTS_DATABASE_CERT_SHA256",
+      "runtimeProperty": "tenant.config.contracts.databaseCertSha256Configured",
+      "secret": false,
+      "sensitiveConfig": true,
+      "requiredWhen": { "ENG_CONTRACTS_DATABASE_SSL_MODE": "verify-pinned" },
+      "type": "sha256CertificateFingerprint",
       "browserExposed": false
     },
     {
@@ -179,7 +188,7 @@
     "LIFF endpoint is not exactly publicBaseUrl plus /contract-sign",
     "trusted proxy IPs or overwritten client IP headers are empty or invalid; Render mode must be exactly render plus cf-connecting-ip",
     "database is not explicitly Engineering-dedicated",
-    "PostgreSQL TLS is not verify-full with a trusted CA",
+    "PostgreSQL TLS is neither verify-full with a trusted CA nor verify-pinned with an exact CA and SHA-256 certificate pin",
     "database schema version mismatch",
     "Drive is not configured",
     "LIFF identity verification is unavailable",

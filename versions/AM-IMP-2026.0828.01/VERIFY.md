@@ -115,6 +115,11 @@ Verify with disposable rows:
 
 ## Production gate
 
+- Database TLS uses `verify-full`, or `verify-pinned` with
+  `rejectUnauthorized=true`, the exact private-endpoint self-signed CA, and the
+  independently configured `ENG_CONTRACTS_DATABASE_CERT_SHA256`. A wrong CA and
+  a one-byte-different fingerprint must each fail the connection.
+
 - The pilot is signed in the LINE in-app browser by the designated member.
 - A second member cannot sign the same group-visible link.
 - The final Drive files are private and recoverable.

@@ -45,6 +45,33 @@ function parseCertificateAuthority(value) {
   return certificate;
 }
 
+function parseCertificateFingerprint(value) {
+  const source = String(value || '').trim().replace(/^sha256\s*:/i, '').replace(/:/g, '');
+  if (!/^[a-f0-9]{64}$/i.test(source)) {
+    throw tlsError('CONTRACT_DATABASE_CERT_SHA256_INVALID', 'Contract database certificate SHA-256 fingerprint must contain exactly 64 hexadecimal characters.');
+  }
+  return source.toLowerCase();
+}
+
+function certificateFingerprint256(cert) {
+  const advertised = String(cert?.fingerprint256 || '').replace(/:/g, '').toLowerCase();
+  if (/^[a-f0-9]{64}$/.test(advertised)) return advertised;
+  if (cert?.raw) return crypto.createHash('sha256').update(cert.raw).digest('hex');
+  return '';
+}
+
+function pinnedServerIdentity(expectedFingerprint) {
+  const expected = Buffer.from(expectedFingerprint, 'hex');
+  return (_hostname, cert) => {
+    const actualHex = certificateFingerprint256(cert);
+    const actual = /^[a-f0-9]{64}$/.test(actualHex) ? Buffer.from(actualHex, 'hex') : Buffer.alloc(0);
+    if (actual.length === expected.length && crypto.timingSafeEqual(actual, expected)) return undefined;
+    return Object.assign(new Error('Contract database server certificate does not match the configured SHA-256 fingerprint.'), {
+      code: 'CONTRACT_DATABASE_CERT_PIN_MISMATCH',
+    });
+  };
+}
+
 function productionRuntime(env) {
   return String(env.NODE_ENV || '').toLowerCase() === 'production'
     || String(env.RENDER || '').toLowerCase() === 'true'
@@ -54,8 +81,8 @@ function productionRuntime(env) {
 function databaseTls(env, tenant, databaseUrl) {
   const legacyEnabled = envValue(env, tenant, 'CONTRACTS_DATABASE_SSL', '1') !== '0';
   const mode = envValue(env, tenant, 'CONTRACTS_DATABASE_SSL_MODE', legacyEnabled ? 'require' : 'disable').toLowerCase();
-  if (!['disable', 'require', 'verify-full'].includes(mode)) {
-    throw tlsError('CONTRACT_DATABASE_SSL_MODE_INVALID', 'Contract database SSL mode must be disable, require, or verify-full.');
+  if (!['disable', 'require', 'verify-full', 'verify-pinned'].includes(mode)) {
+    throw tlsError('CONTRACT_DATABASE_SSL_MODE_INVALID', 'Contract database SSL mode must be disable, require, verify-full, or verify-pinned.');
   }
   let parsed;
   try { parsed = new URL(databaseUrl); } catch { throw tlsError('CONTRACT_DATABASE_URL_INVALID', 'Contract database URL is invalid.'); }
@@ -64,16 +91,36 @@ function databaseTls(env, tenant, databaseUrl) {
       throw tlsError('CONTRACT_DATABASE_URL_TLS_OVERRIDE', `Contract database URL must not override ${key}; use dedicated environment settings.`);
     }
   }
-  if (productionRuntime(env) && mode !== 'verify-full') {
-    throw tlsError('CONTRACT_DATABASE_TLS_VERIFY_REQUIRED', 'Production contract database TLS must use verify-full.');
+  if (productionRuntime(env) && !['verify-full', 'verify-pinned'].includes(mode)) {
+    throw tlsError('CONTRACT_DATABASE_TLS_VERIFY_REQUIRED', 'Production contract database TLS must use verify-full or verify-pinned.');
   }
   if (mode === 'disable') return { mode, caConfigured: false, ssl: undefined, fingerprint: 'disable' };
   if (mode === 'require') return { mode, caConfigured: false, ssl: { rejectUnauthorized: false }, fingerprint: 'require' };
   const ca = parseCertificateAuthority(envValue(env, tenant, 'CONTRACTS_DATABASE_CA'));
-  if (!ca) throw tlsError('CONTRACT_DATABASE_CA_REQUIRED', 'verify-full requires a trusted contract database CA.');
+  if (!ca) throw tlsError('CONTRACT_DATABASE_CA_REQUIRED', `${mode} requires a trusted contract database CA.`);
+  if (mode === 'verify-pinned') {
+    const rawFingerprint = envValue(env, tenant, 'CONTRACTS_DATABASE_CERT_SHA256');
+    if (!rawFingerprint) throw tlsError('CONTRACT_DATABASE_CERT_SHA256_REQUIRED', 'verify-pinned requires the exact server certificate SHA-256 fingerprint.');
+    const certificateSha256 = parseCertificateFingerprint(rawFingerprint);
+    return {
+      mode,
+      caConfigured: true,
+      certificatePinConfigured: true,
+      ssl: {
+        rejectUnauthorized: true,
+        ca,
+        // The Render private endpoint certificate has no usable DNS SAN. The
+        // chain is still verified against the exact configured self-signed CA;
+        // identity is then constrained to this independently configured pin.
+        checkServerIdentity: pinnedServerIdentity(certificateSha256),
+      },
+      fingerprint: `verify-pinned:${sha256(ca)}:${certificateSha256}`,
+    };
+  }
   return {
     mode,
     caConfigured: true,
+    certificatePinConfigured: false,
     ssl: { rejectUnauthorized: true, ca },
     fingerprint: `verify-full:${sha256(ca)}`,
   };
@@ -108,7 +155,8 @@ function configFor(env, tenant) {
   const databaseUrl = envValue(env, tenant, 'CONTRACTS_DATABASE_URL');
   if (!databaseUrl) return {
     configured: false, databaseUrl: '', databaseSsl: false, databaseSslMode: 'disable',
-    databaseCaConfigured: false, tenantKey: String(tenant?.key || ''), tls: null,
+    databaseCaConfigured: false, databaseCertSha256Configured: false,
+    tenantKey: String(tenant?.key || ''), tls: null,
   };
   const tls = databaseTls(env, tenant, databaseUrl);
   return {
@@ -117,6 +165,7 @@ function configFor(env, tenant) {
     databaseSsl: tls.mode !== 'disable',
     databaseSslMode: tls.mode,
     databaseCaConfigured: tls.caConfigured,
+    databaseCertSha256Configured: tls.certificatePinConfigured === true,
     tenantKey: String(tenant?.key || ''),
     tls,
   };
@@ -128,6 +177,7 @@ function publicConfig(config) {
     databaseSsl: config.databaseSsl,
     databaseSslMode: config.databaseSslMode,
     databaseCaConfigured: config.databaseCaConfigured,
+    databaseCertSha256Configured: config.databaseCertSha256Configured,
     tenantKey: config.tenantKey,
   };
 }
@@ -946,4 +996,5 @@ export function createContractStore({ env = process.env, logger = console, poolF
   };
 }
 
-export const __test = { canonical, sha256, configFor, databaseTls, parseCertificateAuthority, productionRuntime, SCHEMA_VERSION };
+export const __test = { canonical, sha256, configFor, databaseTls, parseCertificateAuthority,
+  parseCertificateFingerprint, pinnedServerIdentity, productionRuntime, SCHEMA_VERSION };

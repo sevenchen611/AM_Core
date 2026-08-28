@@ -78,7 +78,12 @@ ENG_CONTRACTS_SIGNING_ENABLED=0
 ```
 
 Also keep the feature disabled until `ENG_CONTRACTS_DATABASE_SSL_MODE` is
-`verify-full`, the configured CA rejects an untrusted certificate/hostname,
+`verify-full`, or is `verify-pinned` with the exact private-endpoint self-signed
+CA plus `ENG_CONTRACTS_DATABASE_CERT_SHA256`. Both modes keep certificate-chain
+verification enabled; pinned mode additionally rejects a fingerprint mismatch
+and intentionally substitutes that exact pin for hostname/SAN matching only.
+Confirm that the configured CA rejects an untrusted certificate (and, for
+`verify-full`, a hostname mismatch),
 and the trusted proxy mode plus overwritten client-IP header have passed a
 deployed request test. On Render, use only `ENG_CONTRACTS_TRUSTED_PROXY_IPS=render`
 with `ENG_CONTRACTS_TRUSTED_CLIENT_IP_HEADERS=cf-connecting-ip`; the runtime then

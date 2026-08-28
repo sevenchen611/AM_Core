@@ -27,7 +27,9 @@ Before enablement, connect with the runtime credential and prove:
   `CREATEDB`, or `BYPASSRLS`;
 - it cannot create/drop/alter/truncate tables or disable triggers;
 - it has only `SELECT`, required `INSERT`, and workflow CAS `UPDATE` rights;
-- PostgreSQL TLS rejects an untrusted CA and hostname mismatch.
+- PostgreSQL TLS rejects an untrusted CA. `verify-full` also rejects hostname
+  mismatch; `verify-pinned` is allowed for the Render private endpoint only when
+  the exact self-signed CA and SHA-256 leaf-certificate pin both match.
 
 ## 2. Existing Notion data sources
 

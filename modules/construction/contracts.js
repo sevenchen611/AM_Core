@@ -471,7 +471,7 @@ function render() {
   if (!es.publicBaseUrlConfigured) missing.push('正式 HTTPS 網址');
   if (!es.trustedProxyConfigured) missing.push('可信任 proxy/IP header');
   if (!es.dedicatedDatabaseConfigured) missing.push('工程專用資料庫聲明');
-  if (!es.databaseTlsConfigured) missing.push('資料庫 verify-full/CA');
+  if (!es.databaseTlsConfigured) missing.push('資料庫 verify-full，或 verify-pinned/CA/憑證指紋');
   if (!es.tokenPepperConfigured) missing.push('簽署權杖金鑰');
   if (!es.pdfRendererConfigured) missing.push('PDF 產製服務');
   if (!es.driveConfigured) missing.push('Drive 合約資料夾');

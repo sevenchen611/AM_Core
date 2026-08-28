@@ -15,6 +15,34 @@ assert.equal(verifiedConfig.databaseSslMode, 'verify-full');
 assert.equal(verifiedConfig.databaseCaConfigured, true);
 assert.equal(verifiedConfig.tls.ssl.rejectUnauthorized, true);
 assert.equal(verifiedConfig.tls.ssl.ca, testCa);
+const pinnedFingerprint = '01'.repeat(32);
+const pinnedConfig = __test.configFor({
+  NODE_ENV: 'production',
+  ENG_CONTRACTS_DATABASE_URL: 'postgres://db.internal/contracts',
+  ENG_CONTRACTS_DATABASE_SSL_MODE: 'verify-pinned',
+  ENG_CONTRACTS_DATABASE_CA: testCa,
+  ENG_CONTRACTS_DATABASE_CERT_SHA256: pinnedFingerprint.match(/../g).join(':'),
+}, tenant);
+assert.equal(pinnedConfig.databaseSslMode, 'verify-pinned');
+assert.equal(pinnedConfig.databaseCaConfigured, true);
+assert.equal(pinnedConfig.databaseCertSha256Configured, true);
+assert.equal(pinnedConfig.tls.ssl.rejectUnauthorized, true);
+assert.equal(pinnedConfig.tls.ssl.ca, testCa);
+assert.equal(pinnedConfig.tls.ssl.checkServerIdentity('name-without-san.internal', {
+  fingerprint256: pinnedFingerprint.match(/../g).join(':'),
+}), undefined, 'pin match replaces hostname identity only after CA verification');
+assert.equal(pinnedConfig.tls.ssl.checkServerIdentity('db.internal', {
+  fingerprint256: '02'.repeat(32).match(/../g).join(':'),
+}).code, 'CONTRACT_DATABASE_CERT_PIN_MISMATCH');
+assert.throws(() => __test.configFor({
+  NODE_ENV: 'production', ENG_CONTRACTS_DATABASE_URL: 'postgres://db.internal/contracts',
+  ENG_CONTRACTS_DATABASE_SSL_MODE: 'verify-pinned', ENG_CONTRACTS_DATABASE_CA: testCa,
+}, tenant), (error) => error.code === 'CONTRACT_DATABASE_CERT_SHA256_REQUIRED');
+assert.throws(() => __test.configFor({
+  NODE_ENV: 'production', ENG_CONTRACTS_DATABASE_URL: 'postgres://db.internal/contracts',
+  ENG_CONTRACTS_DATABASE_SSL_MODE: 'verify-pinned', ENG_CONTRACTS_DATABASE_CA: testCa,
+  ENG_CONTRACTS_DATABASE_CERT_SHA256: 'not-a-sha256',
+}, tenant), (error) => error.code === 'CONTRACT_DATABASE_CERT_SHA256_INVALID');
 assert.throws(() => __test.configFor({
   NODE_ENV: 'production', ENG_CONTRACTS_DATABASE_URL: 'postgres://db.example.test/contracts',
   ENG_CONTRACTS_DATABASE_SSL_MODE: 'require',
