@@ -197,7 +197,7 @@ ${disabled ? `<p class="notice">此租戶的群組表尚缺少欄位：${esc(mis
 const tenant=${JSON.stringify(tenant.key)};
 function valuesFor(row){const values={};row.querySelectorAll('[data-field]').forEach(el=>{values[el.dataset.field]=el.multiple?[...el.selectedOptions].map(o=>o.value).filter(Boolean):el.value;});return values;}
 for(const button of document.querySelectorAll('.save'))button.addEventListener('click',async()=>{const row=button.closest('tr'),result=row.querySelector('.result'),values=valuesFor(row);button.disabled=true;result.className='result';result.textContent='儲存中…';try{const r=await fetch('/groups/api/update?tenant='+encodeURIComponent(tenant),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({pageId:row.dataset.pageId,...values})});const j=await r.json();if(!r.ok)throw Error(j.error||'儲存失敗');result.className='result ok';result.textContent='已儲存，設定已生效。'}catch(e){result.className='result err';result.textContent=e.message||'儲存失敗';}finally{button.disabled=false;}});
-for(const button of document.querySelectorAll('.sync-members'))button.addEventListener('click',async()=>{const row=button.closest('tr'),result=row.querySelector('.result');button.disabled=true;result.className='result';result.textContent='同步群組成員中…';try{const r=await fetch('/groups/api/sync-members?tenant='+encodeURIComponent(tenant),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({pageId:row.dataset.pageId})});const j=await r.json();if(!r.ok)throw Error(j.error||'同步失敗');result.className='result ok';result.textContent='已同步 '+j.memberCount+' 位成員，重新載入選單…';setTimeout(()=>location.reload(),400);}catch(e){result.className='result err';result.textContent=e.message||'同步失敗';button.disabled=false;}});
+for(const button of document.querySelectorAll('.sync-members'))button.addEventListener('click',async()=>{const row=button.closest('tr'),result=row.querySelector('.result');button.disabled=true;result.className='result';result.textContent='同步群組成員中…';try{const r=await fetch('/groups/api/sync-members?tenant='+encodeURIComponent(tenant),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({pageId:row.dataset.pageId})});const j=await r.json();if(!r.ok)throw Error(j.error||'同步失敗');if(j.limited){result.className='result';result.textContent='LINE 帳號不支援完整名單；目前已識別 '+j.memberCount+' 位曾發言成員。請成員在群內傳送任一訊息，系統會自動加入。';button.disabled=false;}else{result.className='result ok';result.textContent='已同步 '+j.memberCount+' 位成員，重新載入選單…';setTimeout(()=>location.reload(),400);}}catch(e){result.className='result err';result.textContent=e.message||'同步失敗';button.disabled=false;}});
 </script></body></html>`;
 }
 
@@ -266,7 +266,20 @@ async function syncMembers(tenant, pageId) {
   if (typeof platformRef.listGroupMemberIds !== 'function' || typeof platformRef.resolveGroupMemberName !== 'function') {
     throw new Error('LINE 成員同步尚未設定。');
   }
-  const ids = await platformRef.listGroupMemberIds(binding.groupId);
+  let ids;
+  try {
+    ids = await platformRef.listGroupMemberIds(binding.groupId);
+  } catch (error) {
+    // LINE only permits full group-member enumeration for verified/premium OAs.
+    // Ordinary accounts still receive a stable userId in each member's webhook,
+    // and collect writes those observed identities into 成員對照. Preserve that
+    // authoritative map instead of turning a platform limitation into a hard error.
+    const message = String(error?.message || '');
+    const unavailable = Number(error?.status || error?.statusCode) === 403
+      || /LINE API failed:\s*403|not available for your account|not authorized to use this endpoint/i.test(message);
+    if (!unavailable) throw error;
+    return { memberCount: binding.memberCount, limited: true, source: 'observed-webhooks' };
+  }
   const profiles = await Promise.all(ids.map(async (userId) => ({
     userId,
     name: String(await platformRef.resolveGroupMemberName(binding.groupId, userId) || 'LINE 使用者').trim() || 'LINE 使用者',
@@ -277,7 +290,7 @@ async function syncMembers(tenant, pageId) {
     body: { properties: { '成員對照': { rich_text: text(JSON.stringify(members)) } } },
   });
   platformRef.router?.invalidate?.(binding.groupId);
-  return Object.keys(members).length;
+  return { memberCount: Object.keys(members).length, limited: false, source: 'line-member-list' };
 }
 
 async function handleGroups(req, res, rctx) {
@@ -333,8 +346,8 @@ async function handleGroups(req, res, rctx) {
       const binding = (await listBindings(tenant)).find((row) => row.id === pageId);
       if (!binding) return sendJson(res, 404, { error: '找不到群組綁定。' });
       access.assert('groups.edit', binding.id, { status: binding.status });
-      const memberCount = await syncMembers(tenant, pageId);
-      return sendJson(res, 200, { ok: true, memberCount });
+      const result = await syncMembers(tenant, pageId);
+      return sendJson(res, 200, { ok: true, ...result });
     }
     return sendJson(res, 404, { error: 'Not found' });
   } catch (error) {

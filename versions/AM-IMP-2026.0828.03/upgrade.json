@@ -1,0 +1,61 @@
+{
+  "id": "AM-IMP-2026.0828.03",
+  "name": "LINE member synchronization fallback",
+  "type": "AM Platform / LINE identity / group governance",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-08-28",
+  "dependsOn": ["AM-IMP-2026.0717.02", "AM-IMP-2026.0828.02"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "LINE 403 member-list fallback",
+    "Webhook-observed member preservation",
+    "Onboarding sender identity seeding",
+    "Group-console operator guidance"
+  ],
+  "requiresDatabases": [
+    "Tenant-local Group Bindings data source with 成員對照 and V2 fields"
+  ],
+  "requiresEnv": [
+    "LINE_CHANNEL_ACCESS_TOKEN",
+    "LINE_CHANNEL_SECRET",
+    "<TENANT>_GROUP_BINDINGS_DATA_SOURCE_ID"
+  ],
+  "requiresScripts": [
+    "tools/apply-group-binding-v2-schema.mjs",
+    "tools/dryrun-groups.mjs",
+    "tools/dryrun-core.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Fallback data comes only from webhook identities already observed in the same tenant and LINE group; full-list failure never clears the stored map."
+  },
+  "changes": [
+    "Treat the official LINE 403 account restriction as limited synchronization rather than an application failure",
+    "Preserve webhook-observed member identities when full enumeration is unavailable",
+    "Seed the onboarding command sender into the member map and merge on repair",
+    "Explain the one-message member enrollment fallback in the group console"
+  ],
+  "definitionOfDone": [
+    "Core and groups dry runs pass",
+    "Package validation passes",
+    "Engineering group schema is ready",
+    "Production limited-mode sync does not erase members",
+    "A required signer can enroll by sending a group message"
+  ],
+  "files": [
+    "modules/groups/index.js",
+    "core/group-onboarding.js",
+    "server.js",
+    "tools/dryrun-groups.mjs",
+    "tools/dryrun-core.mjs",
+    "versions/AM-IMP-2026.0828.03/README.md",
+    "versions/AM-IMP-2026.0828.03/INSTALL.md",
+    "versions/AM-IMP-2026.0828.03/VERIFY.md",
+    "versions/AM-IMP-2026.0828.03/ROLLBACK.md",
+    "versions/AM-IMP-2026.0828.03/upgrade.json"
+  ]
+}

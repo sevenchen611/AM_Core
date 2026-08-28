@@ -148,7 +148,17 @@ export function groupOnboardingSuccessMessage({
   return `${action} ${tenantDisplayName}：${command.groupName}${statusLine}${instructionLine}`;
 }
 
-export function groupOnboardingProperties(command, groupId, { projectPageId = '', schema = null } = {}) {
+function memberMapProperty(existingMembers = {}, member = null) {
+  const members = existingMembers && !Array.isArray(existingMembers) && typeof existingMembers === 'object'
+    ? { ...existingMembers }
+    : {};
+  const userId = String(member?.userId || '').trim();
+  const name = String(member?.name || '').trim();
+  if (userId && name) members[name] = userId;
+  return { rich_text: [textItem(JSON.stringify(members).slice(0, 1900))] };
+}
+
+export function groupOnboardingProperties(command, groupId, { projectPageId = '', schema = null, member = null } = {}) {
   const config = ONBOARDING_TENANTS.find((tenant) => tenant.key === command.tenantKey);
   if (!config) throw new Error(`Unsupported onboarding tenant: ${command.tenantKey}`);
   const has = (name) => !schema || Boolean(schema.properties?.[name]);
@@ -160,7 +170,7 @@ export function groupOnboardingProperties(command, groupId, { projectPageId = ''
     '群組角色': { select: { name: config.defaultRole || '內部' } },
     '工種': { select: { name: config.defaultTrade || '營運' } },
     '狀態': { select: { name: status } },
-    '成員對照': { rich_text: [textItem('{}')] },
+    '成員對照': memberMapProperty({}, member),
     '群組用途': { rich_text: [textItem(config.purpose(command.groupName))] },
     '主要負責人': { rich_text: [] },
     '啟用功能': { multi_select: capabilities.map((name) => ({ name })) },
@@ -185,7 +195,7 @@ export function groupOnboardingProperties(command, groupId, { projectPageId = ''
 
 // 同一個 groupId 已屬於同一租戶時，只校正容易被舊口令寫錯的辨識資料，
 // 不重設管理者後續在群組後台調整過的狀態、功能或專案關聯。
-export function groupOnboardingRepairProperties(command, groupId, { schema = null } = {}) {
+export function groupOnboardingRepairProperties(command, groupId, { schema = null, existingMembers = {}, member = null } = {}) {
   const config = ONBOARDING_TENANTS.find((tenant) => tenant.key === command.tenantKey);
   if (!config) throw new Error(`Unsupported onboarding tenant: ${command.tenantKey}`);
   const has = (name) => !schema || Boolean(schema.properties?.[name]);
@@ -197,5 +207,6 @@ export function groupOnboardingRepairProperties(command, groupId, { schema = nul
     '最後設定時間': { date: { start: new Date().toISOString() } },
     '最後設定者': { rich_text: [textItem(`LINE onboarding repair: ${command.sourceCommand}`)] },
   };
+  if (member?.userId && member?.name) properties['成員對照'] = memberMapProperty(existingMembers, member);
   return Object.fromEntries(Object.entries(properties).filter(([name]) => has(name)));
 }

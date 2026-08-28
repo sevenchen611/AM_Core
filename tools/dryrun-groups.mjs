@@ -73,6 +73,28 @@ await check('同步成員只讀 Forest 綁定並寫回 Forest 的成員對照', 
   assert.ok(invalidated.includes('gFOREST'));
 });
 
+await check('LINE 未驗證帳號無法列舉成員時保留 webhook 已識別成員', async () => {
+  groups.init({
+    logger: { warn: () => {} }, router: { invalidate: (groupId) => invalidated.push(groupId) }, portal,
+    listGroupMemberIds: async () => { throw Object.assign(new Error('LINE API failed: 403 {"message":"Access to this API is not available for your account"}'), { statusCode: 403 }); },
+    resolveGroupMemberName: async () => { throw new Error('must not resolve profiles when member-list API is unavailable'); },
+    notionRequest: async (pathname, opts = {}) => {
+      calls.push({ pathname, opts });
+      if (pathname === '/v1/data_sources/forest-groups' && opts.method === 'GET') return { properties: GROUP_BINDING_V2_PROPERTIES };
+      if (pathname.endsWith('/query')) return { results: [{ id: 'binding-1', properties: {
+        '群組名稱': { title: [{ plain_text: '茲心園工務群' }] }, 'LINE 群組 ID': { rich_text: [{ plain_text: 'gFOREST' }] },
+        '狀態': { select: { name: '啟用' } }, '群組角色': { select: { name: '內部' } },
+        '成員對照': { rich_text: [{ plain_text: '{"葉小蝸":"U1"}' }] },
+      } }], has_more: false };
+      throw new Error(`unexpected ${opts.method} ${pathname}`);
+    },
+  });
+  const res = response();
+  await route.handler(request('POST', JSON.stringify({ pageId: 'binding-1' })), res, routeContext('/groups/api/sync-members'));
+  assert.equal(res.status, 200);
+  assert.deepEqual(JSON.parse(res.body), { ok: true, memberCount: 1, limited: true, source: 'observed-webhooks' });
+});
+
 await check('未知功能不會寫入群組綁定', async () => {
   const res = response();
   await route.handler(request('POST', JSON.stringify({
