@@ -3,7 +3,7 @@
   "name": "LINE member synchronization fallback",
   "type": "AM Platform / LINE identity / group governance",
   "portable": true,
-  "status": "Ready",
+  "status": "Deployed",
   "createdAt": "2026-08-28",
   "dependsOn": ["AM-IMP-2026.0717.02", "AM-IMP-2026.0828.02"],
   "installTargets": ["AM_PLATFORM:engineering"],
