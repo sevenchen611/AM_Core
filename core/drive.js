@@ -128,19 +128,37 @@ export function createDrive({ clientId, clientSecret, refreshToken, logger = con
     const id = String(fileId || '').trim();
     if (!/^[A-Za-z0-9_-]{3,200}$/.test(id)) throw new Error('Drive file id is invalid');
     const token = await getAccessToken();
-    const fields = 'id,permissions(id,type,role,domain,allowFileDiscovery),permissionDetails(permissionType,inherited,role)';
-    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?supportsAllDrives=true&fields=${encodeURIComponent(fields)}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const metadata = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(`Drive privacy audit failed: ${response.status}`);
-    if (metadata.id !== id || !Array.isArray(metadata.permissions)) {
-      throw Object.assign(new Error('Drive privacy audit returned incomplete metadata'), { code: 'DRIVE_PRIVACY_AUDIT_INCOMPLETE' });
-    }
-    const permissions = metadata.permissions;
+    const fields = 'nextPageToken,permissions(id,type,role,domain,allowFileDiscovery,permissionDetails(permissionType,inherited,role))';
+    const permissions = [];
+    let pageToken = '';
+    do {
+      const params = new URLSearchParams({
+        supportsAllDrives: 'true',
+        pageSize: '100',
+        fields,
+        ...(pageToken ? { pageToken } : {}),
+      });
+      const response = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}/permissions?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const metadata = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        logger.warn?.('Drive privacy audit request failed', {
+          status: response.status,
+          message: String(metadata?.error?.message || '').slice(0, 300),
+        });
+        throw Object.assign(new Error(`Drive privacy audit failed: ${response.status}`), {
+          code: 'DRIVE_PRIVACY_AUDIT_REQUEST_FAILED',
+        });
+      }
+      if (!Array.isArray(metadata.permissions)) {
+        throw Object.assign(new Error('Drive privacy audit returned incomplete metadata'), { code: 'DRIVE_PRIVACY_AUDIT_INCOMPLETE' });
+      }
+      permissions.push(...metadata.permissions);
+      pageToken = String(metadata.nextPageToken || '');
+    } while (pageToken);
     const broadPermissions = permissions.filter((permission) => (
       ['anyone', 'domain'].includes(permission?.type)
-      || (permission?.permissionDetails || []).some((detail) => ['anyone', 'domain'].includes(detail?.permissionType))
     ));
     if (broadPermissions.length > 0) {
       throw Object.assign(new Error('Drive file or inherited folder has anyone/domain sharing'), {
