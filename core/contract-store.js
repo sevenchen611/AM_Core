@@ -4,7 +4,7 @@
 import crypto from 'node:crypto';
 
 const SCHEMA = 'engineering_contracts';
-const SCHEMA_VERSION = '2026-08-28.engineering-contract-evidence.v2';
+const SCHEMA_VERSION = '2026-08-28.engineering-contract-evidence.v3';
 
 function envValue(env, tenant, name, fallback = '') {
   const prefix = String(tenant?.envPrefix || '').trim();
@@ -1060,6 +1060,194 @@ export function createContractStore({ env = process.env, logger = console, poolF
     });
   }
 
+  async function createDraftReview(tenant, input) {
+    return withTenant(tenant, async (client, config) => {
+      const inserted = await client.query(
+        `INSERT INTO ${SCHEMA}.contract_draft_reviews
+           (external_review_id, version_id, group_binding_notion_page_id, line_group_id,
+            token_digest, draft_pdf_drive_file_id, draft_pdf_sha256, draft_pdf_byte_size,
+            contract_body_drive_file_id, contract_body_sha256, contract_body_file_name,
+            contract_body_mime_type, missing_sections, created_by, expires_at)
+         SELECT $1,v.id,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15::timestamptz
+           FROM ${SCHEMA}.contract_versions v
+           JOIN ${SCHEMA}.contracts c ON c.id = v.contract_id
+          WHERE v.id = $2 AND c.tenant_key = $16 AND v.status = 'draft'
+         RETURNING *`,
+        [input.externalReviewId, input.versionId, input.groupBindingId, input.lineGroupId,
+          input.tokenDigest, input.draftPdfDriveFileId, input.draftPdfSha256,
+          Number(input.draftPdfByteSize), input.contractBodyDriveFileId,
+          input.contractBodySha256, input.contractBodyFileName, input.contractBodyMimeType,
+          JSON.stringify(input.missingSections || []), input.actor, input.expiresAt, config.tenantKey],
+      );
+      if (!inserted.rowCount) throw Object.assign(new Error('只有目前的草稿版本可以送出草約審閱'), { statusCode: 409, code: 'DRAFT_REVIEW_VERSION_INVALID' });
+      const review = inserted.rows[0];
+      await client.query(
+        `INSERT INTO ${SCHEMA}.contract_draft_review_events
+           (review_id,event_type,idempotency_key,actor_kind,actor_id,payload)
+         VALUES ($1,'created',$2,'admin',$3,$4::jsonb)`,
+        [review.id, `created:${review.external_review_id}`, input.actor,
+          JSON.stringify({ missingSections: input.missingSections || [], disclaimerVersion: 'engineering-draft-review-v1' })],
+      );
+      return review;
+    });
+  }
+
+  async function listDraftReviews(tenant, contractId) {
+    const result = await withTenant(tenant, async (client) => client.query(
+      `SELECT r.*,v.version_no
+         FROM ${SCHEMA}.contract_draft_reviews r
+         JOIN ${SCHEMA}.contract_versions v ON v.id = r.version_id
+         JOIN ${SCHEMA}.contracts c ON c.id = v.contract_id
+        WHERE c.tenant_key = $1 AND c.id = $2
+        ORDER BY r.created_at DESC`,
+      [tenant.key, contractId],
+    ), { readOnly: true });
+    return result.value.rows;
+  }
+
+  async function getDraftReviewByTokenDigest(tenant, tokenDigest) {
+    const result = await withTenant(tenant, async (client) => client.query(
+      `SELECT r.*,v.version_no,v.status AS version_status,v.contract_snapshot,
+              c.id AS contract_id,c.contract_number,c.title,c.project_notion_page_id,c.project_code,
+              c.counterparty_name,c.counterparty_company
+         FROM ${SCHEMA}.contract_draft_reviews r
+         JOIN ${SCHEMA}.contract_versions v ON v.id = r.version_id
+         JOIN ${SCHEMA}.contracts c ON c.id = v.contract_id
+        WHERE c.tenant_key = $1 AND r.token_digest = $2
+        LIMIT 1`,
+      [tenant.key, tokenDigest],
+    ), { readOnly: true });
+    return result.value.rows[0] || null;
+  }
+
+  async function recordDraftReviewSent(tenant, input) {
+    return withTenant(tenant, async (client) => {
+      const updated = await client.query(
+        `UPDATE ${SCHEMA}.contract_draft_reviews r
+            SET status = CASE WHEN status = 'created' THEN 'sent' ELSE status END,
+                sent_at = COALESCE(sent_at,$3::timestamptz),
+                line_message_id = COALESCE(NULLIF(line_message_id,''),NULLIF($4,'')),
+                updated_at = clock_timestamp(),row_version = row_version + 1
+           FROM ${SCHEMA}.contract_versions v JOIN ${SCHEMA}.contracts c ON c.id = v.contract_id
+          WHERE r.version_id = v.id AND c.tenant_key = $1 AND r.external_review_id = $2
+            AND r.status IN ('created','sent','opened')
+         RETURNING r.*`,
+        [tenant.key, input.externalReviewId, input.sentAt, input.lineMessageId || ''],
+      );
+      if (!updated.rowCount) throw Object.assign(new Error('找不到可發送的草約審閱'), { statusCode: 404 });
+      const review = updated.rows[0];
+      await client.query(
+        `INSERT INTO ${SCHEMA}.contract_draft_review_events
+           (review_id,event_type,idempotency_key,actor_kind,actor_id,occurred_at,payload)
+         VALUES ($1,'line_send_accepted',$2,'provider','line',$3::timestamptz,$4::jsonb)
+         ON CONFLICT (review_id,idempotency_key) DO NOTHING`,
+        [review.id, `line-send:${review.external_review_id}`, input.sentAt,
+          JSON.stringify({ providerAccepted: true, lineMessageId: input.lineMessageId || '' })],
+      );
+      return review;
+    });
+  }
+
+  async function openDraftReview(tenant, input) {
+    return withTenant(tenant, async (client) => {
+      const updated = await client.query(
+        `UPDATE ${SCHEMA}.contract_draft_reviews r
+            SET status = CASE WHEN status = 'sent' THEN 'opened' ELSE status END,
+                opened_at = COALESCE(opened_at,$3::timestamptz),updated_at = clock_timestamp(),
+                row_version = row_version + 1
+           FROM ${SCHEMA}.contract_versions v JOIN ${SCHEMA}.contracts c ON c.id = v.contract_id
+          WHERE r.version_id = v.id AND c.tenant_key = $1 AND r.token_digest = $2
+            AND r.status IN ('sent','opened')
+         RETURNING r.*`,
+        [tenant.key, input.tokenDigest, input.openedAt],
+      );
+      let review = updated.rows[0];
+      if (!review) {
+        const existing = await client.query(
+          `SELECT r.* FROM ${SCHEMA}.contract_draft_reviews r
+            JOIN ${SCHEMA}.contract_versions v ON v.id = r.version_id
+            JOIN ${SCHEMA}.contracts c ON c.id = v.contract_id
+           WHERE c.tenant_key = $1 AND r.token_digest = $2
+             AND r.status IN ('no_changes','changes_requested')`,
+          [tenant.key, input.tokenDigest],
+        );
+        review = existing.rows[0];
+      }
+      if (!review) throw Object.assign(new Error('草約審閱連結無效或尚未發送'), { statusCode: 409, code: 'DRAFT_REVIEW_NOT_OPENABLE' });
+      await client.query(
+        `INSERT INTO ${SCHEMA}.contract_draft_review_events
+           (review_id,event_type,idempotency_key,actor_kind,occurred_at,ip_address,user_agent,payload)
+         VALUES ($1,'first_opened',$2,'reviewer',$3::timestamptz,$4::inet,$5,'{}'::jsonb)
+         ON CONFLICT (review_id,idempotency_key) DO NOTHING`,
+        [review.id, `first-opened:${review.external_review_id}`, input.openedAt,
+          input.ipAddress || null, input.userAgent || null],
+      );
+      return review;
+    });
+  }
+
+  async function respondDraftReview(tenant, input) {
+    return withTenant(tenant, async (client) => {
+      const locked = await client.query(
+        `SELECT r.* FROM ${SCHEMA}.contract_draft_reviews r
+          JOIN ${SCHEMA}.contract_versions v ON v.id = r.version_id
+          JOIN ${SCHEMA}.contracts c ON c.id = v.contract_id
+         WHERE c.tenant_key = $1 AND r.token_digest = $2 FOR UPDATE`,
+        [tenant.key, input.tokenDigest],
+      );
+      const current = locked.rows[0];
+      if (!current) throw Object.assign(new Error('找不到草約審閱'), { statusCode: 404 });
+      if (['no_changes', 'changes_requested'].includes(current.status)) return current;
+      if (!['sent', 'opened'].includes(current.status)) throw Object.assign(new Error('草約審閱目前不能回覆'), { statusCode: 409 });
+      const updated = await client.query(
+        `UPDATE ${SCHEMA}.contract_draft_reviews
+            SET status = $2,decision = $2,reviewer_name = $3,response_notes = $4,
+                responded_at = $5::timestamptz,response_ip = $6::inet,response_user_agent = $7,
+                opened_at = COALESCE(opened_at,$5::timestamptz),updated_at = clock_timestamp(),
+                row_version = row_version + 1
+          WHERE id = $1 RETURNING *`,
+        [current.id, input.decision, input.reviewerName, input.notes || '',
+          input.respondedAt, input.ipAddress || null, input.userAgent || null],
+      );
+      const review = updated.rows[0];
+      await client.query(
+        `INSERT INTO ${SCHEMA}.contract_draft_review_events
+           (review_id,event_type,idempotency_key,actor_kind,actor_id,occurred_at,ip_address,user_agent,payload)
+         VALUES ($1,$2,$3,'reviewer',$4,$5::timestamptz,$6::inet,$7,$8::jsonb)`,
+        [review.id, input.decision, `response:${review.external_review_id}`,
+          input.reviewerName, input.respondedAt, input.ipAddress || null, input.userAgent || null,
+          JSON.stringify({ notes: input.notes || '', disclaimerAccepted: true })],
+      );
+      return review;
+    });
+  }
+
+  async function revokeDraftReview(tenant, input) {
+    return withTenant(tenant, async (client) => {
+      const updated = await client.query(
+        `UPDATE ${SCHEMA}.contract_draft_reviews r
+            SET status = 'revoked',revoked_at = $3::timestamptz,revoked_by = $4,
+                revoke_reason = $5,updated_at = clock_timestamp(),row_version = row_version + 1
+           FROM ${SCHEMA}.contract_versions v JOIN ${SCHEMA}.contracts c ON c.id = v.contract_id
+          WHERE r.version_id = v.id AND c.tenant_key = $1 AND r.external_review_id = $2
+            AND r.status = 'created'
+         RETURNING r.*`,
+        [tenant.key, input.externalReviewId, input.revokedAt, input.actor, input.reason],
+      );
+      if (!updated.rowCount) return null;
+      const review = updated.rows[0];
+      await client.query(
+        `INSERT INTO ${SCHEMA}.contract_draft_review_events
+           (review_id,event_type,idempotency_key,actor_kind,actor_id,occurred_at,payload)
+         VALUES ($1,'revoked',$2,'system',$3,$4::timestamptz,$5::jsonb)
+         ON CONFLICT (review_id,idempotency_key) DO NOTHING`,
+        [review.id, `revoked:${review.external_review_id}`, input.actor, input.revokedAt,
+          JSON.stringify({ reason: input.reason })],
+      );
+      return review;
+    });
+  }
+
   return {
     schema: SCHEMA,
     configured: (tenant) => configFor(env, tenant).configured,
@@ -1084,6 +1272,13 @@ export function createContractStore({ env = process.env, logger = console, poolF
     listContractTemplates,
     getContractTemplateVersion,
     createContractTemplateVersion,
+    createDraftReview,
+    listDraftReviews,
+    getDraftReviewByTokenDigest,
+    recordDraftReviewSent,
+    openDraftReview,
+    respondDraftReview,
+    revokeDraftReview,
     signingStorage,
     canonical,
     sha256,

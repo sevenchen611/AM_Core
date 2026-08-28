@@ -28,6 +28,7 @@ import { listKnownTrades } from './trades.js';
 import { handleBudgetRequest } from './budget.js';
 import { handleContractsRequest } from './contracts.js';
 import { createContractSigningWebHandler } from './contract-signing-web.js';
+import { createContractDraftReviewWebHandler } from './contract-draft-review-web.js';
 import { handleEngineeringContractPdfRender } from './contract-pdf-renderer.js';
 import { createContractOutboxWorker } from './contract-outbox.js';
 import { createRuntimeSigningService, loadContractPdf, saveContractSignature, signingRequestMeta } from './contract-runtime.js';
@@ -267,6 +268,18 @@ async function publicContractSigningRoute(req, res, ctx) {
   }
 }
 
+async function publicContractDraftReviewRoute(req, res, ctx) {
+  const tenant = ctx.tenant;
+  if (!tenant || tenant.key !== 'engineering' || !(tenant.modules || []).includes('construction')) return sendJson(res, 404, { error: 'Not found' });
+  try {
+    const deps = fullDeps(tenant);
+    return createContractDraftReviewWebHandler(deps)(req, res, ctx.pathname);
+  } catch (error) {
+    const status = Number(error.statusCode || error.status) || 503;
+    return sendJson(res, status, { error: status >= 500 ? '草約審閱服務尚未就緒' : String(error.message || '操作失敗') });
+  }
+}
+
 // 供 reminders(M6)取「逾期/擱置」單據並回寫;回傳綁定該租戶的一組低階助手。
 function reminderSource(ctx) {
   const deps = svcDeps(ctx);
@@ -320,6 +333,7 @@ export default {
   routes: [
     { prefix: '/internal/v1/engineering-contracts/render', method: 'POST', tenantKey: 'engineering', access: { kind: 'public', capability: 'construction.contract-pdf-render' }, handler: handleEngineeringContractPdfRender },
     { prefix: '/contract-sign', tenantKey: 'engineering', access: { kind: 'public', capability: 'construction.contract-sign' }, handler: publicContractSigningRoute },
+    { prefix: '/contract-review', tenantKey: 'engineering', access: { kind: 'public', capability: 'construction.contract-review' }, handler: publicContractDraftReviewRoute },
     { prefix: '/task', access: { kind: 'tenant', capability: 'construction.read' }, handler: webRoute(handleTaskCardRequest) },
     { prefix: '/dashboard', access: { kind: 'tenant', capability: 'construction.read' }, handler: webRoute(handleDashboardRequest) },
     { prefix: '/budget', access: { kind: 'tenant', capability: 'construction.budget' }, handler: webRoute(handleBudgetRequest) },

@@ -9,6 +9,7 @@ import { createContractIssuanceService } from './contract-issuance.js';
 import { createContractCompletionService } from './contract-completion.js';
 import { createContractArtifactService } from './contract-artifacts.js';
 import { createRuntimeSigningService, signingRequestMeta } from './contract-runtime.js';
+import { createContractDraftReviewService } from './contract-draft-review.js';
 
 export const CONTRACT_WORKFLOW_API_BASE = '/contracts/api/v2';
 
@@ -166,6 +167,15 @@ function routeFor(method, pathname) {
   if (method === 'POST' && match) {
     return { operation: 'createDraftVersion', capability: 'manage', body: true, contractId: decodeSegment(match[1]) };
   }
+  match = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/draft-reviews$/);
+  if (method === 'GET' && match) {
+    return { operation: 'listForContract', capability: 'view', review: true, contractId: decodeSegment(match[1]) };
+  }
+  match = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/versions\/([^/]+)\/draft-review$/);
+  if (method === 'POST' && match) {
+    return { operation: 'issueDraftReview', capability: 'manage', body: true, review: true,
+      contractId: decodeSegment(match[1]), versionId: decodeSegment(match[2]) };
+  }
   match = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/versions\/([^/]+)\/(submit-review|approve|freeze|readiness|issue|retry-signing)$/);
   if (!match) return { notFound: true };
   const action = match[3];
@@ -235,6 +245,7 @@ function publicError(error) {
 export function createContractWorkflowApiHandler(deps) {
   let service;
   let issuanceService;
+  let reviewService;
   return async function handleContractWorkflowApi(req, res, pathname, url, authority) {
     const route = routeFor(String(req.method || 'GET').toUpperCase(), pathname);
     if (!route) return false;
@@ -246,7 +257,7 @@ export function createContractWorkflowApiHandler(deps) {
       }
       const context = requireAuthority(deps, authority);
       requireCapability(authority, route.capability);
-      if (!route.issuance && !route.completion && !route.revocation) {
+      if (!route.issuance && !route.completion && !route.revocation && !route.review) {
         service ||= createContractManagementService({
           store: deps.contractStore,
           ...(deps.contractClock ? { clock: deps.contractClock } : {}),
@@ -295,6 +306,7 @@ export function createContractWorkflowApiHandler(deps) {
       if (route.versionId) bindPathReference(input, 'versionId', route.versionId);
       if (route.sessionId) bindPathReference(input, 'sessionId', route.sessionId);
       if (route.issuance) issuanceService ||= createContractIssuanceService(deps);
+      if (route.review) reviewService ||= createContractDraftReviewService(deps);
       const completionService = route.completion ? createContractCompletionService(deps, {
         artifactService: createContractArtifactService(deps),
         signingService: createRuntimeSigningService(deps),
@@ -314,7 +326,7 @@ export function createContractWorkflowApiHandler(deps) {
         },
       } : null;
       const target = route.revocation ? revocationService
-        : (route.completion ? completionService : (route.issuance ? issuanceService : service));
+        : (route.completion ? completionService : (route.issuance ? issuanceService : (route.review ? reviewService : service)));
       const data = await target[route.operation](context, input);
       sendJson(res, 200, { ok: true, data });
       return true;
@@ -329,3 +341,5 @@ export function createContractWorkflowApiHandler(deps) {
 export async function handleContractWorkflowApiRequest(req, res, pathname, url, deps, authority) {
   return createContractWorkflowApiHandler(deps)(req, res, pathname, url, authority);
 }
+
+export const __test = { routeFor, publicError, cleanRequestInput };
