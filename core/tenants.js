@@ -62,7 +62,25 @@ function readConfig(rawConfig, env, prefix) {
     config.meetings = { ...(config.meetings || {}), liffId: meetingsLiffId };
   }
   const contractsLiffId = prefixed(env, prefix, 'CONTRACTS_LIFF_ID').trim();
-  if (config.contracts || contractsLiffId) {
+  const contractsConfigPresent = Boolean(config.contracts || contractsLiffId || [
+    'CONTRACTS_SIGNING_ENABLED',
+    'CONTRACTS_LIFF_ENDPOINT_URL',
+    'CONTRACTS_DATABASE_URL',
+    'CONTRACTS_DATABASE_DEDICATED',
+    'CONTRACTS_DATABASE_SSL_MODE',
+    'CONTRACTS_DATABASE_CA',
+    'CONTRACTS_TOKEN_PEPPER',
+    'CONTRACTS_PDF_RENDER_URL',
+    'CONTRACTS_PDF_RENDER_TOKEN',
+    'CONTRACTS_TRUSTED_PROXY_IPS',
+    'CONTRACTS_TRUSTED_CLIENT_IP_HEADERS',
+  ].some((name) => Object.prototype.hasOwnProperty.call(env, `${prefix}_${name}`))
+    || env.AMCORE_CONTRACTS_TOKEN_PEPPER
+    || env.AMCORE_CONTRACTS_PDF_RENDER_URL
+    || env.AMCORE_CONTRACTS_PDF_RENDER_TOKEN
+    || env.AMCORE_CONTRACTS_TRUSTED_PROXY_IPS
+    || env.AMCORE_CONTRACTS_TRUSTED_CLIENT_IP_HEADERS);
+  if (contractsConfigPresent) {
     config.contracts = {
       ...(config.contracts || {}),
       signingEnabled: prefixed(env, prefix, 'CONTRACTS_SIGNING_ENABLED') === '1',

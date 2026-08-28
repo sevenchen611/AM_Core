@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Readable } from 'node:stream';
+import { loadTenants } from '../core/tenants.js';
 import construction from '../modules/construction/index.js';
 import { createContractArtifactService } from '../modules/construction/contract-artifacts.js';
 import { contractSigningRuntimeReadiness } from '../modules/construction/contract-runtime.js';
@@ -19,6 +20,24 @@ assert.equal(signingRoute.tenantKey, 'engineering');
 const serverSource = await readFile(new URL('server.js', root), 'utf8');
 assert.match(serverSource, /fixedTenantKey \? '' : url\.searchParams\.get\('tenant'\)/);
 assert.match(serverSource, /fixedTenantKey && tenantKey !== fixedTenantKey/);
+
+// Database/PDF preparation must load the contracts config before a LIFF app is
+// provisioned. Otherwise a safe signingEnabled=0 deployment would silently
+// ignore its renderer and database hardening settings.
+const preparedTenant = loadTenants({
+  ENG_CONTRACTS_SIGNING_ENABLED: '0',
+  ENG_CONTRACTS_DATABASE_URL: 'postgresql://runtime:secret@db.example.test/engineering_contracts',
+  ENG_CONTRACTS_DATABASE_DEDICATED: '1',
+  ENG_CONTRACTS_DATABASE_SSL_MODE: 'verify-full',
+  ENG_CONTRACTS_DATABASE_CA: 'test-ca',
+  ENG_CONTRACTS_PDF_RENDER_URL: 'https://engineering.example.test/internal',
+  ENG_CONTRACTS_PDF_RENDER_TOKEN: 'renderer-token-with-at-least-32-bytes',
+}, { warn() {} }).find((tenant) => tenant.key === 'engineering');
+assert.equal(preparedTenant.config.contracts.signingEnabled, false);
+assert.equal(preparedTenant.config.contracts.databaseDedicated, true);
+assert.equal(preparedTenant.config.contracts.databaseSslMode, 'verify-full');
+assert.equal(preparedTenant.config.contracts.databaseCaConfigured, true);
+assert.equal(preparedTenant.config.contracts.pdfRenderToken, 'renderer-token-with-at-least-32-bytes');
 
 const validDeps = {
   tenant: { key: 'engineering', config: { contracts: {
