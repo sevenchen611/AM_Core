@@ -1,15 +1,29 @@
 // AM Platform core — LINE group onboarding commands.
 // Command examples:
+//   綁定 工程 AM 群組：茲心園工程群
 //   綁定 Forest 群組：營運群
 //   綁定 Green Hotel AM 群組：營運群
 //   綁定 HOZO AM 2.0 群組：營運處 VS 好住寓好
 
 import { textItem } from './util.js';
 
-export const GROUP_ONBOARDING_BUILD = 'interactive-private-task-cards-2026-08-13';
+export const GROUP_ONBOARDING_BUILD = 'engineering-group-onboarding-2026-08-28';
 export const LEGACY_HOZO20_BIND_COMMAND = '<绑定 HOZOAM 2.0 群组>';
 
 export const ONBOARDING_TENANTS = [
+  {
+    key: 'engineering',
+    label: '工程 AM',
+    aliases: ['工程 am', '工程am', 'buildam', 'build am'],
+    defaultStatus: '啟用',
+    defaultCapabilities: ['訊息收集', '待辦', '會議', '案件狀態', '照片', '提醒'],
+    defaultMeetingMode: '完整確認',
+    defaultRole: '內部',
+    defaultTrade: '其他',
+    purpose: (name) => `工程 AM「${name}」群組；完成綁定後，請到工程 AM 的 Notion「群組綁定」資料表補選專案、群組角色與工種，再開始正式的工程任務控制。`,
+    postBindInstruction: '下一步：請到工程 AM 的 Notion「群組綁定」資料表補選專案、群組角色與工種。',
+    statusUpdatePolicy: '總管',
+  },
   {
     key: 'forest',
     label: 'Forest',
@@ -61,6 +75,7 @@ function tenantConfigByAlias(value) {
 
 export function supportedGroupOnboardingExamples() {
   return [
+    '綁定 工程 AM 群組：<群組名稱>',
     '綁定 Forest 群組：<群組名稱>',
     '綁定 Green Hotel AM 群組：<群組名稱>',
     '綁定 HOZO AM 2.0 群組：<群組名稱>',
@@ -107,6 +122,7 @@ export function parseGroupOnboardingCommand(value) {
     tenantKey: config.key,
     tenantLabel: config.label,
     groupName,
+    postBindInstruction: config.postBindInstruction || '',
     sourceCommand: text,
   };
 }
@@ -120,6 +136,18 @@ export function withResolvedGroupName(command, lineGroupName) {
   return { ...command, groupName: resolvedName };
 }
 
+export function groupOnboardingSuccessMessage({
+  action,
+  tenantDisplayName,
+  command,
+  statusLabel = '',
+  includeStatus = true,
+}) {
+  const statusLine = includeStatus && statusLabel ? `\n狀態：${statusLabel}` : '';
+  const instructionLine = command?.postBindInstruction ? `\n${command.postBindInstruction}` : '';
+  return `${action} ${tenantDisplayName}：${command.groupName}${statusLine}${instructionLine}`;
+}
+
 export function groupOnboardingProperties(command, groupId, { projectPageId = '', schema = null } = {}) {
   const config = ONBOARDING_TENANTS.find((tenant) => tenant.key === command.tenantKey);
   if (!config) throw new Error(`Unsupported onboarding tenant: ${command.tenantKey}`);
@@ -129,8 +157,8 @@ export function groupOnboardingProperties(command, groupId, { projectPageId = ''
   const properties = {
     '群組名稱': { title: [textItem(command.groupName)] },
     'LINE 群組 ID': { rich_text: [textItem(groupId)] },
-    '群組角色': { select: { name: '內部' } },
-    '工種': { select: { name: '營運' } },
+    '群組角色': { select: { name: config.defaultRole || '內部' } },
+    '工種': { select: { name: config.defaultTrade || '營運' } },
     '狀態': { select: { name: status } },
     '成員對照': { rich_text: [textItem('{}')] },
     '群組用途': { rich_text: [textItem(config.purpose(command.groupName))] },
