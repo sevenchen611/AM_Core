@@ -74,7 +74,9 @@ export function contractSigningRuntimeReadiness(deps) {
       : proxyIps.length > 0 && proxyIps.every((ip) => isIP(String(ip).trim()) > 0)
         && proxyHeaders.length > 0 && proxyHeaders.every((header) => /^[a-z0-9-]+$/.test(String(header))),
     dedicatedDatabase: config.databaseDedicated === true,
-    databaseTls: config.databaseSslMode === 'verify-full' && config.databaseCaConfigured === true,
+    databaseTls: (config.databaseSslMode === 'verify-full' && config.databaseCaConfigured === true)
+      || (config.databaseSslMode === 'verify-pinned' && config.databaseCaConfigured === true
+        && config.databaseCertSha256Configured === true),
   });
   return Object.freeze({
     ready: Object.values(checks).every(Boolean),

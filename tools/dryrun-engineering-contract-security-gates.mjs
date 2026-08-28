@@ -37,6 +37,7 @@ assert.equal(preparedTenant.config.contracts.signingEnabled, false);
 assert.equal(preparedTenant.config.contracts.databaseDedicated, true);
 assert.equal(preparedTenant.config.contracts.databaseSslMode, 'verify-full');
 assert.equal(preparedTenant.config.contracts.databaseCaConfigured, true);
+assert.equal(preparedTenant.config.contracts.databaseCertSha256Configured, false);
 assert.equal(preparedTenant.config.contracts.pdfRenderToken, 'renderer-token-with-at-least-32-bytes');
 
 const validDeps = {
@@ -53,6 +54,22 @@ const validDeps = {
   publicBaseUrl: 'https://engineering.example.test',
 };
 assert.equal(contractSigningRuntimeReadiness(validDeps).ready, true);
+const pinnedDatabaseDeps = {
+  ...validDeps,
+  tenant: { key: 'engineering', config: { contracts: {
+    ...validDeps.tenant.config.contracts,
+    databaseSslMode: 'verify-pinned',
+    databaseCertSha256Configured: true,
+  } } },
+};
+assert.equal(contractSigningRuntimeReadiness(pinnedDatabaseDeps).ready, true);
+assert.equal(contractSigningRuntimeReadiness({
+  ...pinnedDatabaseDeps,
+  tenant: { key: 'engineering', config: { contracts: {
+    ...pinnedDatabaseDeps.tenant.config.contracts,
+    databaseCertSha256Configured: false,
+  } } },
+}).ready, false);
 const renderProxyDeps = {
   ...validDeps,
   tenant: { key: 'engineering', config: { contracts: {
