@@ -36,6 +36,11 @@ records, customer information, or signing tokens:
   verified. The LIFF ID is configured only in Render and is not committed here.
 - Render trusted-proxy settings are deployed, and the production contract
   workspace no longer reports missing database or LIFF configuration.
+- The graphical workspace includes one cross-project contract version library.
+  A basic contract may be created before its attachments are complete; each
+  later document or terms revision is saved as a new V1/V2/V3 entry without
+  overwriting prior versions. Incomplete drafts remain visibly blocked from the
+  review/signing controls.
 - A full Render PostgreSQL export completed successfully. The export URL and
   database credentials are not recorded here.
 - The production PDF renderer rejected a missing idempotency key and generated
