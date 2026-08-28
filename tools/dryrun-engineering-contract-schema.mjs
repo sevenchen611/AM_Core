@@ -8,6 +8,8 @@ const expectedTables = [
   'acceptance_criteria',
   'artifacts',
   'contract_documents',
+  'contract_template_versions',
+  'contract_templates',
   'contract_versions',
   'contracts',
   'integration_outbox',
@@ -25,7 +27,7 @@ try {
   const meta = await db.query(
     'SELECT version FROM engineering_contracts.schema_meta WHERE singleton = true',
   );
-  assert.equal(meta.rows[0]?.version, '2026-08-28.engineering-contract-evidence.v1');
+  assert.equal(meta.rows[0]?.version, '2026-08-28.engineering-contract-evidence.v2');
 
   const tables = await db.query(
     `SELECT table_name

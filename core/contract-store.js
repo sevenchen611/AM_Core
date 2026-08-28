@@ -4,7 +4,7 @@
 import crypto from 'node:crypto';
 
 const SCHEMA = 'engineering_contracts';
-const SCHEMA_VERSION = '2026-08-28.engineering-contract-evidence.v1';
+const SCHEMA_VERSION = '2026-08-28.engineering-contract-evidence.v2';
 
 function envValue(env, tenant, name, fallback = '') {
   const prefix = String(tenant?.envPrefix || '').trim();
@@ -969,6 +969,97 @@ export function createContractStore({ env = process.env, logger = console, poolF
     return result.value.rows;
   }
 
+  async function listContractTemplates(tenant) {
+    const result = await withTenant(tenant, async (client) => client.query(
+      `SELECT t.*,
+              COALESCE(jsonb_agg(jsonb_build_object(
+                'id', v.id,
+                'versionNo', v.version_no,
+                'status', v.status,
+                'effectiveDate', v.effective_date,
+                'notes', v.notes,
+                'fileId', v.drive_file_id,
+                'fileName', v.file_name,
+                'mimeType', v.mime_type,
+                'sizeBytes', v.byte_size,
+                'sha256', v.sha256,
+                'createdBy', v.created_by,
+                'createdAt', v.created_at
+              ) ORDER BY v.version_no DESC) FILTER (WHERE v.id IS NOT NULL), '[]'::jsonb) AS versions
+         FROM ${SCHEMA}.contract_templates t
+         LEFT JOIN ${SCHEMA}.contract_template_versions v ON v.template_id = t.id
+        WHERE t.tenant_key = $1 AND t.status = 'active'
+        GROUP BY t.id
+        ORDER BY t.contract_type, t.template_name`,
+      [tenant.key],
+    ), { readOnly: true });
+    return result.value.rows;
+  }
+
+  async function getContractTemplateVersion(tenant, versionId) {
+    const result = await withTenant(tenant, async (client) => client.query(
+      `SELECT v.*, t.template_name, t.contract_type, t.description
+         FROM ${SCHEMA}.contract_template_versions v
+         JOIN ${SCHEMA}.contract_templates t ON t.id = v.template_id
+        WHERE t.tenant_key = $1 AND t.status = 'active' AND v.id = $2
+        LIMIT 1`,
+      [tenant.key, versionId],
+    ), { readOnly: true });
+    return result.value.rows[0] || null;
+  }
+
+  async function createContractTemplateVersion(tenant, input) {
+    return withTenant(tenant, async (client, config) => {
+      let template;
+      if (input.templateId) {
+        const selected = await client.query(
+          `SELECT * FROM ${SCHEMA}.contract_templates
+            WHERE tenant_key = $1 AND id = $2 AND status = 'active'
+            FOR UPDATE`,
+          [config.tenantKey, input.templateId],
+        );
+        template = selected.rows[0];
+        if (!template) throw Object.assign(new Error('找不到可使用的合約範本'), { statusCode: 404 });
+      } else {
+        const inserted = await client.query(
+          `INSERT INTO ${SCHEMA}.contract_templates
+             (tenant_key, template_name, contract_type, description, created_by, updated_by)
+           VALUES ($1,$2,$3,$4,$5,$5)
+           RETURNING *`,
+          [config.tenantKey, input.templateName, input.contractType, input.description || '', input.actor],
+        );
+        template = inserted.rows[0];
+      }
+      const next = await client.query(
+        `SELECT COALESCE(max(version_no),0)+1 AS version_no
+           FROM ${SCHEMA}.contract_template_versions WHERE template_id = $1`,
+        [template.id],
+      );
+      const versionNo = Number(next.rows[0]?.version_no || 1);
+      const file = input.file || {};
+      const insertedVersion = await client.query(
+        `INSERT INTO ${SCHEMA}.contract_template_versions
+           (template_id, version_no, status, effective_date, notes, drive_file_id,
+            file_name, mime_type, byte_size, sha256, created_by)
+         VALUES ($1,$2,'active',$3,$4,$5,$6,$7,$8,$9,$10)
+         RETURNING *`,
+        [template.id, versionNo, input.effectiveDate || null, input.notes || '', file.fileId,
+          file.name, file.mimeType, Number(file.sizeBytes), file.sha256, input.actor],
+      );
+      const version = insertedVersion.rows[0];
+      const updated = await client.query(
+        `UPDATE ${SCHEMA}.contract_templates
+            SET current_version_id = $2,
+                description = CASE WHEN $3::text = '' THEN description ELSE $3 END,
+                updated_by = $4, updated_at = clock_timestamp()
+          WHERE id = $1 AND tenant_key = $5
+          RETURNING *`,
+        [template.id, version.id, input.description || '', input.actor, config.tenantKey],
+      );
+      return { template: updated.rows[0] || template, version };
+    });
+  }
+
   return {
     schema: SCHEMA,
     configured: (tenant) => configFor(env, tenant).configured,
@@ -990,6 +1081,9 @@ export function createContractStore({ env = process.env, logger = console, poolF
     recordArtifact,
     getSigningBundle,
     listContracts,
+    listContractTemplates,
+    getContractTemplateVersion,
+    createContractTemplateVersion,
     signingStorage,
     canonical,
     sha256,

@@ -24,6 +24,12 @@ Use the migration-owner connection, not the runtime application role:
 psql "$ENG_CONTRACTS_MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f versions/AM-IMP-2026.0828.01/schemas/engineering-contract-evidence.sql
 ```
 
+For an existing v1 installation, apply the additive migration instead:
+
+```text
+psql "$ENG_CONTRACTS_MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f versions/AM-IMP-2026.0828.01/schemas/engineering-contract-template-library-v2.sql
+```
+
 The migration URL and runtime `ENG_CONTRACTS_DATABASE_URL` must resolve to
 different roles. This schema has no cross-tenant RLS: the database and runtime
 credential must be dedicated to Engineering and
