@@ -13,6 +13,7 @@ import {
   GROUP_ONBOARDING_BUILD,
   groupOnboardingProperties,
   groupOnboardingRepairProperties,
+  groupOnboardingSuccessMessage,
   parseGroupOnboardingCommand,
   supportedGroupOnboardingExamples,
   withResolvedGroupName,
@@ -192,9 +193,13 @@ async function maybeHandleGroupOnboardingCommand(event, groupId, resolved = {}) 
     const statusLabel = properties['狀態']?.select?.name || '影子記錄';
     const action = isCurrentBinding ? '已校正目前群組綁定' : wasExisting ? '已更新綁定' : '已綁定';
     logger.log(`AM Platform group ${isCurrentBinding ? 'repaired' : wasExisting ? 'updated' : 'bound'} (tenant=${tenant.key}, status=${statusLabel}, group=${groupId}, page=${pageId || 'unknown'}).`);
-    await replyLine(event, isCurrentBinding
-      ? `${action} ${tenant.displayName}：${onboardingCommand.groupName}`
-      : `${action} ${tenant.displayName}：${onboardingCommand.groupName}\n狀態：${statusLabel}`);
+    await replyLine(event, groupOnboardingSuccessMessage({
+      action,
+      tenantDisplayName: tenant.displayName,
+      command: onboardingCommand,
+      statusLabel,
+      includeStatus: !isCurrentBinding,
+    }));
   } catch (error) {
     logger.warn(`Group onboarding failed (tenant=${command.tenantKey}, group=${groupId}): ${error.message}`);
     await replyLine(event, `群組綁定失敗：${error.message.slice(0, 180)}`);

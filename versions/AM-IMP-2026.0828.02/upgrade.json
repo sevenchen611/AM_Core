@@ -1,0 +1,64 @@
+{
+  "id": "AM-IMP-2026.0828.02",
+  "name": "Engineering AM LINE group self-onboarding",
+  "type": "AM Platform / LINE onboarding / Engineering tenant",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-08-28",
+  "dependsOn": ["AM-IMP-2026.0803.02"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Engineering AM onboarding tenant and aliases",
+    "Engineering binding defaults",
+    "Supported command help text",
+    "Core dry-run regression coverage"
+  ],
+  "requiresDatabases": [
+    "Engineering tenant-local Group Bindings data source with the existing v2 fields",
+    "Engineering tenant-local Projects data source for post-onboarding project assignment"
+  ],
+  "requiresEnv": [
+    "ENG_NOTION_PARENT_PAGE_ID",
+    "ENG_GROUP_BINDINGS_DATA_SOURCE_ID",
+    "LINE_CHANNEL_ACCESS_TOKEN",
+    "LINE_CHANNEL_SECRET"
+  ],
+  "requiresScripts": [
+    "node --check core/group-onboarding.js",
+    "node --check server.js",
+    "node tools/dryrun-core.mjs",
+    "node tools/check-upgrade-package.js AM-IMP-2026.0828.02",
+    "node tools/audit-alignment.js"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The LINE groupId remains authoritative. Onboarding scans for duplicate ownership across configured tenants, rejects cross-tenant rebinding, and writes only through tenantKey=engineering to Engineering AM's declared Group Bindings source."
+  },
+  "changes": [
+    "Accept 工程 AM, 工程AM, BuildAM, and Build AM as explicit aliases for tenant engineering",
+    "Show the Engineering AM command in onboarding error help",
+    "Create Engineering bindings with active engineering workflow defaults and neutral role/trade placeholders",
+    "Include the required project, role, and trade follow-up in the successful LINE reply",
+    "Require administrators to assign the project relation after onboarding instead of guessing from group text"
+  ],
+  "definitionOfDone": [
+    "Package validation passes",
+    "Core dry run covers all Engineering aliases and declared defaults",
+    "Existing tenant onboarding and isolation checks remain green",
+    "Production deployment reports the new onboarding build before the LINE command is retried",
+    "The new binding is assigned to the correct Engineering project before formal task control"
+  ],
+  "files": [
+    "core/group-onboarding.js",
+    "server.js",
+    "tools/dryrun-core.mjs",
+    "versions/AM-IMP-2026.0828.02/README.md",
+    "versions/AM-IMP-2026.0828.02/INSTALL.md",
+    "versions/AM-IMP-2026.0828.02/VERIFY.md",
+    "versions/AM-IMP-2026.0828.02/ROLLBACK.md",
+    "versions/AM-IMP-2026.0828.02/upgrade.json"
+  ]
+}

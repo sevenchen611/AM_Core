@@ -6,7 +6,13 @@
 
 import assert from 'node:assert';
 import { bootstrap } from '../core/bootstrap.js';
-import { parseGroupOnboardingCommand, withResolvedGroupName } from '../core/group-onboarding.js';
+import {
+  groupOnboardingProperties,
+  groupOnboardingSuccessMessage,
+  parseGroupOnboardingCommand,
+  supportedGroupOnboardingExamples,
+  withResolvedGroupName,
+} from '../core/group-onboarding.js';
 
 // ── 假 Notion 世界 ─────────────────────────────────────────
 const ENG_PAGE = 'aaaa1111aaaa1111aaaa1111aaaa1111';
@@ -230,7 +236,17 @@ await check('守衛允許同租戶既有頁更新', async () => {
 });
 
 // 12) 通用群組 onboarding 指令解析：多租戶必須明確指定 tenant，避免誤綁。
-await check('通用群組綁定指令可解析 Forest / Green / HOZO', () => {
+await check('通用群組綁定指令可解析工程 AM / Forest / Green / HOZO', () => {
+  for (const alias of ['工程 AM', '工程AM', 'BuildAM', 'Build AM']) {
+    assert.deepEqual(
+      {
+        tenantKey: parseGroupOnboardingCommand(`綁定 ${alias} 群組：茲心園工程群`).tenantKey,
+        groupName: parseGroupOnboardingCommand(`綁定 ${alias} 群組：茲心園工程群`).groupName,
+      },
+      { tenantKey: 'engineering', groupName: '茲心園工程群' },
+    );
+  }
+  assert.ok(supportedGroupOnboardingExamples().includes('綁定 工程 AM 群組：<群組名稱>'));
   assert.deepEqual(
     {
       tenantKey: parseGroupOnboardingCommand('綁定 Forest 群組：營運群').tenantKey,
@@ -253,6 +269,30 @@ await check('通用群組綁定指令可解析 Forest / Green / HOZO', () => {
     { tenantKey: 'hozo-am-2-0', groupName: '營運處 VS 好住寓好' },
   );
   assert.match(parseGroupOnboardingCommand('綁定 營運群').error, /格式不完整/);
+});
+
+await check('工程 AM 新綁定採用正式功能與安全的未分類工程欄位', () => {
+  const command = parseGroupOnboardingCommand('綁定 工程 AM 群組：茲心園工程群');
+  assert.match(command.postBindInstruction, /補選專案、群組角色與工種/);
+  assert.equal(
+    groupOnboardingSuccessMessage({
+      action: '已綁定',
+      tenantDisplayName: '工程 AM',
+      command,
+      statusLabel: '啟用',
+    }),
+    '已綁定 工程 AM：茲心園工程群\n狀態：啟用\n下一步：請到工程 AM 的 Notion「群組綁定」資料表補選專案、群組角色與工種。',
+  );
+  const properties = groupOnboardingProperties(command, 'gEngineering');
+  assert.equal(properties['狀態'].select.name, '啟用');
+  assert.equal(properties['群組角色'].select.name, '內部');
+  assert.equal(properties['工種'].select.name, '其他');
+  assert.equal(properties['會議待辦模式'].select.name, '完整確認');
+  assert.deepEqual(
+    properties['啟用功能'].multi_select.map((option) => option.name),
+    ['訊息收集', '待辦', '會議', '案件狀態', '照片', '提醒'],
+  );
+  assert.match(properties['群組用途'].rich_text[0].text.content, /補選專案、群組角色與工種/);
 });
 
 // 13) 舊 HOZO AM 2.0 綁定指令仍相容，讓已通知出去的口令不失效。
