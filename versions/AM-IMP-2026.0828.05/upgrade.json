@@ -1,0 +1,74 @@
+{
+  "id": "AM-IMP-2026.0828.05",
+  "name": "Engineering contract draft review",
+  "type": "AM Platform / contracts / LINE group review",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-08-28",
+  "dependsOn": ["AM-IMP-2026.0828.01", "AM-IMP-2026.0828.03"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Non-binding incomplete-draft PDF generation",
+    "LINE group draft-review invitation",
+    "Reviewer no-change or change-request response",
+    "Immutable draft-review evidence and V2/V3 revision history"
+  ],
+  "requiresDatabases": [
+    "Engineering-dedicated PostgreSQL schema engineering_contracts v3",
+    "Existing Engineering Drive root and project Group Bindings"
+  ],
+  "requiresEnv": [
+    "ENG_CONTRACTS_DATABASE_URL",
+    "ENG_DRIVE_ROOT_FOLDER_ID",
+    "ENG_PUBLIC_BASE_URL",
+    "LINE_CHANNEL_ACCESS_TOKEN"
+  ],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-draft-review.mjs",
+    "tools/dryrun-engineering-contract-management.mjs",
+    "tools/dryrun-engineering-contract-pdf-renderer.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Each review resolves one Engineering contract version and that contract project's active LINE group; tokens are stored only as SHA-256 digests."
+  },
+  "changes": [
+    "Allow an incomplete draft with a contract body to be sent for discussion",
+    "Generate a visibly watermarked non-signable PDF and public review page",
+    "Record LINE send, first open, reviewer identity, decision, notes, time, IP, and user agent",
+    "Keep draft-review evidence separate from formal electronic-signing evidence",
+    "Display review history in the graphical Engineering AM contract workspace"
+  ],
+  "definitionOfDone": [
+    "Schema v3 and restricted runtime grants are applied",
+    "Draft review, contract workflow, and PDF regression dry runs pass",
+    "Production public review route and internal contract UI are verified",
+    "No real LINE message is sent without an operator-selected contract and group"
+  ],
+  "files": [
+    "core/contract-store.js",
+    "modules/construction/contract-artifacts.js",
+    "modules/construction/contract-authority.js",
+    "modules/construction/contract-draft-review.js",
+    "modules/construction/contract-draft-review-web.js",
+    "modules/construction/contract-pdf-renderer.js",
+    "modules/construction/contract-workflow-api.js",
+    "modules/construction/contracts.js",
+    "modules/construction/index.js",
+    "package.json",
+    "package-lock.json",
+    "tools/dryrun-engineering-contract-draft-review.mjs",
+    "tools/render-engineering-contract-draft-review-sample.mjs",
+    "docs/tenants/engineering/project-improvement-manifest.md",
+    "docs/tenants/engineering/upgrades/AM-IMP-2026.0828.05-engineering-contract-draft-review.md",
+    "versions/AM-IMP-2026.0828.05/schemas/engineering-contract-draft-review-v3.sql",
+    "versions/AM-IMP-2026.0828.05/README.md",
+    "versions/AM-IMP-2026.0828.05/INSTALL.md",
+    "versions/AM-IMP-2026.0828.05/VERIFY.md",
+    "versions/AM-IMP-2026.0828.05/ROLLBACK.md",
+    "versions/AM-IMP-2026.0828.05/upgrade.json"
+  ]
+}

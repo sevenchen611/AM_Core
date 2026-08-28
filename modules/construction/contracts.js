@@ -495,7 +495,7 @@ const CAN_ISSUE = ${JSON.stringify(Boolean(canIssue))};
 const CAN_CONFIRM = ${JSON.stringify(Boolean(canConfirm))};
 let DATA = null;
 let CURRENT = null;
-let WORKFLOW = { row:null, contract:null, detail:null, files:{}, creatingVersion:false };
+let WORKFLOW = { row:null, contract:null, detail:null, reviews:[], files:{}, creatingVersion:false };
 let TEMPLATES = [];
 let TEMPLATE_UPLOAD = null;
 let TEMPLATE_FORM_ID = null;
@@ -654,11 +654,11 @@ async function archiveRow(id, number) {
   if (!confirm('確定封存合約「' + number + '」?已發包金額會同步重算(可在 Notion 垃圾桶找回)。')) return;
   await run(() => api('archive', { page: id }));
 }
-function closeWorkflow(){ document.getElementById('workflow-modal').hidden=true; WORKFLOW={row:null,contract:null,detail:null,files:{},creatingVersion:false}; }
+function closeWorkflow(){ document.getElementById('workflow-modal').hidden=true; WORKFLOW={row:null,contract:null,detail:null,reviews:[],files:{},creatingVersion:false}; }
 function workflowRow(id){ for(const p of DATA.projects){const row=p.rows.find(x=>x.id===id);if(row)return {row,project:p};}return null; }
 async function openWorkflow(id,createNext=false){
   const found=workflowRow(id); if(!found)return;
-  WORKFLOW={row:found.row,project:found.project,contract:null,detail:null,files:{},creatingVersion:false};
+  WORKFLOW={row:found.row,project:found.project,contract:null,detail:null,reviews:[],files:{},creatingVersion:false};
   document.getElementById('workflow-title').textContent=(found.row.number||'')+' '+(found.row.name||'合約工作區');
   document.getElementById('workflow-modal').hidden=false;
   document.getElementById('workflow-body').innerHTML='<div class="empty">正在讀取合約版本…</div>';
@@ -676,12 +676,14 @@ async function openWorkflow(id,createNext=false){
     }
     WORKFLOW.contract={id:contractId};
     WORKFLOW.detail=await apiV2('contracts/'+encodeURIComponent(contractId));
+    try{WORKFLOW.reviews=await apiV2('contracts/'+encodeURIComponent(contractId)+'/draft-reviews');}catch{WORKFLOW.reviews=[];}
     try{TEMPLATES=await apiV2('templates');}catch{TEMPLATES=[];}
     WORKFLOW.creatingVersion=Boolean(createNext&&WORKFLOW.detail.latestVersion);
     renderWorkflow();
   }catch(error){document.getElementById('workflow-body').innerHTML='<div class="readiness">'+esc(error.message)+'</div>';}
 }
 function workflowStatusLabel(status){return ({draft:'草稿',internal_review:'內部審查',approved:'已核准',frozen:'已凍結',issued:'已簽發',sent:'已發送',opened:'已收件／開啟',signed:'待我方確認',confirmed:'產製歸檔中',completed:'已完成',revoked:'已撤銷',expired:'已逾期',declined:'已拒絕'})[status]||status||'尚未建版';}
+function draftReviewStatusLabel(status){return ({created:'準備發送',sent:'LINE 已接受發送',opened:'對方已開啟',no_changes:'暫無修改意見',changes_requested:'對方提出修改',expired:'已逾期',revoked:'已撤銷'})[status]||status||'—';}
 function versionMissing(version){
   const pkg=version?.documentPackage||version?.snapshot?.documentPackage||{};const missing=[];
   if(!pkg.contractBody)missing.push('合約本文');if(!(pkg.constructionDrawings||[]).length)missing.push('施工圖');if(!pkg.quotation)missing.push('報價單');if(!(pkg.paymentMilestones||[]).length)missing.push('付款條件');if(!(pkg.acceptanceCriteria||pkg.acceptanceStandards||[]).length)missing.push('驗收標準');return missing;
@@ -698,6 +700,9 @@ function versionComposerHtml(nextVersion){
     +'<div class="workflow-box"><h4>驗收標準（可選）</h4><textarea id="wf-acceptance" placeholder="每行一項可量測的驗收標準"></textarea></div></div>'
     +'<div class="workflow-actions"><button class="btn" onclick="createWorkflowDraft()">儲存 V'+nextVersion+'</button>'+(WORKFLOW.detail?.latestVersion?'<button class="btn ghost" onclick="cancelNewVersion()">取消新增版本</button>':'')+'</div>';
 }
+function draftReviewHistoryHtml(){const reviews=WORKFLOW.reviews||[];if(!reviews.length)return '';
+  return '<div class="version-list"><h3>草約審閱紀錄（不屬於正式簽署）</h3><div class="twrap"><table><tr><th>版本</th><th>狀態</th><th>LINE 發送</th><th>開啟</th><th>回覆</th><th>回覆人／意見</th></tr>'
+    +reviews.map(r=>'<tr><td>V'+esc(r.versionNo)+'</td><td>'+esc(draftReviewStatusLabel(r.status))+'</td><td>'+esc((r.sentAt||'—').replace('T',' ').slice(0,16))+'</td><td>'+esc((r.openedAt||'—').replace('T',' ').slice(0,16))+'</td><td>'+esc((r.respondedAt||'—').replace('T',' ').slice(0,16))+'</td><td>'+esc(r.reviewerName||'—')+(r.responseNotes?'<br><span class="hint">'+esc(r.responseNotes)+'</span>':'')+'</td></tr>').join('')+'</table></div></div>';}
 function templatePickerBox(){const options=TEMPLATES.flatMap(t=>(t.versions||[]).slice(0,1).map(v=>'<option value="'+esc(v.id)+'">'+esc(t.contract_type)+'／'+esc(t.template_name)+' V'+v.versionNo+'</option>')).join('');return '<div class="workflow-box"><h4>套用公版合約範本（可選）</h4><select id="wf-template-version" style="width:100%"><option value="">不套用範本，直接上傳本文</option>'+options+'</select><div class="hint">範本只帶入合約本文；施工圖、報價、付款與驗收仍屬於這個工程合約。</div></div>';}
 function renderWorkflow(){
   const latest=WORKFLOW.detail?.latestVersion; const status=latest?.status||'';
@@ -708,6 +713,7 @@ function renderWorkflow(){
   } else if(latest){
     html+='<div class="workflow-grid"><div class="workflow-box"><h4>五項必要內容</h4><div class="hint">合約本文、施工圖、報價單、付款條件、驗收標準均封裝在此版本；凍結後不可修改。</div></div><div class="workflow-box"><h4>附件雜湊</h4><div class="file-state">'+esc(latest.attachmentManifestHash||latest.bundle_sha256||'尚未凍結')+'</div></div></div><div class="workflow-actions">';
     if(CAN_MANAGE)html+='<button class="btn ghost" onclick="startNewVersion()">＋ 建立 V'+(latest.versionNo+1)+'</button>';
+    if(status==='draft'&&CAN_MANAGE){const hasBody=!versionMissing(latest).includes('合約本文');if(hasBody&&WORKFLOW.row.groupId)html+='<button class="btn" onclick="workflowDraftReview()">產生草約並送 LINE 群組確認</button>';else html+='<span class="version-missing">草約至少需要合約本文，且合約必須綁定工程 LINE 群組。</span>';}
     if(status==='draft'&&CAN_MANAGE&&!versionMissing(latest).length)html+='<button class="btn" onclick="workflowTransition(\\'submit-review\\')">送交內部審查</button>';
     if(status==='draft'&&versionMissing(latest).length)html+='<span class="version-missing">五項內容未完整，請建立下一版本補齊後再送審。</span>';
     if(status==='internal_review'&&CAN_ISSUE)html+='<button class="btn" onclick="workflowTransition(\\'approve\\')">核准版本</button>';
@@ -716,6 +722,7 @@ function renderWorkflow(){
     if(status==='issued'){html+='<span class="hint">電子簽署：'+esc(workflowStatusLabel(WORKFLOW.row.signingStatus)||'尚未送簽')+'</span>';if(CAN_ISSUE&&['','revoked','expired','declined'].includes(WORKFLOW.row.signingStatus))html+=signerSelect()+'<button class="btn ghost" onclick="workflowIssue(\\'retry-signing\\')">以同一版本重新送簽</button>';if(CAN_CONFIRM&&['signed','confirmed'].includes(WORKFLOW.row.signingStatus)&&WORKFLOW.row.signingSessionId)html+='<button class="btn" onclick="workflowComplete()">確認簽署並產生最終歸檔</button>';}
     html+='</div><div id="workflow-result"></div>';
   }
+  html+=draftReviewHistoryHtml();
   html+=versionHistoryHtml(WORKFLOW.detail);
   body.innerHTML=html;
 }
@@ -749,6 +756,7 @@ function cancelTemplateVersionForm(){TEMPLATE_FORM_ID=null;TEMPLATE_UPLOAD=null;
 async function uploadTemplateFile(){const input=document.getElementById('tpl-file');const file=input.files?.[0];if(!file)return;const state=document.getElementById('tpl-file-state');state.textContent='上傳與驗證中…';try{const response=await fetch('/contracts/api/v2/template-files?tenant='+encodeURIComponent(TENANT)+'&key='+encodeURIComponent(KEY),{method:'POST',headers:{'content-type':file.type||'application/octet-stream','x-contract-file-name':encodeURIComponent(file.name),'x-contract-document-kind':'contract_body'},body:file});const result=await response.json();if(!response.ok)throw new Error(result.error?.message||result.error||response.status);TEMPLATE_UPLOAD=result.data;state.textContent='✓ '+result.data.name+' ／ '+result.data.sha256.slice(0,16)+'…';}catch(error){TEMPLATE_UPLOAD=null;state.textContent='上傳失敗：'+error.message;}}
 async function saveTemplateVersion(templateId){const save=document.getElementById('tpl-save');try{if(!TEMPLATE_UPLOAD)throw new Error('請先上傳這個版本的合約本文');const body={templateId:templateId||undefined,templateName:templateId?undefined:document.getElementById('tpl-name').value.trim(),contractType:templateId?undefined:document.getElementById('tpl-type').value.trim(),effectiveDate:document.getElementById('tpl-effective').value,description:document.getElementById('tpl-description').value.trim(),notes:document.getElementById('tpl-notes').value.trim(),file:TEMPLATE_UPLOAD};save.disabled=true;save.textContent='儲存中…';const created=await apiV2('templates/versions',{method:'POST',body});TEMPLATES=await apiV2('templates');TEMPLATE_FORM_ID=null;TEMPLATE_UPLOAD=null;renderTemplateLibrary();showPageMessage('已保存 '+created.template.template_name+' V'+created.version.version_no+'；這是公版範本，尚未建立任何工程合約。');}catch(error){showPageMessage(error.message,true);if(save){save.disabled=false;save.textContent='儲存版本';}}}
 async function workflowTransition(action){try{const latest=WORKFLOW.detail.latestVersion;await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id)+'/versions/'+encodeURIComponent(latest.id)+'/'+action,{method:'POST',body:{}});WORKFLOW.detail=await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id));renderWorkflow();}catch(error){alert(error.message);}}
+async function workflowDraftReview(){try{const latest=WORKFLOW.detail.latestVersion;if(!confirm('將產生有「草約／不得簽署」標示的 PDF，並送到這份合約綁定的工程 LINE 群組。對方只能提供意見，不會產生電子簽章。確定送出？'))return;const result=await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id)+'/versions/'+encodeURIComponent(latest.id)+'/draft-review',{method:'POST',body:{}});WORKFLOW.reviews=await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id)+'/draft-reviews');renderWorkflow();alert(result.sent?'草約已送到工程 LINE 群組；系統會記錄開啟與意見回覆。':'草約已建立，但 LINE 尚未接受發送。');}catch(error){alert(error.message);}}
 async function workflowReadiness(){try{const latest=WORKFLOW.detail.latestVersion;const result=await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id)+'/versions/'+encodeURIComponent(latest.id)+'/readiness');document.getElementById('workflow-result').innerHTML='<div class="readiness '+(result.ready?'ready':'')+'">'+(result.ready?'✓ 文件、付款條件、驗收標準與凍結雜湊完整，可以進入 LINE 群組簽發。':result.blockers.map(x=>esc(x.message)).join('<br>'))+'</div>';}catch(error){alert(error.message);}}
 function signerSelect(){const group=WORKFLOW.project.groups.find(g=>g.id.replace(/-/g,'')===String(WORKFLOW.row.groupId||'').replace(/-/g,''));const members=group?.members||[];return '<select id="wf-signer"><option value="">指定簽署人</option>'+members.map(m=>'<option value="'+esc(m.userId)+'">'+esc(m.name)+'</option>').join('')+'</select>';}
 async function workflowIssue(action){try{const signer=document.getElementById('wf-signer')?.value;if(!signer)throw new Error('請指定目前仍在工程 LINE 群組內的簽署人');const latest=WORKFLOW.detail.latestVersion;const result=await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id)+'/versions/'+encodeURIComponent(latest.id)+'/'+action,{method:'POST',body:{signerLineUserId:signer}});WORKFLOW.row.signingStatus='sent';WORKFLOW.row.signingSessionId=result.sessionId;alert(result.retried?'已使用同一份凍結合約重新送到 LINE 群組':'正式 PDF 已歸檔並送到 LINE 群組');WORKFLOW.detail=await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id));renderWorkflow();}catch(error){alert(error.message);}}

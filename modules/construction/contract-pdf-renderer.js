@@ -10,7 +10,7 @@ const MAX_BODY_BYTES = 6 * 1024 * 1024;
 const MAX_SIGNATURE_BYTES = 2 * 1024 * 1024;
 const MAX_CACHE_ENTRIES = 200;
 const CACHE_TTL_MS = 15 * 60 * 1000;
-const KINDS = new Set(['issued_pdf', 'signed_pdf']);
+const KINDS = new Set(['draft_review_pdf', 'issued_pdf', 'signed_pdf']);
 const PAGE = Object.freeze({ size: 'A4', margin: 48, width: 595.28, height: 841.89 });
 const FONT_CSS = fileURLToPath(new URL('../../node_modules/@fontsource-variable/noto-sans-tc/index.css', import.meta.url));
 // PDFKit/fontkit can read the Fontsource variable WOFF2 files, but its PDF
@@ -108,6 +108,7 @@ function formatTime(value) {
 }
 
 function money(value, currency = 'TWD') {
+  if (value === null || value === undefined || clean(value) === '') return '未提供';
   const amount = Number(value);
   if (!Number.isFinite(amount)) return '未提供';
   return `${clean(currency) || 'TWD'} ${new Intl.NumberFormat('zh-TW', { maximumFractionDigits: 2 }).format(amount)}`;
@@ -134,7 +135,7 @@ function validatePayload(payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     throw rendererError('INVALID_RENDER_PAYLOAD', 'PDF render body must be a JSON object.');
   }
-  if (!KINDS.has(payload.kind)) throw rendererError('INVALID_RENDER_KIND', 'kind must be issued_pdf or signed_pdf.');
+  if (!KINDS.has(payload.kind)) throw rendererError('INVALID_RENDER_KIND', 'kind must be draft_review_pdf, issued_pdf, or signed_pdf.');
   if (!payload.contract || typeof payload.contract !== 'object' || !payload.version || typeof payload.version !== 'object') {
     throw rendererError('CONTRACT_RENDER_DATA_REQUIRED', 'contract and version are required.');
   }
@@ -197,6 +198,26 @@ function createWriter(doc) {
     doc.y += lineHeight + (options.after ?? 3);
   }
 
+  function fixedText(value, options = {}) {
+    const text = clean(value);
+    if (!text) return;
+    const size = options.size || 8;
+    const color = options.color || '#64748b';
+    const x = options.x ?? PAGE.margin;
+    const width = options.width ?? (right - x);
+    const characters = [...text].map((character) => {
+      const fontName = characterFont(doc, character, registered);
+      return { character, fontName, width: widthOf(character, fontName, size) };
+    });
+    const totalWidth = characters.reduce((sum, item) => sum + item.width, 0);
+    let cursorX = options.align === 'center' ? x + Math.max(0, (width - totalWidth) / 2) : x;
+    for (const item of characters) {
+      doc.font(item.fontName).fontSize(size).fillColor(color)
+        .text(item.character, cursorX, options.y, { lineBreak: false });
+      cursorX += item.width;
+    }
+  }
+
   function heading(value, level = 1) {
     const size = level === 1 ? 16 : 12;
     ensure(size * 2.2);
@@ -234,7 +255,7 @@ function createWriter(doc) {
     });
   }
 
-  return { paragraph, heading, labelValue, rule, table, ensure };
+  return { paragraph, fixedText, heading, labelValue, rule, table, ensure };
 }
 
 function renderContractPdf(payload) {
@@ -253,7 +274,8 @@ function renderContractPdf(payload) {
     info: {
       Title: clean(first(contract, ['title', 'contractTitle', 'contract_title'])) || '工程合約',
       Author: '工程 AM',
-      Subject: payload.kind === 'signed_pdf' ? '工程合約簽署完成文件' : '工程合約簽發文件',
+      Subject: payload.kind === 'signed_pdf' ? '工程合約簽署完成文件'
+        : (payload.kind === 'draft_review_pdf' ? '工程合約草約審閱文件' : '工程合約簽發文件'),
       CreationDate: safeDate(createdAt),
       ModDate: safeDate(createdAt),
     },
@@ -262,10 +284,21 @@ function renderContractPdf(payload) {
   doc.on('data', (chunk) => chunks.push(chunk));
   const writer = createWriter(doc);
 
-  writer.paragraph(payload.kind === 'signed_pdf' ? '工程合約 - 電子簽署完成版' : '工程合約 - 正式簽發版', {
+  const isDraftReview = payload.kind === 'draft_review_pdf';
+  writer.paragraph(payload.kind === 'signed_pdf' ? '工程合約 - 電子簽署完成版'
+    : (isDraftReview ? '工程合約草約 - 僅供討論' : '工程合約 - 正式簽發版'), {
     size: 20, color: '#0f2742', lineHeight: 30, after: 2,
   });
   writer.paragraph(`文件版本 v${first(version, ['versionNo', 'version_no'], '1')} ｜ 由工程 AM 產製`, { size: 9, color: '#64748b', after: 10 });
+  if (isDraftReview) {
+    writer.paragraph('本文件為草約，僅供雙方討論與提出修改意見，不是正式簽署版本；任何閱覽或意見回覆均不構成簽約、承諾或電子簽章。', {
+      size: 11, color: '#b91c1c', lineHeight: 19, after: 8,
+    });
+    const missing = Array.isArray(payload.missingSections) ? payload.missingSections.filter(Boolean) : [];
+    writer.paragraph(missing.length ? `尚待雙方確認：${missing.join('、')}` : '目前資料已具備；仍以最後正式簽署版本為準。', {
+      size: 10, color: '#991b1b', lineHeight: 17, after: 8,
+    });
+  }
   writer.rule();
 
   writer.heading('合約基本資料');
@@ -275,8 +308,8 @@ function renderContractPdf(payload) {
   writer.labelValue('工種', first(contract, ['trade'], '未指定'));
   writer.labelValue('承攬對象', first(contract, ['counterpartyCompany', 'counterparty_company', 'counterpartyName', 'counterparty_name']));
   writer.labelValue('合約金額', money(contract.amount, contract.currency));
-  const bodySummary = first(documentPackage, ['contractBodyText', 'bodyText', 'contractTerms', 'terms'],
-    first(version.snapshot, ['contractBodyText', 'bodyText', 'contractTerms'], '合約本文以本版本附件及其 SHA-256 雜湊為準。'));
+  const bodySummary = first(payload, ['contractBodyText'], first(documentPackage, ['contractBodyText', 'bodyText', 'contractTerms', 'terms'],
+    first(version.snapshot, ['contractBodyText', 'bodyText', 'contractTerms'], '合約本文以本版本附件及其 SHA-256 雜湊為準。')));
   writer.heading('合約本文');
   writer.paragraph(bodySummary);
 
@@ -335,10 +368,19 @@ function renderContractPdf(payload) {
   const range = doc.bufferedPageRange();
   for (let index = 0; index < range.count; index += 1) {
     doc.switchToPage(index);
-    doc.font('Helvetica').fontSize(8).fillColor('#64748b')
-      .text(`Engineering AM  |  ${index + 1} / ${range.count}`, PAGE.margin, PAGE.height - 90, {
-        width: PAGE.width - (PAGE.margin * 2), align: 'center', lineBreak: false,
-      });
+    if (isDraftReview) {
+      doc.save();
+      doc.rotate(-32, { origin: [PAGE.width / 2, PAGE.height / 2] });
+      doc.font('Helvetica-Bold').fontSize(38).fillColor('#ef4444').opacity(0.14)
+        .text('DRAFT  -  NOT FOR SIGNATURE', 45, PAGE.height / 2 - 35, {
+          width: PAGE.width - 90, align: 'center', lineBreak: false,
+        });
+      doc.restore();
+      doc.opacity(1);
+    }
+    writer.fixedText(`${isDraftReview ? '草約｜僅供討論｜不得簽署  |  ' : ''}Engineering AM  |  ${index + 1} / ${range.count}`, {
+      x: PAGE.margin, y: PAGE.height - 90, width: PAGE.width - (PAGE.margin * 2), align: 'center', size: 8,
+    });
   }
   doc.end();
   return new Promise((resolve, reject) => {
