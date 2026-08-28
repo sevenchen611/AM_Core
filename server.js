@@ -124,6 +124,17 @@ async function existingGroupBindingRecords(groupId) {
   return records;
 }
 
+function bindingMemberMap(row) {
+  try {
+    const raw = (row?.properties?.['成員對照']?.rich_text || [])
+      .map((item) => item.plain_text || item.text?.content || '').join('');
+    const parsed = JSON.parse(raw || '{}');
+    return parsed && !Array.isArray(parsed) && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 async function replyLine(event, text) {
   if (event.replyToken) await line.replyLineMessage(event.replyToken, text).catch(() => {});
 }
@@ -164,12 +175,22 @@ async function maybeHandleGroupOnboardingCommand(event, groupId, resolved = {}) 
     if (existing.length > 1) throw new Error('同一個 LINE 群組 ID 已有多筆群組綁定，為避免誤綁已停止。');
     const schema = await groupBindingSchema(tenant);
     const isCurrentBinding = Boolean(resolved.tenant && resolved.tenant.key === tenant.key && existing.length === 1);
+    const onboardingUserId = String(event.source?.userId || '').trim();
+    let onboardingMember = null;
+    if (onboardingUserId) {
+      const onboardingName = String(await line.resolveSenderName(event.source).catch(() => '') || '').trim();
+      if (onboardingName) onboardingMember = { userId: onboardingUserId, name: onboardingName };
+    }
     const projectPageId = !isCurrentBinding && onboardingCommand.projectName
       ? await findTenantProjectByName(tenant, onboardingCommand.projectName)
       : '';
     const properties = isCurrentBinding
-      ? groupOnboardingRepairProperties(onboardingCommand, groupId, { schema })
-      : groupOnboardingProperties(onboardingCommand, groupId, { projectPageId, schema });
+      ? groupOnboardingRepairProperties(onboardingCommand, groupId, {
+        schema,
+        existingMembers: bindingMemberMap(existing[0]?.row),
+        member: onboardingMember,
+      })
+      : groupOnboardingProperties(onboardingCommand, groupId, { projectPageId, schema, member: onboardingMember });
     let pageId = existing[0]?.row?.id || '';
     const wasExisting = Boolean(pageId);
     if (pageId) {

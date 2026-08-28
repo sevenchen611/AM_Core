@@ -8,6 +8,7 @@ import assert from 'node:assert';
 import { bootstrap } from '../core/bootstrap.js';
 import {
   groupOnboardingProperties,
+  groupOnboardingRepairProperties,
   groupOnboardingSuccessMessage,
   parseGroupOnboardingCommand,
   supportedGroupOnboardingExamples,
@@ -293,6 +294,17 @@ await check('工程 AM 新綁定採用正式功能與安全的未分類工程欄
     ['訊息收集', '待辦', '會議', '案件狀態', '照片', '提醒'],
   );
   assert.match(properties['群組用途'].rich_text[0].text.content, /補選專案、群組角色與工種/);
+  const seeded = groupOnboardingProperties(command, 'gEngineering', { member: { name: 'Seven', userId: 'U_SEVEN' } });
+  assert.equal(seeded['成員對照'].rich_text[0].text.content, '{"Seven":"U_SEVEN"}');
+});
+
+await check('既有群組重跑綁定時保留舊成員並加入本次發話者', () => {
+  const command = parseGroupOnboardingCommand('綁定 工程 AM 群組：茲心園工程群');
+  const repaired = groupOnboardingRepairProperties(command, 'gEngineering', {
+    existingMembers: { 阿智: 'U_AZHI' },
+    member: { name: 'Seven', userId: 'U_SEVEN' },
+  });
+  assert.deepEqual(JSON.parse(repaired['成員對照'].rich_text[0].text.content), { 阿智: 'U_AZHI', Seven: 'U_SEVEN' });
 });
 
 // 13) 舊 HOZO AM 2.0 綁定指令仍相容，讓已通知出去的口令不失效。
