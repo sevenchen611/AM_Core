@@ -403,8 +403,12 @@ function renderContractsPage(tenantKey, key, canBudget, canManage, canIssue, can
   .links a { display:block; font-size:12px; color:var(--green); max-width:180px; overflow:hidden; text-overflow:ellipsis; }
   .hint { font-size:11px; color:var(--dim); margin-top:8px; line-height:1.6; }
   .workspace-nav { display:flex; gap:8px; padding:12px 12px 0; overflow:auto; }
-  .workspace-nav span { background:#e9f2ed; color:#245d42; border-radius:9px; padding:8px 12px; white-space:nowrap; font-size:12px; font-weight:650; }
-  .workspace-nav span.disabled { background:#eef0ef; color:#8a9690; }
+  .workspace-nav button { border:0; background:#e9f2ed; color:#245d42; border-radius:9px; padding:8px 12px; white-space:nowrap; font-size:12px; font-weight:650; cursor:pointer; }
+  .workspace-nav button.active { background:var(--green); color:#fff; }
+  .workspace-nav button:disabled { background:#eef0ef; color:#8a9690; cursor:not-allowed; }
+  .page-message { margin:12px 12px 0; padding:10px 13px; border-radius:10px; background:#eaf6ef; border:1px solid #b9dfc8; color:#1f6542; font-size:12px; line-height:1.6; }
+  .page-message.error { background:#fff0ee; border-color:#e6b8b1; color:#8d3027; }
+  .version-list { margin-top:14px; }.version-list table{min-width:720px}.version-list .current{background:#f1f8f4}.version-missing{color:var(--red);font-size:11px;white-space:normal;max-width:280px}
   .readiness { margin:12px 12px 0; padding:11px 13px; border-radius:11px; background:#fff8df; border:1px solid #ead99a; font-size:12px; line-height:1.6; }
   .readiness.ready { background:#eaf6ef; border-color:#b9dfc8; color:#1f6542; }
   .modal { position:fixed; inset:0; z-index:20; background:rgba(22,34,27,.55); display:flex; align-items:flex-start; justify-content:center; padding:4vh 12px; overflow:auto; }
@@ -418,7 +422,8 @@ function renderContractsPage(tenantKey, key, canBudget, canManage, canIssue, can
 </head>
 <body>
 <header><h1>📑 工程合約管理</h1>${canBudget ? `<a href="/budget${qs()}">→ 💰 預算控制</a>` : ''}<a href="/dashboard${qs()}" style="${canBudget ? 'margin-left:14px' : ''}">→ 儀表板</a></header>
-<div class="workspace-nav"><span>合約總覽</span><span>全部合約</span><span>待簽署</span><span>待我方確認</span><span>付款管理</span><span>驗收管理</span><span class="disabled">範本與設定</span></div>
+<div class="workspace-nav"><button id="nav-overview" class="active" onclick="showOverview()">合約總覽</button><button id="nav-library" onclick="showVersionLibrary()">合約版本庫</button><button disabled>待簽署</button><button disabled>待我方確認</button><button disabled>付款管理</button><button disabled>驗收管理</button></div>
+<div id="page-message" hidden></div>
 <div id="readiness"></div>
 <div class="tabs" id="tabs"></div>
 <div class="section" id="main"><div class="empty">載入中…</div></div>
@@ -431,7 +436,7 @@ const CAN_ISSUE = ${JSON.stringify(Boolean(canIssue))};
 const CAN_CONFIRM = ${JSON.stringify(Boolean(canConfirm))};
 let DATA = null;
 let CURRENT = null;
-let WORKFLOW = { row:null, contract:null, detail:null, files:{} };
+let WORKFLOW = { row:null, contract:null, detail:null, files:{}, creatingVersion:false };
 function esc(s) { return String(s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function money(n) { return '$' + Math.round(n || 0).toLocaleString('en-US'); }
 function fmtNum(v) { const d = String(v ?? '').replace(/[^0-9]/g, ''); return d ? Number(d).toLocaleString('en-US') : ''; }
@@ -440,7 +445,7 @@ const MONEY_ATTRS = 'type="text" inputmode="numeric" oninput="this.value=fmtNum(
 async function api(path, body) {
   const sep = path.includes('?') ? '&' : '?';
   const r = await fetch('/contracts/api/' + path + sep + 'tenant=' + encodeURIComponent(TENANT) + '&key=' + encodeURIComponent(KEY),
-    body ? { method: 'POST', body: JSON.stringify(body) } : undefined);
+    body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : undefined);
   const j = await r.json();
   if (!r.ok) throw new Error(typeof j.error === 'string' ? j.error : (j.error?.message || r.status));
   return j;
@@ -461,7 +466,17 @@ async function load(keepCurrent) {
   }
   render();
 }
+function setWorkspaceNav(view) {
+  document.getElementById('nav-overview').classList.toggle('active', view === 'overview');
+  document.getElementById('nav-library').classList.toggle('active', view === 'library');
+}
+function showPageMessage(message, error=false) {
+  const box=document.getElementById('page-message');
+  box.hidden=!message; box.className='page-message'+(error?' error':''); box.textContent=message||'';
+}
+function showOverview() { setWorkspaceNav('overview'); render(); }
 function render() {
+  setWorkspaceNav('overview');
   const es = DATA.electronicSigning || {};
   const missing = [];
   if (!es.evidenceSchemaReady) missing.push('簽署證據資料庫');
@@ -556,25 +571,32 @@ function readForm() {
 }
 function showNewForm() {
   document.getElementById('new-row').innerHTML = formCells({})
-    + '<td><button class="rowbtn" style="background:var(--green);color:#fff" onclick="createContract()">存</button><button class="rowbtn" onclick="render()">取消</button></td>';
+    + '<td><button id="new-contract-save" class="rowbtn" style="background:var(--green);color:#fff" onclick="createContract()">建立合約</button><button class="rowbtn" onclick="render()">取消</button><div id="new-contract-error" class="version-missing"></div></td>';
+  document.getElementById('f-name').focus();
 }
 function editForm(id) {
   const r = DATA.projects.find(p => p.id === CURRENT).rows.find(x => x.id === id);
   document.getElementById('row-' + id).innerHTML = formCells(r)
     + '<td><button class="rowbtn" style="background:var(--green);color:#fff" onclick="saveRow(\\'' + id + '\\')">存</button><button class="rowbtn" onclick="render()">取消</button></td>';
 }
-async function run(fn) { try { await fn(); await load(true); } catch (e) { alert(e.message); } }
-async function createContract() { const f = readForm(); if (!f.name && !f.vendor) return alert('請至少填合約名稱或承攬對象'); await run(() => api('create', { project: CURRENT, ...f })); }
+async function run(fn) { try { await fn(); await load(true); } catch (e) { showPageMessage(e.message,true); } }
+async function createContract() {
+  const f=readForm(); const errorBox=document.getElementById('new-contract-error'); const save=document.getElementById('new-contract-save');
+  if(!f.name){errorBox.textContent='請先填寫合約名稱；工班、金額與附件都可稍後補。';document.getElementById('f-name').focus();return;}
+  errorBox.textContent=''; save.disabled=true; save.textContent='建立中…';
+  try{const created=await api('create',{project:CURRENT,...f});await load(true);showPageMessage('已建立 '+created.number+'；可進入合約工作區建立第一個文件版本。');}
+  catch(error){errorBox.textContent=error.message;save.disabled=false;save.textContent='建立合約';}
+}
 async function saveRow(id) { await run(() => api('edit', { page: id, ...readForm() })); }
 async function archiveRow(id, number) {
   if (!confirm('確定封存合約「' + number + '」?已發包金額會同步重算(可在 Notion 垃圾桶找回)。')) return;
   await run(() => api('archive', { page: id }));
 }
-function closeWorkflow(){ document.getElementById('workflow-modal').hidden=true; WORKFLOW={row:null,contract:null,detail:null,files:{}}; }
+function closeWorkflow(){ document.getElementById('workflow-modal').hidden=true; WORKFLOW={row:null,contract:null,detail:null,files:{},creatingVersion:false}; }
 function workflowRow(id){ for(const p of DATA.projects){const row=p.rows.find(x=>x.id===id);if(row)return {row,project:p};}return null; }
 async function openWorkflow(id){
   const found=workflowRow(id); if(!found)return;
-  WORKFLOW={row:found.row,project:found.project,contract:null,detail:null,files:{}};
+  WORKFLOW={row:found.row,project:found.project,contract:null,detail:null,files:{},creatingVersion:false};
   document.getElementById('workflow-title').textContent=(found.row.number||'')+' '+(found.row.name||'合約工作區');
   document.getElementById('workflow-modal').hidden=false;
   document.getElementById('workflow-body').innerHTML='<div class="empty">正在讀取合約版本…</div>';
@@ -596,27 +618,44 @@ async function openWorkflow(id){
   }catch(error){document.getElementById('workflow-body').innerHTML='<div class="readiness">'+esc(error.message)+'</div>';}
 }
 function workflowStatusLabel(status){return ({draft:'草稿',internal_review:'內部審查',approved:'已核准',frozen:'已凍結',issued:'已簽發',sent:'已發送',opened:'已收件／開啟',signed:'待我方確認',confirmed:'產製歸檔中',completed:'已完成',revoked:'已撤銷',expired:'已逾期',declined:'已拒絕'})[status]||status||'尚未建版';}
+function versionMissing(version){
+  const pkg=version?.documentPackage||version?.snapshot?.documentPackage||{};const missing=[];
+  if(!pkg.contractBody)missing.push('合約本文');if(!(pkg.constructionDrawings||[]).length)missing.push('施工圖');if(!pkg.quotation)missing.push('報價單');if(!(pkg.paymentMilestones||[]).length)missing.push('付款條件');if(!(pkg.acceptanceCriteria||pkg.acceptanceStandards||[]).length)missing.push('驗收標準');return missing;
+}
+function versionHistoryHtml(detail){
+  const versions=detail?.versions||[];if(!versions.length)return '<div class="empty">尚未建立任何版本</div>';
+  return '<div class="version-list"><h3>版本歷程（舊版不會被覆寫）</h3><div class="twrap"><table><tr><th>版本</th><th>狀態</th><th>建立時間</th><th>內容完整度</th><th>Bundle SHA-256</th></tr>'
+    +versions.map((v,index)=>{const missing=versionMissing(v);return '<tr class="'+(index===0?'current':'')+'"><td><b>V'+v.versionNo+'</b>'+(index===0?'（目前）':'')+'</td><td>'+esc(workflowStatusLabel(v.status))+'</td><td>'+esc((v.createdAt||'').replace('T',' ').slice(0,16))+'</td><td>'+(missing.length?'<span class="version-missing">待補：'+esc(missing.join('、'))+'</span>':'✓ 五項完整')+'</td><td class="file-state">'+esc(v.attachmentManifestHash||'尚未產生')+'</td></tr>';}).join('')+'</table></div></div>';
+}
+function versionComposerHtml(nextVersion){
+  return '<div class="workflow-state">建立 V'+nextVersion+'：新版本會先承接目前版本的全部內容，再用這次上傳或填寫的項目取代。每次儲存都會留下獨立版本，不會覆寫舊版；資料未完整時不得送審或簽發。</div><div class="workflow-grid">'
+    +uploadBox('contract_body','合約本文（至少一項）')+uploadBox('construction_drawing','施工圖（可稍後版本補齊）')+uploadBox('quotation','報價單（可稍後版本補齊）')
+    +'<div class="workflow-box"><h4>付款條件（可選）</h4><input id="wf-pay-label" placeholder="例：完工驗收後七日內"><input id="wf-pay-trigger" placeholder="付款時間／里程碑條件"></div>'
+    +'<div class="workflow-box"><h4>驗收標準（可選）</h4><textarea id="wf-acceptance" placeholder="每行一項可量測的驗收標準"></textarea></div></div>'
+    +'<div class="workflow-actions"><button class="btn" onclick="createWorkflowDraft()">儲存 V'+nextVersion+'</button>'+(WORKFLOW.detail?.latestVersion?'<button class="btn ghost" onclick="cancelNewVersion()">取消新增版本</button>':'')+'</div>';
+}
 function renderWorkflow(){
   const latest=WORKFLOW.detail?.latestVersion; const status=latest?.status||'';
   const body=document.getElementById('workflow-body');
   let html='<div class="workflow-state">目前版本：'+(latest?'V'+latest.versionNo+' ／ '+workflowStatusLabel(status):'尚未建立')+'</div>';
-  if(!latest&&CAN_MANAGE){
-    html+='<div class="workflow-grid">'
-      +uploadBox('contract_body','合約本文')+uploadBox('construction_drawing','施工圖')+uploadBox('quotation','報價單')
-      +'<div class="workflow-box"><h4>付款條件</h4><input id="wf-pay-label" placeholder="例：完工驗收後七日內"><input id="wf-pay-trigger" placeholder="付款時間／里程碑條件"></div>'
-      +'<div class="workflow-box"><h4>驗收標準</h4><textarea id="wf-acceptance" placeholder="每行一項可量測的驗收標準"></textarea></div></div>'
-      +'<div class="workflow-actions"><button class="btn" onclick="createWorkflowDraft()">建立合約草稿版本</button></div>';
+  if((!latest||WORKFLOW.creatingVersion)&&CAN_MANAGE){
+    html+=versionComposerHtml((latest?.versionNo||0)+1);
   } else if(latest){
     html+='<div class="workflow-grid"><div class="workflow-box"><h4>五項必要內容</h4><div class="hint">合約本文、施工圖、報價單、付款條件、驗收標準均封裝在此版本；凍結後不可修改。</div></div><div class="workflow-box"><h4>附件雜湊</h4><div class="file-state">'+esc(latest.attachmentManifestHash||latest.bundle_sha256||'尚未凍結')+'</div></div></div><div class="workflow-actions">';
-    if(status==='draft'&&CAN_MANAGE)html+='<button class="btn" onclick="workflowTransition(\\'submit-review\\')">送交內部審查</button>';
+    if(CAN_MANAGE)html+='<button class="btn ghost" onclick="startNewVersion()">＋ 建立 V'+(latest.versionNo+1)+'</button>';
+    if(status==='draft'&&CAN_MANAGE&&!versionMissing(latest).length)html+='<button class="btn" onclick="workflowTransition(\\'submit-review\\')">送交內部審查</button>';
+    if(status==='draft'&&versionMissing(latest).length)html+='<span class="version-missing">五項內容未完整，請建立下一版本補齊後再送審。</span>';
     if(status==='internal_review'&&CAN_ISSUE)html+='<button class="btn" onclick="workflowTransition(\\'approve\\')">核准版本</button>';
     if(status==='approved'&&CAN_ISSUE)html+='<button class="btn" onclick="workflowTransition(\\'freeze\\')">凍結版本</button>';
     if(status==='frozen'){html+='<button class="btn ghost" onclick="workflowReadiness()">檢查簽發條件</button>';if(CAN_ISSUE)html+=signerSelect()+'<button class="btn" onclick="workflowIssue(\\'issue\\')">產生 PDF 並送到 LINE 群組</button>';}
     if(status==='issued'){html+='<span class="hint">電子簽署：'+esc(workflowStatusLabel(WORKFLOW.row.signingStatus)||'尚未送簽')+'</span>';if(CAN_ISSUE&&['','revoked','expired','declined'].includes(WORKFLOW.row.signingStatus))html+=signerSelect()+'<button class="btn ghost" onclick="workflowIssue(\\'retry-signing\\')">以同一版本重新送簽</button>';if(CAN_CONFIRM&&['signed','confirmed'].includes(WORKFLOW.row.signingStatus)&&WORKFLOW.row.signingSessionId)html+='<button class="btn" onclick="workflowComplete()">確認簽署並產生最終歸檔</button>';}
     html+='</div><div id="workflow-result"></div>';
   }
+  html+=versionHistoryHtml(WORKFLOW.detail);
   body.innerHTML=html;
 }
+function startNewVersion(){WORKFLOW.files={};WORKFLOW.creatingVersion=true;renderWorkflow();}
+function cancelNewVersion(){WORKFLOW.files={};WORKFLOW.creatingVersion=false;renderWorkflow();}
 function uploadBox(kind,label){return '<div class="workflow-box"><h4>'+label+'</h4><input type="file" id="wf-file-'+kind+'" onchange="uploadWorkflowFile(\\''+kind+'\\')"><div class="file-state" id="wf-state-'+kind+'">尚未上傳</div></div>';}
 async function uploadWorkflowFile(kind){
   const input=document.getElementById('wf-file-'+kind);const file=input.files?.[0];if(!file)return;
@@ -624,12 +663,18 @@ async function uploadWorkflowFile(kind){
   try{const response=await fetch('/contracts/api/v2/files?tenant='+encodeURIComponent(TENANT)+'&key='+encodeURIComponent(KEY)+'&projectId='+encodeURIComponent(WORKFLOW.project.id),{method:'POST',headers:{'content-type':file.type||'application/octet-stream','x-contract-file-name':encodeURIComponent(file.name),'x-contract-document-kind':kind},body:file});const result=await response.json();if(!response.ok)throw new Error(result.error||response.status);WORKFLOW.files[kind]=result.data;state.textContent='✓ '+result.data.name+' ／ '+result.data.sha256.slice(0,12)+'…';}catch(error){state.textContent='上傳失敗：'+error.message;}
 }
 async function createWorkflowDraft(){
-  try{for(const kind of ['contract_body','construction_drawing','quotation'])if(!WORKFLOW.files[kind])throw new Error('請先上傳三份必要附件');
-    const label=document.getElementById('wf-pay-label').value.trim();const trigger=document.getElementById('wf-pay-trigger').value.trim();const criteria=document.getElementById('wf-acceptance').value.split(/\\n+/).map(x=>x.trim()).filter(Boolean);
-    if(!label||!trigger)throw new Error('請填寫付款條件與付款時間／里程碑');if(!criteria.length)throw new Error('請至少填寫一項驗收標準');
-    const pkg={contractBody:WORKFLOW.files.contract_body,constructionDrawings:[WORKFLOW.files.construction_drawing],quotation:WORKFLOW.files.quotation,paymentMilestones:[{label,amount:Number(WORKFLOW.row.amount),trigger}],acceptanceCriteria:criteria.map(criterion=>({criterion}))};
-    await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id)+'/versions',{method:'POST',body:{documentPackage:pkg}});WORKFLOW.detail=await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id));renderWorkflow();
+  try{const label=document.getElementById('wf-pay-label').value.trim();const trigger=document.getElementById('wf-pay-trigger').value.trim();const criteria=document.getElementById('wf-acceptance').value.split(/\\n+/).map(x=>x.trim()).filter(Boolean);
+    if((label&&!trigger)||(!label&&trigger))throw new Error('付款條件與付款時間／里程碑需要一起填寫');
+    if(!WORKFLOW.files.contract_body&&!WORKFLOW.files.construction_drawing&&!WORKFLOW.files.quotation&&!label&&!criteria.length)throw new Error('請至少上傳一份文件，或填寫付款條件／驗收標準');
+    const previous=WORKFLOW.detail?.latestVersion?.documentPackage||WORKFLOW.detail?.latestVersion?.snapshot?.documentPackage||{};const pkg=JSON.parse(JSON.stringify(previous));if(WORKFLOW.files.contract_body)pkg.contractBody=WORKFLOW.files.contract_body;if(WORKFLOW.files.construction_drawing)pkg.constructionDrawings=[WORKFLOW.files.construction_drawing];if(WORKFLOW.files.quotation)pkg.quotation=WORKFLOW.files.quotation;if(label)pkg.paymentMilestones=[{label,amount:Number(WORKFLOW.row.amount)||undefined,trigger}];if(criteria.length)pkg.acceptanceCriteria=criteria.map(criterion=>({criterion}));
+    await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id)+'/versions',{method:'POST',body:{documentPackage:pkg}});WORKFLOW.detail=await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id));WORKFLOW.files={};WORKFLOW.creatingVersion=false;renderWorkflow();showPageMessage('新合約版本已保存；舊版本仍完整保留。');
   }catch(error){alert(error.message);}
+}
+async function showVersionLibrary(){
+  setWorkspaceNav('library');document.getElementById('tabs').innerHTML='';const main=document.getElementById('main');main.innerHTML='<div class="panel"><h3>合約版本庫</h3><div class="empty">正在整理所有工程的合約版本…</div></div>';
+  const entries=await Promise.all(DATA.projects.flatMap(project=>project.rows.map(async row=>{let detail=null;if(row.workflowContractId){try{detail=await apiV2('contracts/'+encodeURIComponent(row.workflowContractId));}catch(error){detail={error:error.message,versions:[]};}}return {project,row,detail};})));
+  const rows=entries.map(({project,row,detail})=>{const versions=detail?.versions||[];if(!versions.length)return '<tr><td>'+esc(project.name)+'</td><td><b>'+esc(row.number)+'</b><br>'+esc(row.name)+'</td><td>—</td><td>尚未建版</td><td class="version-missing">'+esc(detail?.error||'可從合約工作區建立第一版')+'</td><td><button class="rowbtn" onclick="openWorkflow(\\''+row.id+'\\')">建立第一版</button></td></tr>';return versions.map((v,index)=>{const missing=versionMissing(v);return '<tr><td>'+esc(project.name)+'</td><td><b>'+esc(row.number)+'</b><br>'+esc(row.name)+'</td><td><b>V'+v.versionNo+'</b>'+(index===0?'（目前）':'')+'</td><td>'+esc(workflowStatusLabel(v.status))+'</td><td>'+(missing.length?'<span class="version-missing">待補：'+esc(missing.join('、'))+'</span>':'✓ 五項完整')+'</td><td><button class="rowbtn" onclick="openWorkflow(\\''+row.id+'\\')">開啟合約</button></td></tr>';}).join('');}).join('');
+  main.innerHTML='<div class="panel"><h3>合約版本庫</h3><div class="hint">集中保存所有工程的 V1、V2、V3…；每次儲存都是新版本，舊版不覆寫。未集齊五項必要內容的版本可保存，但不能送簽。</div><div class="twrap version-list"><table><tr><th>工程</th><th>合約</th><th>版本</th><th>狀態</th><th>完整度</th><th></th></tr>'+rows+'</table></div>'+(entries.length?'':'<div class="empty">尚未建立任何合約</div>')+'</div>';
 }
 async function workflowTransition(action){try{const latest=WORKFLOW.detail.latestVersion;await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id)+'/versions/'+encodeURIComponent(latest.id)+'/'+action,{method:'POST',body:{}});WORKFLOW.detail=await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id));renderWorkflow();}catch(error){alert(error.message);}}
 async function workflowReadiness(){try{const latest=WORKFLOW.detail.latestVersion;const result=await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id)+'/versions/'+encodeURIComponent(latest.id)+'/readiness');document.getElementById('workflow-result').innerHTML='<div class="readiness '+(result.ready?'ready':'')+'">'+(result.ready?'✓ 文件、付款條件、驗收標準與凍結雜湊完整，可以進入 LINE 群組簽發。':result.blockers.map(x=>esc(x.message)).join('<br>'))+'</div>';}catch(error){alert(error.message);}}
