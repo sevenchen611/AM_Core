@@ -1,0 +1,57 @@
+{
+  "id": "AM-IMP-2026.0828.04",
+  "name": "Google Drive privacy audit repair",
+  "type": "AM Platform / Google Drive / contract security",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-08-28",
+  "dependsOn": ["AM-IMP-2026.0828.01"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Drive permissions.list privacy audit",
+    "Nested permission field selection",
+    "Permission pagination",
+    "Contract template and attachment upload recovery"
+  ],
+  "requiresDatabases": [],
+  "requiresEnv": [
+    "GOOGLE_DRIVE_CLIENT_ID",
+    "GOOGLE_DRIVE_CLIENT_SECRET",
+    "GOOGLE_DRIVE_REFRESH_TOKEN",
+    "<TENANT>_DRIVE_ROOT_FOLDER_ID"
+  ],
+  "requiresScripts": [
+    "tools/dryrun-drive-privacy-audit.mjs",
+    "tools/dryrun-engineering-contract-files.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The audit reads only permissions for the caller-provided file or folder ID under the active tenant workflow; it never copies files, permissions, IDs, or credentials between tenants."
+  },
+  "changes": [
+    "Replace malformed files.get partial fields with permissions.list",
+    "Request permissionDetails as a nested permission field",
+    "Follow permission-list pagination before deciding privacy",
+    "Keep anyone/domain sharing fail-closed",
+    "Log bounded Google API diagnostics without exposing secrets"
+  ],
+  "definitionOfDone": [
+    "Drive privacy audit dry-run passes",
+    "Engineering contract file dry-run passes",
+    "Package validation and alignment audit pass",
+    "Production private DOCX template upload succeeds",
+    "Production Drive item remains non-public"
+  ],
+  "files": [
+    "core/drive.js",
+    "tools/dryrun-drive-privacy-audit.mjs",
+    "versions/AM-IMP-2026.0828.04/README.md",
+    "versions/AM-IMP-2026.0828.04/INSTALL.md",
+    "versions/AM-IMP-2026.0828.04/VERIFY.md",
+    "versions/AM-IMP-2026.0828.04/ROLLBACK.md",
+    "versions/AM-IMP-2026.0828.04/upgrade.json"
+  ]
+}
