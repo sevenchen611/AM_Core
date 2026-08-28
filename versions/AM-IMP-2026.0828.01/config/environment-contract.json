@@ -71,7 +71,8 @@
       "secret": false,
       "sensitiveConfig": true,
       "required": true,
-      "type": "commaSeparatedExactIpList",
+      "type": "commaSeparatedExactIpListOrRenderSentinel",
+      "allowedSentinel": "render",
       "minimumItems": 1,
       "browserExposed": false
     },
@@ -176,7 +177,7 @@
     "runtime fixed token TTL differs from 604800 seconds",
     "public base URL is not HTTPS",
     "LIFF endpoint is not exactly publicBaseUrl plus /contract-sign",
-    "trusted proxy IPs or overwritten client IP headers are empty",
+    "trusted proxy IPs or overwritten client IP headers are empty or invalid; Render mode must be exactly render plus cf-connecting-ip",
     "database is not explicitly Engineering-dedicated",
     "PostgreSQL TLS is not verify-full with a trusted CA",
     "database schema version mismatch",

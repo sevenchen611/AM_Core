@@ -20,8 +20,8 @@ declares names and validation rules; it contains no values.
 | `ENG_PROJECTS_DATA_SOURCE_ID` | Sensitive config | Yes | Existing Engineering project data source. |
 | `ENG_GROUP_BINDINGS_DATA_SOURCE_ID` | Sensitive config | Yes | Existing Engineering group-binding data source. |
 | `ENG_DRIVE_ROOT_FOLDER_ID` | Sensitive config | Yes | Existing Engineering Drive root. |
-| `ENG_CONTRACTS_TRUSTED_PROXY_IPS` | Sensitive config | Yes | Exact immediate proxy hop IPs; never client-controlled ranges. |
-| `ENG_CONTRACTS_TRUSTED_CLIENT_IP_HEADERS` | No | Yes | Headers overwritten by the trusted proxy, for example `cf-connecting-ip`; empty is not production-ready. |
+| `ENG_CONTRACTS_TRUSTED_PROXY_IPS` | Sensitive config | Yes | Exact immediate proxy hop IPs, or the single sentinel `render` for a Render public web service. Never use public or client-controlled ranges. |
+| `ENG_CONTRACTS_TRUSTED_CLIENT_IP_HEADERS` | No | Yes | Headers overwritten by the trusted proxy. Render mode requires exactly `cf-connecting-ip`; `x-forwarded-for` is forbidden in that mode. |
 | `NOTION_TOKEN` | Yes | Yes | Existing platform Notion identity; never sent to the browser. |
 | `LINE_CHANNEL_ACCESS_TOKEN` | Yes | Yes | Existing shared OA server token for send and membership lookup. |
 | `LINE_CHANNEL_SECRET` | Yes | Yes | Existing shared OA webhook secret. |
@@ -62,10 +62,32 @@ tenant.publicBaseUrl
 
 ## Trusted proxy and IP policy
 
-Before production, document the exact Render/Cloudflare proxy chain. Accept a
-forwarded IP header only from that trusted hop; otherwise use
+For a Render public web service, set exactly:
+
+```text
+ENG_CONTRACTS_TRUSTED_PROXY_IPS=render
+ENG_CONTRACTS_TRUSTED_CLIENT_IP_HEADERS=cf-connecting-ip
+```
+
+The `render` sentinel is deliberately narrow. It accepts `CF-Connecting-IP`
+only when the immediate socket peer is loopback, RFC1918, IPv4 link-local,
+IPv6 unique-local, or IPv6 link-local. A public socket peer is never trusted.
+The mode never reads `X-Forwarded-For`, including when `CF-Connecting-IP` is
+missing or malformed, because that chain may retain caller-supplied entries.
+Render documents that public web traffic traverses its Cloudflare-backed edge,
+that the internal proxy connects to the app, and that `CF-Connecting-IP` is
+overwritten before reaching a Render web service.
+
+For a different deployment, list only exact immediate proxy IPs and only
+headers that those proxies overwrite. Otherwise the runtime uses
 `req.socket.remoteAddress`. Normalize the result to PostgreSQL `inet`. Store the
 full value only in protected evidence and use a masked display in ordinary lists.
+
+Render references:
+
+- https://render.com/articles/host-pocketbase-on-render
+- https://render.com/tutorials/web-service-vs-static-site/web-services
+- https://render.com/docs/private-network
 
 ## Startup fail-closed rules
 

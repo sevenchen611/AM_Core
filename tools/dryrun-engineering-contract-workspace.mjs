@@ -28,6 +28,9 @@ assert.match(pageRes.body, /付款管理/);
 assert.match(pageRes.body, /驗收管理/);
 assert.match(pageRes.body, /const CAN_MANAGE = true/);
 assert.doesNotMatch(pageRes.body, /localStorage/);
+const inlineScripts = [...pageRes.body.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
+assert.ok(inlineScripts.length > 0, 'contract workspace must include its browser script');
+for (const source of inlineScripts) new Function(source);
 
 const tenant = { key: 'engineering' };
 const access = {
