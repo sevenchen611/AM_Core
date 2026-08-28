@@ -14,6 +14,9 @@ The migration role owns the schema. The runtime role should receive only:
 - `SELECT`, `INSERT`, and required workflow `UPDATE` on mutable aggregate,
   session, and outbox tables;
 - `SELECT`, `INSERT` only on `signing_events`, `signatures`, and `artifacts`;
+- `SELECT` and `INSERT` on `contract_templates` and
+  `contract_template_versions`, plus the narrow template-aggregate `UPDATE`
+  used to point at the newest version;
 - sequence usage needed for inserts.
 
 The runtime role must not have `CREATE`, `TRUNCATE`, `ALTER`, `DROP`, trigger
@@ -55,6 +58,8 @@ All files must remain below the target tenant's existing
 
 ```text
 工程合約管理/
+  合約範本庫/
+    合約來源附件/
   <project stable id>/
     <contract uuid>/
       v<version>/

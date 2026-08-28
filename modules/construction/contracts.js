@@ -2,6 +2,7 @@
 // 授權/scope 由 index.js 的 webRoute(走 core.portal)注入 URL(不信任前端原始參數);權限鍵 per-tenant:am-<tenant>-contract。
 // 合約簽約/金額異動會自動回寫該租戶「預算控制」的已發包金額/對象/日期/狀態。
 
+import crypto from 'node:crypto';
 import { plain, sameId, textFrag, queryAll, readJsonBody, sendJson, parseScope, assertProjectInScope } from './common.js';
 import { createContractWorkflowApiHandler } from './contract-workflow-api.js';
 import { contractFileUploadMetadata, readContractFileBody, uploadContractSourceFile } from './contract-files.js';
@@ -10,6 +11,32 @@ import { contractSigningRuntimeReadiness } from './contract-runtime.js';
 const STATUSES = ['洽談中', '報價中', '已簽約', '施工中', '已完工', '結案', '作廢'];
 // 這些狀態的合約金額計入「已發包」
 const COMMITTED_STATUSES = new Set(['已簽約', '施工中', '已完工', '結案']);
+
+function requiredTemplateText(value, label, max) {
+  const text = String(value || '').trim();
+  if (!text) throw Object.assign(new Error(`請填寫${label}`), { statusCode: 400 });
+  if (text.length > max) throw Object.assign(new Error(`${label}內容過長`), { statusCode: 400 });
+  return text;
+}
+
+async function verifyTemplateFile(deps, file) {
+  if (!file || typeof file !== 'object' || Array.isArray(file)) throw Object.assign(new Error('請先上傳合約範本檔案'), { statusCode: 400 });
+  const fileId = requiredTemplateText(file.fileId, '範本檔案', 200);
+  const name = requiredTemplateText(file.name, '檔案名稱', 300);
+  const claimedHash = String(file.sha256 || '').trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(claimedHash)) throw Object.assign(new Error('範本檔案雜湊不正確'), { statusCode: 400 });
+  const privacy = await deps.auditDrivePrivate?.(fileId);
+  if (privacy?.private !== true) throw Object.assign(new Error('合約範本檔案不可公開分享'), { statusCode: 503 });
+  const downloaded = await deps.downloadFromDrive?.(fileId, 25 * 1024 * 1024);
+  if (!downloaded?.buffer) throw Object.assign(new Error('無法重新讀取合約範本檔案'), { statusCode: 503 });
+  const actualHash = crypto.createHash('sha256').update(downloaded.buffer).digest('hex');
+  if (actualHash !== claimedHash) throw Object.assign(new Error('合約範本檔案驗證失敗'), { statusCode: 409 });
+  return {
+    category: 'contract_body', fileId, name, sha256: actualHash,
+    mimeType: String(file.mimeType || downloaded.contentType || 'application/octet-stream'),
+    sizeBytes: downloaded.buffer.length, required: true,
+  };
+}
 
 async function assertContractPage(deps, pageId) {
   const page = await deps.notionRequest(`/v1/pages/${encodeURIComponent(pageId)}`, { method: 'GET' });
@@ -90,6 +117,38 @@ export async function handleContractsRequest(req, res, pathname, url, deps) {
         ...metadata, buffer, projectId, projectLabel: projectId, actor: deps.actor,
       });
       return sendJson(res, 200, { ok: true, data: file });
+    }
+    if (req.method === 'POST' && pathname === '/contracts/api/v2/template-files') {
+      if (!canManage) return sendJson(res, 403, { error: '只有合約管理者可以上傳合約範本' });
+      const metadata = contractFileUploadMetadata(req);
+      if (metadata.kind !== 'contract_body') return sendJson(res, 400, { error: '範本版本只能上傳合約本文' });
+      const buffer = await readContractFileBody(req);
+      const file = await uploadContractSourceFile(deps, {
+        ...metadata, buffer, projectId: 'template-library', projectLabel: '合約範本庫', actor: deps.actor,
+      });
+      return sendJson(res, 200, { ok: true, data: file });
+    }
+    if (req.method === 'GET' && pathname === '/contracts/api/v2/templates') {
+      if (!canContract) return sendJson(res, 403, { error: '無合約範本檢視權限' });
+      const templates = await deps.contractStore.listContractTemplates(deps.tenant);
+      return sendJson(res, 200, { ok: true, data: templates?.value || templates || [] });
+    }
+    if (req.method === 'POST' && pathname === '/contracts/api/v2/templates/versions') {
+      if (!canManage) return sendJson(res, 403, { error: '只有合約管理者可以新增合約範本版本' });
+      const body = await readJsonBody(req);
+      const templateId = String(body.templateId || '').trim();
+      const input = {
+        templateId: templateId || null,
+        templateName: templateId ? '' : requiredTemplateText(body.templateName, '範本名稱', 300),
+        contractType: templateId ? '' : requiredTemplateText(body.contractType, '合約類型', 160),
+        description: String(body.description || '').trim().slice(0, 2000),
+        effectiveDate: /^\d{4}-\d{2}-\d{2}$/.test(String(body.effectiveDate || '')) ? body.effectiveDate : null,
+        notes: String(body.notes || '').trim().slice(0, 4000),
+        file: await verifyTemplateFile(deps, body.file),
+        actor: deps.actor,
+      };
+      const created = await deps.contractStore.createContractTemplateVersion(deps.tenant, input);
+      return sendJson(res, 200, { ok: true, data: created?.value || created });
     }
     const handled = await createContractWorkflowApiHandler(deps)(req, res, pathname, url, {
       scope,
@@ -422,7 +481,7 @@ function renderContractsPage(tenantKey, key, canBudget, canManage, canIssue, can
 </head>
 <body>
 <header><h1>📑 工程合約管理</h1>${canBudget ? `<a href="/budget${qs()}">→ 💰 預算控制</a>` : ''}<a href="/dashboard${qs()}" style="${canBudget ? 'margin-left:14px' : ''}">→ 儀表板</a></header>
-<div class="workspace-nav"><button id="nav-overview" class="active" onclick="showOverview()">合約總覽</button><button id="nav-library" onclick="showVersionLibrary()">合約版本庫</button><button disabled>待簽署</button><button disabled>待我方確認</button><button disabled>付款管理</button><button disabled>驗收管理</button></div>
+<div class="workspace-nav"><button id="nav-overview" class="active" onclick="showOverview()">合約總覽</button><button id="nav-library" onclick="showVersionLibrary()">合約範本版本庫</button><button disabled>待簽署</button><button disabled>待我方確認</button><button disabled>付款管理</button><button disabled>驗收管理</button></div>
 <div id="page-message" hidden></div>
 <div id="readiness"></div>
 <div class="tabs" id="tabs"></div>
@@ -437,6 +496,9 @@ const CAN_CONFIRM = ${JSON.stringify(Boolean(canConfirm))};
 let DATA = null;
 let CURRENT = null;
 let WORKFLOW = { row:null, contract:null, detail:null, files:{}, creatingVersion:false };
+let TEMPLATES = [];
+let TEMPLATE_UPLOAD = null;
+let TEMPLATE_FORM_ID = null;
 function esc(s) { return String(s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function money(n) { return '$' + Math.round(n || 0).toLocaleString('en-US'); }
 function fmtNum(v) { const d = String(v ?? '').replace(/[^0-9]/g, ''); return d ? Number(d).toLocaleString('en-US') : ''; }
@@ -614,6 +676,7 @@ async function openWorkflow(id,createNext=false){
     }
     WORKFLOW.contract={id:contractId};
     WORKFLOW.detail=await apiV2('contracts/'+encodeURIComponent(contractId));
+    try{TEMPLATES=await apiV2('templates');}catch{TEMPLATES=[];}
     WORKFLOW.creatingVersion=Boolean(createNext&&WORKFLOW.detail.latestVersion);
     renderWorkflow();
   }catch(error){document.getElementById('workflow-body').innerHTML='<div class="readiness">'+esc(error.message)+'</div>';}
@@ -630,11 +693,12 @@ function versionHistoryHtml(detail){
 }
 function versionComposerHtml(nextVersion){
   return '<div class="workflow-state">建立 V'+nextVersion+'：新版本會先承接目前版本的全部內容，再用這次上傳或填寫的項目取代。每次儲存都會留下獨立版本，不會覆寫舊版；資料未完整時不得送審或簽發。</div><div class="workflow-grid">'
-    +uploadBox('contract_body','合約本文（至少一項）')+uploadBox('construction_drawing','施工圖（可稍後版本補齊）')+uploadBox('quotation','報價單（可稍後版本補齊）')
+    +templatePickerBox()+uploadBox('contract_body','合約本文（也可自行上傳）')+uploadBox('construction_drawing','施工圖（可稍後版本補齊）')+uploadBox('quotation','報價單（可稍後版本補齊）')
     +'<div class="workflow-box"><h4>付款條件（可選）</h4><input id="wf-pay-label" placeholder="例：完工驗收後七日內"><input id="wf-pay-trigger" placeholder="付款時間／里程碑條件"></div>'
     +'<div class="workflow-box"><h4>驗收標準（可選）</h4><textarea id="wf-acceptance" placeholder="每行一項可量測的驗收標準"></textarea></div></div>'
     +'<div class="workflow-actions"><button class="btn" onclick="createWorkflowDraft()">儲存 V'+nextVersion+'</button>'+(WORKFLOW.detail?.latestVersion?'<button class="btn ghost" onclick="cancelNewVersion()">取消新增版本</button>':'')+'</div>';
 }
+function templatePickerBox(){const options=TEMPLATES.flatMap(t=>(t.versions||[]).slice(0,1).map(v=>'<option value="'+esc(v.id)+'">'+esc(t.contract_type)+'／'+esc(t.template_name)+' V'+v.versionNo+'</option>')).join('');return '<div class="workflow-box"><h4>套用公版合約範本（可選）</h4><select id="wf-template-version" style="width:100%"><option value="">不套用範本，直接上傳本文</option>'+options+'</select><div class="hint">範本只帶入合約本文；施工圖、報價、付款與驗收仍屬於這個工程合約。</div></div>';}
 function renderWorkflow(){
   const latest=WORKFLOW.detail?.latestVersion; const status=latest?.status||'';
   const body=document.getElementById('workflow-body');
@@ -664,22 +728,26 @@ async function uploadWorkflowFile(kind){
   try{const response=await fetch('/contracts/api/v2/files?tenant='+encodeURIComponent(TENANT)+'&key='+encodeURIComponent(KEY)+'&projectId='+encodeURIComponent(WORKFLOW.project.id),{method:'POST',headers:{'content-type':file.type||'application/octet-stream','x-contract-file-name':encodeURIComponent(file.name),'x-contract-document-kind':kind},body:file});const result=await response.json();if(!response.ok)throw new Error(result.error||response.status);WORKFLOW.files[kind]=result.data;state.textContent='✓ '+result.data.name+' ／ '+result.data.sha256.slice(0,12)+'…';}catch(error){state.textContent='上傳失敗：'+error.message;}
 }
 async function createWorkflowDraft(){
-  try{const label=document.getElementById('wf-pay-label').value.trim();const trigger=document.getElementById('wf-pay-trigger').value.trim();const criteria=document.getElementById('wf-acceptance').value.split(/\\n+/).map(x=>x.trim()).filter(Boolean);
+  try{const label=document.getElementById('wf-pay-label').value.trim();const trigger=document.getElementById('wf-pay-trigger').value.trim();const criteria=document.getElementById('wf-acceptance').value.split(/\\n+/).map(x=>x.trim()).filter(Boolean);const templateVersionId=document.getElementById('wf-template-version')?.value||'';
     if((label&&!trigger)||(!label&&trigger))throw new Error('付款條件與付款時間／里程碑需要一起填寫');
-    if(!WORKFLOW.files.contract_body&&!WORKFLOW.files.construction_drawing&&!WORKFLOW.files.quotation&&!label&&!criteria.length)throw new Error('請至少上傳一份文件，或填寫付款條件／驗收標準');
+    if(!templateVersionId&&!WORKFLOW.files.contract_body&&!WORKFLOW.files.construction_drawing&&!WORKFLOW.files.quotation&&!label&&!criteria.length)throw new Error('請選擇合約範本、上傳一份文件，或填寫付款條件／驗收標準');
     const previous=WORKFLOW.detail?.latestVersion?.documentPackage||WORKFLOW.detail?.latestVersion?.snapshot?.documentPackage||{};const pkg=JSON.parse(JSON.stringify(previous));if(WORKFLOW.files.contract_body)pkg.contractBody=WORKFLOW.files.contract_body;if(WORKFLOW.files.construction_drawing)pkg.constructionDrawings=[WORKFLOW.files.construction_drawing];if(WORKFLOW.files.quotation)pkg.quotation=WORKFLOW.files.quotation;if(label)pkg.paymentMilestones=[{label,amount:Number(WORKFLOW.row.amount)||undefined,trigger}];if(criteria.length)pkg.acceptanceCriteria=criteria.map(criterion=>({criterion}));
-    await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id)+'/versions',{method:'POST',body:{documentPackage:pkg}});WORKFLOW.detail=await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id));WORKFLOW.files={};WORKFLOW.creatingVersion=false;renderWorkflow();showPageMessage('新合約版本已保存；舊版本仍完整保留。');
+    await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id)+'/versions',{method:'POST',body:{documentPackage:pkg,...(templateVersionId?{templateVersionId}:{})}});WORKFLOW.detail=await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id));WORKFLOW.files={};WORKFLOW.creatingVersion=false;renderWorkflow();showPageMessage('新合約版本已保存；舊版本仍完整保留。');
   }catch(error){alert(error.message);}
 }
 async function showVersionLibrary(){
-  setWorkspaceNav('library');document.getElementById('tabs').innerHTML='';const main=document.getElementById('main');main.innerHTML='<div class="panel"><h3>合約版本庫</h3><div class="empty">正在整理所有工程的合約版本…</div></div>';
-  const entries=await Promise.all(DATA.projects.flatMap(project=>project.rows.map(async row=>{let detail=null;if(row.workflowContractId){try{detail=await apiV2('contracts/'+encodeURIComponent(row.workflowContractId));}catch(error){detail={error:error.message,versions:[]};}}return {project,row,detail};})));
-  const rows=entries.map(({project,row,detail})=>{const versions=detail?.versions||[];if(!versions.length)return '<tr><td>'+esc(project.name)+'</td><td><b>'+esc(row.number)+'</b><br>'+esc(row.name)+'</td><td>—</td><td>尚未建版</td><td class="version-missing">'+esc(detail?.error||'可直接建立第一版')+'</td><td><button class="rowbtn" onclick="openWorkflow(\\''+row.id+'\\',true)">＋ 建立 V1</button></td></tr>';return versions.map((v,index)=>{const missing=versionMissing(v);return '<tr><td>'+esc(project.name)+'</td><td><b>'+esc(row.number)+'</b><br>'+esc(row.name)+'</td><td><b>V'+v.versionNo+'</b>'+(index===0?'（目前）':'')+'</td><td>'+esc(workflowStatusLabel(v.status))+'</td><td>'+(missing.length?'<span class="version-missing">待補：'+esc(missing.join('、'))+'</span>':'✓ 五項完整')+'</td><td><button class="rowbtn" onclick="openWorkflow(\\''+row.id+'\\''+(index===0?',true':'')+')">'+(index===0?'＋ 建立 V'+(v.versionNo+1):'查看合約')+'</button></td></tr>';}).join('');}).join('');
-  const projectOptions=DATA.projects.map(project=>'<option value="'+esc(project.id)+'" '+(project.id===CURRENT?'selected':'')+'>'+esc(project.name)+'</option>').join('');
-  const createAction=CAN_MANAGE&&DATA.projects.length?'<div class="workflow-actions"><label><b>建立新合約版本：</b> <select id="library-project">'+projectOptions+'</select></label><button class="btn" onclick="startContractVersionFromLibrary()">＋ 新增合約並建立 V1</button></div>':'';
-  main.innerHTML='<div class="panel"><h3>合約版本庫</h3><div class="hint">集中保存所有工程的 V1、V2、V3…；每次儲存都是新版本，舊版不覆寫。未集齊五項必要內容的版本可保存，但不能送簽。</div>'+createAction+'<div class="twrap version-list"><table><tr><th>工程</th><th>合約</th><th>版本</th><th>狀態</th><th>完整度</th><th>建立／查看</th></tr>'+rows+'</table></div>'+(entries.length?'':'<div class="empty">目前尚無合約。請選擇工程專案後，按「新增合約並建立 V1」。</div>')+'</div>';
+  setWorkspaceNav('library');document.getElementById('tabs').innerHTML='';const main=document.getElementById('main');main.innerHTML='<div class="panel"><h3>合約範本版本庫</h3><div class="empty">正在讀取公版合約範本…</div></div>';
+  try{TEMPLATES=await apiV2('templates');TEMPLATE_FORM_ID=null;renderTemplateLibrary();}catch(error){main.innerHTML='<div class="panel"><h3>合約範本版本庫</h3><div class="readiness">'+esc(error.message)+'</div></div>';}
 }
-function startContractVersionFromLibrary(){const project=document.getElementById('library-project')?.value;if(!project)return;CURRENT=project;showOverview();showNewForm();showPageMessage('先填寫合約名稱；建立完成後會自動開啟 V1 上傳畫面。');}
+function renderTemplateLibrary(){
+  const main=document.getElementById('main');const form=TEMPLATE_FORM_ID===null?'':templateVersionFormHtml(TEMPLATE_FORM_ID);const rows=TEMPLATES.flatMap(t=>(t.versions||[]).map((v,index)=>'<tr class="'+(index===0?'current':'')+'"><td>'+esc(t.contract_type)+'</td><td><b>'+esc(t.template_name)+'</b><br><span class="hint">'+esc(t.description||'')+'</span></td><td><b>V'+v.versionNo+'</b>'+(index===0?'（目前）':'')+'</td><td>'+esc(v.effectiveDate||'—')+'</td><td>'+esc(v.fileName)+'<br><span class="file-state">SHA-256 '+esc(String(v.sha256||'').slice(0,16))+'…</span></td><td>'+esc(v.notes||'')+'</td><td>'+(index===0&&CAN_MANAGE?'<button class="rowbtn" onclick="showTemplateVersionForm(\\''+t.id+'\\')">＋ 新增 V'+(v.versionNo+1)+'</button>':'')+'<a class="rowbtn" target="_blank" style="text-decoration:none;display:inline-block" href="https://drive.google.com/open?id='+encodeURIComponent(v.fileId)+'">查看檔案</a></td></tr>')).join('');
+  main.innerHTML='<div class="panel"><h3>合約範本版本庫</h3><div class="hint">這裡只保存泥作、拆除、水電、木工等公版合約本文，不綁定工程、工班或金額。實際簽約時，再從「合約總覽」建立工程合約並套用範本。</div>'+(CAN_MANAGE?'<div class="workflow-actions"><button class="btn" onclick="showTemplateVersionForm(\\'\\')">＋ 新增合約範本 V1</button></div>':'')+form+'<div class="twrap version-list"><table><tr><th>合約類型</th><th>範本名稱</th><th>版本</th><th>生效日期</th><th>合約本文</th><th>版本備註</th><th></th></tr>'+rows+'</table></div>'+(rows?'':'<div class="empty">尚無公版合約範本。請按「新增合約範本 V1」上傳第一份版本。</div>')+'</div>';
+}
+function templateVersionFormHtml(templateId){const template=TEMPLATES.find(t=>t.id===templateId);return '<div class="workflow-box" style="margin-top:14px"><h4>'+(template?'新增 '+esc(template.template_name)+' V'+((template.versions?.[0]?.versionNo||0)+1):'新增公版合約範本 V1')+'</h4><div class="workflow-grid">'+(template?'<div><b>合約類型</b><div>'+esc(template.contract_type)+'</div></div><div><b>範本名稱</b><div>'+esc(template.template_name)+'</div></div>':'<label>合約類型<input id="tpl-type" placeholder="例：泥作合約"></label><label>範本名稱<input id="tpl-name" placeholder="例：泥作工程標準承攬合約"></label>')+'<label>生效日期<input id="tpl-effective" type="date"></label><label>適用說明<input id="tpl-description" value="'+esc(template?.description||'')+'" placeholder="適用範圍或使用提醒"></label><label>版本備註<input id="tpl-notes" placeholder="本版本的修改重點"></label><label>合約本文<input id="tpl-file" type="file" accept=".pdf,.docx" onchange="uploadTemplateFile()"><div id="tpl-file-state" class="file-state">尚未上傳</div></label></div><div class="workflow-actions"><button id="tpl-save" class="btn" onclick="saveTemplateVersion(\\''+esc(templateId)+'\\')">儲存版本</button><button class="btn ghost" onclick="cancelTemplateVersionForm()">取消</button></div></div>';}
+function showTemplateVersionForm(templateId=''){TEMPLATE_FORM_ID=templateId;TEMPLATE_UPLOAD=null;renderTemplateLibrary();document.getElementById(templateId?'tpl-file':'tpl-type')?.focus();}
+function cancelTemplateVersionForm(){TEMPLATE_FORM_ID=null;TEMPLATE_UPLOAD=null;renderTemplateLibrary();}
+async function uploadTemplateFile(){const input=document.getElementById('tpl-file');const file=input.files?.[0];if(!file)return;const state=document.getElementById('tpl-file-state');state.textContent='上傳與驗證中…';try{const response=await fetch('/contracts/api/v2/template-files?tenant='+encodeURIComponent(TENANT)+'&key='+encodeURIComponent(KEY),{method:'POST',headers:{'content-type':file.type||'application/octet-stream','x-contract-file-name':encodeURIComponent(file.name),'x-contract-document-kind':'contract_body'},body:file});const result=await response.json();if(!response.ok)throw new Error(result.error?.message||result.error||response.status);TEMPLATE_UPLOAD=result.data;state.textContent='✓ '+result.data.name+' ／ '+result.data.sha256.slice(0,16)+'…';}catch(error){TEMPLATE_UPLOAD=null;state.textContent='上傳失敗：'+error.message;}}
+async function saveTemplateVersion(templateId){const save=document.getElementById('tpl-save');try{if(!TEMPLATE_UPLOAD)throw new Error('請先上傳這個版本的合約本文');const body={templateId:templateId||undefined,templateName:templateId?undefined:document.getElementById('tpl-name').value.trim(),contractType:templateId?undefined:document.getElementById('tpl-type').value.trim(),effectiveDate:document.getElementById('tpl-effective').value,description:document.getElementById('tpl-description').value.trim(),notes:document.getElementById('tpl-notes').value.trim(),file:TEMPLATE_UPLOAD};save.disabled=true;save.textContent='儲存中…';const created=await apiV2('templates/versions',{method:'POST',body});TEMPLATES=await apiV2('templates');TEMPLATE_FORM_ID=null;TEMPLATE_UPLOAD=null;renderTemplateLibrary();showPageMessage('已保存 '+created.template.template_name+' V'+created.version.version_no+'；這是公版範本，尚未建立任何工程合約。');}catch(error){showPageMessage(error.message,true);if(save){save.disabled=false;save.textContent='儲存版本';}}}
 async function workflowTransition(action){try{const latest=WORKFLOW.detail.latestVersion;await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id)+'/versions/'+encodeURIComponent(latest.id)+'/'+action,{method:'POST',body:{}});WORKFLOW.detail=await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id));renderWorkflow();}catch(error){alert(error.message);}}
 async function workflowReadiness(){try{const latest=WORKFLOW.detail.latestVersion;const result=await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id)+'/versions/'+encodeURIComponent(latest.id)+'/readiness');document.getElementById('workflow-result').innerHTML='<div class="readiness '+(result.ready?'ready':'')+'">'+(result.ready?'✓ 文件、付款條件、驗收標準與凍結雜湊完整，可以進入 LINE 群組簽發。':result.blockers.map(x=>esc(x.message)).join('<br>'))+'</div>';}catch(error){alert(error.message);}}
 function signerSelect(){const group=WORKFLOW.project.groups.find(g=>g.id.replace(/-/g,'')===String(WORKFLOW.row.groupId||'').replace(/-/g,''));const members=group?.members||[];return '<select id="wf-signer"><option value="">指定簽署人</option>'+members.map(m=>'<option value="'+esc(m.userId)+'">'+esc(m.name)+'</option>').join('')+'</select>';}

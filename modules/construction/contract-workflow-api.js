@@ -255,6 +255,42 @@ export function createContractWorkflowApiHandler(deps) {
 
       let input = route.operation === 'listContracts' ? listInput(url) : {};
       if (route.body) input = cleanRequestInput(await readJsonBody(req));
+      if (route.operation === 'createDraftVersion' && input.templateVersionId) {
+        const templateVersionId = String(input.templateVersionId).trim();
+        const templateVersion = await deps.contractStore.getContractTemplateVersion(context.tenant, templateVersionId);
+        const storedTemplateVersion = templateVersion?.value || templateVersion;
+        if (!storedTemplateVersion) throw apiError('CONTRACT_TEMPLATE_VERSION_NOT_FOUND', '找不到可使用的合約範本版本。', 404);
+        const packageInput = input.documentPackage && typeof input.documentPackage === 'object'
+          && !Array.isArray(input.documentPackage) ? input.documentPackage : {};
+        const documentPackage = {
+          ...packageInput,
+          contractBody: {
+            category: 'contract_body',
+            fileId: storedTemplateVersion.drive_file_id,
+            name: storedTemplateVersion.file_name,
+            mimeType: storedTemplateVersion.mime_type,
+            sizeBytes: Number(storedTemplateVersion.byte_size),
+            sha256: storedTemplateVersion.sha256,
+            required: true,
+          },
+        };
+        input = {
+          ...input,
+          documentPackage,
+          snapshot: {
+            ...(input.snapshot && typeof input.snapshot === 'object' && !Array.isArray(input.snapshot) ? input.snapshot : {}),
+            templateSource: {
+              templateId: storedTemplateVersion.template_id,
+              templateVersionId: storedTemplateVersion.id,
+              templateName: storedTemplateVersion.template_name,
+              contractType: storedTemplateVersion.contract_type,
+              versionNo: Number(storedTemplateVersion.version_no),
+            },
+            documentPackage,
+          },
+        };
+        delete input.templateVersionId;
+      }
       if (route.contractId) bindPathReference(input, 'contractId', route.contractId);
       if (route.versionId) bindPathReference(input, 'versionId', route.versionId);
       if (route.sessionId) bindPathReference(input, 'sessionId', route.sessionId);

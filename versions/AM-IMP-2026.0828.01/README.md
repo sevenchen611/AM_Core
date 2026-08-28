@@ -45,13 +45,14 @@ The existing Notion contract row remains useful for project navigation, budget
 relations, and management reporting. It is not allowed to create, replace, or
 override a PostgreSQL signing event.
 
-Engineering AM also provides a cross-project contract version library. Staff
-may create the basic contract record first, then append V1, V2, V3, and later
-versions as documents or terms change. Draft versions may be saved with partial
-content so work can be resumed, but the UI does not offer review or signing
-actions until the required contract body, drawings, quotation, payment terms,
-and acceptance criteria are complete. Creating a later version never overwrites
-an earlier version.
+Engineering AM provides two deliberately separate version histories. The
+contract template version library stores standard contract-body files such as
+mudwork, demolition, plumbing/electrical, and carpentry V1/V2/V3 without a
+project, counterparty, amount, drawing, quotation, or signing session. A real
+project contract may copy one exact template version into its own project-local
+contract version, then add drawings, quotation, payment terms, and acceptance
+criteria. Neither template versions nor project contract versions are
+overwritten in place.
 
 ## Required contract contents
 

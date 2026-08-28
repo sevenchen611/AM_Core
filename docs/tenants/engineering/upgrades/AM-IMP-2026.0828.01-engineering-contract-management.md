@@ -13,8 +13,9 @@ records, customer information, or signing tokens:
 
 - A separate logical Engineering contract database and owner/runtime roles were
   provisioned on the existing PostgreSQL instance.
-- Schema version `2026-08-28.engineering-contract-evidence.v1` was applied and
-  its eleven tables were observed.
+- Schema version `2026-08-28.engineering-contract-evidence.v2` adds the
+  independent contract-template and template-version tables to the original
+  eleven evidence tables.
 - The runtime role can use required mutable workflow operations and append
   immutable evidence, but cannot own or alter the schema, truncate evidence,
   disable triggers, or update/delete immutable signing records.
@@ -41,9 +42,11 @@ records, customer information, or signing tokens:
   later document or terms revision is saved as a new V1/V2/V3 entry without
   overwriting prior versions. Incomplete drafts remain visibly blocked from the
   review/signing controls.
-- The version library provides its own project selector and a direct "create
-  contract and V1" action. Creating the basic contract immediately opens the V1
-  upload workspace; the current version row directly offers the next V number.
+- The contract template version library is independent from project contracts.
+  Staff can upload a standard mudwork, demolition, plumbing/electrical, or
+  carpentry contract as template V1/V2/V3 without selecting a project or
+  counterparty. A project contract may later copy one exact template version
+  into its own immutable signing snapshot.
 - A full Render PostgreSQL export completed successfully. The export URL and
   database credentials are not recorded here.
 - The production PDF renderer rejected a missing idempotency key and generated
