@@ -625,7 +625,7 @@ async function uploadWorkflowFile(kind){
 }
 async function createWorkflowDraft(){
   try{for(const kind of ['contract_body','construction_drawing','quotation'])if(!WORKFLOW.files[kind])throw new Error('請先上傳三份必要附件');
-    const label=document.getElementById('wf-pay-label').value.trim();const trigger=document.getElementById('wf-pay-trigger').value.trim();const criteria=document.getElementById('wf-acceptance').value.split(/\n+/).map(x=>x.trim()).filter(Boolean);
+    const label=document.getElementById('wf-pay-label').value.trim();const trigger=document.getElementById('wf-pay-trigger').value.trim();const criteria=document.getElementById('wf-acceptance').value.split(/\\n+/).map(x=>x.trim()).filter(Boolean);
     if(!label||!trigger)throw new Error('請填寫付款條件與付款時間／里程碑');if(!criteria.length)throw new Error('請至少填寫一項驗收標準');
     const pkg={contractBody:WORKFLOW.files.contract_body,constructionDrawings:[WORKFLOW.files.construction_drawing],quotation:WORKFLOW.files.quotation,paymentMilestones:[{label,amount:Number(WORKFLOW.row.amount),trigger}],acceptanceCriteria:criteria.map(criterion=>({criterion}))};
     await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id)+'/versions',{method:'POST',body:{documentPackage:pkg}});WORKFLOW.detail=await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id));renderWorkflow();

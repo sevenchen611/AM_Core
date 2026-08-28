@@ -82,6 +82,9 @@ Verify with disposable rows:
    new session/event trail.
 6. Retrying the same submit/callback idempotency key returns the prior result and
    creates no second signature, artifact, budget write, or LINE message.
+7. In Render proxy mode, an internal socket peer plus `CF-Connecting-IP` records
+   that header; a public socket peer ignores it, and missing/malformed
+   `CF-Connecting-IP` never falls back to attacker-supplied `X-Forwarded-For`.
 
 ## File and evidence tests
 

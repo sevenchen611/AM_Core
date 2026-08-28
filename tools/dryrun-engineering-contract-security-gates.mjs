@@ -53,6 +53,31 @@ const validDeps = {
   publicBaseUrl: 'https://engineering.example.test',
 };
 assert.equal(contractSigningRuntimeReadiness(validDeps).ready, true);
+const renderProxyDeps = {
+  ...validDeps,
+  tenant: { key: 'engineering', config: { contracts: {
+    ...validDeps.tenant.config.contracts,
+    trustedProxyIps: ['render'],
+    trustedClientIpHeaders: ['cf-connecting-ip'],
+  } } },
+};
+assert.equal(contractSigningRuntimeReadiness(renderProxyDeps).ready, true);
+for (const trustedClientIpHeaders of [['x-forwarded-for'], ['cf-connecting-ip', 'x-forwarded-for'], []]) {
+  assert.equal(contractSigningRuntimeReadiness({
+    ...renderProxyDeps,
+    tenant: { key: 'engineering', config: { contracts: {
+      ...renderProxyDeps.tenant.config.contracts,
+      trustedClientIpHeaders,
+    } } },
+  }).ready, false);
+}
+assert.equal(contractSigningRuntimeReadiness({
+  ...renderProxyDeps,
+  tenant: { key: 'engineering', config: { contracts: {
+    ...renderProxyDeps.tenant.config.contracts,
+    trustedProxyIps: ['render', '10.0.0.1'],
+  } } },
+}).ready, false);
 for (const mutation of [
   { publicBaseUrl: 'https://engineering.example.test/path' },
   { tenant: { key: 'engineering', config: { contracts: { ...validDeps.tenant.config.contracts, liffEndpointUrl: 'https://wrong.example.test/contract-sign' } } } },

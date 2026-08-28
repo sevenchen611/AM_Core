@@ -79,8 +79,11 @@ ENG_CONTRACTS_SIGNING_ENABLED=0
 
 Also keep the feature disabled until `ENG_CONTRACTS_DATABASE_SSL_MODE` is
 `verify-full`, the configured CA rejects an untrusted certificate/hostname,
-and the exact trusted proxy hop plus overwritten client-IP header have passed a
-deployed request test.
+and the trusted proxy mode plus overwritten client-IP header have passed a
+deployed request test. On Render, use only `ENG_CONTRACTS_TRUSTED_PROXY_IPS=render`
+with `ENG_CONTRACTS_TRUSTED_CLIENT_IP_HEADERS=cf-connecting-ip`; the runtime then
+accepts that header only from an internal socket peer and never falls back to
+`x-forwarded-for`.
 
 ## 7. Deploy the runtime implementation
 

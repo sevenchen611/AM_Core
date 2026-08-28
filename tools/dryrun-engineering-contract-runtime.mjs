@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { createContractLineAdapter, createRuntimeSigningService, loadContractPdf, saveContractSignature, __test } from '../modules/construction/contract-runtime.js';
+import { createContractLineAdapter, createRuntimeSigningService, isRenderInternalProxyPeer, loadContractPdf, saveContractSignature, __test } from '../modules/construction/contract-runtime.js';
+import { getTrustedClientIp } from '../modules/construction/contract-signing.js';
 import { createHash } from 'node:crypto';
 
 assert.equal(__test.safeSegment('../危險/名稱', 'fallback'), '.._危險_名稱');
@@ -40,6 +41,33 @@ assert.ok(createRuntimeSigningService({
   ...deps,
   contractStore: { configured: () => true, signingStorage: () => storage },
 }), 'configured dependencies should construct signing service');
+
+assert.equal(isRenderInternalProxyPeer('10.42.0.8'), true);
+assert.equal(isRenderInternalProxyPeer('172.31.4.9'), true);
+assert.equal(isRenderInternalProxyPeer('192.168.5.7'), true);
+assert.equal(isRenderInternalProxyPeer('127.0.0.1'), true);
+assert.equal(isRenderInternalProxyPeer('169.254.8.9'), true);
+assert.equal(isRenderInternalProxyPeer('fd00::1234'), true);
+assert.equal(isRenderInternalProxyPeer('fe80::1234'), true);
+assert.equal(isRenderInternalProxyPeer('::1'), true);
+assert.equal(isRenderInternalProxyPeer('203.0.113.9'), false);
+assert.equal(isRenderInternalProxyPeer('2001:db8::9'), false);
+const renderProxyOptions = __test.trustedProxyOptions({
+  trustedProxyIps: ['render'],
+  trustedClientIpHeaders: ['cf-connecting-ip'],
+});
+assert.equal(getTrustedClientIp({
+  remoteAddress: '10.42.0.8',
+  headers: { 'cf-connecting-ip': '203.0.113.80', 'x-forwarded-for': '192.0.2.80' },
+}, renderProxyOptions), '203.0.113.80');
+assert.equal(getTrustedClientIp({
+  remoteAddress: '198.51.100.8',
+  headers: { 'cf-connecting-ip': '203.0.113.81' },
+}, renderProxyOptions), '198.51.100.8');
+assert.equal(getTrustedClientIp({
+  remoteAddress: '10.42.0.8',
+  headers: { 'x-forwarded-for': '192.0.2.81' },
+}, renderProxyOptions), '10.42.0.8');
 
 const uploaded = [];
 const saved = await saveContractSignature({

@@ -172,6 +172,11 @@ export function getTrustedClientIp(requestMeta = {}, options = {}) {
     if (candidate) return candidate;
   }
 
+  // Some hosting providers append to X-Forwarded-For instead of replacing a
+  // caller-supplied value. Provider modes that rely on an overwritten, single-
+  // value header must disable this compatibility fallback explicitly.
+  if (options.allowForwardedForFallback === false) return remoteAddress;
+
   const forwarded = headerValue(requestMeta.headers, 'x-forwarded-for')
     .split(',')
     .map(normalizeIp)
@@ -293,6 +298,7 @@ export function createContractSigningService(options = {}) {
   const proxyOptions = {
     isTrustedProxy: options.isTrustedProxy,
     trustedClientIpHeaders: options.trustedClientIpHeaders || [],
+    allowForwardedForFallback: options.allowForwardedForFallback,
   };
 
   const nowDate = () => dateFromClock(clock);

@@ -1,6 +1,45 @@
 import crypto from 'node:crypto';
-import { isIP } from 'node:net';
+import { BlockList, isIP } from 'node:net';
 import { createContractSigningService } from './contract-signing.js';
+
+const RENDER_PROXY_SENTINEL = 'render';
+const RENDER_INTERNAL_PROXY_PEERS = new BlockList();
+RENDER_INTERNAL_PROXY_PEERS.addSubnet('10.0.0.0', 8, 'ipv4');
+RENDER_INTERNAL_PROXY_PEERS.addSubnet('172.16.0.0', 12, 'ipv4');
+RENDER_INTERNAL_PROXY_PEERS.addSubnet('192.168.0.0', 16, 'ipv4');
+RENDER_INTERNAL_PROXY_PEERS.addSubnet('127.0.0.0', 8, 'ipv4');
+RENDER_INTERNAL_PROXY_PEERS.addSubnet('169.254.0.0', 16, 'ipv4');
+RENDER_INTERNAL_PROXY_PEERS.addSubnet('fc00::', 7, 'ipv6');
+RENDER_INTERNAL_PROXY_PEERS.addSubnet('fe80::', 10, 'ipv6');
+RENDER_INTERNAL_PROXY_PEERS.addAddress('::1', 'ipv6');
+
+function renderProxyMode(proxyIps) {
+  return proxyIps.length === 1 && String(proxyIps[0]).trim().toLowerCase() === RENDER_PROXY_SENTINEL;
+}
+
+export function isRenderInternalProxyPeer(value) {
+  let ip = String(value || '').trim().replace(/%.+$/, '');
+  if (ip.toLowerCase().startsWith('::ffff:') && isIP(ip.slice(7)) === 4) ip = ip.slice(7);
+  const family = isIP(ip);
+  if (family === 4) return RENDER_INTERNAL_PROXY_PEERS.check(ip, 'ipv4');
+  if (family === 6) return RENDER_INTERNAL_PROXY_PEERS.check(ip, 'ipv6');
+  return false;
+}
+
+function trustedProxyOptions(config) {
+  const trustedProxyIps = new Set(config.trustedProxyIps || []);
+  const isRenderProxyMode = renderProxyMode([...trustedProxyIps]);
+  return {
+    isTrustedProxy: isRenderProxyMode
+      ? isRenderInternalProxyPeer
+      : (ip) => trustedProxyIps.has(ip),
+    trustedClientIpHeaders: config.trustedClientIpHeaders || [],
+    // Render documents that CF-Connecting-IP is overwritten while
+    // X-Forwarded-For is appended. Never fall back to the spoofable chain in
+    // Render mode.
+    allowForwardedForFallback: !isRenderProxyMode,
+  };
+}
 
 function contractConfig(deps) {
   return deps.tenant?.config?.contracts || {};
@@ -24,13 +63,16 @@ export function contractSigningRuntimeReadiness(deps) {
   const configuredEndpoint = String(config.liffEndpointUrl || '').trim().replace(/\/+$/, '');
   const proxyIps = Array.isArray(config.trustedProxyIps) ? config.trustedProxyIps.filter(Boolean) : [];
   const proxyHeaders = Array.isArray(config.trustedClientIpHeaders) ? config.trustedClientIpHeaders.filter(Boolean) : [];
+  const isRenderProxyMode = renderProxyMode(proxyIps);
   const checks = Object.freeze({
     signingEnabled: config.signingEnabled === true,
     publicBaseUrl: Boolean(publicOrigin),
     liffId: /^\d+-[A-Za-z0-9]+$/.test(String(config.liffId || '').trim()),
     liffEndpoint: Boolean(expectedLiffEndpoint && configuredEndpoint === expectedLiffEndpoint),
-    trustedProxy: proxyIps.length > 0 && proxyIps.every((ip) => isIP(String(ip).trim()) > 0)
-      && proxyHeaders.length > 0 && proxyHeaders.every((header) => /^[a-z0-9-]+$/.test(String(header))),
+    trustedProxy: isRenderProxyMode
+      ? proxyHeaders.length === 1 && proxyHeaders[0] === 'cf-connecting-ip'
+      : proxyIps.length > 0 && proxyIps.every((ip) => isIP(String(ip).trim()) > 0)
+        && proxyHeaders.length > 0 && proxyHeaders.every((header) => /^[a-z0-9-]+$/.test(String(header))),
     dedicatedDatabase: config.databaseDedicated === true,
     databaseTls: config.databaseSslMode === 'verify-full' && config.databaseCaConfigured === true,
   });
@@ -88,7 +130,7 @@ export function createRuntimeSigningService(deps, storageContext = {}, options =
   if (options.allowDisabledForRevocation !== true && (!config.tokenPepper || Buffer.byteLength(config.tokenPepper, 'utf8') < 32)) {
     throw Object.assign(new Error('工程合約簽署權杖雜湊金鑰尚未設定'), { statusCode: 503 });
   }
-  const trustedProxyIps = new Set(config.trustedProxyIps || []);
+  const proxyOptions = trustedProxyOptions(config);
   return createContractSigningService({
     storage: deps.contractStore.signingStorage(deps.tenant, storageContext),
     line: createContractLineAdapter(deps),
@@ -98,8 +140,7 @@ export function createRuntimeSigningService(deps, storageContext = {}, options =
     tokenPepper: Buffer.byteLength(String(config.tokenPepper || ''), 'utf8') >= 32
       ? config.tokenPepper
       : 'revocation-only-placeholder-not-used',
-    isTrustedProxy: (ip) => trustedProxyIps.has(ip),
-    trustedClientIpHeaders: config.trustedClientIpHeaders || [],
+    ...proxyOptions,
   });
 }
 
@@ -146,4 +187,4 @@ export async function loadContractPdf(deps, { documentRef, documentHash }) {
   return { buffer, contentType: 'application/pdf', sha256: digest };
 }
 
-export const __test = { safeSegment, contractConfig };
+export const __test = { safeSegment, contractConfig, renderProxyMode, trustedProxyOptions };

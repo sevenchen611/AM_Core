@@ -429,6 +429,14 @@ assert.equal(getTrustedClientIp({
   remoteAddress: '10.0.0.2',
   headers: { 'cf-connecting-ip': '203.0.113.99', 'x-forwarded-for': '192.0.2.1' },
 }, { isTrustedProxy: (ip) => ip.startsWith('10.'), trustedClientIpHeaders: ['cf-connecting-ip'] }), '203.0.113.99');
+assert.equal(getTrustedClientIp({
+  remoteAddress: '10.0.0.2',
+  headers: { 'x-forwarded-for': '192.0.2.66' },
+}, {
+  isTrustedProxy: (ip) => ip.startsWith('10.'),
+  trustedClientIpHeaders: ['cf-connecting-ip'],
+  allowForwardedForFallback: false,
+}), '10.0.0.2');
 assert.equal(getTrustedClientIp({ remoteAddress: '::ffff:203.0.113.7', headers: {} }), '203.0.113.7');
 
 // Security headers prevent caching, framing, referrer token leakage and broad
