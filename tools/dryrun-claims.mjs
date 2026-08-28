@@ -12,6 +12,11 @@ const tenant = {
       rentalBaseUrl: 'https://rental.example.test',
       rentalTokenEnv: 'DRYRUN_RENTAL_TOKEN',
       eventTokenEnv: 'DRYRUN_EVENT_TOKEN',
+      businessUnits: [
+        { type: 'headquarters', id: 'company', name: '好住 寓好總部' },
+        { type: 'project', id: 'mingyi-46', name: '寓好｜草悟道' },
+        { type: 'project', id: 'case-b', name: '寓見｜逢甲櫻桃' },
+      ],
       allowedSubmitterUserIdsByBinding: { '0123456789abcdef0123456789abcdef': ['U0123456789abcdef0123456789abcdef'] },
     },
   },
@@ -39,8 +44,8 @@ const payload = __test.normalizeClaimSubmission({
   type: 'labor_health_insurance',
   period: '2026-06',
   lines: [
-    { description: '公司負擔', amount: 3776 },
-    { description: '陸昱晴個人負擔', amount: 851, employeeReference: 'Maggie' },
+    { description: '公司負擔', amount: 3776, categoryId: 'cat_social_insurance', serviceMonth: '2026-06', businessUnitType: 'headquarters', businessUnitId: 'company' },
+    { description: '陸昱晴個人負擔', amount: 851, categoryId: 'cat_social_insurance', serviceMonth: '2026-06', businessUnitType: 'headquarters', businessUnitId: 'company', employeeReference: 'Maggie' },
   ],
   totals: { requestedAmount: 4627, companyExpenseAmount: 3776, employeeRecoverableAmount: 851, currency: 'TWD' },
   dueDate: '2026-07-10',
@@ -52,6 +57,9 @@ assert.equal(payload.source.groupBindingId, session.bindingId);
 assert.equal(payload.source.actor.reference, 'U0123456789abcdef0123456789abcdef');
 assert.equal(payload.claim.totals.requestedAmount, 4627);
 assert.equal(payload.claim.lines.length, 2);
+assert.equal(payload.schemaVersion, 'am-claims-v2');
+assert.equal(payload.claim.lines[0].categoryId, 'cat_social_insurance');
+assert.equal(payload.claim.lines[0].businessUnitName, '好住 寓好總部');
 assert.equal(JSON.stringify(payload).includes('groupId'), false);
 assert.equal(JSON.stringify(payload).includes('data:application/pdf'), false);
 const uploadPayload = __test.normalizeAttachmentUpload({
@@ -63,7 +71,7 @@ const uploadPayload = __test.normalizeAttachmentUpload({
 });
 assert.equal(uploadPayload.dataUrl, 'data:application/pdf;base64,JVBERi0xLjQ=');
 assert.throws(() => __test.normalizeClaimSubmission({
-  type: 'labor_health_insurance', period: '2026-06', lines: [{ description: '錯誤', amount: 100 }],
+  type: 'labor_health_insurance', period: '2026-06', lines: [{ description: '錯誤', amount: 100, categoryId: 'cat_social_insurance', serviceMonth: '2026-06', businessUnitType: 'headquarters', businessUnitId: 'company' }],
   totals: { requestedAmount: 99, currency: 'TWD' }, attachments: [],
 }, session, tenant, { userId: 'U0123456789abcdef0123456789abcdef', displayName: 'Bonnie' }));
 

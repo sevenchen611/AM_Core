@@ -66,6 +66,12 @@
     },
     "claims": {
       "enabled": true,
+      "claimTypes": ["other", "labor_health_insurance", "shared_operating"],
+      "businessUnits": [
+        { "type": "headquarters", "id": "company", "name": "好住 寓好總部" },
+        { "type": "project", "id": "mingyi-46", "name": "寓好｜草悟道" },
+        { "type": "project", "id": "case-b", "name": "寓見｜逢甲櫻桃" }
+      ],
       "requireActiveBinding": true,
       "requireClaimCapability": true,
       "requireNamedSubmitter": true,

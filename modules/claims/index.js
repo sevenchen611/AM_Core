@@ -21,7 +21,34 @@ const CLAIM_TYPE_LABELS = new Map([
   ['labor_health_insurance', '勞健保費用'],
   ['social_insurance', '勞健保費用'],
   ['shared_operating', '共同營業費用'],
-  ['other', '其他費用'],
+  ['other', '一般費用'],
+]);
+const CLAIM_CATEGORY_OPTIONS = [
+  { id: 'cat_social_insurance', label: '勞健保及退休金', lineType: 'social_insurance' },
+  { id: 'cat_cleaning', label: '清潔費', lineType: 'cleaning' },
+  { id: 'cat_repair', label: '維修費', lineType: 'repair' },
+  { id: 'cat_work', label: '工務費', lineType: 'work' },
+  { id: 'cat_water', label: '水費', lineType: 'water' },
+  { id: 'cat_electricity_expense', label: '電費支出', lineType: 'electricity' },
+  { id: 'cat_gas', label: '瓦斯費', lineType: 'gas' },
+  { id: 'cat_internet', label: '網路第四台費', lineType: 'internet' },
+  { id: 'cat_management_fee', label: '大樓管理費', lineType: 'management_fee' },
+  { id: 'cat_elevator', label: '電梯保養費', lineType: 'elevator' },
+  { id: 'cat_supplies', label: '房間備品消耗', lineType: 'supplies' },
+  { id: 'cat_marketing', label: '廣告行銷費', lineType: 'marketing' },
+  { id: 'cat_platform_fee', label: '平台手續費', lineType: 'platform_fee' },
+  { id: 'cat_insurance', label: '保險費', lineType: 'insurance' },
+  { id: 'cat_tax', label: '稅捐規費', lineType: 'tax' },
+  { id: 'cat_intercompany_invoice_tax', label: '公司間往來－代開發票稅額', lineType: 'intercompany_invoice_tax' },
+  { id: 'cat_misc', label: '雜支（需說明）', lineType: 'misc' },
+];
+const CLAIM_CATEGORY_BY_ID = new Map(CLAIM_CATEGORY_OPTIONS.map((item) => [item.id, item]));
+const CLAIM_CATEGORY_ACCOUNT_CODES = new Map([
+  ['cat_social_insurance', '5103'], ['cat_cleaning', '5201'], ['cat_repair', '5202'], ['cat_work', '5203'],
+  ['cat_water', '5301'], ['cat_electricity_expense', '5302'], ['cat_gas', '5303'], ['cat_internet', '5304'],
+  ['cat_management_fee', '5305'], ['cat_elevator', '5306'], ['cat_supplies', '5401'], ['cat_marketing', '5501'],
+  ['cat_platform_fee', '5502'], ['cat_insurance', '5503'], ['cat_tax', '5504'],
+  ['cat_intercompany_invoice_tax', '1104'], ['cat_misc', '5901'],
 ]);
 const CLAIM_TYPE_ALIASES = new Map([
   ['勞健保', 'labor_health_insurance'],
@@ -351,6 +378,22 @@ function claimTypeOptions(tenant) {
   }));
 }
 
+function claimCategoryOptions() {
+  return CLAIM_CATEGORY_OPTIONS.map((item) => ({ ...item, accountCode: CLAIM_CATEGORY_ACCOUNT_CODES.get(item.id) || '' }));
+}
+
+function claimBusinessUnitOptions(tenant) {
+  const configured = claimConfig(tenant).businessUnits;
+  if (!Array.isArray(configured)) return [];
+  return configured.map((item) => {
+    const type = cleanText(item?.type, 40);
+    const id = cleanText(item?.id, 120);
+    const name = cleanText(item?.name, 160);
+    if (!['headquarters', 'project'].includes(type) || !id || !name) return null;
+    return { type, id, name };
+  }).filter(Boolean);
+}
+
 function normalizeAttachments(value) {
   if (!Array.isArray(value) || value.length > 5) throw Object.assign(new Error('附件格式不正確。'), { statusCode: 400 });
   return value.map((item) => {
@@ -388,13 +431,36 @@ function normalizeClaimSubmission(body, session, tenant, actor) {
   if (!Array.isArray(body.lines) || body.lines.length < 1 || body.lines.length > 30) {
     throw Object.assign(new Error('至少需要一筆、至多 30 筆請款明細。'), { statusCode: 400 });
   }
+  const allowedUnits = new Map(claimBusinessUnitOptions(tenant).map((item) => [`${item.type}:${item.id}`, item]));
+  if (!allowedUnits.size) throw Object.assign(new Error('請款單尚未設定可用的費用歸屬。'), { statusCode: 503 });
   const lines = body.lines.map((line) => {
     if (!line || typeof line !== 'object' || Array.isArray(line)) throw Object.assign(new Error('請款明細格式不正確。'), { statusCode: 400 });
     const description = cleanText(line.description, 500);
     const amountValue = amount(line.amount);
     const employeeReference = cleanText(line.employeeReference, 160);
-    if (!description || amountValue === null || amountValue <= 0) throw Object.assign(new Error('請款明細格式不正確。'), { statusCode: 400 });
-    return { description, amount: amountValue, ...(employeeReference ? { employeeReference } : {}) };
+    const categoryId = cleanText(line.categoryId, 120);
+    const category = CLAIM_CATEGORY_BY_ID.get(categoryId);
+    const serviceMonth = validPeriod(line.serviceMonth);
+    const businessUnitType = cleanText(line.businessUnitType, 40);
+    const businessUnitId = cleanText(line.businessUnitId, 120);
+    const businessUnit = allowedUnits.get(`${businessUnitType}:${businessUnitId}`);
+    const counterparty = cleanText(line.counterparty, 160);
+    if (!description || amountValue === null || amountValue <= 0 || !category || !serviceMonth || !businessUnit) {
+      throw Object.assign(new Error('每筆請款明細都必須有說明、金額、會計科目、服務月份與費用歸屬。'), { statusCode: 400 });
+    }
+    if (['labor_health_insurance', 'social_insurance'].includes(type) && categoryId !== 'cat_social_insurance') {
+      throw Object.assign(new Error('勞健保請款的明細必須使用勞健保及退休金科目。'), { statusCode: 400 });
+    }
+    if (categoryId === 'cat_intercompany_invoice_tax' && !counterparty) {
+      throw Object.assign(new Error('公司間代開發票稅額必須填寫往來對象。'), { statusCode: 400 });
+    }
+    return {
+      description, amount: amountValue, categoryId, lineType: category.lineType, serviceMonth,
+      businessUnitType, businessUnitId, businessUnitName: businessUnit.name,
+      taxTreatment: categoryId === 'cat_intercompany_invoice_tax' ? 'intercompany_clearing' : (categoryId === 'cat_social_insurance' ? 'not_applicable' : 'expense'),
+      ...(counterparty ? { counterparty } : {}),
+      ...(employeeReference ? { employeeReference } : {}),
+    };
   });
   const expectedTotal = Math.round(lines.reduce((total, line) => total + line.amount, 0) * 100) / 100;
   const totals = body.totals && typeof body.totals === 'object' && !Array.isArray(body.totals) ? body.totals : {};
@@ -411,7 +477,7 @@ function normalizeClaimSubmission(body, session, tenant, actor) {
   const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(String(body.dueDate || '')) ? String(body.dueDate) : '';
   const note = cleanText(body.note, 1000);
   return {
-    schemaVersion: 'am-claims-v1',
+    schemaVersion: 'am-claims-v2',
     externalSubmissionId: session.externalSubmissionId,
     tenant: { key: session.tenantKey, uuid: session.tenantId },
     source: {
@@ -566,7 +632,11 @@ function initialStatusMessage(result, payload) {
   const reviewerName = cleanText(result.reviewerName, 120);
   const lines = Array.isArray(claim.lines) ? claim.lines : [];
   const attachments = Array.isArray(payload.attachments) ? payload.attachments : [];
-  const detailLines = lines.map((line, index) => `${index + 1}. ${cleanText(line.description, 500)}：${money(line.amount, totals.currency)}`);
+  const detailLines = lines.map((line, index) => {
+    const category = CLAIM_CATEGORY_BY_ID.get(cleanText(line.categoryId, 120));
+    const accountCode = CLAIM_CATEGORY_ACCOUNT_CODES.get(cleanText(line.categoryId, 120));
+    return `${index + 1}. ${cleanText(line.description, 500)}：${money(line.amount, totals.currency)}｜${accountCode ? `${accountCode} ` : ''}${category?.label || '科目待確認'}｜${cleanText(line.serviceMonth, 20) || '無月份'}｜${cleanText(line.businessUnitName, 160) || '無歸屬'}`;
+  });
   const attachmentText = attachments.length
     ? `${attachments.length} 件（${attachments.map((item) => cleanText(item.name, 180)).join('、')}）`
     : '無';
@@ -621,11 +691,13 @@ function liffHtml(session, tenant) {
     liffId: claimsLiffId(tenant),
     draftText: session.draftText,
     claimTypes: claimTypeOptions(tenant),
+    claimCategories: claimCategoryOptions(),
+    businessUnits: claimBusinessUnitOptions(tenant),
     sourceGroupName: session.sourceGroupName,
   };
   return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>請款單</title>
-<style>body{margin:0;background:#f3f6f4;color:#24352c;font-family:system-ui,'Noto Sans TC',sans-serif}main{max-width:680px;margin:auto;padding:20px 16px 44px}h1{font-size:22px;margin:0 0 4px}.sub{color:#68776f;font-size:13px;margin:0 0 18px}.panel{background:#fff;border:1px solid #dce6e0;border-radius:8px;padding:16px;margin-top:12px}label{display:block;font-size:13px;font-weight:700;margin:13px 0 6px}input,select,textarea,button{font:inherit;box-sizing:border-box}input,select,textarea{width:100%;border:1px solid #bdcfc4;border-radius:6px;padding:10px;background:#fff}textarea{min-height:72px;resize:vertical}.line{display:grid;grid-template-columns:1fr 132px;gap:8px;margin-top:8px}.total-box{border:1px solid #bdcfc4;border-radius:6px;background:#f9fbfa;padding:10px 12px;font-weight:800}.optional-box{border:1px dashed #bdcfc4;border-radius:8px;background:#fbfdfc;padding:2px 12px 12px;margin-top:14px}.optional-box>summary{cursor:pointer;font-size:13px;font-weight:800;padding:10px 0;color:#22643e}.secondary{background:#fff;color:#22643e;border:1px solid #68a47d}.actions{display:flex;gap:8px;margin-top:14px}.actions button{flex:1}button{border:0;border-radius:6px;padding:11px;background:#267348;color:#fff;font-weight:700;cursor:pointer}.status{font-size:13px;line-height:1.55;margin-top:12px}.error{color:#a13d32}.hidden{display:none}@media(max-width:520px){.line{grid-template-columns:1fr}.actions{display:block}}</style></head><body><main>
-<h1>請款單</h1><p class="sub" id="group"></p><section class="panel"><p class="status" id="identity">正在驗證 LINE 身分…</p><div id="form" class="hidden"><label>請款類型<select id="type"></select></label><label>請款期間<input id="period" type="month"></label><label>請款明細</label><div id="lines"></div><button class="secondary" id="add" type="button">新增明細</button><label>請款總金額</label><div class="total-box" id="requestedTotal">$0</div><details class="optional-box hidden" id="insuranceFields" open><summary>勞健保分攤欄位</summary><label>公司費用（選填）<input id="companyExpense" inputmode="decimal" placeholder="未填時預設為請款總金額"></label><label>員工應收／扣回（選填）<input id="employeeRecoverable" inputmode="decimal" placeholder="未填時預設為 0"></label><label>付款到期日（選填）<input id="dueDate" type="date"></label></details><label>備註（選填）<textarea id="note"></textarea></label><label>附件（PDF／圖片，可上傳）<input id="attachments" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" multiple></label><div class="actions"><button id="submit" type="button">確認送出請款</button></div></div><p id="result" class="status"></p><button class="secondary hidden" id="retry" type="button">切換 LINE 帳號</button></section>
+<style>body{margin:0;background:#f3f6f4;color:#24352c;font-family:system-ui,'Noto Sans TC',sans-serif}main{max-width:760px;margin:auto;padding:20px 16px 44px}h1{font-size:22px;margin:0 0 4px}.sub{color:#68776f;font-size:13px;margin:0 0 18px}.panel{background:#fff;border:1px solid #dce6e0;border-radius:8px;padding:16px;margin-top:12px}label{display:block;font-size:13px;font-weight:700;margin:13px 0 6px}input,select,textarea,button{font:inherit;box-sizing:border-box}input,select,textarea{width:100%;border:1px solid #bdcfc4;border-radius:6px;padding:10px;background:#fff}textarea{min-height:72px;resize:vertical}.line{display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:8px;margin-top:12px;padding:12px;border:1px solid #dce6e0;border-radius:8px;background:#fbfdfc}.line .wide{grid-column:1/-1}.line .counterparty.hidden{display:none}.line .remove{justify-self:end;padding:7px 10px}.line-hint{font-size:12px;line-height:1.6;color:#68776f;background:#f7faf8;border-left:3px solid #68a47d;padding:8px 10px;margin:10px 0}.total-box{border:1px solid #bdcfc4;border-radius:6px;background:#f9fbfa;padding:10px 12px;font-weight:800}.optional-box{border:1px dashed #bdcfc4;border-radius:8px;background:#fbfdfc;padding:2px 12px 12px;margin-top:14px}.optional-box>summary{cursor:pointer;font-size:13px;font-weight:800;padding:10px 0;color:#22643e}.secondary{background:#fff;color:#22643e;border:1px solid #68a47d}.actions{display:flex;gap:8px;margin-top:14px}.actions button{flex:1}button{border:0;border-radius:6px;padding:11px;background:#267348;color:#fff;font-weight:700;cursor:pointer}.status{font-size:13px;line-height:1.55;margin-top:12px}.error{color:#a13d32}.hidden{display:none}@media(max-width:560px){.line{grid-template-columns:1fr}.line .wide{grid-column:1}.actions{display:block}}</style></head><body><main>
+<h1>請款單</h1><p class="sub" id="group"></p><section class="panel"><p class="status" id="identity">正在驗證 LINE 身分…</p><div id="form" class="hidden"><label>請款類型<select id="type"></select></label><label>請款期間<input id="period" type="month"></label><label>請款明細</label><p class="line-hint">系統會依項目說明建議科目與案場，但送出前仍必須逐筆確認。「代開發票稅額」是公司間往來，不會自動當成可扣抵進項稅額。</p><div id="lines"></div><button class="secondary" id="add" type="button">新增明細</button><label>請款總金額</label><div class="total-box" id="requestedTotal">$0</div><details class="optional-box hidden" id="insuranceFields" open><summary>勞健保分攤欄位</summary><label>公司費用（選填）<input id="companyExpense" inputmode="decimal" placeholder="未填時預設為請款總金額"></label><label>員工應收／扣回（選填）<input id="employeeRecoverable" inputmode="decimal" placeholder="未填時預設為 0"></label><label>付款到期日（選填）<input id="dueDate" type="date"></label></details><label>備註（選填）<textarea id="note"></textarea></label><label>附件（PDF／圖片，可上傳）<input id="attachments" type="file" accept="application/pdf,image/jpeg,image/png,image/webp" multiple></label><div class="actions"><button id="submit" type="button">確認送出請款</button></div></div><p id="result" class="status"></p><button class="secondary hidden" id="retry" type="button">切換 LINE 帳號</button></section>
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script><script>const DATA=${jsonScript(data)};const $=id=>document.getElementById(id);let token='';let identified=false;
 const api=async(body)=>{const r=await fetch(DATA.apiPath,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...body,liffAccessToken:token})});const j=await r.json().catch(()=>({}));if(!r.ok)throw Error(j.error||'操作失敗');return j};
 const trace=stage=>fetch(DATA.apiPath,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'telemetry',sessionToken:DATA.sessionToken,stage})}).catch(()=>{});
@@ -634,8 +706,14 @@ const money=value=>'$'+Number(value||0).toLocaleString('zh-TW',{maximumFractionD
 const selectedType=()=>$('type').value;
 const isInsurance=()=>['labor_health_insurance','social_insurance'].includes(selectedType());
 const INSURANCE_DEFAULT_LINES=['勞保費','健保費','勞工退休金'];
+const categoryOptions=selected=>'<option value="">請選擇會計科目</option>'+DATA.claimCategories.map(item=>'<option value="'+item.id+'" '+(item.id===selected?'selected':'')+'>'+(item.accountCode?item.accountCode+' ':'')+item.label+'</option>').join('');
+const unitValue=item=>item.type+':'+item.id;
+const unitOptions=selected=>'<option value="">請選擇費用歸屬</option>'+DATA.businessUnits.map(item=>'<option value="'+unitValue(item)+'" '+(unitValue(item)===selected?'selected':'')+'>'+item.name+'</option>').join('');
+function suggestedCategory(text){if(isInsurance())return'cat_social_insurance';if(/(代開|發票).*(稅|稅額)|營業稅/.test(text))return'cat_intercompany_invoice_tax';if(/工務|施工/.test(text))return'cat_work';if(/電費|台電/.test(text))return'cat_electricity_expense';if(/水費|自來水/.test(text))return'cat_water';if(/垃圾|清潔/.test(text))return'cat_cleaning';if(/維修|修繕/.test(text))return'cat_repair';if(/電梯/.test(text))return'cat_elevator';if(/瓦斯/.test(text))return'cat_gas';if(/網路|第四台/.test(text))return'cat_internet';if(/管理費/.test(text))return'cat_management_fee';if(/備品|消耗品/.test(text))return'cat_supplies';if(/廣告|行銷/.test(text))return'cat_marketing';if(/平台|手續費/.test(text))return'cat_platform_fee';if(/保險/.test(text))return'cat_insurance';if(/稅捐|規費/.test(text))return'cat_tax';return''}
+function suggestedUnit(text,category){if(/(寓見|逢甲|櫻桃)/.test(text))return'project:case-b';if(/(寓好|草悟道|勤美)/.test(text))return'project:mingyi-46';if(category==='cat_intercompany_invoice_tax'||isInsurance())return'headquarters:company';return''}
 function lineTotal(){return [...document.querySelectorAll('.line .amount')].reduce((sum,input)=>sum+(Number(input.value)||0),0)}
 function syncTotal(){$('requestedTotal').textContent=money(lineTotal())}
+function syncLineSuggestion(row){const text=row.querySelector('.desc').value.trim();const category=row.querySelector('.category');if(!category.dataset.manual){const suggestion=suggestedCategory(text);if(suggestion)category.value=suggestion}const unit=row.querySelector('.unit');if(!unit.dataset.manual){const suggestion=suggestedUnit(text,category.value);if(suggestion)unit.value=suggestion}const counterparty=row.querySelector('.counterparty');const intercompany=category.value==='cat_intercompany_invoice_tax';counterparty.classList.toggle('hidden',!intercompany);counterparty.required=intercompany;if(intercompany&&!counterparty.value)counterparty.value=DATA.sourceGroupName.includes('葉綠宿')?'葉綠宿':''}
 function removeUntouchedInsuranceDefaults(){
   document.querySelectorAll('.line[data-insurance-default="true"]').forEach(row=>row.remove());
   if(!document.querySelector('.line'))addLine();
@@ -648,14 +726,14 @@ function applyInsuranceDefaults(){
   $('lines').replaceChildren();
   INSURANCE_DEFAULT_LINES.forEach(description=>addLine(description,'',true));
 }
-function syncTypeFields(){const show=isInsurance();$('insuranceFields').classList.toggle('hidden',!show);if(!show){removeUntouchedInsuranceDefaults();$('companyExpense').value='';$('employeeRecoverable').value='';$('dueDate').value=''}else applyInsuranceDefaults()}
-function addLine(description='',lineAmount='',insuranceDefault=false){const row=document.createElement('div');row.className='line';if(insuranceDefault)row.dataset.insuranceDefault='true';row.innerHTML='<input class="desc" placeholder="項目說明"><input class="amount" inputmode="decimal" placeholder="金額">';row.querySelector('.desc').value=description;row.querySelector('.amount').value=lineAmount;row.querySelectorAll('input').forEach(input=>input.addEventListener('input',()=>{delete row.dataset.insuranceDefault;syncTotal()}));$('lines').append(row);syncTotal()}
+function syncTypeFields(){const show=isInsurance();$('insuranceFields').classList.toggle('hidden',!show);if(!show){removeUntouchedInsuranceDefaults();$('companyExpense').value='';$('employeeRecoverable').value='';$('dueDate').value=''}else{applyInsuranceDefaults();document.querySelectorAll('.line').forEach(row=>{const category=row.querySelector('.category');category.value='cat_social_insurance';category.dataset.manual='true';syncLineSuggestion(row)})}}
+function addLine(description='',lineAmount='',insuranceDefault=false){const row=document.createElement('div');row.className='line';if(insuranceDefault)row.dataset.insuranceDefault='true';row.innerHTML='<input class="desc wide" placeholder="項目說明" aria-label="項目說明"><input class="amount" inputmode="decimal" placeholder="金額" aria-label="金額"><select class="category" aria-label="會計科目">'+categoryOptions('')+'</select><input class="service-month" type="month" aria-label="服務月份"><select class="unit" aria-label="費用歸屬">'+unitOptions('')+'</select><input class="counterparty wide hidden" placeholder="往來對象，例如：葉綠宿" aria-label="往來對象"><button type="button" class="secondary remove">移除這筆</button>';row.querySelector('.desc').value=description;row.querySelector('.amount').value=lineAmount;row.querySelector('.service-month').value=$('period').value||'';row.querySelector('.service-month').dataset.auto='true';row.querySelector('.desc').addEventListener('input',()=>{delete row.dataset.insuranceDefault;syncLineSuggestion(row)});row.querySelector('.amount').addEventListener('input',()=>{delete row.dataset.insuranceDefault;syncTotal()});row.querySelector('.category').addEventListener('change',event=>{event.currentTarget.dataset.manual='true';syncLineSuggestion(row)});row.querySelector('.unit').addEventListener('change',event=>{event.currentTarget.dataset.manual='true'});row.querySelector('.service-month').addEventListener('change',event=>{delete event.currentTarget.dataset.auto});row.querySelector('.remove').addEventListener('click',()=>{row.remove();if(!document.querySelector('.line'))addLine();syncTotal()});$('lines').append(row);syncLineSuggestion(row);syncTotal()}
 function parseDraft(){if(!DATA.draftText)return;const raw=DATA.draftText;const entries=raw.split(/\\n+/).map(x=>x.trim()).filter(Boolean);if(entries.length)entries.forEach(x=>addLine(x,''));}
 function fileMeta(){return [...$('attachments').files].map((file,index)=>({id:'client-'+index+'-'+file.name, name:file.name,contentType:file.type,size:file.size}))}
 function readFile(file,index){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve({id:'client-'+index+'-'+file.name,name:file.name,contentType:file.type,size:file.size,dataUrl:String(reader.result||'')});reader.onerror=()=>reject(Error('附件讀取失敗：'+file.name));reader.readAsDataURL(file)})}
 async function uploadFiles(claimId){const selected=[...$('attachments').files];for(let index=0;index<selected.length;index+=1){const item=await readFile(selected[index],index);await api({action:'uploadAttachment',sessionToken:DATA.sessionToken,claimId,attachment:item})}}
 async function init(){try{$('retry').classList.add('hidden');$('identity').className='status';$('identity').textContent='正在啟動 LINE 身分元件…';trace('init_start');if(!window.liff)throw Error('LINE 登入元件載入失敗，請關閉後從群組連結重新開啟。');await within(liff.init({liffId:DATA.liffId,withLoginOnExternalBrowser:true}),10000,'LINE 身分元件初始化逾時，請按重新驗證或從群組重新開啟。');trace('init_ready');if(!liff.isLoggedIn()){$('identity').textContent='正在開啟 LINE 登入…';trace('login_redirect');liff.login({redirectUri:location.href});return}token=liff.getAccessToken?.()||'';if(!token)throw Error('沒有取得 LINE 登入權杖，請從群組重新開啟。');$('identity').textContent='正在向系統驗證 LINE 身分…';trace('identify_start');await within(api({action:'identify',sessionToken:DATA.sessionToken}),12000,'系統身分驗證逾時，請按重新驗證或從群組重新開啟。');identified=true;trace('identify_ready');$('identity').textContent='LINE 身分已驗證';$('form').classList.remove('hidden')}catch(error){trace('error');$('identity').className='status error';$('identity').textContent=error.message||'LINE 身分驗證失敗';$('retry').classList.remove('hidden')}}
-$('group').textContent='來源群組：'+DATA.sourceGroupName;$('type').innerHTML=DATA.claimTypes.map(type=>'<option value="'+type.value+'">'+type.label+'</option>').join('');addLine();parseDraft();syncTypeFields();$('type').addEventListener('change',syncTypeFields);$('retry').onclick=()=>{identified=false;token='';try{if(window.liff&&liff.isLoggedIn())liff.logout()}catch{}location.replace(DATA.apiPath)};$('add').onclick=()=>addLine();$('submit').onclick=async()=>{if(!identified)return;const button=$('submit'),result=$('result');button.disabled=true;result.className='status';result.textContent='送出中…';try{const lines=[...document.querySelectorAll('.line')].map(row=>({description:row.querySelector('.desc').value,amount:row.querySelector('.amount').value})).filter(line=>line.description||line.amount);const requestedAmount=Math.round(lineTotal()*100)/100;const totals={requestedAmount,currency:'TWD'};let dueDate='';if(isInsurance()){const rawCompany=$('companyExpense').value;const rawEmployee=$('employeeRecoverable').value;const employee=rawEmployee?Number(rawEmployee):0;const company=rawCompany?Number(rawCompany):Math.round((requestedAmount-employee)*100)/100;totals.companyExpenseAmount=company;totals.employeeRecoverableAmount=Math.round((requestedAmount-company)*100)/100;dueDate=$('dueDate').value}const data=await api({action:'submit',sessionToken:DATA.sessionToken,type:$('type').value,period:$('period').value,lines,totals,dueDate,note:$('note').value,attachments:fileMeta()});if($('attachments').files.length){result.textContent='請款單已建立，附件上傳中…';await uploadFiles(data.claimId)}result.textContent=(data.claimNumber?'請款單 '+data.claimNumber:'請款單')+' 已送出，附件已同步保存並回覆群組。';$('form').classList.add('hidden')}catch(error){result.className='status error';result.textContent=error.message||'送出失敗'}finally{button.disabled=false}};init();</script></main></body></html>`;
+$('group').textContent='來源群組：'+DATA.sourceGroupName;$('type').innerHTML='<option value="">請選擇請款類型</option>'+DATA.claimTypes.map(type=>'<option value="'+type.value+'">'+type.label+'</option>').join('');addLine();parseDraft();syncTypeFields();$('type').addEventListener('change',syncTypeFields);$('period').addEventListener('change',()=>document.querySelectorAll('.line .service-month[data-auto="true"]').forEach(input=>{input.value=$('period').value}));$('retry').onclick=()=>{identified=false;token='';try{if(window.liff&&liff.isLoggedIn())liff.logout()}catch{}location.replace(DATA.apiPath)};$('add').onclick=()=>addLine();$('submit').onclick=async()=>{if(!identified)return;const button=$('submit'),result=$('result');button.disabled=true;result.className='status';result.textContent='送出中…';try{const lines=[...document.querySelectorAll('.line')].map(row=>{const unit=row.querySelector('.unit').value.split(':');return{description:row.querySelector('.desc').value,amount:row.querySelector('.amount').value,categoryId:row.querySelector('.category').value,serviceMonth:row.querySelector('.service-month').value,businessUnitType:unit[0]||'',businessUnitId:unit.slice(1).join(':')||'',counterparty:row.querySelector('.counterparty').value}}).filter(line=>line.description||line.amount);const requestedAmount=Math.round(lineTotal()*100)/100;const totals={requestedAmount,currency:'TWD'};let dueDate='';if(isInsurance()){const rawCompany=$('companyExpense').value;const rawEmployee=$('employeeRecoverable').value;const employee=rawEmployee?Number(rawEmployee):0;const company=rawCompany?Number(rawCompany):Math.round((requestedAmount-employee)*100)/100;totals.companyExpenseAmount=company;totals.employeeRecoverableAmount=Math.round((requestedAmount-company)*100)/100;dueDate=$('dueDate').value}const data=await api({action:'submit',sessionToken:DATA.sessionToken,type:$('type').value,period:$('period').value,lines,totals,dueDate,note:$('note').value,attachments:fileMeta()});if($('attachments').files.length){result.textContent='請款單已建立，附件上傳中…';await uploadFiles(data.claimId)}result.textContent=(data.claimNumber?'請款單 '+data.claimNumber:'請款單')+' 已送出，附件已同步保存並回覆群組。';$('form').classList.add('hidden')}catch(error){result.className='status error';result.textContent=error.message||'送出失敗'}finally{button.disabled=false}};init();</script></main></body></html>`;
 }
 
 function cookieValue(cookieHeader, name) {
