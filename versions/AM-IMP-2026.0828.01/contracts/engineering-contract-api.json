@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contractVersion": "2026-08-28.engineering-contract-api.v1",
+  "tenantKey": "engineering",
+  "securityRules": {
+    "internalActor": "Portal AccessContext.actor",
+    "browserOperatorAccepted": false,
+    "browserTenantAuthority": false,
+    "browserProjectAuthority": false,
+    "rawTokenLogged": false,
+    "signingMutationsRequireIdempotencyKey": true,
+    "managementTransitionsUseDatabaseCAS": true,
+    "allTargetRelationsReloadedBeforeWrite": true
+  },
+  "internalRoutes": [
+    { "method": "GET", "path": "/contracts", "accessKind": "tenant", "capability": "construction.contracts.view", "purpose": "Engineering contract management page" },
+    { "method": "GET", "path": "/contracts/api/overview", "accessKind": "tenant", "capability": "construction.contracts.view", "purpose": "Project-scoped contract overview" },
+    { "method": "GET", "path": "/contracts/api/v2/contracts", "accessKind": "tenant", "capability": "construction.contracts.view", "purpose": "Project-scoped PostgreSQL contract list" },
+    { "method": "POST", "path": "/contracts/api/v2/contracts/sync", "accessKind": "tenant", "capability": "construction.contracts.manage", "purpose": "Create or synchronize one Notion-backed management aggregate" },
+    { "method": "GET", "path": "/contracts/api/v2/contracts/{contractId}", "accessKind": "tenant", "capability": "construction.contracts.view", "purpose": "Load one re-authorized contract and its versions" },
+    { "method": "POST", "path": "/contracts/api/v2/files", "accessKind": "tenant", "capability": "construction.contracts.manage", "purpose": "Bounded raw upload to private Drive with server SHA-256" },
+    { "method": "POST", "path": "/contracts/api/v2/contracts/{contractId}/versions", "accessKind": "tenant", "capability": "construction.contracts.manage", "purpose": "Create an insert-only draft version containing the five required sections" },
+    { "method": "POST", "path": "/contracts/api/v2/contracts/{contractId}/versions/{versionId}/submit-review", "accessKind": "tenant", "capability": "construction.contracts.manage", "purpose": "Atomic draft-to-internal-review transition" },
+    { "method": "POST", "path": "/contracts/api/v2/contracts/{contractId}/versions/{versionId}/approve", "accessKind": "tenant", "capability": "construction.contracts.issue", "purpose": "Atomic internal-review-to-approved transition" },
+    { "method": "POST", "path": "/contracts/api/v2/contracts/{contractId}/versions/{versionId}/freeze", "accessKind": "tenant", "capability": "construction.contracts.issue", "purpose": "Atomic approved-to-frozen CAS with canonical manifest and bundle hash" },
+    { "method": "GET", "path": "/contracts/api/v2/contracts/{contractId}/versions/{versionId}/readiness", "accessKind": "tenant", "capability": "construction.contracts.view", "purpose": "Explain every fail-closed issue blocker" },
+    { "method": "POST", "path": "/contracts/api/v2/contracts/{contractId}/versions/{versionId}/issue", "accessKind": "tenant", "capability": "construction.contracts.issue", "purpose": "Render and archive the issued PDF, then send one seven-day request to the authoritative LINE group" },
+    { "method": "POST", "path": "/contracts/api/v2/contracts/{contractId}/versions/{versionId}/retry-signing", "accessKind": "tenant", "capability": "construction.contracts.issue", "purpose": "Retry LINE group delivery using the exact previously issued PDF and hash" },
+    { "method": "POST", "path": "/contracts/api/v2/signing-sessions/{sessionId}/confirm-complete", "accessKind": "tenant", "capability": "construction.contracts.confirm", "purpose": "Confirm, render the signed PDF and receipt, record both artifacts, and complete archival" },
+    { "method": "POST", "path": "/contracts/api/v2/signing-sessions/{sessionId}/revoke", "accessKind": "tenant", "capability": "construction.contracts.admin", "worksWhileSigningDisabled": true, "purpose": "Kill-switch revocation of an issued, sent, or opened session with immutable actor/reason evidence" }
+  ],
+  "publicRoutes": [
+    { "method": "GET", "path": "/contract-sign#token={opaqueToken}", "accessKind": "public", "authority": "fragment token is not sent in the HTTP request", "returns": "LIFF bootstrap page only" },
+    { "method": "POST", "path": "/contract-sign/api/open", "accessKind": "public", "authority": "HMAC token plus LIFF exact user plus current group membership", "requestContains": ["token", "liffCredential"], "purpose": "Record authenticated first open and return only a protected document endpoint" },
+    { "method": "POST", "path": "/contract-sign/api/document", "accessKind": "public", "authority": "identity and membership are rechecked", "requestContains": ["token", "liffCredential"], "purpose": "Stream the private issued PDF only after Drive SHA-256 verification" },
+    { "method": "POST", "path": "/contract-sign/api/submit", "accessKind": "public", "authority": "identity and membership rechecked plus exact document hash", "idempotent": true, "requestContains": ["token", "liffCredential", "signatureDataUrl", "consent", "reviewAcknowledged", "documentHash", "idempotencyKey"], "purpose": "Store the signature image and immutable signed/submission events" }
+  ],
+  "requiredErrorBehavior": {
+    "invalidOrForeignResource": 404,
+    "unauthenticatedInternal": 401,
+    "internalCapabilityDenied": 403,
+    "invalidPublicToken": 404,
+    "expiredOrRevokedPublicToken": 410,
+    "identityMismatch": 403,
+    "stateConflict": 409,
+    "invalidInput": 400,
+    "dependencyUnavailableDuringIssueOrSign": 503
+  },
+  "idempotency": {
+    "publicSigningField": "idempotencyKey",
+    "internalTransitions": "database expected-status compare-and-set",
+    "minimumLength": 16,
+    "maximumLength": 160,
+    "persistence": "PostgreSQL unique key, not process memory",
+    "sameKeyDifferentPayload": "409",
+    "sameKeySamePayload": "return original result"
+  }
+}

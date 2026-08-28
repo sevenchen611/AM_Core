@@ -9,6 +9,7 @@ import { createDrive } from './drive.js';
 import { createPortal } from './portal.js';
 import { createLlm } from './llm.js';
 import { createOperationalMemory } from './operational-memory.js';
+import { createContractStore } from './contract-store.js';
 import { createRouter } from './router.js';
 import { loadModules, createDispatcher } from './modules.js';
 
@@ -119,6 +120,11 @@ export async function bootstrap(env = process.env, overrides = {}) {
     logger,
     poolFactory: overrides.operationalMemoryPoolFactory || null,
   });
+  const contractStore = overrides.contractStore || createContractStore({
+    env,
+    logger,
+    poolFactory: overrides.contractPoolFactory || null,
+  });
   const calendarIntegration = overrides.calendarIntegration || createCalendarIntegration(env, logger);
   const tenantLlms = new Map();
   if (!overrides.llm) {
@@ -155,6 +161,7 @@ export async function bootstrap(env = process.env, overrides = {}) {
     replyLineMessage: line.replyLineMessage,
     lineConfigured: line.configured,
     lineGet: line.lineGet,
+    verifyLiffIdentity: line.verifyLiffIdentity,
     listGroupMemberIds: line.listGroupMemberIds,
     resolveGroupMemberName: line.resolveGroupMemberName,
     resolveGroupName: line.resolveGroupName,
@@ -169,6 +176,8 @@ export async function bootstrap(env = process.env, overrides = {}) {
     ensureDriveFolder: drive.ensureFolder,
     uploadToDrive: drive.upload,
     uploadDriveStream: drive.uploadStream, // (stream, filename, contentType, folderId, size) 大檔串流留底
+    downloadFromDrive: drive.download,
+    auditDrivePrivate: drive.auditPrivateFile,
     getDriveAccessToken: drive.getAccessToken,
     // Portal 授權(web routes 用)
     portal,
@@ -187,6 +196,7 @@ export async function bootstrap(env = process.env, overrides = {}) {
     // LLM(統一備援鏈)。新模組一律用這個,不要自己接 AI 供應商。
     llm,
     operationalMemory,
+    contractStore,
     llmForTenant: (tenant) => tenantLlms.get(tenant?.key) || llm,
     aiForTenant: (tenant) => tenant?.ai || {
       provider: (env.AMCORE_AI_PROVIDER || '').toLowerCase(),

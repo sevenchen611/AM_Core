@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contractVersion": "2026-08-28.engineering-contract-notion-projection.v1",
+  "tenantKey": "engineering",
+  "dataSourceEnv": "ENG_CONTRACTS_DATA_SOURCE_ID",
+  "authority": "projection_only",
+  "existingProperties": {
+    "編號": { "type": "title", "required": true },
+    "專案": { "type": "relation", "targetEnv": "ENG_PROJECTS_DATA_SOURCE_ID", "required": true },
+    "合約名稱": { "type": "rich_text", "required": true },
+    "承攬對象": { "type": "rich_text", "required": true },
+    "合約金額": { "type": "number", "required": true },
+    "狀態": { "type": "select", "required": true, "role": "execution_and_budget_projection" },
+    "簽約日期": { "type": "date", "required": false, "role": "legacy_projection" },
+    "預算項目": { "type": "relation", "required": false },
+    "負責群組": { "type": "relation", "targetEnv": "ENG_GROUP_BINDINGS_DATA_SOURCE_ID", "required": true },
+    "資料連結": { "type": "rich_text", "required": false, "role": "legacy_only" },
+    "備註": { "type": "rich_text", "required": false }
+  },
+  "additiveProperties": {
+    "電子簽署狀態": {
+      "type": "select",
+      "options": ["草稿", "內部審核", "待簽發", "已簽發", "已發送", "已收件", "已簽署", "已拒簽", "已逾期", "已撤回", "已作廢", "舊資料／無電子簽署證據"]
+    },
+    "電子簽署版本": { "type": "number" },
+    "簽署人": { "type": "rich_text", "sensitivity": "restricted" },
+    "簽署人參照": { "type": "rich_text", "rule": "masked LINE user reference only" },
+    "簽發時間": { "type": "date" },
+    "發送時間": { "type": "date" },
+    "收件時間": { "type": "date" },
+    "簽署時間": { "type": "date" },
+    "簽署IP遮罩": { "type": "rich_text", "rule": "masked display only; full inet remains in PostgreSQL evidence" },
+    "文件Bundle SHA-256": { "type": "rich_text" },
+    "已簽PDF": { "type": "url", "rule": "protected application download URL; never a raw token URL" },
+    "證據收據": { "type": "url", "rule": "protected application download URL; never a raw token URL" },
+    "PostgreSQL Contract ID": { "type": "rich_text" },
+    "PostgreSQL Version ID": { "type": "rich_text" },
+    "投影版本": { "type": "number" },
+    "投影時間": { "type": "date" },
+    "投影警示": { "type": "rich_text" }
+  },
+  "projectionRules": [
+    "PostgreSQL contract UUID and version UUID are the projection correlation keys",
+    "Only a committed contract_signed event may write 電子簽署狀態=已簽署 and 狀態=已簽約",
+    "Only a committed contract_voided event may write 電子簽署狀態=已作廢 and 狀態=作廢",
+    "Existing rows without PostgreSQL evidence remain 舊資料／無電子簽署證據",
+    "A manual Notion status edit never creates PostgreSQL evidence",
+    "Projection retries use integration_outbox idempotency keys",
+    "Raw token, token digest, token pepper, full IP, LIFF access token, full LINE user ID, and database credentials are forbidden"
+  ]
+}

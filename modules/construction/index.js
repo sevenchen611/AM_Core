@@ -27,6 +27,10 @@ import { sendJson, queryAll, appendHistory, pageName } from './common.js';
 import { listKnownTrades } from './trades.js';
 import { handleBudgetRequest } from './budget.js';
 import { handleContractsRequest } from './contracts.js';
+import { createContractSigningWebHandler } from './contract-signing-web.js';
+import { handleEngineeringContractPdfRender } from './contract-pdf-renderer.js';
+import { createContractOutboxWorker } from './contract-outbox.js';
+import { createRuntimeSigningService, loadContractPdf, saveContractSignature, signingRequestMeta } from './contract-runtime.js';
 import { SOP_STAGES, readSopState, writeSopCheck } from './sop.js';
 import { handleDashboardRequest } from './dashboard.js';
 import { handleTaskCardRequest } from './task-card.js';
@@ -104,6 +108,13 @@ function fullDeps(tenant) {
     driveConfigured: tenant.driveConfigured,
     driveRootFolderId: tenant.driveRootFolderId,
     pushLineMessage: platform.pushLineMessage,
+    lineGet: platform.lineGet,
+    verifyLiffIdentity: platform.verifyLiffIdentity,
+    contractStore: platform.contractStore,
+    uploadToDrive: platform.uploadToDrive,
+    uploadDriveStream: platform.uploadDriveStream,
+    downloadFromDrive: platform.downloadFromDrive,
+    auditDrivePrivate: platform.auditDrivePrivate,
     getDriveAccessToken: platform.getDriveAccessToken,
     ensureDriveFolder: platform.ensureDriveFolder,
     // dashboard 用:專案行事曆對照 + LINE 推播配額
@@ -142,7 +153,7 @@ function withVerifiedActor(ctx = {}) {
 }
 
 // ── web 授權(走 core.portal;權限鍵 per-tenant)────────────────
-// 回傳 { authed, isOwner, canBudget, canContract, scope }。
+// 回傳租戶與工程功能權限；合約權限採 view/manage/issue/confirm/admin 分層。
 //   scope:null=全部;'none'=無;否則逗號分隔的館別代碼(am-<key>-<code>)。PIN/owner=全部。
 async function resolveAuth(portal, tenant, req, providedAccess = null) {
   const k = tenant.key;
@@ -152,6 +163,9 @@ async function resolveAuth(portal, tenant, req, providedAccess = null) {
   const userOwner = user?.role === 'owner';       // Portal owner(真身分)
   const isOwner = Boolean(access?.isPlatformOwner);
   const authed = Boolean(access?.allowed);
+  const granted = (feature) => typeof portal.featureGranted === 'function'
+    ? portal.featureGranted(user, tenant, feature)
+    : feats.includes(`am-${k}-${feature}`);
 
   let scope = null;
   if (user && !isOwner) {
@@ -161,10 +175,13 @@ async function resolveAuth(portal, tenant, req, providedAccess = null) {
     authed,
     isOwner,
     // 預算/合約權限特別分開:PIN 通行碼一律看不到,僅 Portal owner 或被授者(比照 BuildAM)。
-    canBudget: userOwner || (typeof portal.featureGranted === 'function'
-      ? portal.featureGranted(user, tenant, 'budget') : feats.includes(`am-${k}-budget`)),
-    canContract: userOwner || (typeof portal.featureGranted === 'function'
-      ? portal.featureGranted(user, tenant, 'contract') : feats.includes(`am-${k}-contract`)),
+    canBudget: userOwner || granted('budget'),
+    // 舊的 contract 授權在遷移期等同 view + manage；簽發、確認與管理仍須明確授權。
+    canContract: userOwner || granted('contract') || granted('contract-view'),
+    canContractManage: userOwner || granted('contract') || granted('contract-manage'),
+    canContractIssue: userOwner || granted('contract-issue'),
+    canContractConfirm: userOwner || granted('contract-confirm'),
+    canContractAdmin: userOwner || granted('contract-admin'),
     scope,
     access,
   };
@@ -202,13 +219,52 @@ function webRoute(handler) {
     url.searchParams.set('key', deps.queueAccessKey || '');
     url.searchParams.delete('budget');
     url.searchParams.delete('contract');
+    url.searchParams.delete('contractManage');
+    url.searchParams.delete('contractIssue');
+    url.searchParams.delete('contractConfirm');
+    url.searchParams.delete('contractAdmin');
     url.searchParams.delete('scope');
     if (auth.canBudget) url.searchParams.set('budget', '1');
     if (auth.canContract) url.searchParams.set('contract', '1');
+    if (auth.canContractManage) url.searchParams.set('contractManage', '1');
+    if (auth.canContractIssue) url.searchParams.set('contractIssue', '1');
+    if (auth.canContractConfirm) url.searchParams.set('contractConfirm', '1');
+    if (auth.canContractAdmin) url.searchParams.set('contractAdmin', '1');
     const projectScopedCapability = ['construction.read', 'construction.budget', 'construction.contracts'].includes(ctx.routeAccess?.capability);
     if (projectScopedCapability && auth.scope != null) url.searchParams.set('scope', auth.scope);
     return handler(req, res, ctx.pathname, url, deps);
   };
+}
+
+async function publicContractSigningRoute(req, res, ctx) {
+  const tenant = ctx.tenant;
+  if (!tenant || tenant.key !== 'engineering' || !(tenant.modules || []).includes('construction')) return sendJson(res, 404, { error: 'Not found' });
+  try {
+    const deps = fullDeps(tenant);
+    const service = createRuntimeSigningService(deps);
+    const handler = createContractSigningWebHandler({
+      service,
+      liffId: tenant.config?.contracts?.liffId,
+      getRequestMeta: signingRequestMeta,
+      resolveDocumentUrl: async () => '/contract-sign/api/document',
+      loadDocument: async (opened) => loadContractPdf(deps, opened),
+      saveSignature: async ({ sessionId, bytes, contentType }) => {
+        const saved = await saveContractSignature(deps, { sessionId, buffer: bytes, contentType });
+        return { hash: saved.signatureHash, ref: saved.submissionRef };
+      },
+      logger: platform.logger || console,
+    });
+    return handler(req, res, ctx.pathname, ctx.url);
+  } catch (error) {
+    const status = Number(error.statusCode || error.status) || 503;
+    res.writeHead(status, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Robots-Tag': 'noindex, nofollow, noarchive',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    return res.end('<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>工程合約簽署</title><body><p>工程合約簽署服務尚未就緒，請聯繫工程 AM 管理員。</p></body></html>');
+  }
 }
 
 // 供 reminders(M6)取「逾期/擱置」單據並回寫;回傳綁定該租戶的一組低階助手。
@@ -238,11 +294,32 @@ function reminderSource(ctx) {
   };
 }
 
+// PostgreSQL outbox 是 LINE 邀請與 Notion 投影的權威重試佇列。排程只在工程租戶且
+// schema 已就緒時執行；簽署總開關關閉期間仍可補齊 Notion 投影，但絕不送出新邀請。
+async function tick(ctx = {}) {
+  const tenant = assertTenant(ctx.tenant);
+  if (tenant.key !== 'engineering') return { skipped: 'not-engineering-tenant' };
+  const deps = fullDeps(tenant);
+  const state = await deps.contractStore?.status?.(tenant);
+  if (!state?.configured || !state?.schemaReady) return { skipped: 'contract-store-not-ready' };
+
+  const eventKinds = ['notion_contract_projection'];
+  if (tenant.config?.contracts?.signingEnabled === true) eventKinds.unshift('line_signing_invitation');
+  const worker = createContractOutboxWorker(deps, { workerId: 'engineering-contract-scheduler' });
+  return worker.drain({
+    tenant,
+    actor: 'engineering-contract-outbox',
+    scope: { all: true },
+  }, { limit: 10, eventKinds });
+}
+
 // ── 模組契約:預設匯出 ─────────────────────────────────────
 export default {
   name: 'construction',
   init,
   routes: [
+    { prefix: '/internal/v1/engineering-contracts/render', method: 'POST', tenantKey: 'engineering', access: { kind: 'public', capability: 'construction.contract-pdf-render' }, handler: handleEngineeringContractPdfRender },
+    { prefix: '/contract-sign', tenantKey: 'engineering', access: { kind: 'public', capability: 'construction.contract-sign' }, handler: publicContractSigningRoute },
     { prefix: '/task', access: { kind: 'tenant', capability: 'construction.read' }, handler: webRoute(handleTaskCardRequest) },
     { prefix: '/dashboard', access: { kind: 'tenant', capability: 'construction.read' }, handler: webRoute(handleDashboardRequest) },
     { prefix: '/budget', access: { kind: 'tenant', capability: 'construction.budget' }, handler: webRoute(handleBudgetRequest) },
@@ -273,6 +350,7 @@ export default {
   // 供 reminders 的工程到期/擱置:高階 pass(reminders.js)+ 低階單據來源
   reminderPasses,
   reminderSource,
+  tick,
 };
 
 // 測試用內部匯出(不影響正式流程)

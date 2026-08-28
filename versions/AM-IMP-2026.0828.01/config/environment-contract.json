@@ -1,0 +1,187 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contractVersion": "2026-08-28.engineering-contract-environment.v1",
+  "tenantKey": "engineering",
+  "envPrefix": "ENG",
+  "settings": [
+    {
+      "name": "ENG_CONTRACTS_SIGNING_ENABLED",
+      "runtimeProperty": "tenant.config.contracts.signingEnabled",
+      "secret": false,
+      "required": true,
+      "type": "booleanFlag",
+      "disabledValue": "0",
+      "enabledValue": "1",
+      "default": "0"
+    },
+    {
+      "name": "ENG_CONTRACTS_DATABASE_URL",
+      "runtimeProperty": "contractStore tenant connection config",
+      "secret": true,
+      "required": true,
+      "type": "postgresUrl",
+      "browserExposed": false
+    },
+    {
+      "name": "ENG_CONTRACTS_LIFF_ID",
+      "runtimeProperty": "tenant.config.contracts.liffId",
+      "secret": false,
+      "required": true,
+      "type": "liffId",
+      "browserExposed": true
+    },
+    {
+      "name": "ENG_CONTRACTS_LIFF_ENDPOINT_URL",
+      "runtimeProperty": "tenant.config.contracts.liffEndpointUrl",
+      "secret": false,
+      "required": true,
+      "type": "exactHttpsUrl",
+      "mustEqual": "${ENG_PUBLIC_BASE_URL}/contract-sign",
+      "browserExposed": false
+    },
+    {
+      "name": "ENG_CONTRACTS_DATABASE_DEDICATED",
+      "runtimeProperty": "tenant.config.contracts.databaseDedicated",
+      "secret": false,
+      "required": true,
+      "type": "booleanFlag",
+      "enabledValue": "1",
+      "productionRequired": true
+    },
+    {
+      "name": "ENG_CONTRACTS_DATABASE_SSL_MODE",
+      "runtimeProperty": "tenant.config.contracts.databaseSslMode",
+      "secret": false,
+      "required": true,
+      "type": "enum",
+      "allowedValues": ["require", "verify-full"],
+      "productionAllowedValues": ["verify-full"]
+    },
+    {
+      "name": "ENG_CONTRACTS_DATABASE_CA",
+      "runtimeProperty": "tenant.config.contracts.databaseCaConfigured",
+      "secret": true,
+      "required": true,
+      "type": "pemCertificateAuthority",
+      "browserExposed": false
+    },
+    {
+      "name": "ENG_CONTRACTS_TRUSTED_PROXY_IPS",
+      "runtimeProperty": "tenant.config.contracts.trustedProxyIps",
+      "secret": false,
+      "sensitiveConfig": true,
+      "required": true,
+      "type": "commaSeparatedExactIpList",
+      "minimumItems": 1,
+      "browserExposed": false
+    },
+    {
+      "name": "ENG_CONTRACTS_TRUSTED_CLIENT_IP_HEADERS",
+      "runtimeProperty": "tenant.config.contracts.trustedClientIpHeaders",
+      "secret": false,
+      "required": true,
+      "type": "commaSeparatedHeaderAllowlist",
+      "minimumItems": 1,
+      "browserExposed": false
+    },
+    {
+      "name": "ENG_PUBLIC_BASE_URL",
+      "runtimeProperty": "tenant.publicBaseUrl",
+      "secret": false,
+      "required": true,
+      "type": "httpsOrigin",
+      "browserExposed": true
+    },
+    {
+      "name": "ENG_CONTRACTS_TOKEN_PEPPER",
+      "runtimeProperty": "tenant.config.contracts.tokenPepper",
+      "secret": true,
+      "required": true,
+      "type": "highEntropySecret",
+      "minimumRandomBytes": 32,
+      "browserExposed": false
+    },
+    {
+      "name": "ENG_CONTRACTS_PDF_RENDER_URL",
+      "runtimeProperty": "tenant.config.contracts.pdfRenderUrl",
+      "secret": false,
+      "required": true,
+      "type": "httpsOrigin",
+      "browserExposed": false
+    },
+    {
+      "name": "ENG_CONTRACTS_PDF_RENDER_TOKEN",
+      "runtimeProperty": "tenant.config.contracts.pdfRenderToken",
+      "secret": true,
+      "required": true,
+      "type": "highEntropySecret",
+      "minimumRandomBytes": 32,
+      "browserExposed": false
+    },
+    {
+      "name": "ENG_CONTRACTS_DATA_SOURCE_ID",
+      "runtimeProperty": "tenant.dataSources.contracts",
+      "secret": false,
+      "sensitiveConfig": true,
+      "required": true,
+      "type": "notionDataSourceId",
+      "browserExposed": false
+    },
+    {
+      "name": "ENG_PROJECTS_DATA_SOURCE_ID",
+      "runtimeProperty": "tenant.dataSources.projects",
+      "secret": false,
+      "sensitiveConfig": true,
+      "required": true,
+      "type": "notionDataSourceId",
+      "browserExposed": false
+    },
+    {
+      "name": "ENG_GROUP_BINDINGS_DATA_SOURCE_ID",
+      "runtimeProperty": "tenant.dataSources.groupBindings",
+      "secret": false,
+      "sensitiveConfig": true,
+      "required": true,
+      "type": "notionDataSourceId",
+      "browserExposed": false
+    },
+    {
+      "name": "ENG_DRIVE_ROOT_FOLDER_ID",
+      "runtimeProperty": "tenant.driveRootFolderId",
+      "secret": false,
+      "sensitiveConfig": true,
+      "required": true,
+      "type": "googleDriveFolderId",
+      "browserExposed": false
+    }
+  ],
+  "existingPlatformSecrets": [
+    "NOTION_TOKEN",
+    "LINE_CHANNEL_ACCESS_TOKEN",
+    "LINE_CHANNEL_SECRET",
+    "GOOGLE_OAUTH_CLIENT_ID",
+    "GOOGLE_OAUTH_CLIENT_SECRET",
+    "GOOGLE_OAUTH_REFRESH_TOKEN"
+  ],
+  "forbiddenSecretReuse": [
+    "AMCORE_QUEUE_ACCESS_KEY",
+    "ENG_QUEUE_ACCESS_KEY",
+    "AMCORE_PORTAL_SERVICE_TOKEN",
+    "LINE_CHANNEL_SECRET",
+    "existing meeting-link signing secret",
+    "HZHOZO Rental signing secret"
+  ],
+  "failClosedWhenEnabled": [
+    "missing required setting",
+    "runtime fixed token TTL differs from 604800 seconds",
+    "public base URL is not HTTPS",
+    "LIFF endpoint is not exactly publicBaseUrl plus /contract-sign",
+    "trusted proxy IPs or overwritten client IP headers are empty",
+    "database is not explicitly Engineering-dedicated",
+    "PostgreSQL TLS is not verify-full with a trusted CA",
+    "database schema version mismatch",
+    "Drive is not configured",
+    "LIFF identity verification is unavailable",
+    "LINE group membership verification is unavailable"
+  ]
+}
