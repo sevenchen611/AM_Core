@@ -6,7 +6,7 @@ Runtime target: `AM_PLATFORM`
 
 | Version | Status | Capability | Scope | Notes |
 | --- | --- | --- | --- | --- |
-| AM-IMP-2026.0828.01 | Ready | Engineering contract management and immutable electronic-signing evidence | Graphical contract workspace, dedicated PostgreSQL evidence schema, additive Notion projection, Drive artifacts, LINE-group LIFF signing and evidence PDF | Runtime code, the restricted production database role, schema, additive Notion fields, and production PDF renderer are prepared and verified. Signing remains disabled. Keep `Ready` until Drive access, LIFF, trusted-proxy IP evidence, backup/restore, and one controlled non-production LINE-group pilot satisfy the package gates. |
+| AM-IMP-2026.0828.01 | Ready | Engineering contract management and immutable electronic-signing evidence | Graphical contract workspace, dedicated PostgreSQL evidence schema, additive Notion projection, Drive artifacts, LINE-group LIFF signing and evidence PDF | Runtime code, private PostgreSQL certificate pinning, restricted production role/schema, additive Notion fields, Drive verification, dedicated LIFF configuration, backup export, and production PDF renderer are verified. Signing remains disabled pending trusted-proxy request evidence, a restore/hash drill, and one controlled LINE-group pilot. |
 
 ## Tenant and evidence boundaries
 

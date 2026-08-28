@@ -20,8 +20,24 @@ records, customer information, or signing tokens:
   disable triggers, or update/delete immutable signing records.
 - The runtime database connection passed `verify-full` TLS checks, including
   rejection of an untrusted CA and hostname mismatch.
+- The production Render service now uses the private PostgreSQL endpoint with
+  the exact self-signed certificate and SHA-256 certificate pin. The restricted
+  runtime role reached the expected logical database and schema from the live
+  service. The project owner elected to retain the existing fixed runtime
+  password; no password value is recorded here.
 - Existing Notion contract properties and rows were preserved while the
   package's additive electronic-signing projection fields were added.
+- The Engineering Drive contract folder passed a disposable upload and
+  download/hash comparison. Its verification artifact was intentionally
+  retained; sharing permissions were not broadened.
+- A dedicated Engineering contract LIFF application was created in the existing
+  HOZO LINE Login channel. Its Full-size endpoint, `openid` and `profile`
+  scopes, disabled add-friend option, and exact HTTPS signer endpoint were
+  verified. The LIFF ID is configured only in Render and is not committed here.
+- Render trusted-proxy settings are deployed, and the production contract
+  workspace no longer reports missing database or LIFF configuration.
+- A full Render PostgreSQL export completed successfully. The export URL and
+  database credentials are not recorded here.
 - The production PDF renderer rejected a missing idempotency key and generated
   a PDF whose response SHA-256 matched the downloaded bytes.
 - Package, contract dry-run, core, and Engineering convergence checks passed
@@ -32,16 +48,13 @@ records, customer information, or signing tokens:
 Signing remains disabled. The following checks still require production-local
 evidence before this target can move beyond `Ready`:
 
-1. Verify private Engineering Drive folder access with a disposable upload,
-   download/hash comparison, and removal, without changing existing sharing.
-2. Create and verify the Engineering LIFF endpoint and configure its LIFF ID.
-3. Verify the exact trusted proxy hop and overwritten client-IP header on a
+1. Verify the exact trusted proxy hop and overwritten client-IP header on a
    deployed request.
-4. Verify backup recovery and complete a disposable restore/hash drill.
-5. Run one controlled non-production contract through the active project LINE
+2. Complete a disposable backup restore/hash drill.
+3. Run one controlled non-production contract through the active project LINE
    group with exactly one designated signer, including wrong-member and revoked
    token denial checks.
-6. Reconcile PostgreSQL, PDF, receipt, Drive hashes, Notion projection, and
+4. Reconcile PostgreSQL, PDF, receipt, Drive hashes, Notion projection, and
    budget projection, then obtain project-owner acceptance.
 
 Only after those gates pass may signing be enabled and the record advance to
