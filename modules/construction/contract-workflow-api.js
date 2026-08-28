@@ -152,6 +152,11 @@ function routeFor(method, pathname) {
     if (method !== 'POST') return { methodNotAllowed: true, allow: 'POST' };
     return { operation: 'completeContract', capability: 'confirm', body: true, completion: true, sessionId: decodeSegment(match[1]) };
   }
+  match = pathname.match(/^\/contracts\/api\/v2\/signing-sessions\/([^/]+)\/revoke$/);
+  if (match) {
+    if (method !== 'POST') return { methodNotAllowed: true, allow: 'POST' };
+    return { operation: 'revokeSession', capability: 'admin', body: true, revocation: true, sessionId: decodeSegment(match[1]) };
+  }
 
   match = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)$/);
   if (method === 'GET' && match) {
@@ -241,10 +246,12 @@ export function createContractWorkflowApiHandler(deps) {
       }
       const context = requireAuthority(deps, authority);
       requireCapability(authority, route.capability);
-      service ||= createContractManagementService({
-        store: deps.contractStore,
-        ...(deps.contractClock ? { clock: deps.contractClock } : {}),
-      });
+      if (!route.issuance && !route.completion && !route.revocation) {
+        service ||= createContractManagementService({
+          store: deps.contractStore,
+          ...(deps.contractClock ? { clock: deps.contractClock } : {}),
+        });
+      }
 
       let input = route.operation === 'listContracts' ? listInput(url) : {};
       if (route.body) input = cleanRequestInput(await readJsonBody(req));
@@ -257,7 +264,21 @@ export function createContractWorkflowApiHandler(deps) {
         signingService: createRuntimeSigningService(deps),
         requestMeta: signingRequestMeta(req),
       }) : null;
-      const target = route.completion ? completionService : (route.issuance ? issuanceService : service);
+      const revocationService = route.revocation ? {
+        revokeSession: async (serverAuthority, revocationInput) => {
+          const signing = createRuntimeSigningService(deps, {}, { allowDisabledForRevocation: true });
+          const reason = String(revocationInput.reason || 'production_kill_switch').trim().slice(0, 500);
+          return signing.revokeSigningToken({
+            sessionId: revocationInput.sessionId,
+            actorId: serverAuthority.actor,
+            reason: reason || 'production_kill_switch',
+            idempotencyKey: `engineering-contract-revoke:${serverAuthority.tenant.key}:${revocationInput.sessionId}`,
+            requestMeta: signingRequestMeta(req),
+          });
+        },
+      } : null;
+      const target = route.revocation ? revocationService
+        : (route.completion ? completionService : (route.issuance ? issuanceService : service));
       const data = await target[route.operation](context, input);
       sendJson(res, 200, { ok: true, data });
       return true;

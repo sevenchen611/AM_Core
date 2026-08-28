@@ -124,5 +124,35 @@ export function createDrive({ clientId, clientSecret, refreshToken, logger = con
     return { buffer, contentType: response.headers.get('content-type') || 'application/octet-stream' };
   }
 
-  return { configured, getAccessToken, ensureFolder, upload, uploadStream, download };
+  async function auditPrivateFile(fileId) {
+    const id = String(fileId || '').trim();
+    if (!/^[A-Za-z0-9_-]{3,200}$/.test(id)) throw new Error('Drive file id is invalid');
+    const token = await getAccessToken();
+    const fields = 'id,permissions(id,type,role,domain,allowFileDiscovery),permissionDetails(permissionType,inherited,role)';
+    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?supportsAllDrives=true&fields=${encodeURIComponent(fields)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const metadata = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(`Drive privacy audit failed: ${response.status}`);
+    if (metadata.id !== id || !Array.isArray(metadata.permissions)) {
+      throw Object.assign(new Error('Drive privacy audit returned incomplete metadata'), { code: 'DRIVE_PRIVACY_AUDIT_INCOMPLETE' });
+    }
+    const permissions = metadata.permissions;
+    const broadPermissions = permissions.filter((permission) => (
+      ['anyone', 'domain'].includes(permission?.type)
+      || (permission?.permissionDetails || []).some((detail) => ['anyone', 'domain'].includes(detail?.permissionType))
+    ));
+    if (broadPermissions.length > 0) {
+      throw Object.assign(new Error('Drive file or inherited folder has anyone/domain sharing'), {
+        code: 'DRIVE_BROAD_PERMISSION_FORBIDDEN',
+      });
+    }
+    return {
+      private: true,
+      permissionCount: permissions.length,
+      domainRestricted: false,
+    };
+  }
+
+  return { configured, getAccessToken, ensureFolder, upload, uploadStream, download, auditPrivateFile };
 }

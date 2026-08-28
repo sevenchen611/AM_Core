@@ -1,8 +1,45 @@
 import crypto from 'node:crypto';
+import { isIP } from 'node:net';
 import { createContractSigningService } from './contract-signing.js';
 
 function contractConfig(deps) {
   return deps.tenant?.config?.contracts || {};
+}
+
+function exactHttpsOrigin(value) {
+  try {
+    const parsed = new URL(String(value || '').trim());
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password
+      || parsed.pathname !== '/' || parsed.search || parsed.hash) return '';
+    return parsed.origin;
+  } catch {
+    return '';
+  }
+}
+
+export function contractSigningRuntimeReadiness(deps) {
+  const config = contractConfig(deps);
+  const publicOrigin = exactHttpsOrigin(deps.publicBaseUrl);
+  const expectedLiffEndpoint = publicOrigin ? `${publicOrigin}/contract-sign` : '';
+  const configuredEndpoint = String(config.liffEndpointUrl || '').trim().replace(/\/+$/, '');
+  const proxyIps = Array.isArray(config.trustedProxyIps) ? config.trustedProxyIps.filter(Boolean) : [];
+  const proxyHeaders = Array.isArray(config.trustedClientIpHeaders) ? config.trustedClientIpHeaders.filter(Boolean) : [];
+  const checks = Object.freeze({
+    signingEnabled: config.signingEnabled === true,
+    publicBaseUrl: Boolean(publicOrigin),
+    liffId: /^\d+-[A-Za-z0-9]+$/.test(String(config.liffId || '').trim()),
+    liffEndpoint: Boolean(expectedLiffEndpoint && configuredEndpoint === expectedLiffEndpoint),
+    trustedProxy: proxyIps.length > 0 && proxyIps.every((ip) => isIP(String(ip).trim()) > 0)
+      && proxyHeaders.length > 0 && proxyHeaders.every((header) => /^[a-z0-9-]+$/.test(String(header))),
+    dedicatedDatabase: config.databaseDedicated === true,
+    databaseTls: config.databaseSslMode === 'verify-full' && config.databaseCaConfigured === true,
+  });
+  return Object.freeze({
+    ready: Object.values(checks).every(Boolean),
+    checks,
+    publicOrigin,
+    expectedLiffEndpoint,
+  });
 }
 
 export function signingRequestMeta(req) {
@@ -39,23 +76,28 @@ export function createContractLineAdapter(deps) {
   };
 }
 
-export function createRuntimeSigningService(deps, storageContext = {}) {
+export function createRuntimeSigningService(deps, storageContext = {}, options = {}) {
   if (!deps.contractStore?.configured(deps.tenant)) throw Object.assign(new Error('合約證據資料庫尚未設定'), { statusCode: 503 });
   const config = contractConfig(deps);
-  if (config.signingEnabled !== true) throw Object.assign(new Error('工程合約電子簽署尚未啟用'), { statusCode: 503 });
-  if (!config.liffId) throw Object.assign(new Error('工程合約 LIFF 尚未設定'), { statusCode: 503 });
-  if (!config.tokenPepper || Buffer.byteLength(config.tokenPepper, 'utf8') < 32) {
+  const readiness = contractSigningRuntimeReadiness(deps);
+  if (config.signingEnabled !== true && options.allowDisabledForRevocation !== true) throw Object.assign(new Error('工程合約電子簽署尚未啟用'), { statusCode: 503 });
+  if (options.allowDisabledForRevocation !== true && (!readiness.checks.publicBaseUrl || !readiness.checks.liffId || !readiness.checks.liffEndpoint
+      || !readiness.checks.trustedProxy || !readiness.checks.dedicatedDatabase || !readiness.checks.databaseTls)) {
+    throw Object.assign(new Error('工程合約正式環境安全設定尚未完成'), { statusCode: 503, code: 'CONTRACT_SECURITY_GATE_NOT_READY' });
+  }
+  if (options.allowDisabledForRevocation !== true && (!config.tokenPepper || Buffer.byteLength(config.tokenPepper, 'utf8') < 32)) {
     throw Object.assign(new Error('工程合約簽署權杖雜湊金鑰尚未設定'), { statusCode: 503 });
   }
-  if (!deps.publicBaseUrl) throw Object.assign(new Error('工程合約公開網址尚未設定'), { statusCode: 503 });
   const trustedProxyIps = new Set(config.trustedProxyIps || []);
   return createContractSigningService({
     storage: deps.contractStore.signingStorage(deps.tenant, storageContext),
     line: createContractLineAdapter(deps),
-    baseUrl: deps.publicBaseUrl,
+    baseUrl: readiness.publicOrigin || 'https://revocation.invalid',
     signingPath: '/contract-sign',
     tokenTtlMs: Number(config.tokenTtlHours || 168) * 60 * 60 * 1000,
-    tokenPepper: config.tokenPepper,
+    tokenPepper: Buffer.byteLength(String(config.tokenPepper || ''), 'utf8') >= 32
+      ? config.tokenPepper
+      : 'revocation-only-placeholder-not-used',
     isTrustedProxy: (ip) => trustedProxyIps.has(ip),
     trustedClientIpHeaders: config.trustedClientIpHeaders || [],
   });
@@ -75,10 +117,14 @@ export async function saveContractSignature(deps, { sessionId, buffer, contentTy
   const root = await deps.ensureDriveFolder('工程合約管理', deps.driveRootFolderId);
   const evidence = await deps.ensureDriveFolder('簽署證據', root);
   const sessionFolder = await deps.ensureDriveFolder(safeSegment(sessionId, 'unknown-session'), evidence);
+  if (typeof deps.auditDrivePrivate !== 'function') throw Object.assign(new Error('工程合約 Drive 隱私稽核尚未設定'), { statusCode: 503 });
+  await deps.auditDrivePrivate(sessionFolder);
   const digest = crypto.createHash('sha256').update(buffer).digest('hex');
   const extension = contentType === 'image/jpeg' ? 'jpg' : 'png';
   const uploaded = await deps.uploadToDrive(buffer, `signature-${digest.slice(0, 12)}.${extension}`, contentType, sessionFolder);
   if (!uploaded?.id) throw new Error('Drive 未回傳簽名檔案 ID');
+  const privacy = await deps.auditDrivePrivate(uploaded.id);
+  if (privacy?.private !== true) throw Object.assign(new Error('簽名檔案不可公開分享'), { statusCode: 503 });
   return { signatureHash: digest, submissionRef: uploaded.id, driveUrl: uploaded.webViewLink || '' };
 }
 

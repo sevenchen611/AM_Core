@@ -3,7 +3,9 @@
 ## 1. Authoritative PostgreSQL schema
 
 Apply `schemas/engineering-contract-evidence.sql` to a PostgreSQL database that
-is dedicated to Engineering AM or isolated by credentials and schema ownership.
+is dedicated to Engineering AM. Credential/schema isolation inside a shared
+database is not sufficient because this version deliberately has no
+cross-tenant RLS policies.
 The schema name is fixed as `engineering_contracts`.
 
 The migration role owns the schema. The runtime role should receive only:
@@ -18,6 +20,14 @@ The runtime role must not have `CREATE`, `TRUNCATE`, `ALTER`, `DROP`, trigger
 disablement, replication, or table-owner rights. The included triggers are an
 application boundary, not a substitute for restricted database ownership and
 backups.
+
+Before enablement, connect with the runtime credential and prove:
+
+- it is not superuser, schema/table owner, replication, `CREATEROLE`,
+  `CREATEDB`, or `BYPASSRLS`;
+- it cannot create/drop/alter/truncate tables or disable triggers;
+- it has only `SELECT`, required `INSERT`, and workflow CAS `UPDATE` rights;
+- PostgreSQL TLS rejects an untrusted CA and hostname mismatch.
 
 ## 2. Existing Notion data sources
 

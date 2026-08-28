@@ -92,6 +92,28 @@ const documentHash = digest('immutable engineering contract v1');
 const signatureHash = digest('signature-object-v1');
 const finalArtifactHash = digest('final-evidence-bundle-v1');
 
+// Durable outbox retries reconstruct the same opaque token/session from a
+// server-owned idempotency key without persisting raw token material.
+{
+  const retryStorage = createMemoryContractSigningStorage();
+  const retryLine = createFakeLine();
+  const retryService = createContractSigningService({
+    storage: retryStorage, line: retryLine, clock: createFakeClock(),
+    randomBytes: createDeterministicRandom(), baseUrl: 'https://engineering-am.example.test',
+    signingPath: '/contracts/sign', tokenPepper,
+  });
+  const input = {
+    projectId: 'project-001', contractId: 'contract-idempotent', documentRef: 'object://durable',
+    documentHash, lineGroupId: 'C-engineering', signerLineUserId: 'U-signer', actorId: 'admin-seven',
+    idempotencyKey: 'durable-outbox-invitation-contract-idempotent-v1',
+  };
+  const first = await retryService.issueAndSend(input);
+  const second = await retryService.issueAndSend(input);
+  assert.equal(second.sessionId, first.sessionId);
+  assert.equal(second.token, first.token);
+  assert.equal(retryLine.pushes.length, 1);
+}
+
 // Issue and send through the project LINE group. The raw token is returned once
 // to the caller, while storage receives only its SHA-256 digest.
 const issued = await service.issueAndSend({

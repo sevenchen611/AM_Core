@@ -7,9 +7,16 @@ Rollback stops new authority; it never deletes signed evidence.
 1. Set `ENG_CONTRACTS_SIGNING_ENABLED=0` and deploy the target service.
 2. Stop the contract invitation/outbox worker.
 3. Keep the protected contract list and evidence download read-only if safe.
-4. Revoke every active signing session with a server actor, reason, and signing
-   event. Do not delete token digests or session rows.
-5. If a token or credential may be exposed, rotate
+4. With an Engineering contract-admin Portal identity, call
+   `POST /contracts/api/v2/signing-sessions/{sessionId}/revoke` for every
+   `issued`, `sent`, or `opened` session. This emergency endpoint remains
+   available while signing is disabled and records server actor, reason, and a
+   signing event. Do not delete token digests or session rows.
+5. A `signed` or `confirmed` session is legal evidence and cannot be revoked.
+   Place it on incident/legal hold and choose either protected completion or a
+   separately authorized administrative-void record; never rewrite its hash or
+   signature.
+6. If a token or credential may be exposed, rotate
    `ENG_CONTRACTS_TOKEN_PEPPER`, LINE/Drive/database credentials as
    appropriate, and require reissue for unfinished contracts.
 

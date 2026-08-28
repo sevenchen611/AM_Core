@@ -409,9 +409,18 @@ export function createContractSigningService(options = {}) {
 
   async function issueSigningRequest(input = {}) {
     const issuedAt = nowIso();
-    const token = randomBase64Url(randomBytes, 32);
+    const durableKey = optionalText(input.idempotencyKey, 500);
+    // A durable outbox may retry after a process restart. Derive the opaque
+    // token from the high-entropy pepper and the server-owned outbox key so the
+    // same invitation can be reconstructed without ever persisting raw token
+    // material. Calls without an idempotency key retain fully random behavior.
+    const token = durableKey
+      ? createHmac('sha256', tokenPepper).update(`contract-signing-token:${durableKey}`, 'utf8').digest('base64url')
+      : randomBase64Url(randomBytes, 32);
     const tokenHash = hashSigningToken(token, tokenPepper);
-    const id = `cs_${randomBase64Url(randomBytes, 18)}`;
+    const id = durableKey
+      ? `cs_${createHmac('sha256', tokenPepper).update(`contract-signing-session:${durableKey}`, 'utf8').digest('base64url').slice(0, 24)}`
+      : `cs_${randomBase64Url(randomBytes, 18)}`;
     const session = {
       id,
       version: 1,
@@ -436,7 +445,27 @@ export function createContractSigningService(options = {}) {
       type: 'issued', at: issuedAt, actorType: 'admin', actorId: input.actorId,
       idempotencyKey: `issued:${id}`, metadata: { channel: 'line_group' }, randomBytes,
     });
-    if (!await storage.create(session)) throw signingError('SIGNING_COLLISION', '簽署識別碼發生衝突，請重試。', 409);
+    if (!await storage.create(session)) {
+      if (!durableKey) throw signingError('SIGNING_COLLISION', '簽署識別碼發生衝突，請重試。', 409);
+      const existing = await storage.getById(id);
+      if (!existing
+          || !safeHashEqual(existing.tokenHash, tokenHash)
+          || existing.projectId !== session.projectId
+          || existing.contractId !== session.contractId
+          || existing.documentRef !== session.documentRef
+          || !safeHashEqual(existing.documentHash, session.documentHash)
+          || existing.lineGroupId !== session.lineGroupId
+          || existing.signerLineUserId !== session.signerLineUserId) {
+        throw signingError('SIGNING_COLLISION', '簽署識別碼發生衝突，請重試。', 409);
+      }
+      return {
+        sessionId: id,
+        token,
+        protectedLink: buildProtectedSigningLink(baseUrl, signingPath, token),
+        expiresAt: existing.expiresAt,
+        idempotent: true,
+      };
+    }
     return {
       sessionId: id,
       token,

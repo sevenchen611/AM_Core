@@ -52,9 +52,12 @@ function fixture(overrides = {}) {
     };
   };
   const sessions = [];
+  const outboxJobs = new Map();
   const signingFactory = (_deps, storageContext) => {
     calls.push(['signingFactory', storageContext]);
     return {
+      async getSession() { return { status: overrides.sessionStatus || 'revoked' }; },
+      async revokeSigningToken(input) { calls.push(['revokeSigningToken', input]); return { status: 'revoked' }; },
       async issueAndSend(input) {
         calls.push(['issueAndSend', input]);
         sessions.push(input);
@@ -66,21 +69,102 @@ function fixture(overrides = {}) {
       },
     };
   };
+  const outboxWorker = {
+    async processByKey(_context, key) {
+      calls.push(['processOutbox', key]);
+      if (key.includes('contract-projection:')) return { result: { projected: true } };
+      const record = outboxJobs.get(key);
+      const payload = record.payload;
+      const signing = signingFactory(null, { versionId: payload.versionId });
+      try {
+        const result = await signing.issueAndSend({
+          ...payload, lineGroupId: 'C-authoritative-group', actorId: payload.requestedBy,
+        });
+        record.status = 'succeeded';
+        return { result };
+      } catch (error) {
+        record.status = 'failed';
+        throw error;
+      }
+    },
+  };
   const deps = {
     contractStore: {
       async issueVersion(tenant, input) {
         calls.push(['issueVersion', tenant, input]);
+        for (const job of input.outbox || []) outboxJobs.set(job.idempotencyKey, { payload: job.payload, status: 'pending' });
         return { value: { ...issued, issuedAt: input.issuedAt, issuedBy: input.actor } };
+      },
+      async enqueueOutbox(_tenant, job) {
+        calls.push(['enqueueOutbox', job]);
+        outboxJobs.set(job.idempotencyKey, { payload: job.payload, status: 'pending' });
+        return job;
+      },
+      async getOutboxByKey(_tenant, key) {
+        const record = outboxJobs.get(key);
+        return record ? {
+          idempotency_key: key, status: record.status, payload: record.payload,
+          external_session_id: record.externalSessionId || '',
+        } : null;
       },
     },
   };
+  if (overrides.baseJobStatus) {
+    outboxJobs.set('line-signing-invitation:engineering:version-1:U-signer', {
+      status: overrides.baseJobStatus,
+      externalSessionId: 'session-terminal',
+      payload: {
+        contractId: 'contract-1', versionId: 'version-1', signerLineUserId: 'U-signer',
+        documentRef: `https://drive.google.com/file/d/${FILE_ID}/view`, documentHash: PDF_HASH,
+      },
+    });
+  }
   return {
     service: createContractIssuanceService(deps, {
-      managementService, artifactService, authorityResolver, signingFactory,
+      managementService, artifactService, authorityResolver, signingFactory, outboxWorker,
+      randomUUID: () => 'retry-id',
       clock: () => new Date('2026-08-28T09:00:00.000Z'),
     }),
     sessions,
   };
+}
+
+// A succeeded terminal job needs an explicit server disposition before a new
+// session is created; browser input alone cannot authorize replacement.
+{
+  calls.length = 0;
+  const { service } = fixture({ baseJobStatus: 'succeeded', sessionStatus: 'revoked' });
+  await assert.rejects(
+    service.retryIssuedVersionSigning(context, {
+      contractId: 'contract-1', versionId: 'version-1', signerLineUserId: 'U-signer',
+      signingDisposition: 'replace-terminal-session',
+    }),
+    (error) => error.code === 'TERMINAL_SIGNING_REPLACEMENT_REQUIRED',
+  );
+  assert.equal(calls.some((item) => item[0] === 'enqueueOutbox'), false);
+
+  calls.length = 0;
+  const approved = await service.retryIssuedVersionSigning(
+    { ...context, signingDisposition: 'replace-terminal-session' },
+    { contractId: 'contract-1', versionId: 'version-1', signerLineUserId: 'U-signer' },
+  );
+  assert.equal(approved.retried, true);
+  const replacement = calls.find((item) => item[0] === 'enqueueOutbox')[1];
+  assert.match(replacement.idempotencyKey, /:replacement:retry-id$/);
+}
+
+// Dead-letter alone does not bypass the one-active-session constraint: an
+// explicitly authorized replacement first revokes the still-active session.
+{
+  calls.length = 0;
+  const { service } = fixture({ baseJobStatus: 'dead_letter', sessionStatus: 'issued' });
+  await service.retryIssuedVersionSigning(
+    { ...context, signingDisposition: 'replace-terminal-session' },
+    { contractId: 'contract-1', versionId: 'version-1', signerLineUserId: 'U-signer' },
+  );
+  const order = calls.map((item) => item[0]);
+  assert.ok(order.indexOf('revokeSigningToken') >= 0);
+  assert.ok(order.indexOf('revokeSigningToken') < order.indexOf('enqueueOutbox'));
 }
 
 // Browser authority fields are rejected before readiness, rendering, or LINE.
@@ -118,7 +202,8 @@ function fixture(overrides = {}) {
     contractId: 'contract-1', versionId: 'version-1', signerLineUserId: 'U-signer', actor: 'attacker',
   });
   assert.deepEqual(calls.map((item) => item[0]), [
-    'readiness', 'authority', 'signingFactory', 'render', 'storePdf', 'issueVersion', 'issueAndSend',
+    'readiness', 'authority', 'signingFactory', 'render', 'storePdf', 'issueVersion',
+    'processOutbox', 'signingFactory', 'issueAndSend', 'processOutbox',
   ]);
   const issueCall = calls.find((item) => item[0] === 'issueVersion')[2];
   assert.equal(issueCall.actor, 'server-admin-7');
@@ -149,10 +234,13 @@ function fixture(overrides = {}) {
     contractId: 'contract-1', versionId: 'version-1', signerLineUserId: 'U-signer', actor: 'attacker',
   });
   const retryCalls = calls.slice(beforeRetry).map((item) => item[0]);
-  assert.deepEqual(retryCalls, ['detail', 'authority', 'signingFactory', 'issueAndSend']);
+  assert.deepEqual(retryCalls, ['detail', 'authority', 'processOutbox', 'signingFactory', 'issueAndSend']);
   assert.equal(sessions.length, 2);
   assert.equal(sessions[0].documentHash, sessions[1].documentHash);
   assert.equal(sessions[0].documentRef, sessions[1].documentRef);
+  const retryKeys = calls.filter((item) => item[0] === 'processOutbox').map((item) => item[1]);
+  assert.equal(retryKeys.length, 2);
+  assert.equal(retryKeys[0], retryKeys[1], 'ordinary LINE retry must reuse the canonical outbox job');
   assert.equal(retried.retried, true);
   assert.equal(retried.documentHash, PDF_HASH);
 }

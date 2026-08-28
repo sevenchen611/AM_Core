@@ -26,7 +26,8 @@
     { "method": "GET", "path": "/contracts/api/v2/contracts/{contractId}/versions/{versionId}/readiness", "accessKind": "tenant", "capability": "construction.contracts.view", "purpose": "Explain every fail-closed issue blocker" },
     { "method": "POST", "path": "/contracts/api/v2/contracts/{contractId}/versions/{versionId}/issue", "accessKind": "tenant", "capability": "construction.contracts.issue", "purpose": "Render and archive the issued PDF, then send one seven-day request to the authoritative LINE group" },
     { "method": "POST", "path": "/contracts/api/v2/contracts/{contractId}/versions/{versionId}/retry-signing", "accessKind": "tenant", "capability": "construction.contracts.issue", "purpose": "Retry LINE group delivery using the exact previously issued PDF and hash" },
-    { "method": "POST", "path": "/contracts/api/v2/signing-sessions/{sessionId}/confirm-complete", "accessKind": "tenant", "capability": "construction.contracts.confirm", "purpose": "Confirm, render the signed PDF and receipt, record both artifacts, and complete archival" }
+    { "method": "POST", "path": "/contracts/api/v2/signing-sessions/{sessionId}/confirm-complete", "accessKind": "tenant", "capability": "construction.contracts.confirm", "purpose": "Confirm, render the signed PDF and receipt, record both artifacts, and complete archival" },
+    { "method": "POST", "path": "/contracts/api/v2/signing-sessions/{sessionId}/revoke", "accessKind": "tenant", "capability": "construction.contracts.admin", "worksWhileSigningDisabled": true, "purpose": "Kill-switch revocation of an issued, sent, or opened session with immutable actor/reason evidence" }
   ],
   "publicRoutes": [
     { "method": "GET", "path": "/contract-sign#token={opaqueToken}", "accessKind": "public", "authority": "fragment token is not sent in the HTTP request", "returns": "LIFF bootstrap page only" },

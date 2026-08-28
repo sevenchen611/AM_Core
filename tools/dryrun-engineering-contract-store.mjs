@@ -5,6 +5,28 @@ import { createContractStore, __test } from '../core/contract-store.js';
 const tenant = { key: 'engineering', envPrefix: 'ENG' };
 assert.equal(__test.configFor({}, tenant).configured, false);
 assert.equal(__test.configFor({ ENG_CONTRACTS_DATABASE_URL: 'postgres://example' }, tenant).configured, true);
+const testCa = '-----BEGIN CERTIFICATE-----\nTEST-ONLY-CA\n-----END CERTIFICATE-----';
+const verifiedConfig = __test.configFor({
+  ENG_CONTRACTS_DATABASE_URL: 'postgres://db.example.test/contracts',
+  ENG_CONTRACTS_DATABASE_SSL_MODE: 'verify-full',
+  ENG_CONTRACTS_DATABASE_CA: Buffer.from(testCa).toString('base64'),
+}, tenant);
+assert.equal(verifiedConfig.databaseSslMode, 'verify-full');
+assert.equal(verifiedConfig.databaseCaConfigured, true);
+assert.equal(verifiedConfig.tls.ssl.rejectUnauthorized, true);
+assert.equal(verifiedConfig.tls.ssl.ca, testCa);
+assert.throws(() => __test.configFor({
+  NODE_ENV: 'production', ENG_CONTRACTS_DATABASE_URL: 'postgres://db.example.test/contracts',
+  ENG_CONTRACTS_DATABASE_SSL_MODE: 'require',
+}, tenant), (error) => error.code === 'CONTRACT_DATABASE_TLS_VERIFY_REQUIRED');
+assert.throws(() => __test.configFor({
+  ENG_CONTRACTS_DATABASE_URL: 'postgres://db.example.test/contracts',
+  ENG_CONTRACTS_DATABASE_SSL_MODE: 'verify-full',
+}, tenant), (error) => error.code === 'CONTRACT_DATABASE_CA_REQUIRED');
+assert.throws(() => __test.configFor({
+  ENG_CONTRACTS_DATABASE_URL: 'postgres://db.example.test/contracts?sslmode=require',
+  ENG_CONTRACTS_DATABASE_SSL_MODE: 'verify-full', ENG_CONTRACTS_DATABASE_CA: testCa,
+}, tenant), (error) => error.code === 'CONTRACT_DATABASE_URL_TLS_OVERRIDE');
 assert.equal(__test.canonical({ z: 1, a: { y: 2, x: 3 } }), '{"a":{"x":3,"y":2},"z":1}');
 assert.equal(__test.sha256('same'), __test.sha256('same'));
 assert.notEqual(__test.sha256('same'), __test.sha256('different'));
@@ -32,6 +54,23 @@ assert.equal(store.configured(tenant), true);
 assert.deepEqual(await store.status(tenant), { configured: true, schemaReady: true, schemaVersion: __test.SCHEMA_VERSION });
 assert.ok(queries.some((entry) => entry.sql.includes("set_config('app.tenant_key'")), 'tenant context must be set per transaction');
 assert.ok(queries.some((entry) => entry.sql.includes('SET TRANSACTION READ ONLY')), 'status query must be read-only');
+
+let verifiedPoolOptions;
+const verifiedStore = createContractStore({
+  env: {
+    ENG_CONTRACTS_DATABASE_URL: 'postgres://db.example.test/contracts',
+    ENG_CONTRACTS_DATABASE_SSL_MODE: 'verify-full',
+    ENG_CONTRACTS_DATABASE_CA: testCa,
+  },
+  poolFactory: (options) => {
+    verifiedPoolOptions = options;
+    return { connect: async () => fakeClient };
+  },
+  logger: { warn() {} },
+});
+assert.equal((await verifiedStore.status(tenant)).schemaReady, true);
+assert.equal(verifiedPoolOptions.ssl.rejectUnauthorized, true);
+assert.equal(verifiedPoolOptions.ssl.ca, testCa);
 
 console.log('Engineering contract store dry-run passed: config isolation, deterministic hashing, and tenant transaction context verified.');
 

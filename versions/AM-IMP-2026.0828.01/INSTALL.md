@@ -21,12 +21,19 @@ not authorize production writes or external invitations by itself.
 Use the migration-owner connection, not the runtime application role:
 
 ```text
-psql "$ENG_CONTRACTS_DATABASE_URL" -v ON_ERROR_STOP=1 -f versions/AM-IMP-2026.0828.01/schemas/engineering-contract-evidence.sql
+psql "$ENG_CONTRACTS_MIGRATION_DATABASE_URL" -v ON_ERROR_STOP=1 -f versions/AM-IMP-2026.0828.01/schemas/engineering-contract-evidence.sql
 ```
 
-Then create or adjust the restricted runtime role according to
+The migration URL and runtime `ENG_CONTRACTS_DATABASE_URL` must resolve to
+different roles. This schema has no cross-tenant RLS: the database and runtime
+credential must be dedicated to Engineering and
+`ENG_CONTRACTS_DATABASE_DEDICATED=1` is an explicit production assertion, not a
+substitute for verification.
+
+Create or adjust the restricted runtime role according to
 `REQUIRED_DATABASES.md`. The runtime role must not own the schema or evidence
-tables.
+tables. Verify privileges using the runtime credential before continuing; do
+not grant it ownership merely to make the migration command pass.
 
 ## 3. Apply additive Notion projection properties
 
@@ -49,6 +56,8 @@ hash a disposable pilot file.
 ## 5. Configure LIFF and LINE
 
 1. Configure the Engineering contract LIFF app for the HTTPS signer URL.
+   Its Endpoint URL must exactly equal `${ENG_PUBLIC_BASE_URL}/contract-sign`;
+   the token is transported only as `#token=...`, never in path or query.
 2. Permit only the profile/openid scopes needed by the verified identity flow.
 3. Confirm the server can verify a LIFF access token and resolve the resulting
    LINE user ID.
@@ -67,6 +76,11 @@ Keep:
 ```text
 ENG_CONTRACTS_SIGNING_ENABLED=0
 ```
+
+Also keep the feature disabled until `ENG_CONTRACTS_DATABASE_SSL_MODE` is
+`verify-full`, the configured CA rejects an untrusted certificate/hostname,
+and the exact trusted proxy hop plus overwritten client-IP header have passed a
+deployed request test.
 
 ## 7. Deploy the runtime implementation
 

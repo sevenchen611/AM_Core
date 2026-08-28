@@ -28,6 +28,8 @@ import { listKnownTrades } from './trades.js';
 import { handleBudgetRequest } from './budget.js';
 import { handleContractsRequest } from './contracts.js';
 import { createContractSigningWebHandler } from './contract-signing-web.js';
+import { handleEngineeringContractPdfRender } from './contract-pdf-renderer.js';
+import { createContractOutboxWorker } from './contract-outbox.js';
 import { createRuntimeSigningService, loadContractPdf, saveContractSignature, signingRequestMeta } from './contract-runtime.js';
 import { SOP_STAGES, readSopState, writeSopCheck } from './sop.js';
 import { handleDashboardRequest } from './dashboard.js';
@@ -112,6 +114,7 @@ function fullDeps(tenant) {
     uploadToDrive: platform.uploadToDrive,
     uploadDriveStream: platform.uploadDriveStream,
     downloadFromDrive: platform.downloadFromDrive,
+    auditDrivePrivate: platform.auditDrivePrivate,
     getDriveAccessToken: platform.getDriveAccessToken,
     ensureDriveFolder: platform.ensureDriveFolder,
     // dashboard 用:專案行事曆對照 + LINE 推播配額
@@ -235,7 +238,7 @@ function webRoute(handler) {
 
 async function publicContractSigningRoute(req, res, ctx) {
   const tenant = ctx.tenant;
-  if (!tenant || !(tenant.modules || []).includes('construction')) return sendJson(res, 404, { error: 'Not found' });
+  if (!tenant || tenant.key !== 'engineering' || !(tenant.modules || []).includes('construction')) return sendJson(res, 404, { error: 'Not found' });
   try {
     const deps = fullDeps(tenant);
     const service = createRuntimeSigningService(deps);
@@ -291,12 +294,32 @@ function reminderSource(ctx) {
   };
 }
 
+// PostgreSQL outbox 是 LINE 邀請與 Notion 投影的權威重試佇列。排程只在工程租戶且
+// schema 已就緒時執行；簽署總開關關閉期間仍可補齊 Notion 投影，但絕不送出新邀請。
+async function tick(ctx = {}) {
+  const tenant = assertTenant(ctx.tenant);
+  if (tenant.key !== 'engineering') return { skipped: 'not-engineering-tenant' };
+  const deps = fullDeps(tenant);
+  const state = await deps.contractStore?.status?.(tenant);
+  if (!state?.configured || !state?.schemaReady) return { skipped: 'contract-store-not-ready' };
+
+  const eventKinds = ['notion_contract_projection'];
+  if (tenant.config?.contracts?.signingEnabled === true) eventKinds.unshift('line_signing_invitation');
+  const worker = createContractOutboxWorker(deps, { workerId: 'engineering-contract-scheduler' });
+  return worker.drain({
+    tenant,
+    actor: 'engineering-contract-outbox',
+    scope: { all: true },
+  }, { limit: 10, eventKinds });
+}
+
 // ── 模組契約:預設匯出 ─────────────────────────────────────
 export default {
   name: 'construction',
   init,
   routes: [
-    { prefix: '/contract-sign', access: { kind: 'public', capability: 'construction.contract-sign' }, handler: publicContractSigningRoute },
+    { prefix: '/internal/v1/engineering-contracts/render', method: 'POST', tenantKey: 'engineering', access: { kind: 'public', capability: 'construction.contract-pdf-render' }, handler: handleEngineeringContractPdfRender },
+    { prefix: '/contract-sign', tenantKey: 'engineering', access: { kind: 'public', capability: 'construction.contract-sign' }, handler: publicContractSigningRoute },
     { prefix: '/task', access: { kind: 'tenant', capability: 'construction.read' }, handler: webRoute(handleTaskCardRequest) },
     { prefix: '/dashboard', access: { kind: 'tenant', capability: 'construction.read' }, handler: webRoute(handleDashboardRequest) },
     { prefix: '/budget', access: { kind: 'tenant', capability: 'construction.budget' }, handler: webRoute(handleBudgetRequest) },
@@ -327,6 +350,7 @@ export default {
   // 供 reminders 的工程到期/擱置:高階 pass(reminders.js)+ 低階單據來源
   reminderPasses,
   reminderSource,
+  tick,
 };
 
 // 測試用內部匯出(不影響正式流程)

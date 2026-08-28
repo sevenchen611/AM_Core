@@ -7,7 +7,11 @@ declares names and validation rules; it contains no values.
 | --- | --- | --- | --- |
 | `ENG_CONTRACTS_SIGNING_ENABLED` | No | Yes | Start at `0`; set to `1` only after pilot verification. |
 | `ENG_CONTRACTS_DATABASE_URL` | Yes | Yes | PostgreSQL connection for the isolated `engineering_contracts` schema. |
+| `ENG_CONTRACTS_DATABASE_DEDICATED` | No | Yes | Must be `1`; confirms this credential/database is dedicated to Engineering contract evidence while the schema has no cross-tenant RLS. |
+| `ENG_CONTRACTS_DATABASE_SSL_MODE` | No | Yes | Runtime supports `require` for disposable/local environments; production must use `verify-full`. |
+| `ENG_CONTRACTS_DATABASE_CA` | Yes | Yes | Trusted PostgreSQL CA PEM; runtime must reject an untrusted certificate or hostname. |
 | `ENG_CONTRACTS_LIFF_ID` | No | Yes | LIFF app used to verify the designated external signer. |
+| `ENG_CONTRACTS_LIFF_ENDPOINT_URL` | No | Yes | Must exactly equal `${ENG_PUBLIC_BASE_URL}/contract-sign`. |
 | `ENG_PUBLIC_BASE_URL` | No | Yes | HTTPS origin for signer links; no path, query, or fragment. |
 | `ENG_CONTRACTS_TOKEN_PEPPER` | Yes | Yes | Independent secret of at least 32 bytes used to HMAC opaque tokens. Never reuse queue, Portal, LINE, or meeting secrets. |
 | `ENG_CONTRACTS_PDF_RENDER_URL` | No | Yes | HTTPS origin of the trusted server-side PDF renderer. |
@@ -16,6 +20,8 @@ declares names and validation rules; it contains no values.
 | `ENG_PROJECTS_DATA_SOURCE_ID` | Sensitive config | Yes | Existing Engineering project data source. |
 | `ENG_GROUP_BINDINGS_DATA_SOURCE_ID` | Sensitive config | Yes | Existing Engineering group-binding data source. |
 | `ENG_DRIVE_ROOT_FOLDER_ID` | Sensitive config | Yes | Existing Engineering Drive root. |
+| `ENG_CONTRACTS_TRUSTED_PROXY_IPS` | Sensitive config | Yes | Exact immediate proxy hop IPs; never client-controlled ranges. |
+| `ENG_CONTRACTS_TRUSTED_CLIENT_IP_HEADERS` | No | Yes | Headers overwritten by the trusted proxy, for example `cf-connecting-ip`; empty is not production-ready. |
 | `NOTION_TOKEN` | Yes | Yes | Existing platform Notion identity; never sent to the browser. |
 | `LINE_CHANNEL_ACCESS_TOKEN` | Yes | Yes | Existing shared OA server token for send and membership lookup. |
 | `LINE_CHANNEL_SECRET` | Yes | Yes | Existing shared OA webhook secret. |
@@ -32,6 +38,10 @@ contract store/handler. None may be serialized into initial page data except
 ```text
 tenant.config.contracts.signingEnabled
 tenant.config.contracts.liffId
+tenant.config.contracts.liffEndpointUrl
+tenant.config.contracts.databaseDedicated
+tenant.config.contracts.databaseSslMode
+tenant.config.contracts.databaseCaConfigured
 tenant.config.contracts.tokenPepper
 tenant.config.contracts.tokenTtlHours = 168 (fixed by runtime)
 tenant.config.contracts.pdfRenderUrl
@@ -62,5 +72,7 @@ full value only in protected evidence and use a masked display in ordinary lists
 When `ENG_CONTRACTS_SIGNING_ENABLED=1`, startup or the contract route must reject
 signing operations if any required value is absent, the fixed TTL is not seven days, the
 database schema version differs, Drive is unavailable, or the public base URL is
-not HTTPS. Read-only management may remain available with a clear degraded-state
+not an exact HTTPS origin, the LIFF endpoint differs, trusted proxy settings are
+empty, the database is not explicitly dedicated, or PostgreSQL TLS is not
+`verify-full` with a CA. Read-only management may remain available with a clear degraded-state
 banner; issue and sign operations must not degrade open.

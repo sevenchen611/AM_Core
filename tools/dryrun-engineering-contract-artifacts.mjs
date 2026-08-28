@@ -15,6 +15,7 @@ const deps = {
   driveRootFolderId: 'root',
   ensureDriveFolder: async (name, parent) => { folders.push({ name, parent }); return `${parent}/${name}`; },
   uploadToDrive: async (buffer, filename, contentType, parent) => ({ id: 'pdf-drive-id', webViewLink: 'https://drive.example/pdf', buffer, filename, contentType, parent }),
+  auditDrivePrivate: async () => ({ private: true }),
 };
 const service = createContractArtifactService(deps, {
   fetchImpl: async (url, init) => {

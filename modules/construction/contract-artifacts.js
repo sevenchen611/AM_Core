@@ -44,6 +44,15 @@ export function createContractArtifactService(deps, options = {}) {
   const config = rendererConfig(deps);
   const fetchImpl = options.fetchImpl || fetch;
   const timeoutMs = Number(options.timeoutMs || 30_000);
+  const auditDrivePrivate = options.auditDrivePrivate || deps.auditDrivePrivate;
+
+  async function requirePrivateDrive(fileId) {
+    if (typeof auditDrivePrivate !== 'function') {
+      throw artifactError('工程合約 Drive 隱私稽核尚未設定', 503, 'DRIVE_PRIVACY_AUDIT_REQUIRED');
+    }
+    const result = await auditDrivePrivate(fileId);
+    if (result?.private !== true) throw artifactError('工程合約 Drive 檔案不是私有狀態', 503, 'DRIVE_PRIVACY_AUDIT_FAILED');
+  }
 
   async function renderPdf(kind, payload, idempotencyKey) {
     if (!RENDER_KINDS.has(kind)) throw artifactError('不支援的工程合約 PDF 類型', 400);
@@ -84,8 +93,10 @@ export function createContractArtifactService(deps, options = {}) {
     const project = await deps.ensureDriveFolder(safeSegment(projectLabel, '工程專案'), root);
     const contract = await deps.ensureDriveFolder(safeSegment(contractLabel, '工程合約'), project);
     const archive = await deps.ensureDriveFolder('正式簽署文件', contract);
+    await requirePrivateDrive(archive);
     const uploaded = await deps.uploadToDrive(rendered.buffer, safeSegment(filename, 'contract.pdf'), 'application/pdf', archive);
     if (!uploaded?.id) throw artifactError('Drive 未回傳 PDF 檔案 ID', 502);
+    await requirePrivateDrive(uploaded.id);
     return {
       driveFileId: uploaded.id,
       driveUrl: uploaded.webViewLink || '',
@@ -102,8 +113,10 @@ export function createContractArtifactService(deps, options = {}) {
     const project = await deps.ensureDriveFolder(safeSegment(projectLabel, '工程專案'), root);
     const contract = await deps.ensureDriveFolder(safeSegment(contractLabel, '工程合約'), project);
     const archive = await deps.ensureDriveFolder('正式簽署文件', contract);
+    await requirePrivateDrive(archive);
     const uploaded = await deps.uploadToDrive(buffer, safeSegment(filename, 'evidence-receipt.json'), 'application/json', archive);
     if (!uploaded?.id) throw artifactError('Drive 未回傳證據收據檔案 ID', 502);
+    await requirePrivateDrive(uploaded.id);
     return { driveFileId: uploaded.id, driveUrl: uploaded.webViewLink || '', sha256, byteSize: buffer.length };
   }
 

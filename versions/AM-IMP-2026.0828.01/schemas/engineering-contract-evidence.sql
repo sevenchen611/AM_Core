@@ -1,6 +1,9 @@
 -- AM-IMP-2026.0828.01
 -- Engineering AM contract workflow and immutable electronic-signing evidence.
 -- PostgreSQL 14+; run with a migration-owner role and ON_ERROR_STOP=1.
+-- SECURITY GATE: this schema intentionally accepts only tenant_key=engineering
+-- and has no cross-tenant RLS policy. Install it only in an Engineering-
+-- dedicated database/credential boundary. A shared AM database is forbidden.
 -- This schema contains structure only. Never place production values in this file.
 
 BEGIN;
@@ -9,7 +12,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE SCHEMA IF NOT EXISTS engineering_contracts;
 
 COMMENT ON SCHEMA engineering_contracts IS
-  'Engineering AM authoritative contract workflow and electronic-signing evidence. Notion is projection only.';
+  'Engineering-only dedicated-database authority for contract workflow and electronic-signing evidence. Notion is projection only; this schema is not a shared-tenant RLS boundary.';
 
 CREATE TABLE IF NOT EXISTS engineering_contracts.schema_meta (
   singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),

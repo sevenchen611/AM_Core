@@ -177,6 +177,7 @@ export async function bootstrap(env = process.env, overrides = {}) {
     uploadToDrive: drive.upload,
     uploadDriveStream: drive.uploadStream, // (stream, filename, contentType, folderId, size) 大檔串流留底
     downloadFromDrive: drive.download,
+    auditDrivePrivate: drive.auditPrivateFile,
     getDriveAccessToken: drive.getAccessToken,
     // Portal 授權(web routes 用)
     portal,

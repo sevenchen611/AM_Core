@@ -2,6 +2,8 @@ import { createContractArtifactService } from './contract-artifacts.js';
 import { resolveAuthoritativeSigningGroup } from './contract-authority.js';
 import { createContractManagementService } from './contract-management.js';
 import { createRuntimeSigningService } from './contract-runtime.js';
+import { createContractOutboxWorker } from './contract-outbox.js';
+import crypto from 'node:crypto';
 
 function issuanceError(code, message, statusCode = 400, details = {}) {
   return Object.assign(new Error(message), { code, statusCode, details });
@@ -46,7 +48,7 @@ function requireSigner(input) {
 }
 
 function requireGroupBinding(contract) {
-  const groupBindingId = text(first(contract, ['groupBindingId', 'group_binding_id']));
+  const groupBindingId = text(first(contract, ['groupBindingId', 'group_binding_id', 'group_binding_notion_page_id']));
   if (!groupBindingId) {
     throw issuanceError('CONTRACT_GROUP_BINDING_REQUIRED', '合約尚未綁定送簽 LINE 群組。', 409);
   }
@@ -111,7 +113,8 @@ function signingResult(result, documentRef, documentHash, retried) {
  * select a signer, contract, and version, but never a LINE group or actor.
  */
 export function createContractIssuanceService(deps, options = {}) {
-  if (!deps?.contractStore || typeof deps.contractStore.issueVersion !== 'function') {
+  if (!deps?.contractStore || ['issueVersion', 'enqueueOutbox', 'getOutboxByKey']
+    .some((method) => typeof deps.contractStore[method] !== 'function')) {
     throw issuanceError('CONTRACT_STORE_INVALID', '合約資料庫不支援版本簽發。', 500);
   }
   const management = options.managementService
@@ -123,6 +126,10 @@ export function createContractIssuanceService(deps, options = {}) {
   const authorityResolver = options.authorityResolver || resolveAuthoritativeSigningGroup;
   const signingFactory = options.signingFactory || createRuntimeSigningService;
   const clock = options.clock || (() => new Date());
+  const outboxWorker = options.outboxWorker || createContractOutboxWorker(deps, {
+    signingFactory, authorityResolver, workerId: options.workerId,
+  });
+  const randomUUID = options.randomUUID || crypto.randomUUID;
 
   async function resolveGroup(contract, signerLineUserId) {
     return authorityResolver(deps, {
@@ -132,26 +139,12 @@ export function createContractIssuanceService(deps, options = {}) {
     });
   }
 
-  async function sendIssuedVersion(context, contract, version, group, fields, retried, preparedSigning = null) {
+  async function processInvitation(context, idempotencyKey, fields, retried) {
     const documentHash = normalizeHash(fields.sha256);
     const documentRef = driveDocumentRef(fields.fileId);
-    const signing = preparedSigning || signingFactory(deps, {
-      versionId: text(version.id),
-      groupBindingId: text(group.groupBindingId),
-      actor: text(context.actor),
-      expectedSignerName: text(group.signerName),
-      expectedSignerCompany: text(contract.counterpartyCompany),
-      expectedSignerTitle: text(contract.counterpartyTitle),
-    });
-    const result = await signing.issueAndSend({
-      projectId: text(contract.projectId),
-      contractId: text(contract.id),
-      documentRef,
-      documentHash,
-      lineGroupId: text(group.lineGroupId),
-      signerLineUserId: text(group.signerLineUserId),
-      actorId: text(context.actor),
-    });
+    const processed = await outboxWorker.processByKey(context, idempotencyKey);
+    if (!processed.result) throw issuanceError('SIGNING_INVITATION_DEFERRED', '簽署邀請已排入重試佇列。', 503);
+    const result = processed.result;
     return signingResult(result, documentRef, documentHash, retried);
   }
 
@@ -179,7 +172,7 @@ export function createContractIssuanceService(deps, options = {}) {
     const group = await resolveGroup(contract, signerLineUserId);
     // Fail closed on LIFF, token pepper, public URL, feature flag, and database
     // configuration before rendering or committing the frozen -> issued CAS.
-    const preparedSigning = signingFactory(deps, {
+    signingFactory(deps, {
       versionId: text(version.id),
       groupBindingId: text(group.groupBindingId),
       actor: text(authority.actor),
@@ -201,6 +194,9 @@ export function createContractIssuanceService(deps, options = {}) {
       rendered,
     });
     const issuedAt = new Date(clock()).toISOString();
+    const documentRef = driveDocumentRef(storedPdf.driveFileId);
+    const invitationKey = `line-signing-invitation:${authority.tenant.key}:${version.id}:${signerLineUserId}`;
+    const projectionKey = `contract-projection:${authority.tenant.key}:${version.id}:issued`;
     const issued = unwrap(await deps.contractStore.issueVersion(authority.tenant, {
       contractId: contract.id,
       versionId: version.id,
@@ -213,6 +209,19 @@ export function createContractIssuanceService(deps, options = {}) {
         rendererKind: 'issued_pdf',
         frozenBundleSha256: version.attachmentManifestHash,
       },
+      outbox: [
+        {
+          eventKind: 'line_signing_invitation', idempotencyKey: invitationKey,
+          payload: {
+            contractId: contract.id, versionId: version.id, signerLineUserId: group.signerLineUserId,
+            documentRef, documentHash: normalizeHash(storedPdf.sha256), requestedBy: authority.actor,
+          },
+        },
+        {
+          eventKind: 'notion_contract_projection', idempotencyKey: projectionKey,
+          payload: { contractId: contract.id, versionId: version.id, status: 'issued' },
+        },
+      ],
     }));
     if (!issued || text(issued.status) !== 'issued') {
       throw issuanceError('ISSUE_STORE_VIOLATION', '合約資料庫未回傳已簽發版本。', 500);
@@ -222,9 +231,12 @@ export function createContractIssuanceService(deps, options = {}) {
       throw issuanceError('ISSUE_STORE_VIOLATION', '資料庫保存的正式 PDF 與本次產物不一致。', 500);
     }
 
-    // If LINE rejects the push, contract-signing revokes the new session. The
-    // issued version and its immutable PDF deliberately remain authoritative.
-    return sendIssuedVersion(authority, contract, issued, group, persisted, false, preparedSigning);
+    // If LINE rejects the push, the durable outbox retains the already-linked
+    // issued session. A retry reconstructs the same token and provider retry
+    // key; it does not create a competing active session or alter the PDF.
+    const sent = await processInvitation(authority, invitationKey, persisted, false);
+    await outboxWorker.processByKey(authority, projectionKey).catch(() => {});
+    return sent;
   }
 
   async function retryIssuedVersionSigning(context, input = {}) {
@@ -243,7 +255,84 @@ export function createContractIssuanceService(deps, options = {}) {
     requireIssuedFileId(fields.fileId);
     normalizeHash(fields.sha256);
     const group = await resolveGroup(detail.contract, signerLineUserId);
-    return sendIssuedVersion(authority, detail.contract, version, group, fields, true);
+    const baseKey = `line-signing-invitation:${authority.tenant.key}:${version.id}:${signerLineUserId}`;
+    const existing = unwrap(await deps.contractStore.getOutboxByKey(authority.tenant, baseKey));
+    let invitationKey = baseKey;
+
+    if (!existing) {
+      // Legacy issued rows may predate the outbox. Establish the canonical base
+      // job once; subsequent retries must keep using it.
+      await deps.contractStore.enqueueOutbox(authority.tenant, {
+        contractId: detail.contract.id,
+        eventKind: 'line_signing_invitation',
+        idempotencyKey: invitationKey,
+        payload: {
+          contractId: detail.contract.id, versionId: version.id, signerLineUserId: group.signerLineUserId,
+          documentRef: driveDocumentRef(fields.fileId), documentHash: normalizeHash(fields.sha256), requestedBy: authority.actor,
+        },
+      });
+    } else if (['pending', 'failed', 'processing'].includes(text(existing.status))) {
+      // Normal retries deliberately reuse the same durable job. The worker will
+      // reconstruct the same token and resume the already-linked active session.
+      invitationKey = baseKey;
+    } else {
+      let sessionStatus = '';
+      let existingSigning = null;
+      const externalSessionId = text(first(existing, ['externalSessionId', 'external_session_id']));
+      if (externalSessionId) {
+        existingSigning = signingFactory(deps, {
+          versionId: text(version.id), groupBindingId: text(group.groupBindingId), actor: text(authority.actor),
+          expectedSignerName: text(group.signerName), expectedSignerCompany: text(detail.contract.counterpartyCompany),
+          expectedSignerTitle: text(detail.contract.counterpartyTitle),
+        });
+        const session = await existingSigning.getSession(externalSessionId);
+        sessionStatus = text(session?.state?.status || session?.status);
+      }
+      const replaceable = text(existing.status) === 'dead_letter'
+        || ['revoked', 'expired', 'declined'].includes(sessionStatus);
+      if (!replaceable) {
+        throw issuanceError(
+          'SIGNING_INVITATION_ALREADY_SENT',
+          '原簽署邀請已送出或仍在有效流程中，不可建立第二個簽署 session。',
+          409,
+          { outboxStatus: text(existing.status), sessionStatus },
+        );
+      }
+      if (authority.signingDisposition !== 'replace-terminal-session') {
+        throw issuanceError(
+          'TERMINAL_SIGNING_REPLACEMENT_REQUIRED',
+          '原簽署流程已終止；必須由伺服器明確核准替換後才能建立新送簽流程。',
+          409,
+          { outboxStatus: text(existing.status), sessionStatus },
+        );
+      }
+      if (text(existing.status) === 'dead_letter'
+          && ['issued', 'sent', 'opened'].includes(sessionStatus)) {
+        if (!existingSigning || !externalSessionId) {
+          throw issuanceError('ACTIVE_SESSION_DISPOSAL_REQUIRED', 'Dead-letter 工作仍有有效 session，無法安全替換。', 409);
+        }
+        await existingSigning.revokeSigningToken({
+          sessionId: externalSessionId,
+          actorId: authority.actor,
+          idempotencyKey: `dead-letter-replacement:${externalSessionId}`,
+          reason: 'outbox_dead_letter_replacement',
+          requestMeta: {},
+        });
+        sessionStatus = 'revoked';
+      }
+      invitationKey = `${baseKey}:replacement:${randomUUID()}`;
+      await deps.contractStore.enqueueOutbox(authority.tenant, {
+        contractId: detail.contract.id,
+        eventKind: 'line_signing_invitation',
+        idempotencyKey: invitationKey,
+        payload: {
+          contractId: detail.contract.id, versionId: version.id, signerLineUserId: group.signerLineUserId,
+          documentRef: driveDocumentRef(fields.fileId), documentHash: normalizeHash(fields.sha256), requestedBy: authority.actor,
+          replacesExternalSessionId: externalSessionId || undefined,
+        },
+      });
+    }
+    return processInvitation(authority, invitationKey, fields, true);
   }
 
   return Object.freeze({ issueFrozenVersion, retryIssuedVersionSigning });

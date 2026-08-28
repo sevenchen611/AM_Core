@@ -26,13 +26,109 @@ function sha256(value) {
   return crypto.createHash('sha256').update(String(value)).digest('hex');
 }
 
+function tlsError(code, message) {
+  return Object.assign(new Error(message), { code, statusCode: 503 });
+}
+
+function parseCertificateAuthority(value) {
+  const source = String(value || '').trim();
+  if (!source) return '';
+  let certificate = source.includes('-----BEGIN CERTIFICATE-----')
+    ? source.replace(/\\n/g, '\n')
+    : '';
+  if (!certificate && /^[A-Za-z0-9+/=\s]+$/.test(source)) {
+    try { certificate = Buffer.from(source.replace(/\s/g, ''), 'base64').toString('utf8').trim(); } catch { certificate = ''; }
+  }
+  if (!/^-----BEGIN CERTIFICATE-----[\s\S]+-----END CERTIFICATE-----$/.test(certificate)) {
+    throw tlsError('CONTRACT_DATABASE_CA_INVALID', 'Contract database CA must be a PEM certificate or base64-encoded PEM.');
+  }
+  return certificate;
+}
+
+function productionRuntime(env) {
+  return String(env.NODE_ENV || '').toLowerCase() === 'production'
+    || String(env.RENDER || '').toLowerCase() === 'true'
+    || Boolean(String(env.RENDER_SERVICE_ID || '').trim());
+}
+
+function databaseTls(env, tenant, databaseUrl) {
+  const legacyEnabled = envValue(env, tenant, 'CONTRACTS_DATABASE_SSL', '1') !== '0';
+  const mode = envValue(env, tenant, 'CONTRACTS_DATABASE_SSL_MODE', legacyEnabled ? 'require' : 'disable').toLowerCase();
+  if (!['disable', 'require', 'verify-full'].includes(mode)) {
+    throw tlsError('CONTRACT_DATABASE_SSL_MODE_INVALID', 'Contract database SSL mode must be disable, require, or verify-full.');
+  }
+  let parsed;
+  try { parsed = new URL(databaseUrl); } catch { throw tlsError('CONTRACT_DATABASE_URL_INVALID', 'Contract database URL is invalid.'); }
+  for (const key of ['sslmode', 'sslcert', 'sslkey', 'sslrootcert']) {
+    if (parsed.searchParams.has(key)) {
+      throw tlsError('CONTRACT_DATABASE_URL_TLS_OVERRIDE', `Contract database URL must not override ${key}; use dedicated environment settings.`);
+    }
+  }
+  if (productionRuntime(env) && mode !== 'verify-full') {
+    throw tlsError('CONTRACT_DATABASE_TLS_VERIFY_REQUIRED', 'Production contract database TLS must use verify-full.');
+  }
+  if (mode === 'disable') return { mode, caConfigured: false, ssl: undefined, fingerprint: 'disable' };
+  if (mode === 'require') return { mode, caConfigured: false, ssl: { rejectUnauthorized: false }, fingerprint: 'require' };
+  const ca = parseCertificateAuthority(envValue(env, tenant, 'CONTRACTS_DATABASE_CA'));
+  if (!ca) throw tlsError('CONTRACT_DATABASE_CA_REQUIRED', 'verify-full requires a trusted contract database CA.');
+  return {
+    mode,
+    caConfigured: true,
+    ssl: { rejectUnauthorized: true, ca },
+    fingerprint: `verify-full:${sha256(ca)}`,
+  };
+}
+
+async function insertOutboxRow(client, input) {
+  const payload = input.payload && typeof input.payload === 'object' && !Array.isArray(input.payload)
+    ? input.payload : {};
+  const payloadJson = canonical(payload);
+  const payloadSha256 = sha256(payloadJson);
+  const result = await client.query(
+    `INSERT INTO ${SCHEMA}.integration_outbox
+       (contract_id, signing_session_id, event_kind, idempotency_key, payload, payload_sha256, available_at)
+     VALUES ($1,$2,$3,$4,$5::jsonb,$6,COALESCE($7::timestamptz,clock_timestamp()))
+     ON CONFLICT (idempotency_key) DO UPDATE SET
+       updated_at = ${SCHEMA}.integration_outbox.updated_at
+     WHERE ${SCHEMA}.integration_outbox.payload_sha256 = EXCLUDED.payload_sha256
+       AND ${SCHEMA}.integration_outbox.event_kind = EXCLUDED.event_kind
+     RETURNING *`,
+    [input.contractId || null, input.signingSessionId || null, input.eventKind,
+      input.idempotencyKey, payloadJson, payloadSha256, input.availableAt || null],
+  );
+  if (!result.rowCount) {
+    throw Object.assign(new Error('Outbox idempotency key was reused with different content.'), {
+      code: 'OUTBOX_IDEMPOTENCY_CONFLICT', statusCode: 409,
+    });
+  }
+  return result.rows[0];
+}
+
 function configFor(env, tenant) {
   const databaseUrl = envValue(env, tenant, 'CONTRACTS_DATABASE_URL');
+  if (!databaseUrl) return {
+    configured: false, databaseUrl: '', databaseSsl: false, databaseSslMode: 'disable',
+    databaseCaConfigured: false, tenantKey: String(tenant?.key || ''), tls: null,
+  };
+  const tls = databaseTls(env, tenant, databaseUrl);
   return {
     configured: Boolean(databaseUrl),
     databaseUrl,
-    databaseSsl: envValue(env, tenant, 'CONTRACTS_DATABASE_SSL', '1') !== '0',
+    databaseSsl: tls.mode !== 'disable',
+    databaseSslMode: tls.mode,
+    databaseCaConfigured: tls.caConfigured,
     tenantKey: String(tenant?.key || ''),
+    tls,
+  };
+}
+
+function publicConfig(config) {
+  return {
+    configured: config.configured,
+    databaseSsl: config.databaseSsl,
+    databaseSslMode: config.databaseSslMode,
+    databaseCaConfigured: config.databaseCaConfigured,
+    tenantKey: config.tenantKey,
   };
 }
 
@@ -41,7 +137,8 @@ export function createContractStore({ env = process.env, logger = console, poolF
 
   async function poolFor(config) {
     if (!config.databaseUrl) return null;
-    if (pools.has(config.databaseUrl)) return pools.get(config.databaseUrl);
+    const poolKey = `${config.databaseUrl}\u0000${config.tls?.fingerprint || 'disable'}`;
+    if (pools.has(poolKey)) return pools.get(poolKey);
     let factory = poolFactory;
     if (!factory) {
       const pg = await import('pg');
@@ -49,13 +146,13 @@ export function createContractStore({ env = process.env, logger = console, poolF
     }
     const pool = factory({
       connectionString: config.databaseUrl,
-      ssl: config.databaseSsl ? { rejectUnauthorized: false } : undefined,
+      ssl: config.tls?.ssl,
       max: positiveInt(env.AMCORE_CONTRACTS_POOL_SIZE, 4, 20),
       idleTimeoutMillis: 30_000,
       connectionTimeoutMillis: 8_000,
       application_name: 'am-platform-engineering-contracts',
     });
-    pools.set(config.databaseUrl, pool);
+    pools.set(poolKey, pool);
     return pool;
   }
 
@@ -73,7 +170,7 @@ export function createContractStore({ env = process.env, logger = console, poolF
       await client.query("SELECT set_config('app.tenant_key', $1, true)", [config.tenantKey]);
       const value = await work(client, config);
       await client.query('COMMIT');
-      return { value, config };
+      return { value, config: publicConfig(config) };
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {});
       throw error;
@@ -360,7 +457,134 @@ export function createContractStore({ env = process.env, logger = console, poolF
         [version.id, input.issuedPdfDriveFileId, input.issuedPdfSha256,
           Number(input.byteSize), JSON.stringify(input.metadata || {})],
       );
+      for (const item of Array.isArray(input.outbox) ? input.outbox : []) {
+        await insertOutboxRow(client, { ...item, contractId: version.contract_id });
+      }
       return version;
+    });
+  }
+
+  async function enqueueOutbox(tenant, input) {
+    return withTenant(tenant, async (client) => {
+      const contractId = String(input.contractId || '').trim();
+      if (!contractId) throw new Error('Outbox requires contractId.');
+      const scoped = await client.query(
+        `SELECT id FROM ${SCHEMA}.contracts WHERE tenant_key = $1 AND id = $2`,
+        [tenant.key, contractId],
+      );
+      if (!scoped.rowCount) throw Object.assign(new Error('Contract not found in tenant scope.'), { statusCode: 404 });
+      return insertOutboxRow(client, input);
+    });
+  }
+
+  async function getOutboxByKey(tenant, idempotencyKey) {
+    const result = await withTenant(tenant, async (client) => client.query(
+      `SELECT o.*, s.external_session_id FROM ${SCHEMA}.integration_outbox o
+         LEFT JOIN ${SCHEMA}.contracts c ON c.id = o.contract_id
+         LEFT JOIN ${SCHEMA}.signing_sessions s ON s.id = o.signing_session_id
+         LEFT JOIN ${SCHEMA}.contract_versions v ON v.id = s.version_id
+        WHERE o.idempotency_key = $2
+          AND COALESCE(c.tenant_key, (SELECT tenant_key FROM ${SCHEMA}.contracts WHERE id = v.contract_id)) = $1
+        LIMIT 1`,
+      [tenant.key, idempotencyKey],
+    ), { readOnly: true });
+    return result.value.rows[0] || null;
+  }
+
+  async function claimOutbox(tenant, input = {}) {
+    const limit = Math.max(1, Math.min(Number(input.limit || 1), 25));
+    const kinds = Array.isArray(input.eventKinds) ? input.eventKinds.filter(Boolean) : null;
+    const key = String(input.idempotencyKey || '').trim() || null;
+    const workerId = String(input.workerId || '').trim();
+    if (!workerId) throw new Error('Outbox claim requires workerId.');
+    return withTenant(tenant, async (client) => {
+      const result = await client.query(
+        `WITH ready AS (
+           SELECT o.id
+             FROM ${SCHEMA}.integration_outbox o
+             LEFT JOIN ${SCHEMA}.contracts c ON c.id = o.contract_id
+             LEFT JOIN ${SCHEMA}.signing_sessions s ON s.id = o.signing_session_id
+             LEFT JOIN ${SCHEMA}.contract_versions v ON v.id = s.version_id
+            WHERE COALESCE(c.tenant_key, (SELECT tenant_key FROM ${SCHEMA}.contracts WHERE id = v.contract_id)) = $1
+              AND ($2::text IS NULL OR o.idempotency_key = $2)
+              AND ($3::text[] IS NULL OR o.event_kind = ANY($3::text[]))
+              AND (
+                (o.status IN ('pending','failed') AND o.available_at <= clock_timestamp())
+                OR (o.status = 'processing' AND o.locked_at < clock_timestamp() - interval '5 minutes')
+              )
+            ORDER BY o.available_at, o.created_at
+            FOR UPDATE OF o SKIP LOCKED
+            LIMIT $4
+         )
+         , updated AS (
+         UPDATE ${SCHEMA}.integration_outbox o
+            SET status = 'processing', attempts = o.attempts + 1,
+                locked_at = clock_timestamp(), locked_by = $5, updated_at = clock_timestamp()
+           FROM ready WHERE o.id = ready.id
+         RETURNING o.*)
+         SELECT updated.*, s.external_session_id
+           FROM updated LEFT JOIN ${SCHEMA}.signing_sessions s ON s.id = updated.signing_session_id`,
+        [tenant.key, key, kinds, limit, workerId],
+      );
+      return result.rows;
+    });
+  }
+
+  async function linkOutboxSession(tenant, input) {
+    return withTenant(tenant, async (client) => {
+      const result = await client.query(
+        `UPDATE ${SCHEMA}.integration_outbox o
+            SET signing_session_id = s.id, updated_at = clock_timestamp()
+           FROM ${SCHEMA}.signing_sessions s
+           JOIN ${SCHEMA}.contract_versions v ON v.id = s.version_id
+           JOIN ${SCHEMA}.contracts c ON c.id = v.contract_id
+          WHERE o.id = $2 AND o.status = 'processing' AND o.locked_by = $3
+            AND c.tenant_key = $1 AND c.id = o.contract_id AND s.external_session_id = $4
+          RETURNING o.*`,
+        [tenant.key, input.id, input.workerId, input.externalSessionId],
+      );
+      return result.rows[0] || null;
+    });
+  }
+
+  async function completeOutbox(tenant, input) {
+    return withTenant(tenant, async (client) => {
+      const result = await client.query(
+        `UPDATE ${SCHEMA}.integration_outbox o
+            SET status = 'succeeded', processed_at = clock_timestamp(), last_error = NULL,
+                locked_at = NULL, locked_by = NULL, updated_at = clock_timestamp(),
+                signing_session_id = COALESCE(o.signing_session_id, (
+                  SELECT s.id FROM ${SCHEMA}.signing_sessions s
+                   JOIN ${SCHEMA}.contract_versions v ON v.id = s.version_id
+                   JOIN ${SCHEMA}.contracts c ON c.id = v.contract_id
+                  WHERE c.tenant_key = $1 AND s.external_session_id = $4
+                ))
+          WHERE o.id = $2 AND o.status = 'processing' AND o.locked_by = $3
+            AND EXISTS (SELECT 1 FROM ${SCHEMA}.contracts c WHERE c.id = o.contract_id AND c.tenant_key = $1)
+          RETURNING o.*`,
+        [tenant.key, input.id, input.workerId, input.externalSessionId || null],
+      );
+      return result.rows[0] || null;
+    });
+  }
+
+  async function failOutbox(tenant, input) {
+    return withTenant(tenant, async (client) => {
+      const maxAttempts = Math.max(1, Math.min(Number(input.maxAttempts || 8), 50));
+      const delaySeconds = Math.max(1, Math.min(Number(input.delaySeconds || 30), 86400));
+      const result = await client.query(
+        `UPDATE ${SCHEMA}.integration_outbox o
+            SET status = CASE WHEN o.attempts >= $4 THEN 'dead_letter' ELSE 'failed' END,
+                available_at = CASE WHEN o.attempts >= $4 THEN o.available_at
+                  ELSE clock_timestamp() + make_interval(secs => $5) END,
+                last_error = left($6, 2000), locked_at = NULL, locked_by = NULL,
+                updated_at = clock_timestamp()
+          WHERE o.id = $2 AND o.status = 'processing' AND o.locked_by = $3
+            AND EXISTS (SELECT 1 FROM ${SCHEMA}.contracts c WHERE c.id = o.contract_id AND c.tenant_key = $1)
+          RETURNING o.*`,
+        [tenant.key, input.id, input.workerId, maxAttempts, delaySeconds, String(input.error || 'outbox processing failed')],
+      );
+      return result.rows[0] || null;
     });
   }
 
@@ -590,7 +814,7 @@ export function createContractStore({ env = process.env, logger = console, poolF
         const result = await withTenant(tenant, async (client) => {
           const locked = await client.query(
             `SELECT s.id, s.state_snapshot, s.row_version, s.expected_signer_name,
-                    v.bundle_sha256
+                    v.bundle_sha256, c.id AS contract_id
                FROM ${SCHEMA}.signing_sessions s
                JOIN ${SCHEMA}.contract_versions v ON v.id = s.version_id
                JOIN ${SCHEMA}.contracts c ON c.id = v.contract_id
@@ -658,6 +882,15 @@ export function createContractStore({ env = process.env, logger = console, poolF
                 [locked.rows[0].id, tenant.key, aggregateState,
                   String(latestEvent.actorId || context.actor || 'engineering-am-system')],
               );
+              if (locked.rows[0].contract_id) {
+                await insertOutboxRow(client, {
+                  contractId: locked.rows[0].contract_id,
+                  signingSessionId: locked.rows[0].id,
+                  eventKind: 'notion_contract_projection',
+                  idempotencyKey: `contract-projection:${externalSessionId}:${nextSession.status}:${Number(expectedVersion) + 1}`,
+                  payload: { contractId: locked.rows[0].contract_id, externalSessionId, status: nextSession.status },
+                });
+              }
             }
           }
           return updated.rowCount === 1;
@@ -698,6 +931,12 @@ export function createContractStore({ env = process.env, logger = console, poolF
     transitionVersion,
     freezeVersion: freezeStoredVersion,
     issueVersion,
+    enqueueOutbox,
+    getOutboxByKey,
+    claimOutbox,
+    linkOutboxSession,
+    completeOutbox,
+    failOutbox,
     recordArtifact,
     getSigningBundle,
     listContracts,
@@ -707,4 +946,4 @@ export function createContractStore({ env = process.env, logger = console, poolF
   };
 }
 
-export const __test = { canonical, sha256, configFor, SCHEMA_VERSION };
+export const __test = { canonical, sha256, configFor, databaseTls, parseCertificateAuthority, productionRuntime, SCHEMA_VERSION };

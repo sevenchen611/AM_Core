@@ -31,6 +31,60 @@
       "browserExposed": true
     },
     {
+      "name": "ENG_CONTRACTS_LIFF_ENDPOINT_URL",
+      "runtimeProperty": "tenant.config.contracts.liffEndpointUrl",
+      "secret": false,
+      "required": true,
+      "type": "exactHttpsUrl",
+      "mustEqual": "${ENG_PUBLIC_BASE_URL}/contract-sign",
+      "browserExposed": false
+    },
+    {
+      "name": "ENG_CONTRACTS_DATABASE_DEDICATED",
+      "runtimeProperty": "tenant.config.contracts.databaseDedicated",
+      "secret": false,
+      "required": true,
+      "type": "booleanFlag",
+      "enabledValue": "1",
+      "productionRequired": true
+    },
+    {
+      "name": "ENG_CONTRACTS_DATABASE_SSL_MODE",
+      "runtimeProperty": "tenant.config.contracts.databaseSslMode",
+      "secret": false,
+      "required": true,
+      "type": "enum",
+      "allowedValues": ["require", "verify-full"],
+      "productionAllowedValues": ["verify-full"]
+    },
+    {
+      "name": "ENG_CONTRACTS_DATABASE_CA",
+      "runtimeProperty": "tenant.config.contracts.databaseCaConfigured",
+      "secret": true,
+      "required": true,
+      "type": "pemCertificateAuthority",
+      "browserExposed": false
+    },
+    {
+      "name": "ENG_CONTRACTS_TRUSTED_PROXY_IPS",
+      "runtimeProperty": "tenant.config.contracts.trustedProxyIps",
+      "secret": false,
+      "sensitiveConfig": true,
+      "required": true,
+      "type": "commaSeparatedExactIpList",
+      "minimumItems": 1,
+      "browserExposed": false
+    },
+    {
+      "name": "ENG_CONTRACTS_TRUSTED_CLIENT_IP_HEADERS",
+      "runtimeProperty": "tenant.config.contracts.trustedClientIpHeaders",
+      "secret": false,
+      "required": true,
+      "type": "commaSeparatedHeaderAllowlist",
+      "minimumItems": 1,
+      "browserExposed": false
+    },
+    {
       "name": "ENG_PUBLIC_BASE_URL",
       "runtimeProperty": "tenant.publicBaseUrl",
       "secret": false,
@@ -121,6 +175,10 @@
     "missing required setting",
     "runtime fixed token TTL differs from 604800 seconds",
     "public base URL is not HTTPS",
+    "LIFF endpoint is not exactly publicBaseUrl plus /contract-sign",
+    "trusted proxy IPs or overwritten client IP headers are empty",
+    "database is not explicitly Engineering-dedicated",
+    "PostgreSQL TLS is not verify-full with a trusted CA",
     "database schema version mismatch",
     "Drive is not configured",
     "LIFF identity verification is unavailable",

@@ -5,6 +5,7 @@
 import { plain, sameId, textFrag, queryAll, readJsonBody, sendJson, parseScope, assertProjectInScope } from './common.js';
 import { createContractWorkflowApiHandler } from './contract-workflow-api.js';
 import { contractFileUploadMetadata, readContractFileBody, uploadContractSourceFile } from './contract-files.js';
+import { contractSigningRuntimeReadiness } from './contract-runtime.js';
 
 const STATUSES = ['洽談中', '報價中', '已簽約', '施工中', '已完工', '結案', '作廢'];
 // 這些狀態的合約金額計入「已發包」
@@ -70,6 +71,7 @@ export async function handleContractsRequest(req, res, pathname, url, deps) {
   const canManage = url.searchParams.get('contractManage') === '1';
   const canIssue = url.searchParams.get('contractIssue') === '1';
   const canConfirm = url.searchParams.get('contractConfirm') === '1';
+  const canAdmin = url.searchParams.get('contractAdmin') === '1';
   const canBudget = url.searchParams.get('budget') === '1';
   const scope = parseScope(url);
   try {
@@ -91,7 +93,7 @@ export async function handleContractsRequest(req, res, pathname, url, deps) {
     }
     const handled = await createContractWorkflowApiHandler(deps)(req, res, pathname, url, {
       scope,
-      capabilities: { view: canContract, manage: canManage, issue: canIssue, confirm: canConfirm },
+      capabilities: { view: canContract, manage: canManage, issue: canIssue, confirm: canConfirm, admin: canAdmin },
     });
     if (handled) return handled;
     if (!canContract) return sendJson(res, 403, { error: '無合約發包檢視權限' });
@@ -207,6 +209,7 @@ async function buildOverview(deps, scope) {
       // Keep the Notion projection usable while the evidence store is temporarily unavailable.
     }
   }
+  const runtimeSecurity = contractSigningRuntimeReadiness(deps);
   return {
     projects,
     statuses: STATUSES,
@@ -215,11 +218,16 @@ async function buildOverview(deps, scope) {
       evidenceSchemaReady: Boolean(evidenceStore.schemaReady),
       signingEnabled: deps.tenant?.config?.contracts?.signingEnabled === true,
       liffConfigured: Boolean(deps.tenant?.config?.contracts?.liffId),
+      liffEndpointConfigured: runtimeSecurity.checks.liffEndpoint,
+      publicBaseUrlConfigured: runtimeSecurity.checks.publicBaseUrl,
+      trustedProxyConfigured: runtimeSecurity.checks.trustedProxy,
+      dedicatedDatabaseConfigured: runtimeSecurity.checks.dedicatedDatabase,
+      databaseTlsConfigured: runtimeSecurity.checks.databaseTls,
       tokenPepperConfigured: Buffer.byteLength(String(deps.tenant?.config?.contracts?.tokenPepper || ''), 'utf8') >= 32,
       pdfRendererConfigured: /^https:\/\//i.test(String(deps.tenant?.config?.contracts?.pdfRenderUrl || ''))
         && Buffer.byteLength(String(deps.tenant?.config?.contracts?.pdfRenderToken || ''), 'utf8') >= 32,
       driveConfigured: Boolean(deps.driveConfigured),
-      ready: Boolean(deps.tenant?.config?.contracts?.signingEnabled === true
+      ready: Boolean(runtimeSecurity.ready
         && evidenceStore.schemaReady && deps.tenant?.config?.contracts?.liffId
         && Buffer.byteLength(String(deps.tenant?.config?.contracts?.tokenPepper || ''), 'utf8') >= 32
         && /^https:\/\//i.test(String(deps.tenant?.config?.contracts?.pdfRenderUrl || ''))
@@ -459,6 +467,11 @@ function render() {
   if (!es.evidenceSchemaReady) missing.push('簽署證據資料庫');
   if (!es.signingEnabled) missing.push('電子簽署啟用開關');
   if (!es.liffConfigured) missing.push('LINE LIFF');
+  if (!es.liffEndpointConfigured) missing.push('LIFF Endpoint URL');
+  if (!es.publicBaseUrlConfigured) missing.push('正式 HTTPS 網址');
+  if (!es.trustedProxyConfigured) missing.push('可信任 proxy/IP header');
+  if (!es.dedicatedDatabaseConfigured) missing.push('工程專用資料庫聲明');
+  if (!es.databaseTlsConfigured) missing.push('資料庫 verify-full/CA');
   if (!es.tokenPepperConfigured) missing.push('簽署權杖金鑰');
   if (!es.pdfRendererConfigured) missing.push('PDF 產製服務');
   if (!es.driveConfigured) missing.push('Drive 合約資料夾');

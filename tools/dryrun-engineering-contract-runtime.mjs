@@ -11,6 +11,12 @@ const deps = {
     signingEnabled: true,
     tokenTtlHours: 168,
     tokenPepper: 'test-only-engineering-contract-token-pepper-2026',
+    liffEndpointUrl: 'https://engineering.example.test/contract-sign',
+    databaseDedicated: true,
+    databaseSslMode: 'verify-full',
+    databaseCaConfigured: true,
+    trustedProxyIps: ['10.0.0.1'],
+    trustedClientIpHeaders: ['x-forwarded-for'],
   } } },
   publicBaseUrl: 'https://engineering.example.test',
   pushLineMessage: async (groupId, message, _mention, delivery) => {
@@ -44,6 +50,7 @@ const saved = await saveContractSignature({
     uploaded.push({ buffer, filename, contentType, folder });
     return { id: 'drive-signature-id', webViewLink: 'https://drive.example/signature' };
   },
+  auditDrivePrivate: async () => ({ private: true }),
 }, { sessionId: 'cs_example', buffer: Buffer.alloc(128, 1), contentType: 'image/png' });
 assert.equal(saved.submissionRef, 'drive-signature-id');
 assert.match(saved.signatureHash, /^[a-f0-9]{64}$/);

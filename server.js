@@ -371,14 +371,19 @@ const server = http.createServer(async (req, res) => {
 
   // ── 模組 web routes(佇列 / 儀表板 …)──
   for (const { tenantKey, moduleName, route } of routes) {
+    // Public routes containing tenant secrets must declare a fixed owner. This
+    // is checked before path matching and query parsing so `?tenant=` can never
+    // switch the LIFF app, token pepper, or evidence database.
+    const fixedTenantKey = String(route.tenantKey || '').trim();
+    if (fixedTenantKey && tenantKey !== fixedTenantKey) continue;
     const matched = typeof route.match === 'function' ? route.match(routedPathname)
       : route.prefix ? (routedPathname === route.prefix || routedPathname.startsWith(`${route.prefix}/`))
         : false;
     if (!matched) continue;
     if (route.method && route.method !== req.method) continue;
     // 租戶:以 ?tenant=key 指定(需在登記內),否則用該 route 的擁有租戶。
-    const requested = url.searchParams.get('tenant');
-    const tenant = tenants.find((t) => t.key === (requested || tenantKey)) || null;
+    const requested = fixedTenantKey ? '' : url.searchParams.get('tenant');
+    const tenant = tenants.find((t) => t.key === (fixedTenantKey || requested || tenantKey)) || null;
     if (tenant && !(tenant.modules || []).includes(moduleName)) continue;
     const access = ['tenant', 'group'].includes(route.access?.kind) && tenant
       ? await portal.resolveAccess(req, tenant)

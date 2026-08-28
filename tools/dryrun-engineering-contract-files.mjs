@@ -27,6 +27,7 @@ const result = await uploadContractSourceFile({
   uploadToDrive: async (buffer, filename, mimeType, folder) => ({
     id: 'drive-file-123', webViewLink: `https://drive.example/${filename}`, buffer, mimeType, folder,
   }),
+  auditDrivePrivate: async () => ({ private: true }),
 }, {
   projectId: 'project-1', projectLabel: 'P01/測試', actor: 'admin',
   kind: 'contract_body', filename: '../泥作合約.pdf', mimeType: 'application/pdf', buffer: body,

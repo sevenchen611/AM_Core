@@ -7,7 +7,7 @@
   "projectionStore": "notion:contracts",
   "fileStore": "google-drive:engineering-root/工程合約管理",
   "internalEntry": "/contracts?tenant=engineering",
-  "publicEntryPattern": "/contract-sign/{opaqueToken}",
+  "publicEntryPattern": "/contract-sign#token={opaqueToken}",
   "oneExternalSigner": true,
   "requiredBundle": {
     "documentKinds": {

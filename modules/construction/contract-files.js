@@ -64,8 +64,13 @@ export async function uploadContractSourceFile(deps, input = {}) {
   const root = await deps.ensureDriveFolder('工程合約管理', deps.driveRootFolderId);
   const projectFolder = await deps.ensureDriveFolder(safeSegment(input.projectLabel || projectId, '工程專案'), root);
   const sourceFolder = await deps.ensureDriveFolder('合約來源附件', projectFolder);
+  if (typeof deps.auditDrivePrivate !== 'function') throw fail('工程合約 Drive 隱私稽核尚未設定', 503);
+  const folderPrivacy = await deps.auditDrivePrivate(sourceFolder);
+  if (folderPrivacy?.private !== true) throw fail('工程合約附件資料夾不可公開分享', 503);
   const uploaded = await deps.uploadToDrive(buffer, filename, mimeType, sourceFolder);
   if (!uploaded?.id) throw fail('Drive 未回傳合約附件 ID', 502);
+  const filePrivacy = await deps.auditDrivePrivate(uploaded.id);
+  if (filePrivacy?.private !== true) throw fail('工程合約附件不可公開分享', 503);
   const sha256 = crypto.createHash('sha256').update(buffer).digest('hex');
   return Object.freeze({
     category: kind,

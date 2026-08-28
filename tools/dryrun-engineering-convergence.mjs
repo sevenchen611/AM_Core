@@ -44,7 +44,8 @@ const legacyValue = portal.pinCookieValue();
 assert.equal(portal.pinAuthed({ headers: { cookie: `buildam_auth=${legacyValue}` } }, engineering), false,
   'legacy cookie with platform key must not match tenant key');
 const tenantLegacyPortal = createPortal({ queueAccessKey: 'engineering-key', portalPin: 'engineering-pin', emergencyPinEnabled: true, logger: { warn() {} } });
-assert.equal(tenantLegacyPortal.pinAuthed({ headers: { cookie: `buildam_auth=${tenantLegacyPortal.pinCookieValue()}` } }, engineering), true);
+assert.equal(tenantLegacyPortal.pinAuthed({ headers: { cookie: `buildam_auth=${tenantLegacyPortal.pinCookieValue()}` } }, engineering), false,
+  'legacy buildam_auth is no longer an accepted emergency session; only the tenant-bound cookie is valid');
 const legacyUser = { role: 'member', active: true, allowedFeatures: ['am-buildam', 'am-buildam-zs', 'am-buildam-budget'], projectIds: ['buildam'] };
 assert.equal(portal.tenantAuthorized(legacyUser, engineering), true);
 assert.equal(portal.tenantAuthorized(legacyUser, forest), false);
@@ -91,7 +92,7 @@ await ordinaryDispatcher.dispatchMessage({
   binding: { role: '工班', projectPageId: 'project' },
   event: { source: { groupId: 'group' }, message: { id: 'm2', type: 'text', text: '301 房漏水' } },
 });
-assert.deepEqual(calls, ['collect', 'meetings', 'media', 'triage']);
+assert.deepEqual(calls, ['collect', 'meetings', 'meeting-terms', 'media', 'triage']);
 
 // 真模組可載入，且工程單據頁的瀏覽器程式可被 JavaScript parser 接受。
 const loaded = await loadModules({
