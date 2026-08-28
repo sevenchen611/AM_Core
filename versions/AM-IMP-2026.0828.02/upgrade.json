@@ -3,7 +3,7 @@
   "name": "Engineering AM LINE group self-onboarding",
   "type": "AM Platform / LINE onboarding / Engineering tenant",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-08-28",
   "dependsOn": ["AM-IMP-2026.0803.02"],
   "installTargets": ["AM_PLATFORM:engineering"],
