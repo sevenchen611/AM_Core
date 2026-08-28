@@ -584,7 +584,7 @@ async function createContract() {
   const f=readForm(); const errorBox=document.getElementById('new-contract-error'); const save=document.getElementById('new-contract-save');
   if(!f.name){errorBox.textContent='請先填寫合約名稱；工班、金額與附件都可稍後補。';document.getElementById('f-name').focus();return;}
   errorBox.textContent=''; save.disabled=true; save.textContent='建立中…';
-  try{const created=await api('create',{project:CURRENT,...f});await load(true);showPageMessage('已建立 '+created.number+'；可進入合約工作區建立第一個文件版本。');}
+  try{const created=await api('create',{project:CURRENT,...f});await load(true);showPageMessage('已建立 '+created.number+'；請接著上傳第一個合約版本 V1。');await openWorkflow(created.id,true);}
   catch(error){errorBox.textContent=error.message;save.disabled=false;save.textContent='建立合約';}
 }
 async function saveRow(id) { await run(() => api('edit', { page: id, ...readForm() })); }
@@ -594,7 +594,7 @@ async function archiveRow(id, number) {
 }
 function closeWorkflow(){ document.getElementById('workflow-modal').hidden=true; WORKFLOW={row:null,contract:null,detail:null,files:{},creatingVersion:false}; }
 function workflowRow(id){ for(const p of DATA.projects){const row=p.rows.find(x=>x.id===id);if(row)return {row,project:p};}return null; }
-async function openWorkflow(id){
+async function openWorkflow(id,createNext=false){
   const found=workflowRow(id); if(!found)return;
   WORKFLOW={row:found.row,project:found.project,contract:null,detail:null,files:{},creatingVersion:false};
   document.getElementById('workflow-title').textContent=(found.row.number||'')+' '+(found.row.name||'合約工作區');
@@ -614,6 +614,7 @@ async function openWorkflow(id){
     }
     WORKFLOW.contract={id:contractId};
     WORKFLOW.detail=await apiV2('contracts/'+encodeURIComponent(contractId));
+    WORKFLOW.creatingVersion=Boolean(createNext&&WORKFLOW.detail.latestVersion);
     renderWorkflow();
   }catch(error){document.getElementById('workflow-body').innerHTML='<div class="readiness">'+esc(error.message)+'</div>';}
 }
@@ -673,9 +674,12 @@ async function createWorkflowDraft(){
 async function showVersionLibrary(){
   setWorkspaceNav('library');document.getElementById('tabs').innerHTML='';const main=document.getElementById('main');main.innerHTML='<div class="panel"><h3>合約版本庫</h3><div class="empty">正在整理所有工程的合約版本…</div></div>';
   const entries=await Promise.all(DATA.projects.flatMap(project=>project.rows.map(async row=>{let detail=null;if(row.workflowContractId){try{detail=await apiV2('contracts/'+encodeURIComponent(row.workflowContractId));}catch(error){detail={error:error.message,versions:[]};}}return {project,row,detail};})));
-  const rows=entries.map(({project,row,detail})=>{const versions=detail?.versions||[];if(!versions.length)return '<tr><td>'+esc(project.name)+'</td><td><b>'+esc(row.number)+'</b><br>'+esc(row.name)+'</td><td>—</td><td>尚未建版</td><td class="version-missing">'+esc(detail?.error||'可從合約工作區建立第一版')+'</td><td><button class="rowbtn" onclick="openWorkflow(\\''+row.id+'\\')">建立第一版</button></td></tr>';return versions.map((v,index)=>{const missing=versionMissing(v);return '<tr><td>'+esc(project.name)+'</td><td><b>'+esc(row.number)+'</b><br>'+esc(row.name)+'</td><td><b>V'+v.versionNo+'</b>'+(index===0?'（目前）':'')+'</td><td>'+esc(workflowStatusLabel(v.status))+'</td><td>'+(missing.length?'<span class="version-missing">待補：'+esc(missing.join('、'))+'</span>':'✓ 五項完整')+'</td><td><button class="rowbtn" onclick="openWorkflow(\\''+row.id+'\\')">開啟合約</button></td></tr>';}).join('');}).join('');
-  main.innerHTML='<div class="panel"><h3>合約版本庫</h3><div class="hint">集中保存所有工程的 V1、V2、V3…；每次儲存都是新版本，舊版不覆寫。未集齊五項必要內容的版本可保存，但不能送簽。</div><div class="twrap version-list"><table><tr><th>工程</th><th>合約</th><th>版本</th><th>狀態</th><th>完整度</th><th></th></tr>'+rows+'</table></div>'+(entries.length?'':'<div class="empty">尚未建立任何合約</div>')+'</div>';
+  const rows=entries.map(({project,row,detail})=>{const versions=detail?.versions||[];if(!versions.length)return '<tr><td>'+esc(project.name)+'</td><td><b>'+esc(row.number)+'</b><br>'+esc(row.name)+'</td><td>—</td><td>尚未建版</td><td class="version-missing">'+esc(detail?.error||'可直接建立第一版')+'</td><td><button class="rowbtn" onclick="openWorkflow(\\''+row.id+'\\',true)">＋ 建立 V1</button></td></tr>';return versions.map((v,index)=>{const missing=versionMissing(v);return '<tr><td>'+esc(project.name)+'</td><td><b>'+esc(row.number)+'</b><br>'+esc(row.name)+'</td><td><b>V'+v.versionNo+'</b>'+(index===0?'（目前）':'')+'</td><td>'+esc(workflowStatusLabel(v.status))+'</td><td>'+(missing.length?'<span class="version-missing">待補：'+esc(missing.join('、'))+'</span>':'✓ 五項完整')+'</td><td><button class="rowbtn" onclick="openWorkflow(\\''+row.id+'\\''+(index===0?',true':'')+')">'+(index===0?'＋ 建立 V'+(v.versionNo+1):'查看合約')+'</button></td></tr>';}).join('');}).join('');
+  const projectOptions=DATA.projects.map(project=>'<option value="'+esc(project.id)+'" '+(project.id===CURRENT?'selected':'')+'>'+esc(project.name)+'</option>').join('');
+  const createAction=CAN_MANAGE&&DATA.projects.length?'<div class="workflow-actions"><label><b>建立新合約版本：</b> <select id="library-project">'+projectOptions+'</select></label><button class="btn" onclick="startContractVersionFromLibrary()">＋ 新增合約並建立 V1</button></div>':'';
+  main.innerHTML='<div class="panel"><h3>合約版本庫</h3><div class="hint">集中保存所有工程的 V1、V2、V3…；每次儲存都是新版本，舊版不覆寫。未集齊五項必要內容的版本可保存，但不能送簽。</div>'+createAction+'<div class="twrap version-list"><table><tr><th>工程</th><th>合約</th><th>版本</th><th>狀態</th><th>完整度</th><th>建立／查看</th></tr>'+rows+'</table></div>'+(entries.length?'':'<div class="empty">目前尚無合約。請選擇工程專案後，按「新增合約並建立 V1」。</div>')+'</div>';
 }
+function startContractVersionFromLibrary(){const project=document.getElementById('library-project')?.value;if(!project)return;CURRENT=project;showOverview();showNewForm();showPageMessage('先填寫合約名稱；建立完成後會自動開啟 V1 上傳畫面。');}
 async function workflowTransition(action){try{const latest=WORKFLOW.detail.latestVersion;await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id)+'/versions/'+encodeURIComponent(latest.id)+'/'+action,{method:'POST',body:{}});WORKFLOW.detail=await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id));renderWorkflow();}catch(error){alert(error.message);}}
 async function workflowReadiness(){try{const latest=WORKFLOW.detail.latestVersion;const result=await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id)+'/versions/'+encodeURIComponent(latest.id)+'/readiness');document.getElementById('workflow-result').innerHTML='<div class="readiness '+(result.ready?'ready':'')+'">'+(result.ready?'✓ 文件、付款條件、驗收標準與凍結雜湊完整，可以進入 LINE 群組簽發。':result.blockers.map(x=>esc(x.message)).join('<br>'))+'</div>';}catch(error){alert(error.message);}}
 function signerSelect(){const group=WORKFLOW.project.groups.find(g=>g.id.replace(/-/g,'')===String(WORKFLOW.row.groupId||'').replace(/-/g,''));const members=group?.members||[];return '<select id="wf-signer"><option value="">指定簽署人</option>'+members.map(m=>'<option value="'+esc(m.userId)+'">'+esc(m.name)+'</option>').join('')+'</select>';}

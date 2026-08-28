@@ -41,6 +41,9 @@ records, customer information, or signing tokens:
   later document or terms revision is saved as a new V1/V2/V3 entry without
   overwriting prior versions. Incomplete drafts remain visibly blocked from the
   review/signing controls.
+- The version library provides its own project selector and a direct "create
+  contract and V1" action. Creating the basic contract immediately opens the V1
+  upload workspace; the current version row directly offers the next V number.
 - A full Render PostgreSQL export completed successfully. The export URL and
   database credentials are not recorded here.
 - The production PDF renderer rejected a missing idempotency key and generated
