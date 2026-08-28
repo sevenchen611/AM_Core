@@ -45,6 +45,34 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
     return response.json();
   }
 
+  async function verifyLiffIdentity(accessToken, liffId = '') {
+    const token = String(accessToken || '').trim();
+    if (!token) throw Object.assign(new Error('LIFF access token is required.'), { code: 'LIFF_TOKEN_REQUIRED' });
+    const verify = await fetch(`https://api.line.me/oauth2/v2.1/verify?access_token=${encodeURIComponent(token)}`);
+    const verified = await verify.json().catch(() => ({}));
+    if (!verify.ok || Number(verified.expires_in || 0) <= 0) {
+      throw Object.assign(new Error('LIFF identity verification failed.'), { code: 'LIFF_TOKEN_INVALID' });
+    }
+    const expectedChannelId = String(liffId || '').split('-')[0];
+    if (expectedChannelId && String(verified.client_id || '') !== expectedChannelId) {
+      throw Object.assign(new Error('LIFF token was issued for another channel.'), { code: 'LIFF_CHANNEL_MISMATCH' });
+    }
+    const profileResponse = await fetch('https://api.line.me/v2/profile', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const profile = await profileResponse.json().catch(() => ({}));
+    if (!profileResponse.ok || !profile.userId) {
+      throw Object.assign(new Error('Unable to resolve LIFF profile.'), { code: 'LIFF_PROFILE_FAILED' });
+    }
+    return {
+      userId: String(profile.userId),
+      displayName: String(profile.displayName || 'LINE 使用者'),
+      clientId: String(verified.client_id || ''),
+      expiresIn: Number(verified.expires_in || 0),
+      scope: String(verified.scope || ''),
+    };
+  }
+
   // 顯示名稱:群/房/1對1 分別取,失敗退回預設(不阻斷訊息流程)。
   async function resolveSenderName(source) {
     const fallback = 'LINE 使用者';
@@ -276,6 +304,7 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
   return {
     isValidSignature,
     lineGet,
+    verifyLiffIdentity,
     resolveSenderName,
     listGroupMemberIds,
     resolveGroupMemberName,

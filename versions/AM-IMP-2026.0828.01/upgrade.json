@@ -1,0 +1,66 @@
+{
+  "id": "AM-IMP-2026.0828.01",
+  "name": "Engineering contract management and immutable electronic-signing evidence",
+  "type": "Engineering workflow / Electronic signing / Governance",
+  "portable": false,
+  "installTargets": ["AM_PLATFORM"],
+  "excludedTargets": ["HOZO_AM", "SEVEN_AM", "FOREST_AM", "GREEN_HOTEL_AM"],
+  "requiresDatabases": [
+    "engineering_contracts PostgreSQL schema",
+    "engineering tenant existing contracts data source",
+    "engineering tenant existing projects data source",
+    "engineering tenant existing group bindings data source"
+  ],
+  "requiresEnv": [
+    "ENG_CONTRACTS_SIGNING_ENABLED",
+    "ENG_CONTRACTS_DATABASE_URL",
+    "ENG_CONTRACTS_LIFF_ID",
+    "ENG_PUBLIC_BASE_URL",
+    "ENG_CONTRACTS_TOKEN_PEPPER",
+    "ENG_CONTRACTS_PDF_RENDER_URL",
+    "ENG_CONTRACTS_PDF_RENDER_TOKEN",
+    "ENG_CONTRACTS_DATA_SOURCE_ID",
+    "ENG_PROJECTS_DATA_SOURCE_ID",
+    "ENG_GROUP_BINDINGS_DATA_SOURCE_ID",
+    "ENG_DRIVE_ROOT_FOLDER_ID",
+    "NOTION_TOKEN",
+    "LINE_CHANNEL_ACCESS_TOKEN",
+    "LINE_CHANNEL_SECRET",
+    "GOOGLE_OAUTH_CLIENT_ID",
+    "GOOGLE_OAUTH_CLIENT_SECRET",
+    "GOOGLE_OAUTH_REFRESH_TOKEN"
+  ],
+  "requiresScripts": [
+    "psql",
+    "tools/check-upgrade-package.js"
+  ],
+  "artifacts": [
+    "schemas/engineering-contract-evidence.sql",
+    "config/engineering-contract-workflow.json",
+    "config/environment-contract.json",
+    "contracts/engineering-contract-api.json",
+    "notion-schemas/engineering-contract-projection.json",
+    "REQUIRED_DATABASES.md",
+    "ENVIRONMENT.md"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The package is engineering-only. PostgreSQL evidence rows use tenant_key=engineering, Drive files remain below the engineering tenant root, and Notion is a retryable projection rather than signing authority. No Rental, HOZO, Seven, Forest, or Green Hotel records, IDs, tokens, or files may be copied into this schema."
+  },
+  "definitionOfDone": [
+    "The engineering contract backend uses the engineering_contracts PostgreSQL schema as the authoritative workflow and evidence store",
+    "Every issued version contains a hashed contract body, at least one construction drawing, at least one quotation, payment terms, and acceptance criteria",
+    "Exactly one designated external signer is bound to a seven-day opaque token, a LIFF identity, an active source group membership, and the configured LINE user ID",
+    "The signing invitation is accepted by the LINE Messaging API for the contract's bound group and the accepted request is recorded as evidence",
+    "Issued versions, signatures, signed artifacts, and signing events cannot be updated or deleted through the application role",
+    "The signed PDF and evidence receipt contain the signature, IP address, issued time, LINE send-accepted time, authenticated received time, and signed time",
+    "Notion receives only a retryable contract projection and cannot independently mark a contract signed",
+    "The final PDF, signature image, source documents, and evidence receipt are stored below the engineering Drive root with SHA-256 hashes",
+    "Local schema, JSON, authorization, token-expiry, idempotency, and package checks pass before production enablement",
+    "The feature remains disabled until a controlled engineering pilot is accepted"
+  ],
+  "status": "Ready"
+}

@@ -61,6 +61,23 @@ function readConfig(rawConfig, env, prefix) {
   if (meetingsLiffId) {
     config.meetings = { ...(config.meetings || {}), liffId: meetingsLiffId };
   }
+  const contractsLiffId = prefixed(env, prefix, 'CONTRACTS_LIFF_ID').trim();
+  if (config.contracts || contractsLiffId) {
+    config.contracts = {
+      ...(config.contracts || {}),
+      signingEnabled: prefixed(env, prefix, 'CONTRACTS_SIGNING_ENABLED') === '1',
+      liffId: contractsLiffId,
+      tokenPepper: prefixed(env, prefix, 'CONTRACTS_TOKEN_PEPPER', env.AMCORE_CONTRACTS_TOKEN_PEPPER),
+      pdfRenderUrl: prefixed(env, prefix, 'CONTRACTS_PDF_RENDER_URL', env.AMCORE_CONTRACTS_PDF_RENDER_URL).replace(/\/+$/, ''),
+      pdfRenderToken: prefixed(env, prefix, 'CONTRACTS_PDF_RENDER_TOKEN', env.AMCORE_CONTRACTS_PDF_RENDER_TOKEN),
+      // Evidence schema and legal workflow use one fixed seven-day validity window.
+      tokenTtlHours: 168,
+      trustedProxyIps: prefixed(env, prefix, 'CONTRACTS_TRUSTED_PROXY_IPS', env.AMCORE_CONTRACTS_TRUSTED_PROXY_IPS)
+        .split(',').map((value) => value.trim()).filter(Boolean),
+      trustedClientIpHeaders: prefixed(env, prefix, 'CONTRACTS_TRUSTED_CLIENT_IP_HEADERS', env.AMCORE_CONTRACTS_TRUSTED_CLIENT_IP_HEADERS)
+        .split(',').map((value) => value.trim().toLowerCase()).filter(Boolean),
+    };
+  }
   // 請款金鑰只存在執行期 tenant.config.claims，不回寫 tenant JSON，也不公開給 health/portal 端點。
   // claims module 必須自行檢查 enabled + active binding + capability + member allowlist 四道閘門。
   if (config.claims || env[`${prefix}_CLAIMS_LIFF_ID`] || env[`${prefix}_RENTAL_BASE_URL`]

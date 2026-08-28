@@ -352,7 +352,7 @@ function renderDashboardPage(tenantKey, canBudget, canContract) {
   const t = encodeURIComponent(tenantKey);
   const headerLinks = [
     ...(canBudget ? [`<a href="/budget?tenant=${t}">→ 💰 預算控制</a>`] : []),
-    ...(canContract ? [`<a href="/contracts?tenant=${t}">→ 📑 合約發包</a>`] : []),
+    ...(canContract ? [`<a href="/contracts?tenant=${t}">→ 📑 合約管理</a>`] : []),
     `<a href="/tickets?tenant=${t}">→ 回饋單／變更單</a>`,
     `<a href="/queue?tenant=${t}">→ 確認佇列</a>`,
   ].map((a, i) => (i === 0 ? a : a.replace('<a ', '<a style="margin-left:14px" '))).join('');
