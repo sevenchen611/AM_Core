@@ -258,6 +258,57 @@ function createWriter(doc) {
   return { paragraph, fixedText, heading, labelValue, rule, table, ensure };
 }
 
+export function renderDraftReviewHistoryAppendix(payload = {}) {
+  const reviews = Array.isArray(payload.reviews) ? payload.reviews : [];
+  if (!reviews.length) return Promise.resolve(null);
+  const createdAt = reviews.at(-1)?.respondedAt || reviews.at(-1)?.responded_at;
+  const doc = new PDFDocument({
+    size: PAGE.size,
+    margins: { top: PAGE.margin, right: PAGE.margin, bottom: 60, left: PAGE.margin },
+    bufferPages: true,
+    autoFirstPage: true,
+    info: {
+      Title: `${clean(payload.contractNumber) || '工程合約'} 草約審閱意見歷程`,
+      Author: '工程 AM',
+      Subject: '草約各版本審閱意見歷程',
+      CreationDate: safeDate(createdAt),
+      ModDate: safeDate(createdAt),
+    },
+  });
+  const chunks = [];
+  doc.on('data', (chunk) => chunks.push(chunk));
+  const writer = createWriter(doc);
+  writer.paragraph('草約審閱意見歷程', { size: 20, color: '#0f2742', lineHeight: 30, after: 2 });
+  writer.paragraph(`${clean(payload.contractNumber)} ${clean(payload.title)} ｜ 截至 V${clean(payload.currentVersionNo) || '—'}`, {
+    size: 10, color: '#64748b', after: 8,
+  });
+  writer.paragraph('以下內容依時間保留各版本審閱意見，僅作為草約協商過程紀錄，不代表正式簽署或同意締約。', {
+    size: 10, color: '#991b1b', lineHeight: 17, after: 8,
+  });
+  writer.rule();
+  reviews.forEach((review, index) => {
+    const decision = clean(review.decision || review.status) === 'no_changes' ? '暫無修改意見' : '提出修改';
+    writer.heading(`${index + 1}. V${review.versionNo ?? review.version_no ?? '—'}｜${decision}`, 1);
+    writer.labelValue('回覆人', review.reviewerName || review.reviewer_name || '未提供');
+    writer.labelValue('回覆時間', formatTime(review.respondedAt || review.responded_at));
+    writer.labelValue('意見內容', review.responseNotes || review.response_notes
+      || (decision === '暫無修改意見' ? '目前暫無修改意見' : '未提供其他說明'));
+    if (index < reviews.length - 1) writer.rule();
+  });
+  const range = doc.bufferedPageRange();
+  for (let index = 0; index < range.count; index += 1) {
+    doc.switchToPage(index);
+    writer.fixedText(`草約審閱意見歷程｜不得簽署  |  Engineering AM  |  ${index + 1} / ${range.count}`, {
+      x: PAGE.margin, y: PAGE.height - 90, width: PAGE.width - (PAGE.margin * 2), align: 'center', size: 8,
+    });
+  }
+  doc.end();
+  return new Promise((resolve, reject) => {
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+  });
+}
+
 function renderContractPdf(payload) {
   const contract = payload.contract;
   const version = payload.version;
