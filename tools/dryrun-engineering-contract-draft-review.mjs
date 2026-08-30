@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
+import { Readable } from 'node:stream';
 
 import { createContractDraftReviewService } from '../modules/construction/contract-draft-review.js';
 import { __test as reviewTest } from '../modules/construction/contract-draft-review.js';
@@ -115,13 +116,19 @@ const page = webTest.renderPage().body;
 assert.match(page, /草約｜不得簽署/);
 assert.match(page, /不構成簽約、承諾或電子簽章/);
 assert.match(page, /提出修改/);
-assert.match(page, /合約與附件完整預覽/);
-assert.match(page, /單獨開啟/);
+assert.match(page, /合約與附件檔案/);
+assert.match(page, /完整合併草約 PDF/);
+assert.match(page, /開啟 PDF 檔案/);
 assert.match(page, /本次審閱意見/);
 assert.match(page, /response-reviewer/);
 assert.match(page, /response-notes/);
 const webSource = fs.readFileSync(new URL('../modules/construction/contract-draft-review-web.js', import.meta.url), 'utf8');
-assert.match(webSource, /frame-src blob:/);
+assert.match(webSource, /form\.target='_blank'/);
+assert.match(webSource, /application\/x-www-form-urlencoded/);
+assert.doesNotMatch(webSource, /draft-preview|frame-src blob:|URL\.createObjectURL/);
+const formRequest = Readable.from([Buffer.from(`token=${encodeURIComponent(deterministicToken)}`)]);
+formRequest.headers = { 'content-type': 'application/x-www-form-urlencoded' };
+assert.deepEqual(await webTest.readDocumentInput(formRequest), { token: deterministicToken });
 
 const { PDFDocument } = await import('pdf-lib');
 const basePdf = await PDFDocument.create(); basePdf.addPage();
