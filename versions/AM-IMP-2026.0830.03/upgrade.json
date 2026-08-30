@@ -1,0 +1,46 @@
+{
+  "id": "AM-IMP-2026.0830.03",
+  "name": "Engineering draft-review feedback presentation",
+  "type": "AM Platform / contracts / review evidence",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-08-30",
+  "dependsOn": ["AM-IMP-2026.0830.02"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Complete response display on the public review page",
+    "Complete response display in the Engineering AM workspace",
+    "Insert-only next-version creation linked to review evidence"
+  ],
+  "requiresDatabases": ["Engineering-dedicated PostgreSQL schema engineering_contracts v3"],
+  "requiresEnv": [],
+  "requiresScripts": ["tools/dryrun-engineering-contract-draft-review.mjs", "tools/dryrun-engineering-contract-workspace.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Review feedback remains attached to its tenant-local review and insert-only contract-version lineage."
+  },
+  "changes": [
+    "Display reviewer, decision, complete notes, and response time on the public page",
+    "Display complete feedback and next-version action in Engineering AM",
+    "Persist the selected review as the new version revisionSource"
+  ],
+  "definitionOfDone": [
+    "Both UI locations display complete review feedback",
+    "The next-version composer identifies its review source",
+    "The reviewed version remains unchanged"
+  ],
+  "files": [
+    "modules/construction/contract-draft-review-web.js",
+    "modules/construction/contracts.js",
+    "tools/dryrun-engineering-contract-draft-review.mjs",
+    "tools/dryrun-engineering-contract-workspace.mjs",
+    "versions/AM-IMP-2026.0830.03/README.md",
+    "versions/AM-IMP-2026.0830.03/INSTALL.md",
+    "versions/AM-IMP-2026.0830.03/VERIFY.md",
+    "versions/AM-IMP-2026.0830.03/ROLLBACK.md",
+    "versions/AM-IMP-2026.0830.03/upgrade.json"
+  ]
+}

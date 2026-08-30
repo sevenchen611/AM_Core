@@ -107,6 +107,9 @@ const responded = await service.respond(context.tenant, {
 }, req);
 assert.equal(responded.status, 'changes_requested');
 assert.equal(responseInput.reviewerName, '王先生');
+assert.equal(responded.reviewerName, '王先生');
+assert.equal(responded.responseNotes, '請調整付款日期');
+assert.equal(responded.respondedAt, now);
 
 const page = webTest.renderPage().body;
 assert.match(page, /草約｜不得簽署/);
@@ -114,6 +117,9 @@ assert.match(page, /不構成簽約、承諾或電子簽章/);
 assert.match(page, /提出修改/);
 assert.match(page, /合約與附件完整預覽/);
 assert.match(page, /單獨開啟/);
+assert.match(page, /本次審閱意見/);
+assert.match(page, /response-reviewer/);
+assert.match(page, /response-notes/);
 const webSource = fs.readFileSync(new URL('../modules/construction/contract-draft-review-web.js', import.meta.url), 'utf8');
 assert.match(webSource, /frame-src blob:/);
 

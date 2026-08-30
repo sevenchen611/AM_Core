@@ -467,7 +467,7 @@ function renderContractsPage(tenantKey, key, canBudget, canManage, canIssue, can
   .workspace-nav button:disabled { background:#eef0ef; color:#8a9690; cursor:not-allowed; }
   .page-message { margin:12px 12px 0; padding:10px 13px; border-radius:10px; background:#eaf6ef; border:1px solid #b9dfc8; color:#1f6542; font-size:12px; line-height:1.6; }
   .page-message.error { background:#fff0ee; border-color:#e6b8b1; color:#8d3027; }
-  .version-list { margin-top:14px; }.version-list table{min-width:720px}.version-list .current{background:#f1f8f4}.version-missing{color:var(--red);font-size:11px;white-space:normal;max-width:280px}
+  .version-list { margin-top:14px; }.version-list table{min-width:720px}.version-list .current{background:#f1f8f4}.version-missing{color:var(--red);font-size:11px;white-space:normal;max-width:280px}.review-note{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65;background:#fff;border:1px solid var(--line);border-radius:8px;padding:9px;margin-top:6px;min-width:260px}.revision-source{border-color:#e6b85c;background:#fffaf0}.revision-source .review-note{background:#fff}
   .readiness { margin:12px 12px 0; padding:11px 13px; border-radius:11px; background:#fff8df; border:1px solid #ead99a; font-size:12px; line-height:1.6; }
   .readiness.ready { background:#eaf6ef; border-color:#b9dfc8; color:#1f6542; }
   .modal { position:fixed; inset:0; z-index:20; background:rgba(22,34,27,.55); display:flex; align-items:flex-start; justify-content:center; padding:4vh 12px; overflow:auto; }
@@ -658,7 +658,7 @@ function closeWorkflow(){ document.getElementById('workflow-modal').hidden=true;
 function workflowRow(id){ for(const p of DATA.projects){const row=p.rows.find(x=>x.id===id);if(row)return {row,project:p};}return null; }
 async function openWorkflow(id,createNext=false){
   const found=workflowRow(id); if(!found)return;
-  WORKFLOW={row:found.row,project:found.project,contract:null,detail:null,reviews:[],files:{},creatingVersion:false};
+  WORKFLOW={row:found.row,project:found.project,contract:null,detail:null,reviews:[],files:{},creatingVersion:false,revisionReview:null};
   document.getElementById('workflow-title').textContent=(found.row.number||'')+' '+(found.row.name||'合約工作區');
   document.getElementById('workflow-modal').hidden=false;
   document.getElementById('workflow-body').innerHTML='<div class="empty">正在讀取合約版本…</div>';
@@ -694,15 +694,16 @@ function versionHistoryHtml(detail){
     +versions.map((v,index)=>{const missing=versionMissing(v);return '<tr class="'+(index===0?'current':'')+'"><td><b>V'+v.versionNo+'</b>'+(index===0?'（目前）':'')+'</td><td>'+esc(workflowStatusLabel(v.status))+'</td><td>'+esc((v.createdAt||'').replace('T',' ').slice(0,16))+'</td><td>'+(missing.length?'<span class="version-missing">待補：'+esc(missing.join('、'))+'</span>':'✓ 五項完整')+'</td><td class="file-state">'+esc(v.attachmentManifestHash||'尚未產生')+'</td></tr>';}).join('')+'</table></div></div>';
 }
 function versionComposerHtml(nextVersion){
-  return '<div class="workflow-state">建立 V'+nextVersion+'：新版本會先承接目前版本的全部內容，再用這次上傳或填寫的項目取代。每次儲存都會留下獨立版本，不會覆寫舊版；資料未完整時不得送審或簽發。</div><div class="workflow-grid">'
+  const source=WORKFLOW.revisionReview;const sourceHtml=source?'<div class="workflow-box revision-source"><h4>V'+esc(source.versionNo)+' 草約的修訂依據</h4><div class="hint">回覆人：'+esc(source.reviewerName||'未提供')+' ／ 回覆時間：'+esc((source.respondedAt||'').replace('T',' ').slice(0,16)||'未記錄')+'</div><div class="review-note">'+esc(source.responseNotes||'未提供其他說明')+'</div></div>':'';
+  return '<div class="workflow-state">建立 V'+nextVersion+'：新版本會先承接目前版本的全部內容，再用這次上傳或填寫的項目取代。每次儲存都會留下獨立版本，不會覆寫舊版；資料未完整時不得送審或簽發。</div>'+sourceHtml+'<div class="workflow-grid">'
     +templatePickerBox()+uploadBox('contract_body','合約本文（也可自行上傳）')+uploadBox('construction_drawing','施工圖（可稍後版本補齊）')+uploadBox('quotation','報價單（可稍後版本補齊）')
     +'<div class="workflow-box"><h4>付款條件（可選）</h4><input id="wf-pay-label" placeholder="例：完工驗收後七日內"><input id="wf-pay-trigger" placeholder="付款時間／里程碑條件"></div>'
     +'<div class="workflow-box"><h4>驗收標準（可選）</h4><textarea id="wf-acceptance" placeholder="每行一項可量測的驗收標準"></textarea></div></div>'
     +'<div class="workflow-actions"><button class="btn" onclick="createWorkflowDraft()">儲存 V'+nextVersion+'</button>'+(WORKFLOW.detail?.latestVersion?'<button class="btn ghost" onclick="cancelNewVersion()">取消新增版本</button>':'')+'</div>';
 }
 function draftReviewHistoryHtml(){const reviews=WORKFLOW.reviews||[];if(!reviews.length)return '';
-  return '<div class="version-list"><h3>草約審閱紀錄（不屬於正式簽署）</h3><div class="twrap"><table><tr><th>版本</th><th>狀態</th><th>LINE 發送</th><th>開啟</th><th>回覆</th><th>回覆人／意見</th></tr>'
-    +reviews.map(r=>'<tr><td>V'+esc(r.versionNo)+'</td><td>'+esc(draftReviewStatusLabel(r.status))+'</td><td>'+esc((r.sentAt||'—').replace('T',' ').slice(0,16))+'</td><td>'+esc((r.openedAt||'—').replace('T',' ').slice(0,16))+'</td><td>'+esc((r.respondedAt||'—').replace('T',' ').slice(0,16))+'</td><td>'+esc(r.reviewerName||'—')+(r.responseNotes?'<br><span class="hint">'+esc(r.responseNotes)+'</span>':'')+'</td></tr>').join('')+'</table></div></div>';}
+  return '<div class="version-list"><h3>草約審閱紀錄（不屬於正式簽署）</h3><div class="twrap"><table><tr><th>版本</th><th>狀態</th><th>LINE 發送</th><th>開啟</th><th>回覆</th><th>完整審閱意見</th><th></th></tr>'
+    +reviews.map(r=>'<tr><td>V'+esc(r.versionNo)+'</td><td>'+esc(draftReviewStatusLabel(r.status))+'</td><td>'+esc((r.sentAt||'—').replace('T',' ').slice(0,16))+'</td><td>'+esc((r.openedAt||'—').replace('T',' ').slice(0,16))+'</td><td>'+esc((r.respondedAt||'—').replace('T',' ').slice(0,16))+'</td><td><b>'+esc(r.reviewerName||'—')+'</b><div class="review-note">'+esc(r.responseNotes||(r.status==='no_changes'?'目前暫無修改意見':'尚未回覆'))+'</div></td><td>'+(CAN_MANAGE&&r.status==='changes_requested'?'<button class="rowbtn" onclick="startRevisionFromReview(\\\''+esc(r.id)+'\\\')">依此意見建立下一版本</button>':'')+'</td></tr>').join('')+'</table></div></div>';}
 function templatePickerBox(){const options=TEMPLATES.flatMap(t=>(t.versions||[]).slice(0,1).map(v=>'<option value="'+esc(v.id)+'">'+esc(t.contract_type)+'／'+esc(t.template_name)+' V'+v.versionNo+'</option>')).join('');return '<div class="workflow-box"><h4>套用公版合約範本（可選）</h4><select id="wf-template-version" style="width:100%"><option value="">不套用範本，直接上傳本文</option>'+options+'</select><div class="hint">範本只帶入合約本文；施工圖、報價、付款與驗收仍屬於這個工程合約。</div></div>';}
 function renderWorkflow(){
   const latest=WORKFLOW.detail?.latestVersion; const status=latest?.status||'';
@@ -726,8 +727,9 @@ function renderWorkflow(){
   html+=versionHistoryHtml(WORKFLOW.detail);
   body.innerHTML=html;
 }
-function startNewVersion(){WORKFLOW.files={};WORKFLOW.creatingVersion=true;renderWorkflow();}
-function cancelNewVersion(){WORKFLOW.files={};WORKFLOW.creatingVersion=false;renderWorkflow();}
+function startNewVersion(){WORKFLOW.files={};WORKFLOW.revisionReview=null;WORKFLOW.creatingVersion=true;renderWorkflow();}
+function startRevisionFromReview(reviewId){const review=(WORKFLOW.reviews||[]).find(item=>item.id===reviewId);if(!review)return alert('找不到這筆草約意見');WORKFLOW.files={};WORKFLOW.revisionReview=review;WORKFLOW.creatingVersion=true;renderWorkflow();document.getElementById('workflow-body')?.scrollTo({top:0,behavior:'smooth'});}
+function cancelNewVersion(){WORKFLOW.files={};WORKFLOW.revisionReview=null;WORKFLOW.creatingVersion=false;renderWorkflow();}
 function uploadBox(kind,label){return '<div class="workflow-box"><h4>'+label+'</h4><input type="file" id="wf-file-'+kind+'" onchange="uploadWorkflowFile(\\''+kind+'\\')"><div class="file-state" id="wf-state-'+kind+'">尚未上傳</div></div>';}
 async function uploadWorkflowFile(kind){
   const input=document.getElementById('wf-file-'+kind);const file=input.files?.[0];if(!file)return;
@@ -739,7 +741,8 @@ async function createWorkflowDraft(){
     if((label&&!trigger)||(!label&&trigger))throw new Error('付款條件與付款時間／里程碑需要一起填寫');
     if(!templateVersionId&&!WORKFLOW.files.contract_body&&!WORKFLOW.files.construction_drawing&&!WORKFLOW.files.quotation&&!label&&!criteria.length)throw new Error('請選擇合約範本、上傳一份文件，或填寫付款條件／驗收標準');
     const previous=WORKFLOW.detail?.latestVersion?.documentPackage||WORKFLOW.detail?.latestVersion?.snapshot?.documentPackage||{};const pkg=JSON.parse(JSON.stringify(previous));if(WORKFLOW.files.contract_body)pkg.contractBody=WORKFLOW.files.contract_body;if(WORKFLOW.files.construction_drawing)pkg.constructionDrawings=[WORKFLOW.files.construction_drawing];if(WORKFLOW.files.quotation)pkg.quotation=WORKFLOW.files.quotation;if(label)pkg.paymentMilestones=[{label,amount:Number(WORKFLOW.row.amount)||undefined,trigger}];if(criteria.length)pkg.acceptanceCriteria=criteria.map(criterion=>({criterion}));
-    await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id)+'/versions',{method:'POST',body:{documentPackage:pkg,...(templateVersionId?{templateVersionId}:{})}});WORKFLOW.detail=await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id));WORKFLOW.files={};WORKFLOW.creatingVersion=false;renderWorkflow();showPageMessage('新合約版本已保存；舊版本仍完整保留。');
+    const revision=WORKFLOW.revisionReview;const revisionSource=revision?{draftReviewId:revision.id,sourceVersionNo:revision.versionNo,reviewerName:revision.reviewerName||'',decision:revision.decision||revision.status,responseNotes:revision.responseNotes||'',respondedAt:revision.respondedAt||''}:null;
+    await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id)+'/versions',{method:'POST',body:{documentPackage:pkg,...(revisionSource?{snapshot:{revisionSource}}:{}),...(templateVersionId?{templateVersionId}:{})}});WORKFLOW.detail=await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id));WORKFLOW.files={};WORKFLOW.revisionReview=null;WORKFLOW.creatingVersion=false;renderWorkflow();showPageMessage('新合約版本已保存；舊版本與草約審閱意見仍完整保留。');
   }catch(error){alert(error.message);}
 }
 async function showVersionLibrary(){
