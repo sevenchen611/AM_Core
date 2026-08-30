@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { Readable } from 'node:stream';
+import vm from 'node:vm';
 
 import { createContractDraftReviewService } from '../modules/construction/contract-draft-review.js';
 import { __test as reviewTest } from '../modules/construction/contract-draft-review.js';
@@ -128,6 +129,37 @@ assert.match(webSource, /application\/x-www-form-urlencoded/);
 assert.match(webSource, /externalBrowserFallback/);
 assert.match(webSource, /openExternalBrowser=1#token=/);
 assert.doesNotMatch(webSource, /draft-preview|frame-src blob:|URL\.createObjectURL/);
+const testElements = new Map();
+const fallbackLinks = [];
+const element = () => ({
+  after() {}, append() {}, replaceChildren() {}, addEventListener() {},
+  className: '', textContent: '', hidden: false, value: '', checked: false,
+});
+const scriptDocument = {
+  getElementById(id) {
+    if (!testElements.has(id)) testElements.set(id, element());
+    return testElements.get(id);
+  },
+  createElement(tag) {
+    const created = element();
+    if (tag === 'a') fallbackLinks.push(created);
+    return created;
+  },
+  querySelector() { return null; },
+  body: { append() {} },
+};
+await new vm.Script(webTest.pageScript()).runInNewContext({
+  document: scriptDocument,
+  navigator: { userAgent: 'Mozilla/5.0 Line/15.0' },
+  location: { hash: `#token=${deterministicToken}`, pathname: '/contract-review', search: '' },
+  history: { replaceState() {} },
+  fetch: async () => ({ ok: false, async json() { return { error: 'expected test stop' }; } }),
+  URLSearchParams,
+  encodeURIComponent,
+});
+assert.equal(fallbackLinks.length, 1, 'legacy LINE links should render one external-browser fallback');
+assert.match(fallbackLinks[0].href, /^\/contract-review\?openExternalBrowser=1#token=/);
+assert.notEqual(testElements.get('message').textContent, 'i is not defined');
 const formRequest = Readable.from([Buffer.from(`token=${encodeURIComponent(deterministicToken)}`)]);
 formRequest.headers = { 'content-type': 'application/x-www-form-urlencoded' };
 assert.deepEqual(await webTest.readDocumentInput(formRequest), { token: deterministicToken });

@@ -1,0 +1,44 @@
+{
+  "id": "AM-IMP-2026.0830.06",
+  "name": "Contract review page script hotfix",
+  "type": "AM Platform / contracts / review runtime",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-08-30",
+  "dependsOn": ["AM-IMP-2026.0830.05"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Browser-safe LINE user-agent detection",
+    "Executable generated-script regression coverage",
+    "Existing V1/V2 review-link recovery"
+  ],
+  "requiresDatabases": ["Engineering-dedicated PostgreSQL schema engineering_contracts v3"],
+  "requiresEnv": [],
+  "requiresScripts": ["tools/dryrun-engineering-contract-draft-review.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The hotfix changes only generated browser code; contract versions, files, hashes, tokens, and review evidence remain unchanged."
+  },
+  "changes": [
+    "Replace the template-sensitive user-agent regular expression with a literal substring check",
+    "Execute the generated browser script in the draft-review dry-run",
+    "Assert legacy LINE fallback creation without a runtime reference error"
+  ],
+  "definitionOfDone": [
+    "The generated page script executes without i is not defined",
+    "Existing V1 and V2 links load their stored review data",
+    "LINE external-browser behavior remains available"
+  ],
+  "files": [
+    "modules/construction/contract-draft-review-web.js",
+    "tools/dryrun-engineering-contract-draft-review.mjs",
+    "versions/AM-IMP-2026.0830.06/README.md",
+    "versions/AM-IMP-2026.0830.06/INSTALL.md",
+    "versions/AM-IMP-2026.0830.06/VERIFY.md",
+    "versions/AM-IMP-2026.0830.06/ROLLBACK.md",
+    "versions/AM-IMP-2026.0830.06/upgrade.json"
+  ]
+}
