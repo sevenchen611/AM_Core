@@ -1,0 +1,45 @@
+{
+  "id": "AM-IMP-2026.0830.05",
+  "name": "LINE external-browser contract review links",
+  "type": "AM Platform / contracts / LINE mobile opening",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-08-30",
+  "dependsOn": ["AM-IMP-2026.0830.04"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "LINE external-browser query parameter on new review links",
+    "Backward-compatible external-browser fallback for legacy links",
+    "Fragment-token preservation"
+  ],
+  "requiresDatabases": ["Engineering-dedicated PostgreSQL schema engineering_contracts v3"],
+  "requiresEnv": [],
+  "requiresScripts": ["tools/dryrun-engineering-contract-draft-review.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The opaque token remains in the URL fragment and project-local review records remain in Engineering PostgreSQL."
+  },
+  "changes": [
+    "Add LINE's openExternalBrowser=1 query parameter to generated review links",
+    "Offer an external-browser fallback when a legacy link is opened inside LINE",
+    "Preserve the token fragment during the fallback handoff"
+  ],
+  "definitionOfDone": [
+    "New LINE review links request the phone's external browser",
+    "Legacy links still allow an external-browser handoff",
+    "Review-token transport and authorization checks remain unchanged"
+  ],
+  "files": [
+    "modules/construction/contract-draft-review.js",
+    "modules/construction/contract-draft-review-web.js",
+    "tools/dryrun-engineering-contract-draft-review.mjs",
+    "versions/AM-IMP-2026.0830.05/README.md",
+    "versions/AM-IMP-2026.0830.05/INSTALL.md",
+    "versions/AM-IMP-2026.0830.05/VERIFY.md",
+    "versions/AM-IMP-2026.0830.05/ROLLBACK.md",
+    "versions/AM-IMP-2026.0830.05/upgrade.json"
+  ]
+}

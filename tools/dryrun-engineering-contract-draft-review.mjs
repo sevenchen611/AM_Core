@@ -95,7 +95,7 @@ assert.equal(storedInput.contractBodySha256, bodyHash);
 assert.deepEqual(storedInput.missingSections, ['付款條件', '驗收標準']);
 assert.equal(sentInput.lineMessageId, 'line-message-1');
 assert.match(pushedMessage, /不是正式簽署/);
-assert.match(pushedMessage, /#token=/);
+assert.match(pushedMessage, /\/contract-review\?openExternalBrowser=1#token=/);
 assert.equal(JSON.stringify(issued).includes(deterministicToken), false, 'raw token must not return to admin UI');
 
 const req = { headers: { 'user-agent': 'draft-review-test' }, socket: { remoteAddress: '203.0.113.8' } };
@@ -125,6 +125,8 @@ assert.match(page, /response-notes/);
 const webSource = fs.readFileSync(new URL('../modules/construction/contract-draft-review-web.js', import.meta.url), 'utf8');
 assert.match(webSource, /form\.target='_blank'/);
 assert.match(webSource, /application\/x-www-form-urlencoded/);
+assert.match(webSource, /externalBrowserFallback/);
+assert.match(webSource, /openExternalBrowser=1#token=/);
 assert.doesNotMatch(webSource, /draft-preview|frame-src blob:|URL\.createObjectURL/);
 const formRequest = Readable.from([Buffer.from(`token=${encodeURIComponent(deterministicToken)}`)]);
 formRequest.headers = { 'content-type': 'application/x-www-form-urlencoded' };

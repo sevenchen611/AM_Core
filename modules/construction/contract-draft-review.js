@@ -240,7 +240,7 @@ export function createContractDraftReviewService(deps, options = {}) {
     }));
     const baseUrl = text(deps.publicBaseUrl).replace(/\/+$/, '');
     if (!/^https:\/\//.test(baseUrl)) throw reviewError('DRAFT_REVIEW_PUBLIC_URL_REQUIRED', '草約審閱網址尚未設定。', 503);
-    const protectedLink = `${baseUrl}/contract-review#token=${encodeURIComponent(rawToken)}`;
+    const protectedLink = `${baseUrl}/contract-review?openExternalBrowser=1#token=${encodeURIComponent(rawToken)}`;
     const missingText = missing.length ? `目前待確認：${missing.join('、')}。` : '目前五項內容已具備，仍以正式簽署版為準。';
     const message = `工程合約草約審閱\n${contract.contractNumber || ''} ${contract.title || ''}／V${version.versionNo}\n${missingText}\n請開啟連結閱覽並回覆「暫無修改意見」或「提出修改」。這不是正式簽署，不產生電子簽章或承諾效力。\n${protectedLink}`;
     const sentAt = new Date(clock()).toISOString();
