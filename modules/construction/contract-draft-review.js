@@ -7,6 +7,8 @@ import { isRenderInternalProxyPeer } from './contract-runtime.js';
 
 const REVIEW_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 const REVIEW_DECISIONS = new Set(['no_changes', 'changes_requested']);
+const MAX_SOURCE_BYTES = 30 * 1024 * 1024;
+const MAX_COMPOSITE_BYTES = 60 * 1024 * 1024;
 
 function reviewError(code, message, statusCode = 400, details = {}) {
   return Object.assign(new Error(message), { code, statusCode, details });
@@ -28,6 +30,90 @@ function fileId(value) {
 
 function packageFrom(version) {
   return version?.documentPackage || version?.snapshot?.documentPackage || version?.contract_snapshot?.documentPackage || {};
+}
+
+function mimeTypeFor(item) {
+  const explicit = text(item?.mimeType || item?.mime_type).toLowerCase();
+  if (explicit) return explicit;
+  const name = text(item?.name || item?.fileName).toLowerCase();
+  if (name.endsWith('.pdf')) return 'application/pdf';
+  if (name.endsWith('.png')) return 'image/png';
+  if (name.endsWith('.jpg') || name.endsWith('.jpeg')) return 'image/jpeg';
+  if (name.endsWith('.docx')) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  return 'application/octet-stream';
+}
+
+function reviewAttachments(source) {
+  const pkg = packageFrom(source);
+  const candidates = [
+    pkg.contractBody ? { ...pkg.contractBody, category: 'contract_body' } : null,
+    ...(Array.isArray(pkg.constructionDrawings) ? pkg.constructionDrawings.map((item) => ({ ...item, category: 'construction_drawing' })) : []),
+    pkg.quotation ? { ...pkg.quotation, category: 'quotation' } : null,
+    ...(Array.isArray(pkg.attachments) ? pkg.attachments : []),
+  ].filter(Boolean);
+  const seen = new Set();
+  return candidates.flatMap((item) => {
+    const id = text(item.fileId || item.file_id);
+    const sha256 = text(item.sha256).toLowerCase();
+    if (!id || seen.has(id) || !/^[a-f0-9]{64}$/.test(sha256)) return [];
+    seen.add(id);
+    return [{
+      id: String(seen.size - 1), fileId: id, sha256,
+      name: text(item.name || item.fileName) || `附件 ${seen.size}`,
+      category: text(item.category) || 'other', mimeType: mimeTypeFor(item),
+    }];
+  });
+}
+
+async function downloadVerifiedAttachment(deps, attachment) {
+  if (typeof deps.auditDrivePrivate !== 'function') throw reviewError('DRAFT_REVIEW_PRIVACY_AUDIT_REQUIRED', 'Drive 隱私稽核尚未設定。', 503);
+  await deps.auditDrivePrivate(attachment.fileId);
+  const downloaded = await deps.downloadFromDrive(attachment.fileId, MAX_SOURCE_BYTES);
+  if (!Buffer.isBuffer(downloaded?.buffer) || !downloaded.buffer.length) throw reviewError('DRAFT_REVIEW_DOCUMENT_UNAVAILABLE', `無法讀取附件：${attachment.name}`, 502);
+  if (crypto.createHash('sha256').update(downloaded.buffer).digest('hex') !== attachment.sha256) {
+    throw reviewError('DRAFT_REVIEW_DOCUMENT_CHANGED', `附件雜湊驗證失敗：${attachment.name}`, 409);
+  }
+  return downloaded.buffer;
+}
+
+async function composeDraftBundle(baseBuffer, attachments, deps) {
+  const { PDFDocument, StandardFonts, degrees, rgb } = await import('pdf-lib');
+  const target = await PDFDocument.load(baseBuffer);
+  const watermarkFont = await target.embedFont(StandardFonts.HelveticaBold);
+  const mark = (page) => {
+    const { width, height } = page.getSize();
+    page.drawText('DRAFT - NOT FOR SIGNATURE', {
+      x: Math.max(18, width * 0.16), y: height * 0.65, size: Math.max(18, Math.min(32, width / 18)),
+      font: watermarkFont, color: rgb(0.86, 0.12, 0.12), opacity: 0.16, rotate: degrees(-32),
+    });
+  };
+  for (const attachment of attachments.filter((item) => item.category !== 'contract_body')) {
+    const bytes = await downloadVerifiedAttachment(deps, attachment);
+    try {
+      if (attachment.mimeType === 'application/pdf' || attachment.name.toLowerCase().endsWith('.pdf')) {
+        const source = await PDFDocument.load(bytes);
+        const pages = await target.copyPages(source, source.getPageIndices());
+        pages.forEach((page) => { target.addPage(page); mark(page); });
+      } else if (attachment.mimeType === 'image/png' || attachment.name.toLowerCase().endsWith('.png')) {
+        const image = await target.embedPng(bytes);
+        const page = target.addPage([595.28, 841.89]);
+        const scale = Math.min(523 / image.width, 770 / image.height, 1);
+        const width = image.width * scale; const height = image.height * scale;
+        page.drawImage(image, { x: (595.28 - width) / 2, y: (841.89 - height) / 2, width, height }); mark(page);
+      } else if (attachment.mimeType === 'image/jpeg' || /\.jpe?g$/i.test(attachment.name)) {
+        const image = await target.embedJpg(bytes);
+        const page = target.addPage([595.28, 841.89]);
+        const scale = Math.min(523 / image.width, 770 / image.height, 1);
+        const width = image.width * scale; const height = image.height * scale;
+        page.drawImage(image, { x: (595.28 - width) / 2, y: (841.89 - height) / 2, width, height }); mark(page);
+      }
+    } catch (error) {
+      throw reviewError('DRAFT_REVIEW_ATTACHMENT_RENDER_FAILED', `附件無法合併到草約：${attachment.name}`, 422, { cause: error?.message });
+    }
+  }
+  const output = Buffer.from(await target.save({ useObjectStreams: false }));
+  if (output.length > MAX_COMPOSITE_BYTES) throw reviewError('DRAFT_REVIEW_BUNDLE_TOO_LARGE', '合併草約超過 60 MB，請縮小附件後建立新版本。', 413);
+  return output;
 }
 
 function missingSections(version) {
@@ -100,6 +186,7 @@ function publicReview(review) {
     reviewerName: review.reviewer_name,
     responseNotes: review.response_notes,
     disclaimerVersion: review.disclaimer_version,
+    attachments: reviewAttachments(review).map(({ id, name, category, mimeType }) => ({ id, name, category, mimeType })),
   };
 }
 
@@ -219,20 +306,24 @@ export function createContractDraftReviewService(deps, options = {}) {
 
   async function loadDocument(tenant, input = {}, kind = 'draft') {
     const { row } = await loadByToken(tenant, input.token);
-    const selected = kind === 'source'
-      ? { fileId: row.contract_body_drive_file_id, sha256: row.contract_body_sha256,
-        mimeType: row.contract_body_mime_type, fileName: row.contract_body_file_name }
-      : { fileId: row.draft_pdf_drive_file_id, sha256: row.draft_pdf_sha256,
-        mimeType: 'application/pdf', fileName: `${row.contract_number || 'contract'}-V${row.version_no}-DRAFT.pdf` };
-    const downloaded = await deps.downloadFromDrive(selected.fileId, 30 * 1024 * 1024);
-    if (!Buffer.isBuffer(downloaded?.buffer)) throw reviewError('DRAFT_REVIEW_DOCUMENT_UNAVAILABLE', '草約文件目前無法讀取。', 502);
-    if (crypto.createHash('sha256').update(downloaded.buffer).digest('hex') !== selected.sha256) {
-      throw reviewError('DRAFT_REVIEW_DOCUMENT_CHANGED', '草約文件雜湊驗證失敗。', 409);
+    const attachments = reviewAttachments(row);
+    if (kind === 'attachment' || kind === 'source') {
+      const selected = kind === 'source'
+        ? attachments.find((item) => item.category === 'contract_body')
+        : attachments.find((item) => item.id === text(input.attachmentId));
+      if (!selected) throw reviewError('DRAFT_REVIEW_ATTACHMENT_NOT_FOUND', '找不到這個附件。', 404);
+      const buffer = await downloadVerifiedAttachment(deps, selected);
+      return { buffer, fileId: selected.fileId, sha256: selected.sha256,
+        mimeType: selected.mimeType, fileName: selected.name };
     }
-    return { buffer: downloaded.buffer, ...selected };
+    const selected = { fileId: row.draft_pdf_drive_file_id, sha256: row.draft_pdf_sha256,
+      mimeType: 'application/pdf', fileName: `${row.contract_number || 'contract'}-V${row.version_no}-DRAFT.pdf` };
+    const baseBuffer = await downloadVerifiedAttachment(deps, { ...selected, name: selected.fileName });
+    const buffer = await composeDraftBundle(baseBuffer, attachments, deps);
+    return { buffer, ...selected, sha256: crypto.createHash('sha256').update(buffer).digest('hex') };
   }
 
   return Object.freeze({ issueDraftReview, listForContract, openReview, respond, loadDocument });
 }
 
-export const __test = { digestToken, missingSections, requestEvidence, publicReview };
+export const __test = { digestToken, missingSections, requestEvidence, publicReview, reviewAttachments, composeDraftBundle };
