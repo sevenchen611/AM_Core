@@ -3,7 +3,7 @@
   "name": "LINE external-browser contract review links",
   "type": "AM Platform / contracts / LINE mobile opening",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-08-30",
   "dependsOn": ["AM-IMP-2026.0830.04"],
   "installTargets": ["AM_PLATFORM:engineering"],
