@@ -1,0 +1,46 @@
+{
+  "id": "AM-IMP-2026.0831.01",
+  "name": "Cross-version contract review history",
+  "type": "AM Platform / contracts / review evidence",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-08-31",
+  "dependsOn": ["AM-IMP-2026.0830.06"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Chronological cross-version feedback history",
+    "Public review-page history presentation",
+    "Merged draft PDF review-history appendix"
+  ],
+  "requiresDatabases": ["Engineering-dedicated PostgreSQL schema engineering_contracts v3"],
+  "requiresEnv": [],
+  "requiresScripts": ["tools/dryrun-engineering-contract-draft-review.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "A review token exposes only completed feedback from the same Engineering contract up to the linked version; IP and user-agent evidence remain internal."
+  },
+  "changes": [
+    "Load completed feedback for the same contract up to the current version",
+    "Show prior version feedback without overwriting or merging contradictory opinions",
+    "Append the chronological feedback history to the dynamically merged draft PDF"
+  ],
+  "definitionOfDone": [
+    "V2 displays completed V1 feedback and V3 displays completed V1/V2 feedback",
+    "Current-version feedback remains separately identified",
+    "Existing links and stored files require no migration or reissue"
+  ],
+  "files": [
+    "modules/construction/contract-draft-review.js",
+    "modules/construction/contract-draft-review-web.js",
+    "modules/construction/contract-pdf-renderer.js",
+    "tools/dryrun-engineering-contract-draft-review.mjs",
+    "versions/AM-IMP-2026.0831.01/README.md",
+    "versions/AM-IMP-2026.0831.01/INSTALL.md",
+    "versions/AM-IMP-2026.0831.01/VERIFY.md",
+    "versions/AM-IMP-2026.0831.01/ROLLBACK.md",
+    "versions/AM-IMP-2026.0831.01/upgrade.json"
+  ]
+}

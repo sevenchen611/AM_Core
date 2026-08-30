@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { createContractArtifactService } from './contract-artifacts.js';
 import { resolveAuthoritativeContractGroup } from './contract-authority.js';
 import { createContractManagementService } from './contract-management.js';
+import { renderDraftReviewHistoryAppendix } from './contract-pdf-renderer.js';
 import { isRenderInternalProxyPeer } from './contract-runtime.js';
 
 const REVIEW_TTL_MS = 14 * 24 * 60 * 60 * 1000;
@@ -76,7 +77,7 @@ async function downloadVerifiedAttachment(deps, attachment) {
   return downloaded.buffer;
 }
 
-async function composeDraftBundle(baseBuffer, attachments, deps) {
+async function composeDraftBundle(baseBuffer, attachments, deps, reviewHistory = [], contract = {}, currentVersionNo = '') {
   const { PDFDocument, StandardFonts, degrees, rgb } = await import('pdf-lib');
   const target = await PDFDocument.load(baseBuffer);
   const watermarkFont = await target.embedFont(StandardFonts.HelveticaBold);
@@ -109,6 +110,19 @@ async function composeDraftBundle(baseBuffer, attachments, deps) {
       }
     } catch (error) {
       throw reviewError('DRAFT_REVIEW_ATTACHMENT_RENDER_FAILED', `附件無法合併到草約：${attachment.name}`, 422, { cause: error?.message });
+    }
+  }
+  if (reviewHistory.length) {
+    const appendix = await renderDraftReviewHistoryAppendix({
+      contractNumber: contract.contract_number || contract.contractNumber,
+      title: contract.title,
+      currentVersionNo,
+      reviews: reviewHistory,
+    });
+    if (appendix) {
+      const source = await PDFDocument.load(appendix);
+      const pages = await target.copyPages(source, source.getPageIndices());
+      pages.forEach((page) => { target.addPage(page); mark(page); });
     }
   }
   const output = Buffer.from(await target.save({ useObjectStreams: false }));
@@ -188,6 +202,24 @@ function publicReview(review) {
     disclaimerVersion: review.disclaimer_version,
     attachments: reviewAttachments(review).map(({ id, name, category, mimeType }) => ({ id, name, category, mimeType })),
   };
+}
+
+function reviewHistory(rows, currentVersionNo) {
+  const maximum = Number(currentVersionNo);
+  return (Array.isArray(rows) ? rows : [])
+    .filter((row) => ['no_changes', 'changes_requested'].includes(text(row.status || row.decision)))
+    .filter((row) => !Number.isFinite(maximum) || Number(row.version_no) <= maximum)
+    .sort((left, right) => Number(left.version_no) - Number(right.version_no)
+      || Date.parse(left.responded_at || left.created_at) - Date.parse(right.responded_at || right.created_at))
+    .map((row) => ({
+      id: row.external_review_id,
+      versionNo: Number(row.version_no),
+      status: row.status,
+      decision: row.decision || row.status,
+      reviewerName: row.reviewer_name || '',
+      responseNotes: row.response_notes || '',
+      respondedAt: row.responded_at || '',
+    }));
 }
 
 export function createContractDraftReviewService(deps, options = {}) {
@@ -286,7 +318,8 @@ export function createContractDraftReviewService(deps, options = {}) {
     const row = unwrap(await deps.contractStore.openDraftReview(tenant, {
       tokenDigest: loaded.tokenDigest, openedAt, ...evidence,
     }));
-    return publicReview({ ...loaded.row, ...row });
+    const history = reviewHistory(await deps.contractStore.listDraftReviews(tenant, loaded.row.contract_id), loaded.row.version_no);
+    return { ...publicReview({ ...loaded.row, ...row }), reviewHistory: history };
   }
 
   async function respond(tenant, input = {}, req) {
@@ -301,7 +334,8 @@ export function createContractDraftReviewService(deps, options = {}) {
       tokenDigest: loaded.tokenDigest, reviewerName, decision, notes,
       respondedAt: new Date(clock()).toISOString(), ...requestEvidence(req),
     }));
-    return publicReview({ ...loaded.row, ...row });
+    const history = reviewHistory(await deps.contractStore.listDraftReviews(tenant, loaded.row.contract_id), loaded.row.version_no);
+    return { ...publicReview({ ...loaded.row, ...row }), reviewHistory: history };
   }
 
   async function loadDocument(tenant, input = {}, kind = 'draft') {
@@ -319,11 +353,12 @@ export function createContractDraftReviewService(deps, options = {}) {
     const selected = { fileId: row.draft_pdf_drive_file_id, sha256: row.draft_pdf_sha256,
       mimeType: 'application/pdf', fileName: `${row.contract_number || 'contract'}-V${row.version_no}-DRAFT.pdf` };
     const baseBuffer = await downloadVerifiedAttachment(deps, { ...selected, name: selected.fileName });
-    const buffer = await composeDraftBundle(baseBuffer, attachments, deps);
+    const history = reviewHistory(await deps.contractStore.listDraftReviews(tenant, row.contract_id), row.version_no);
+    const buffer = await composeDraftBundle(baseBuffer, attachments, deps, history, row, row.version_no);
     return { buffer, ...selected, sha256: crypto.createHash('sha256').update(buffer).digest('hex') };
   }
 
   return Object.freeze({ issueDraftReview, listForContract, openReview, respond, loadDocument });
 }
 
-export const __test = { digestToken, missingSections, requestEvidence, publicReview, reviewAttachments, composeDraftBundle };
+export const __test = { digestToken, missingSections, requestEvidence, publicReview, reviewAttachments, reviewHistory, composeDraftBundle };

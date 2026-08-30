@@ -14,7 +14,7 @@ const now = '2026-08-28T12:00:00.000Z';
 const bodyHash = '1'.repeat(64);
 const pdfHash = '2'.repeat(64);
 const version = {
-  id: 'version-1', contractId: 'contract-1', versionNo: 1, status: 'draft',
+  id: 'version-2', contractId: 'contract-1', versionNo: 2, status: 'draft',
   snapshot: { documentPackage: {
     contractBody: { fileId: 'driveSource123', name: 'contract.docx',
       mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -38,7 +38,7 @@ const deterministicToken = Buffer.alloc(32, 7).toString('base64url');
 const tokenDigest = crypto.createHash('sha256').update(deterministicToken).digest('hex');
 const baseReview = {
   external_review_id: `cr_${Buffer.alloc(18, 7).toString('base64url')}`,
-  status: 'created', version_no: 1, contract_number: 'HZ-CT-001', title: '拆除合約',
+  status: 'created', version_no: 2, contract_id: 'contract-1', contract_number: 'HZ-CT-001', title: '拆除合約',
   project_code: 'HZ', counterparty_name: '測試工班', missing_sections: ['付款條件', '驗收標準'],
   created_at: now, expires_at: '2026-09-11T12:00:00.000Z', disclaimer_version: 'engineering-draft-review-v1',
   draft_pdf_drive_file_id: 'draftPdf123', draft_pdf_sha256: pdfHash,
@@ -47,18 +47,29 @@ const baseReview = {
   contract_body_mime_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   contract_snapshot: version.snapshot,
 };
+const priorReview = {
+  ...baseReview,
+  external_review_id: 'cr_prior_review_1234567890',
+  version_no: 1,
+  status: 'changes_requested',
+  decision: 'changes_requested',
+  reviewer_name: '陳師傅',
+  response_notes: 'V1 請補充付款日期與驗收方式',
+  responded_at: '2026-08-28T10:00:00.000Z',
+};
+let currentResponse = null;
 
 const store = {
   async createDraftReview(_tenant, input) { storedInput = input; return { value: { ...baseReview } }; },
-  async listDraftReviews() { return [{ ...baseReview, status: 'sent', sent_at: now }]; },
+  async listDraftReviews() { return [priorReview, currentResponse || { ...baseReview, status: 'sent', sent_at: now }]; },
   async getDraftReviewByTokenDigest(_tenant, digest) {
     assert.equal(digest, tokenDigest);
     return { ...baseReview, status: 'sent', token_digest: digest };
   },
   async recordDraftReviewSent(_tenant, input) { sentInput = input; return { value: { ...baseReview, status: 'sent', sent_at: input.sentAt } }; },
   async openDraftReview(_tenant, input) { openedInput = input; return { value: { ...baseReview, status: 'opened', opened_at: input.openedAt } }; },
-  async respondDraftReview(_tenant, input) { responseInput = input; return { value: { ...baseReview, status: input.decision,
-    decision: input.decision, reviewer_name: input.reviewerName, response_notes: input.notes, responded_at: input.respondedAt } }; },
+  async respondDraftReview(_tenant, input) { responseInput = input; currentResponse = { ...baseReview, status: input.decision,
+    decision: input.decision, reviewer_name: input.reviewerName, response_notes: input.notes, responded_at: input.respondedAt }; return { value: currentResponse }; },
   async revokeDraftReview() { return { value: { ...baseReview, status: 'revoked' } }; },
 };
 
@@ -104,6 +115,9 @@ const opened = await service.openReview(context.tenant, { token: deterministicTo
 assert.equal(opened.status, 'opened');
 assert.equal(openedInput.ipAddress, '203.0.113.8');
 assert.deepEqual(opened.attachments.map((item) => item.category), ['contract_body', 'construction_drawing', 'quotation']);
+assert.deepEqual(opened.reviewHistory.map((item) => [item.versionNo, item.reviewerName, item.responseNotes]), [
+  [1, '陳師傅', 'V1 請補充付款日期與驗收方式'],
+]);
 const responded = await service.respond(context.tenant, {
   token: deterministicToken, reviewerName: '王先生', decision: 'changes_requested', notes: '請調整付款日期',
 }, req);
@@ -112,6 +126,7 @@ assert.equal(responseInput.reviewerName, '王先生');
 assert.equal(responded.reviewerName, '王先生');
 assert.equal(responded.responseNotes, '請調整付款日期');
 assert.equal(responded.respondedAt, now);
+assert.deepEqual(responded.reviewHistory.map((item) => item.versionNo), [1, 2]);
 
 const page = webTest.renderPage().body;
 assert.match(page, /草約｜不得簽署/);
@@ -121,6 +136,8 @@ assert.match(page, /合約與附件檔案/);
 assert.match(page, /完整合併草約 PDF/);
 assert.match(page, /開啟 PDF 檔案/);
 assert.match(page, /本次審閱意見/);
+assert.match(page, /歷次審閱意見/);
+assert.match(page, /不同意見不會互相覆寫/);
 assert.match(page, /response-reviewer/);
 assert.match(page, /response-notes/);
 const webSource = fs.readFileSync(new URL('../modules/construction/contract-draft-review-web.js', import.meta.url), 'utf8');
@@ -182,9 +199,9 @@ const composed = await reviewTest.composeDraftBundle(baseBytes, [{
 }], {
   async auditDrivePrivate() { return { private: true }; },
   async downloadFromDrive(fileId) { return { buffer: attachmentBuffers[fileId] }; },
-});
+}, [priorReview].map((item) => reviewTest.reviewHistory([item], 2)[0]), contract, 2);
 const composedPdf = await PDFDocument.load(composed);
-assert.equal(composedPdf.getPageCount(), 4, 'draft preview must append every source PDF page and image');
+assert.equal(composedPdf.getPageCount(), 5, 'draft preview must append source files and the review-history appendix');
 
 const pdfPayload = pdfTest.validatePayload({ kind: 'draft_review_pdf', contract: {}, version: {} });
 assert.equal(pdfPayload.kind, 'draft_review_pdf');
