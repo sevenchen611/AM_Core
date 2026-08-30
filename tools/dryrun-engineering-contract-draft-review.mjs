@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 
 import { createContractDraftReviewService } from '../modules/construction/contract-draft-review.js';
+import { __test as reviewTest } from '../modules/construction/contract-draft-review.js';
 import { __test as webTest } from '../modules/construction/contract-draft-review-web.js';
 import { __test as pdfTest } from '../modules/construction/contract-pdf-renderer.js';
 import { __test as apiTest } from '../modules/construction/contract-workflow-api.js';
@@ -41,6 +43,7 @@ const baseReview = {
   contract_body_drive_file_id: 'driveSource123', contract_body_sha256: bodyHash,
   contract_body_file_name: 'contract.docx',
   contract_body_mime_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  contract_snapshot: version.snapshot,
 };
 
 const store = {
@@ -98,6 +101,7 @@ const req = { headers: { 'user-agent': 'draft-review-test' }, socket: { remoteAd
 const opened = await service.openReview(context.tenant, { token: deterministicToken }, req);
 assert.equal(opened.status, 'opened');
 assert.equal(openedInput.ipAddress, '203.0.113.8');
+assert.deepEqual(opened.attachments.map((item) => item.category), ['contract_body', 'construction_drawing', 'quotation']);
 const responded = await service.respond(context.tenant, {
   token: deterministicToken, reviewerName: '王先生', decision: 'changes_requested', notes: '請調整付款日期',
 }, req);
@@ -108,6 +112,32 @@ const page = webTest.renderPage().body;
 assert.match(page, /草約｜不得簽署/);
 assert.match(page, /不構成簽約、承諾或電子簽章/);
 assert.match(page, /提出修改/);
+assert.match(page, /合約與附件完整預覽/);
+assert.match(page, /單獨開啟/);
+const webSource = fs.readFileSync(new URL('../modules/construction/contract-draft-review-web.js', import.meta.url), 'utf8');
+assert.match(webSource, /frame-src blob:/);
+
+const { PDFDocument } = await import('pdf-lib');
+const basePdf = await PDFDocument.create(); basePdf.addPage();
+const drawingPdf = await PDFDocument.create(); drawingPdf.addPage(); drawingPdf.addPage();
+const baseBytes = Buffer.from(await basePdf.save());
+const drawingBytes = Buffer.from(await drawingPdf.save());
+const drawingSha256 = crypto.createHash('sha256').update(drawingBytes).digest('hex');
+const quotationPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nEAAAAAASUVORK5CYII=', 'base64');
+const quotationSha256 = crypto.createHash('sha256').update(quotationPng).digest('hex');
+const attachmentBuffers = { 'drawing-file': drawingBytes, 'quotation-file': quotationPng };
+const composed = await reviewTest.composeDraftBundle(baseBytes, [{
+  id: '0', fileId: 'drawing-file', sha256: drawingSha256, name: 'drawing.pdf',
+  category: 'construction_drawing', mimeType: 'application/pdf',
+}, {
+  id: '1', fileId: 'quotation-file', sha256: quotationSha256, name: 'quotation.png',
+  category: 'quotation', mimeType: 'image/png',
+}], {
+  async auditDrivePrivate() { return { private: true }; },
+  async downloadFromDrive(fileId) { return { buffer: attachmentBuffers[fileId] }; },
+});
+const composedPdf = await PDFDocument.load(composed);
+assert.equal(composedPdf.getPageCount(), 4, 'draft preview must append every source PDF page and image');
 
 const pdfPayload = pdfTest.validatePayload({ kind: 'draft_review_pdf', contract: {}, version: {} });
 assert.equal(pdfPayload.kind, 'draft_review_pdf');

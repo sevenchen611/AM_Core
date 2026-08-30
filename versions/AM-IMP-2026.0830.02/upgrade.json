@@ -1,0 +1,48 @@
+{
+  "id": "AM-IMP-2026.0830.02",
+  "name": "Engineering contract inline attachment review",
+  "type": "AM Platform / contracts / protected documents",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-08-30",
+  "dependsOn": ["AM-IMP-2026.0830.01"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Inline merged draft and attachment preview",
+    "Token-protected per-attachment open and download controls",
+    "Private Drive and SHA-256 verification on every document read"
+  ],
+  "requiresDatabases": ["Engineering-dedicated PostgreSQL schema engineering_contracts v3"],
+  "requiresEnv": ["ENG_CONTRACTS_DATABASE_URL", "ENG_DRIVE_ROOT_FOLDER_ID"],
+  "requiresScripts": ["tools/dryrun-engineering-contract-draft-review.mjs", "tools/render-engineering-contract-inline-attachments-sample.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Attachments remain private and are returned only after review-token, expiry, status, privacy, and SHA-256 checks."
+  },
+  "changes": [
+    "Append construction-drawing PDF pages and quotation image pages to the draft preview",
+    "Display the merged draft directly in the review page",
+    "Expose each immutable original attachment through a separate protected control"
+  ],
+  "definitionOfDone": [
+    "Composite PDF and public-page regression tests pass",
+    "Existing HZ-CT-001 review displays the attached drawing and quotation inline",
+    "Each original attachment opens independently without a public Drive link"
+  ],
+  "files": [
+    "modules/construction/contract-draft-review.js",
+    "modules/construction/contract-draft-review-web.js",
+    "tools/dryrun-engineering-contract-draft-review.mjs",
+    "tools/render-engineering-contract-inline-attachments-sample.mjs",
+    "package.json",
+    "package-lock.json",
+    "versions/AM-IMP-2026.0830.02/README.md",
+    "versions/AM-IMP-2026.0830.02/INSTALL.md",
+    "versions/AM-IMP-2026.0830.02/VERIFY.md",
+    "versions/AM-IMP-2026.0830.02/ROLLBACK.md",
+    "versions/AM-IMP-2026.0830.02/upgrade.json"
+  ]
+}
