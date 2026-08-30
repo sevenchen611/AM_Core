@@ -1,0 +1,42 @@
+{
+  "id": "AM-IMP-2026.0830.01",
+  "name": "Engineering draft-review status hotfix",
+  "type": "AM Platform / contracts / PostgreSQL",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-08-30",
+  "dependsOn": ["AM-IMP-2026.0828.05"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Qualify draft-review status transitions against the target table",
+    "Recover provider-accepted reviews without duplicate LINE delivery"
+  ],
+  "requiresDatabases": ["Engineering-dedicated PostgreSQL schema engineering_contracts v3"],
+  "requiresEnv": ["ENG_CONTRACTS_DATABASE_URL"],
+  "requiresScripts": ["tools/dryrun-engineering-contract-store.mjs", "tools/dryrun-engineering-contract-draft-review.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Repair only a tenant-local review with matching original provider evidence."
+  },
+  "changes": [
+    "Remove ambiguous status references from joined PostgreSQL updates",
+    "Add a regression assertion for both send and open transitions"
+  ],
+  "definitionOfDone": [
+    "Regression dry runs pass",
+    "Production review page loads the existing draft",
+    "The stuck review is repaired without a second LINE send"
+  ],
+  "files": [
+    "core/contract-store.js",
+    "tools/dryrun-engineering-contract-store.mjs",
+    "versions/AM-IMP-2026.0830.01/README.md",
+    "versions/AM-IMP-2026.0830.01/INSTALL.md",
+    "versions/AM-IMP-2026.0830.01/VERIFY.md",
+    "versions/AM-IMP-2026.0830.01/ROLLBACK.md",
+    "versions/AM-IMP-2026.0830.01/upgrade.json"
+  ]
+}
