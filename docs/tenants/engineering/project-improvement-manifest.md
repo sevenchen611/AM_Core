@@ -15,6 +15,7 @@ Runtime target: `AM_PLATFORM`
 | AM-IMP-2026.0830.03 | Deployed | Engineering draft-review feedback presentation | Complete feedback on the public page and Engineering AM, with review-linked next-version creation | PR #46 merged as `e8cd9f6` and Render deployed it live. Production verification confirmed the public response section and the Engineering AM full-feedback, next-version, and revision-source controls. |
 | AM-IMP-2026.0830.04 | Deployed | Mobile contract PDF attachment opening | Attachment-style file cards and protected new-window POST opening without iframe/blob | PR #48 merged as `f8f3e40` and Render deployed it live. Production verification confirmed the merged-PDF file card, open-file button, new-window POST flow, and absence of iframe/blob delivery. |
 | AM-IMP-2026.0830.05 | Deployed | LINE external-browser contract review links | External-browser opening for new LINE invitations plus a legacy-link fallback | PR #50 merged as `baafe84` and Render deployed it live. Production returned the fallback and protected external-browser link logic with `no-store`; final Android/iOS handoff should be confirmed from a newly issued LINE message. |
+| AM-IMP-2026.0830.06 | Installed | Contract review page script hotfix | Browser-safe LINE detection and executable generated-script regression coverage | Fixes the shared V1/V2 review-page `i is not defined` failure without changing stored contracts, files, tokens, or evidence. Production deployment is pending. |
 
 ## Tenant and evidence boundaries
 
