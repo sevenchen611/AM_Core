@@ -3,7 +3,7 @@
   "name": "Contract review page script hotfix",
   "type": "AM Platform / contracts / review runtime",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-08-30",
   "dependsOn": ["AM-IMP-2026.0830.05"],
   "installTargets": ["AM_PLATFORM:engineering"],
