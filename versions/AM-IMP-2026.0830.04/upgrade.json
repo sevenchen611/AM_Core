@@ -1,0 +1,44 @@
+{
+  "id": "AM-IMP-2026.0830.04",
+  "name": "Mobile contract PDF attachment opening",
+  "type": "AM Platform / contracts / mobile documents",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-08-30",
+  "dependsOn": ["AM-IMP-2026.0830.03"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Attachment-style merged PDF card",
+    "Mobile-safe new-window POST document opening",
+    "Removal of embedded iframe and blob document URLs"
+  ],
+  "requiresDatabases": ["Engineering-dedicated PostgreSQL schema engineering_contracts v3"],
+  "requiresEnv": [],
+  "requiresScripts": ["tools/dryrun-engineering-contract-draft-review.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The review token stays in the POST body and every document retains the existing private-file authorization and hash checks."
+  },
+  "changes": [
+    "Replace the embedded PDF viewer with a complete-draft file card",
+    "Open the real PDF response in a new window through a POST form",
+    "Present every source file as a matching attachment card"
+  ],
+  "definitionOfDone": [
+    "No iframe or blob URL remains in the review page",
+    "The merged PDF and original attachments open through protected file responses",
+    "The existing review link needs no replacement"
+  ],
+  "files": [
+    "modules/construction/contract-draft-review-web.js",
+    "tools/dryrun-engineering-contract-draft-review.mjs",
+    "versions/AM-IMP-2026.0830.04/README.md",
+    "versions/AM-IMP-2026.0830.04/INSTALL.md",
+    "versions/AM-IMP-2026.0830.04/VERIFY.md",
+    "versions/AM-IMP-2026.0830.04/ROLLBACK.md",
+    "versions/AM-IMP-2026.0830.04/upgrade.json"
+  ]
+}
