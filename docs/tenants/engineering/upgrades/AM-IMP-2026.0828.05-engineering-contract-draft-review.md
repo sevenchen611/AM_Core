@@ -2,7 +2,7 @@
 
 Tenant: `engineering`
 Runtime target: `AM_PLATFORM`
-Status: Ready
+Status: Deployed
 
 ## Prepared and verified
 
@@ -14,9 +14,15 @@ Status: Ready
 - Existing V1 remains immutable; staff create V2/V3 to incorporate requested changes.
 - Unit/dry-run regressions pass, and the two-page Traditional Chinese sample PDF passed rendered visual inspection.
 
-## Deployment gate
+## Production deployment evidence
 
-Apply schema v3 with the migration owner and explicitly grant only the new narrow privileges to the existing restricted runtime role. Then deploy and verify the public review page plus the internal review-history UI in production.
+- PR #40 merged to `main` as `4b1eb0ea141891706eaf5ef66b4dda4ebdfa846a` and Render reported the same commit live.
+- The Engineering contract database reports schema version `2026-08-28.engineering-contract-evidence.v3`.
+- `contract_draft_reviews` and `contract_draft_review_events` exist with forced RLS and both database guard triggers.
+- The restricted runtime role has the intended review-table privileges and lacks delete/truncate or event update privileges.
+- Temporary migration access was removed: the platform owner cannot use the Engineering owner role, its `SET` option is disabled, and temporary database `CONNECT` is revoked.
+- `https://am.hozorental.com/contract-review` returned 200 with no-store, no-index, frame denial, the draft warning, and the non-signature disclaimer.
+- The production Engineering AM contract workspace loaded HZ-CT-001 V1 and displayed `產生草約並送 LINE 群組確認` while still blocking formal review because payment and acceptance sections are incomplete.
 
 No real LINE draft is sent as part of automated deployment. Sending requires an operator-selected contract and its exact bound group.
 
