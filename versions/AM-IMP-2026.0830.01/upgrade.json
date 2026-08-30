@@ -3,7 +3,7 @@
   "name": "Engineering draft-review status hotfix",
   "type": "AM Platform / contracts / PostgreSQL",
   "portable": true,
-  "status": "Ready",
+  "status": "Deployed",
   "createdAt": "2026-08-30",
   "dependsOn": ["AM-IMP-2026.0828.05"],
   "installTargets": ["AM_PLATFORM:engineering"],
