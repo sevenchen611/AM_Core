@@ -63,6 +63,21 @@ assert.match(storeSource, /ON CONFLICT \(tenant_key, notion_contract_page_id\)/)
 assert.match(storeSource, /c\.tenant_key = \$3 AND v\.status = 'frozen'/);
 assert.doesNotMatch(storeSource, /expires_at, created_by\)/, 'legacy unsafe signing-session insert must not remain');
 assert.match(storeSource, /async function getSigningBundle/);
+assert.match(
+  storeSource,
+  /CASE WHEN r\.status = 'created' THEN 'sent' ELSE r\.status END/,
+  'draft-review send update must qualify status against the target table alias',
+);
+assert.match(
+  storeSource,
+  /CASE WHEN r\.status = 'sent' THEN 'opened' ELSE r\.status END/,
+  'draft-review open update must qualify status against the target table alias',
+);
+assert.doesNotMatch(
+  storeSource,
+  /CASE WHEN status = '(?:created|sent)'/,
+  'draft-review updates must not use an ambiguous unqualified status column',
+);
 
 const queries = [];
 const fakeClient = {

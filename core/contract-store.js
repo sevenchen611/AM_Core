@@ -1124,10 +1124,10 @@ export function createContractStore({ env = process.env, logger = console, poolF
     return withTenant(tenant, async (client) => {
       const updated = await client.query(
         `UPDATE ${SCHEMA}.contract_draft_reviews r
-            SET status = CASE WHEN status = 'created' THEN 'sent' ELSE status END,
-                sent_at = COALESCE(sent_at,$3::timestamptz),
-                line_message_id = COALESCE(NULLIF(line_message_id,''),NULLIF($4,'')),
-                updated_at = clock_timestamp(),row_version = row_version + 1
+            SET status = CASE WHEN r.status = 'created' THEN 'sent' ELSE r.status END,
+                sent_at = COALESCE(r.sent_at,$3::timestamptz),
+                line_message_id = COALESCE(NULLIF(r.line_message_id,''),NULLIF($4,'')),
+                updated_at = clock_timestamp(),row_version = r.row_version + 1
            FROM ${SCHEMA}.contract_versions v JOIN ${SCHEMA}.contracts c ON c.id = v.contract_id
           WHERE r.version_id = v.id AND c.tenant_key = $1 AND r.external_review_id = $2
             AND r.status IN ('created','sent','opened')
@@ -1152,9 +1152,9 @@ export function createContractStore({ env = process.env, logger = console, poolF
     return withTenant(tenant, async (client) => {
       const updated = await client.query(
         `UPDATE ${SCHEMA}.contract_draft_reviews r
-            SET status = CASE WHEN status = 'sent' THEN 'opened' ELSE status END,
-                opened_at = COALESCE(opened_at,$3::timestamptz),updated_at = clock_timestamp(),
-                row_version = row_version + 1
+            SET status = CASE WHEN r.status = 'sent' THEN 'opened' ELSE r.status END,
+                opened_at = COALESCE(r.opened_at,$3::timestamptz),updated_at = clock_timestamp(),
+                row_version = r.row_version + 1
            FROM ${SCHEMA}.contract_versions v JOIN ${SCHEMA}.contracts c ON c.id = v.contract_id
           WHERE r.version_id = v.id AND c.tenant_key = $1 AND r.token_digest = $2
             AND r.status IN ('sent','opened')
