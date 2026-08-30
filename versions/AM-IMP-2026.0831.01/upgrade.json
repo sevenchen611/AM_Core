@@ -3,7 +3,7 @@
   "name": "Cross-version contract review history",
   "type": "AM Platform / contracts / review evidence",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-08-31",
   "dependsOn": ["AM-IMP-2026.0830.06"],
   "installTargets": ["AM_PLATFORM:engineering"],
