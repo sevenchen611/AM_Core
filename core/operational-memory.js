@@ -19,6 +19,7 @@ const EVENT_TYPES = new Set([
 const TASK_EVENT_TYPES = new Set([
   'task_requested', 'request_raised', 'issue_raised', 'commitment_made', 'question_raised',
 ]);
+const PROCESSING_JOB_STATUSES = new Set(['succeeded', 'retry', 'dead_letter', 'cancelled']);
 
 const sha256 = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
 const normalize = (value) => String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
@@ -153,6 +154,108 @@ export function createOperationalMemory({ env = process.env, logger = console, p
              settings = am_memory.tenants.settings || EXCLUDED.settings`,
       [config.tenantId, config.tenantKey, config.displayName],
     );
+  }
+
+  async function enqueueProcessingJob(tenant, input = {}) {
+    const jobKind = safeText(input.jobKind, 120);
+    const idempotencyKey = safeText(input.idempotencyKey, 240);
+    const maxAttempts = positiveInt(input.maxAttempts, 6, 20);
+    if (!jobKind || !idempotencyKey) throw new Error('Processing job kind and idempotency key are required');
+    const inputPayload = input.inputPayload && typeof input.inputPayload === 'object' && !Array.isArray(input.inputPayload)
+      ? input.inputPayload
+      : {};
+    const result = await withTenant(tenant, async (client, config) => {
+      await ensureTenant(client, config);
+      await client.query(
+        `INSERT INTO am_memory.processing_jobs
+           (tenant_id, job_kind, idempotency_key, status, max_attempts, input_payload)
+         VALUES ($1, $2, $3, 'queued', $4, $5::jsonb)
+         ON CONFLICT (tenant_id, job_kind, idempotency_key) DO NOTHING`,
+        [config.tenantId, jobKind, idempotencyKey, maxAttempts, JSON.stringify(inputPayload)],
+      );
+      const selected = await client.query(
+        `SELECT job_id, status, attempt_count, max_attempts, input_payload
+           FROM am_memory.processing_jobs
+          WHERE tenant_id = $1 AND job_kind = $2 AND idempotency_key = $3
+          LIMIT 1`,
+        [config.tenantId, jobKind, idempotencyKey],
+      );
+      if (!selected.rows[0]) throw new Error('Unable to persist processing job');
+      return selected.rows[0];
+    });
+    return result.skipped ? { ok: false, skipped: result.skipped } : { ok: true, job: result.value };
+  }
+
+  async function leaseProcessingJobs(tenant, input = {}) {
+    const jobKind = safeText(input.jobKind, 120);
+    if (!jobKind) throw new Error('Processing job kind is required');
+    const limit = positiveInt(input.limit, 1, 10);
+    const leaseSeconds = positiveInt(input.leaseSeconds, 120, 600);
+    const leaseOwner = safeText(input.leaseOwner || `am-platform:${process.pid}`, 180);
+    const result = await withTenant(tenant, async (client, config) => {
+      await ensureTenant(client, config);
+      const leased = await client.query(
+        `WITH ready AS (
+           SELECT job_id
+             FROM am_memory.processing_jobs
+            WHERE tenant_id = $1
+              AND job_kind = $2
+              AND (
+                (status IN ('queued', 'retry') AND available_at <= clock_timestamp())
+                OR (status = 'leased' AND lease_expires_at <= clock_timestamp())
+              )
+            ORDER BY available_at, created_at
+            FOR UPDATE SKIP LOCKED
+            LIMIT $3
+         )
+         UPDATE am_memory.processing_jobs AS jobs
+            SET status = 'leased',
+                attempt_count = jobs.attempt_count + 1,
+                lease_owner = $4,
+                lease_expires_at = clock_timestamp() + make_interval(secs => $5),
+                updated_at = clock_timestamp()
+           FROM ready
+          WHERE jobs.tenant_id = $1 AND jobs.job_id = ready.job_id
+         RETURNING jobs.job_id, jobs.status, jobs.attempt_count, jobs.max_attempts,
+                   jobs.input_payload, jobs.idempotency_key`,
+        [config.tenantId, jobKind, limit, leaseOwner, leaseSeconds],
+      );
+      return leased.rows;
+    });
+    return result.skipped ? [] : result.value;
+  }
+
+  async function settleProcessingJob(tenant, input = {}) {
+    const jobId = safeText(input.jobId, 120);
+    const status = safeText(input.status, 40);
+    if (!jobId || !PROCESSING_JOB_STATUSES.has(status)) throw new Error('Invalid processing job settlement');
+    const retryDelaySeconds = positiveInt(input.retryDelaySeconds, 15, 3600);
+    const outputPayload = input.outputPayload && typeof input.outputPayload === 'object' && !Array.isArray(input.outputPayload)
+      ? input.outputPayload
+      : {};
+    const errorPayload = input.errorPayload && typeof input.errorPayload === 'object' && !Array.isArray(input.errorPayload)
+      ? input.errorPayload
+      : {};
+    const result = await withTenant(tenant, async (client, config) => {
+      const updated = await client.query(
+        `UPDATE am_memory.processing_jobs
+            SET status = $3,
+                available_at = CASE WHEN $3 = 'retry'
+                  THEN clock_timestamp() + make_interval(secs => $4) ELSE available_at END,
+                output_payload = CASE WHEN $3 = 'succeeded' THEN $5::jsonb ELSE output_payload END,
+                last_error = CASE WHEN $3 IN ('retry', 'dead_letter') THEN $6::jsonb ELSE last_error END,
+                lease_owner = NULL,
+                lease_expires_at = NULL,
+                completed_at = CASE WHEN $3 IN ('succeeded', 'dead_letter', 'cancelled')
+                  THEN clock_timestamp() ELSE NULL END,
+                updated_at = clock_timestamp()
+          WHERE tenant_id = $1 AND job_id = $2 AND status = 'leased'
+         RETURNING job_id, status, attempt_count, max_attempts`,
+        [config.tenantId, jobId, status, retryDelaySeconds, JSON.stringify(outputPayload), JSON.stringify(errorPayload)],
+      );
+      return updated.rows[0] || null;
+    });
+    return result.skipped ? null : result.value;
   }
 
   async function ingestLineMessage(ctx) {
@@ -601,6 +704,9 @@ export function createOperationalMemory({ env = process.env, logger = console, p
     failJob,
     snapshot,
     close,
+    enqueueProcessingJob,
+    leaseProcessingJobs,
+    settleProcessingJob,
     settingsForTenant: (tenant) => tenantConfig(tenant, env),
   };
 }

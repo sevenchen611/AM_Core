@@ -460,6 +460,13 @@ const tickTimer = setInterval(() => {
 }, 10 * 60 * 1000);
 tickTimer.unref?.();
 
+// Durable short-latency jobs must not wait for the 10-minute patrol. Individual
+// modules still guard against overlapping work and lease rows in PostgreSQL.
+const fastTickTimer = setInterval(() => {
+  dispatcher.runFastTicks().catch((error) => logger.warn('Fast scheduled tick failed:', error.message));
+}, 5 * 1000);
+fastTickTimer.unref?.();
+
 const port = Number(process.env.PORT || 3000);
 server.listen(port, () => {
   logger.log(`AM Platform listening on port ${port}. Tenants: ${tenants.map((t) => t.key).join(', ') || '(none)'}.`);

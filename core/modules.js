@@ -295,5 +295,24 @@ export function createDispatcher({ tenants, modules, platform, logger = console 
     }
   }
 
-  return { dispatchMessage, dispatchDirectMessage, dispatchDirectPostback, dispatchPostback, collectRoutes, runTicks };
+  // Fast, durable delivery work (for example Finance Claims ingress) is kept
+  // separate from the 10-minute operational patrol so ordinary modules are not
+  // accidentally executed at high frequency.
+  async function runFastTicks() {
+    for (const tenant of tenants) {
+      for (const mod of tenantModules(tenant)) {
+        if (typeof mod.fastTick !== 'function') continue;
+        try {
+          await mod.fastTick({
+            tenant,
+            principal: { kind: 'system', source: 'fast-scheduler' },
+          });
+        } catch (error) {
+          logger.warn(`Module "${mod.name}" fast tick failed (tenant=${tenant.key}): ${error.message}`);
+        }
+      }
+    }
+  }
+
+  return { dispatchMessage, dispatchDirectMessage, dispatchDirectPostback, dispatchPostback, collectRoutes, runTicks, runFastTicks };
 }

@@ -35,9 +35,13 @@ const CLAIM_TYPE_ALIASES = new Map([
 ]);
 const V3_GROUP_COMMANDS = new Set(['請款', '費用申請']);
 const V3_GROUP_EVENT_CONTRACT = 'finance-claims-v3.group-event-ingress-v1';
+const V3_GROUP_QUEUE_JOB_KIND = 'finance_claim_v3_group_entry';
+const V3_GROUP_QUEUE_MAX_ATTEMPTS = 6;
+const V3_GROUP_QUEUE_RETRY_SECONDS = [5, 15, 30, 60, 120, 300];
 
 const sessions = new Map();
 const eventDedupe = new Map();
+const financeV3QueueDrains = new Map();
 
 function init(injected) {
   platform = injected;
@@ -163,27 +167,30 @@ function financeV3GroupEvent(ctx) {
   };
 }
 
-async function forwardFinanceV3GroupEvent(ctx, { env = process.env, fetchImpl = globalThis.fetch } = {}) {
-  const config = financeV3GroupEntryConfig(ctx?.tenant, env);
+async function deliverFinanceV3GroupEvent(tenant, body, {
+  env = process.env,
+  fetchImpl = globalThis.fetch,
+  timeoutMs = 10_000,
+} = {}) {
+  const config = financeV3GroupEntryConfig(tenant, env);
   if (!config.enabled) return { handled: false, reason: 'disabled' };
-  const body = financeV3GroupEvent(ctx);
-  if (!body) return { handled: false, reason: 'not_v3_command' };
-  if (!config.ready) return { handled: true, delivered: false, reason: 'gateway_unavailable' };
+  if (!body || body.contractVersion !== V3_GROUP_EVENT_CONTRACT) return { handled: false, reason: 'not_v3_command' };
+  if (!config.ready) return { handled: true, delivered: false, reason: 'gateway_unavailable', retryable: true };
   let response;
   try {
     response = await fetchImpl(config.endpoint, {
       method: 'POST',
       redirect: 'error',
-      signal: AbortSignal.timeout(10_000),
+      signal: AbortSignal.timeout(Math.max(1_000, Math.min(Number(timeoutMs) || 10_000, 90_000))),
       headers: { authorization: `Bearer ${config.token}`, 'content-type': 'application/json' },
       body: JSON.stringify(body),
     });
   } catch {
-    return { handled: true, delivered: false, reason: 'gateway_uncertain' };
+    return { handled: true, delivered: false, reason: 'gateway_uncertain', retryable: true };
   }
   if (response.redirected || response.url !== config.endpoint) {
     await response.body?.cancel().catch(() => {});
-    return { handled: true, delivered: false, reason: 'gateway_invalid' };
+    return { handled: true, delivered: false, reason: 'gateway_invalid', retryable: false };
   }
   let result = null;
   try {
@@ -191,7 +198,12 @@ async function forwardFinanceV3GroupEvent(ctx, { env = process.env, fetchImpl = 
     if (raw.length > 16 * 1024) throw new Error('response_too_large');
     result = JSON.parse(raw);
   } catch {
-    return { handled: true, delivered: false, reason: 'gateway_invalid' };
+    return {
+      handled: true,
+      delivered: false,
+      reason: 'gateway_invalid',
+      retryable: response.status === 429 || response.status >= 500,
+    };
   }
   const valid = response.status === 200
     && result && !Array.isArray(result) && result.contractVersion === V3_GROUP_EVENT_CONTRACT
@@ -199,9 +211,148 @@ async function forwardFinanceV3GroupEvent(ctx, { env = process.env, fetchImpl = 
     && Number.isInteger(result.intercepted) && result.intercepted === 1
     && Number.isInteger(result.queued) && result.queued >= 0
     && Number.isInteger(result.replayed) && result.replayed >= 0;
-  if (!valid) return { handled: true, delivered: false, reason: 'gateway_rejected' };
-  if (result.queued < 1 && result.replayed < 1) return { handled: true, delivered: false, reason: 'identity_not_allowed' };
+  if (!valid) return {
+    handled: true,
+    delivered: false,
+    reason: 'gateway_rejected',
+    retryable: response.status === 429 || response.status >= 500,
+  };
+  if (result.queued < 1 && result.replayed < 1) {
+    return { handled: true, delivered: false, reason: 'identity_not_allowed', retryable: false };
+  }
   return { handled: true, delivered: true, replayed: result.replayed > 0 };
+}
+
+async function forwardFinanceV3GroupEvent(ctx, options = {}) {
+  const body = financeV3GroupEvent(ctx);
+  if (!body) return { handled: false, reason: 'not_v3_command' };
+  return deliverFinanceV3GroupEvent(ctx?.tenant, body, options);
+}
+
+function financeV3QueueInput(ctx) {
+  const event = financeV3GroupEvent(ctx);
+  if (!event) return null;
+  return {
+    contractVersion: V3_GROUP_EVENT_CONTRACT,
+    event,
+    applicantUserId: cleanText(event.source.userId, 128),
+  };
+}
+
+function financeV3QueueRetryDelay(attemptCount) {
+  return V3_GROUP_QUEUE_RETRY_SECONDS[Math.min(
+    V3_GROUP_QUEUE_RETRY_SECONDS.length - 1,
+    Math.max(0, Number(attemptCount || 1) - 1),
+  )];
+}
+
+async function enqueueFinanceV3GroupEvent(ctx) {
+  const memory = platform?.operationalMemory;
+  const inputPayload = financeV3QueueInput(ctx);
+  if (!inputPayload || typeof memory?.enqueueProcessingJob !== 'function') {
+    return { queued: false, reason: 'queue_unavailable' };
+  }
+  try {
+    const result = await memory.enqueueProcessingJob(ctx.tenant, {
+      jobKind: V3_GROUP_QUEUE_JOB_KIND,
+      idempotencyKey: inputPayload.event.eventId,
+      maxAttempts: V3_GROUP_QUEUE_MAX_ATTEMPTS,
+      inputPayload,
+    });
+    if (!result?.ok) return { queued: false, reason: result?.skipped || 'queue_unavailable' };
+    return { queued: true, status: cleanText(result.job?.status, 40), jobId: cleanText(result.job?.job_id, 120) };
+  } catch (error) {
+    platform?.logger?.warn?.(`Finance Claims v3 queue persist failed (tenant=${ctx.tenant?.key || 'unknown'}): ${error.message}`);
+    return { queued: false, reason: 'queue_persist_failed' };
+  }
+}
+
+function validFinanceV3QueuePayload(value) {
+  const event = value?.event;
+  return Boolean(value && value.contractVersion === V3_GROUP_EVENT_CONTRACT
+    && event?.contractVersion === V3_GROUP_EVENT_CONTRACT
+    && cleanText(event.eventId, 180)
+    && event.eventType === 'message'
+    && cleanText(event.source?.groupId, 128)
+    && cleanText(event.source?.userId, 128)
+    && event.message?.type === 'text'
+    && V3_GROUP_COMMANDS.has(cleanText(event.message?.text, 80)));
+}
+
+async function settleFinanceV3QueueJob(tenant, job, status, details = {}) {
+  return platform.operationalMemory.settleProcessingJob(tenant, {
+    jobId: cleanText(job.job_id, 120),
+    status,
+    retryDelaySeconds: financeV3QueueRetryDelay(job.attempt_count),
+    outputPayload: status === 'succeeded' ? details : {},
+    errorPayload: status === 'retry' || status === 'dead_letter' ? details : {},
+  });
+}
+
+async function drainFinanceV3GroupQueue(tenant, {
+  env = process.env,
+  fetchImpl = globalThis.fetch,
+  timeoutMs = 70_000,
+  limit = 2,
+} = {}) {
+  const memory = platform?.operationalMemory;
+  if (typeof memory?.leaseProcessingJobs !== 'function' || typeof memory?.settleProcessingJob !== 'function') {
+    return { processed: 0, skipped: 'queue_unavailable' };
+  }
+  const jobs = await memory.leaseProcessingJobs(tenant, {
+    jobKind: V3_GROUP_QUEUE_JOB_KIND,
+    limit,
+    leaseSeconds: Math.ceil((Number(timeoutMs) || 70_000) / 1000) + 30,
+  });
+  let delivered = 0;
+  let retried = 0;
+  let failed = 0;
+  for (const job of jobs) {
+    const input = job.input_payload;
+    if (!validFinanceV3QueuePayload(input)) {
+      await settleFinanceV3QueueJob(tenant, job, 'dead_letter', { reason: 'invalid_queue_payload' });
+      failed += 1;
+      continue;
+    }
+    const result = await deliverFinanceV3GroupEvent(tenant, input.event, { env, fetchImpl, timeoutMs });
+    if (result.delivered) {
+      await settleFinanceV3QueueJob(tenant, job, 'succeeded', { replayed: result.replayed === true });
+      delivered += 1;
+      continue;
+    }
+    const exhausted = Number(job.attempt_count) >= Number(job.max_attempts || V3_GROUP_QUEUE_MAX_ATTEMPTS);
+    if (result.retryable === true && !exhausted) {
+      await settleFinanceV3QueueJob(tenant, job, 'retry', { reason: result.reason || 'gateway_uncertain' });
+      retried += 1;
+      continue;
+    }
+    const message = result.reason === 'identity_not_allowed'
+      ? '你的 LINE 身分尚未完成新版請款權限設定，請聯絡財務管理員。'
+      : '新版請款服務多次嘗試後仍無法建立連結，這次沒有建立請款單，請稍後再試。';
+    await notifyFinanceV3Applicant({
+      event: {
+        webhookEventId: input.event.eventId,
+        source: { userId: input.applicantUserId || input.event.source.userId },
+      },
+    }, message);
+    await settleFinanceV3QueueJob(tenant, job, 'dead_letter', { reason: result.reason || 'gateway_failed' });
+    failed += 1;
+  }
+  return { processed: jobs.length, delivered, retried, failed };
+}
+
+function kickFinanceV3GroupQueue(tenant) {
+  const key = cleanText(tenant?.key, 120);
+  if (!key) return Promise.resolve({ processed: 0, skipped: 'tenant_missing' });
+  if (financeV3QueueDrains.has(key)) return financeV3QueueDrains.get(key);
+  const draining = drainFinanceV3GroupQueue(tenant)
+    .catch((error) => {
+      platform?.logger?.warn?.(`Finance Claims v3 queue drain failed (tenant=${key}): ${error.message}`);
+      return { processed: 0, error: error.message };
+    })
+    .finally(() => financeV3QueueDrains.delete(key));
+  financeV3QueueDrains.set(key, draining);
+  return draining;
 }
 
 async function notifyFinanceV3Applicant(ctx, message) {
@@ -1007,7 +1158,14 @@ async function onMessage(ctx) {
       await notifyFinanceV3Applicant(ctx, access.error);
       return true;
     }
-    const forwarded = await forwardFinanceV3GroupEvent({ ...ctx, binding });
+    const queued = await enqueueFinanceV3GroupEvent({ ...ctx, binding });
+    if (queued.queued) {
+      void kickFinanceV3GroupQueue(ctx.tenant);
+      return true;
+    }
+    // A queue configuration outage must not silently drop the command. Keep a
+    // bounded direct path as a fail-safe; it still never falls back to v1.
+    const forwarded = await forwardFinanceV3GroupEvent({ ...ctx, binding }, { timeoutMs: 70_000 });
     if (forwarded.delivered) return true;
     const message = forwarded.reason === 'identity_not_allowed'
       ? '你的 LINE 身分尚未完成新版請款權限設定，請聯絡財務管理員。'
@@ -1029,6 +1187,11 @@ async function onMessage(ctx) {
     await platform.pushLineMessage(ctx.groupId, message, undefined, { retryKey: session.id });
   });
   return true;
+}
+
+async function fastTick({ tenant }) {
+  if (!financeV3GroupEntryConfig(tenant).enabled) return { processed: 0, skipped: 'disabled' };
+  return kickFinanceV3GroupQueue(tenant);
 }
 
 async function replyDirectClaim(ctx, message, retryKey = '') {
@@ -1121,6 +1284,7 @@ export default {
   init,
   onMessage,
   onDirectMessage,
+  fastTick,
   routes: [
     {
       prefix: '/claims/liff',
@@ -1164,6 +1328,12 @@ export const __test = {
   financeV3GroupEntryConfig,
   financeV3GroupEvent,
   forwardFinanceV3GroupEvent,
+  deliverFinanceV3GroupEvent,
+  enqueueFinanceV3GroupEvent,
+  drainFinanceV3GroupQueue,
+  financeV3QueueRetryDelay,
+  validFinanceV3QueuePayload,
+  financeV3QueueDrains,
   notifyFinanceV3Applicant,
   eventDedupe,
   sessions,
