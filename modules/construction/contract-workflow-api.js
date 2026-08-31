@@ -176,11 +176,12 @@ function routeFor(method, pathname) {
     return { operation: 'issueDraftReview', capability: 'manage', body: true, review: true,
       contractId: decodeSegment(match[1]), versionId: decodeSegment(match[2]) };
   }
-  match = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/versions\/([^/]+)\/(submit-review|approve|freeze|readiness|issue|retry-signing)$/);
+  match = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/versions\/([^/]+)\/(submit-review|return-draft|approve|freeze|readiness|issue|retry-signing)$/);
   if (!match) return { notFound: true };
   const action = match[3];
   const definitions = {
     'submit-review': { method: 'POST', operation: 'submitVersionForReview', capability: 'manage', body: true },
+    'return-draft': { method: 'POST', operation: 'returnVersionToDraft', capability: 'manage', body: true },
     approve: { method: 'POST', operation: 'approveVersion', capability: 'issue', body: true },
     freeze: { method: 'POST', operation: 'freezeVersion', capability: 'issue', body: true },
     readiness: { method: 'GET', operation: 'issueReadiness', capability: 'view' },
@@ -331,6 +332,12 @@ export function createContractWorkflowApiHandler(deps) {
       sendJson(res, 200, { ok: true, data });
       return true;
     } catch (error) {
+      console.error('[contract-workflow]', {
+        operation: route.operation || 'unknown',
+        code: String(error?.code || 'INTERNAL_ERROR'),
+        statusCode: Number(error?.statusCode) || 500,
+        message: String(error?.message || 'Contract workflow request failed.'),
+      });
       const response = publicError(error);
       sendJson(res, response.statusCode, response.payload);
       return true;

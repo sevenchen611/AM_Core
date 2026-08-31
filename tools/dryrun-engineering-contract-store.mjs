@@ -65,6 +65,11 @@ assert.doesNotMatch(storeSource, /expires_at, created_by\)/, 'legacy unsafe sign
 assert.match(storeSource, /async function getSigningBundle/);
 assert.match(
   storeSource,
+  /input\.status === 'draft' \? 'draft' : 'ready_to_issue'/,
+  'returning an internal-review version must project the contract workflow back to draft',
+);
+assert.match(
+  storeSource,
   /CASE WHEN r\.status = 'created' THEN 'sent' ELSE r\.status END/,
   'draft-review send update must qualify status against the target table alias',
 );

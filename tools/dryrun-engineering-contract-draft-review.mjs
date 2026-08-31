@@ -110,6 +110,21 @@ assert.match(pushedMessage, /不是正式簽署/);
 assert.match(pushedMessage, /\/contract-review\?openExternalBrowser=1#token=/);
 assert.equal(JSON.stringify(issued).includes(deterministicToken), false, 'raw token must not return to admin UI');
 
+const unreadableService = createContractDraftReviewService(deps, {
+  artifactService,
+  managementService: { async getContractDetail() { return { contract, versions: [version], latestVersion: version }; } },
+  authorityResolver: async () => ({ groupBindingId: 'notion-group-binding-1234', lineGroupId: 'Cgroup1234' }),
+  bodyExtractor: async () => { throw new Error('zip parse failed'); },
+  randomBytes: (size) => Buffer.alloc(size, 8),
+  clock: () => new Date(now),
+});
+await assert.rejects(
+  () => unreadableService.issueDraftReview(context, { contractId: contract.id, versionId: version.id }),
+  (error) => error.code === 'DRAFT_REVIEW_SOURCE_PREPARE_FAILED'
+    && /Word／PDF/.test(error.message)
+    && error.statusCode === 422,
+);
+
 const req = { headers: { 'user-agent': 'draft-review-test' }, socket: { remoteAddress: '203.0.113.8' } };
 const opened = await service.openReview(context.tenant, { token: deterministicToken }, req);
 assert.equal(opened.status, 'opened');

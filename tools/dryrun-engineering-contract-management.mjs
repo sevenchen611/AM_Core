@@ -224,8 +224,8 @@ function createMemoryStore() {
         approvedBy: 'approved_by',
       };
       row.status = input.status;
-      row[timeFields[input.transitionTimeField]] = input.transitionedAt;
-      row[actorFields[input.transitionActorField]] = input.transitionedBy;
+      if (timeFields[input.transitionTimeField]) row[timeFields[input.transitionTimeField]] = input.transitionedAt;
+      if (actorFields[input.transitionActorField]) row[actorFields[input.transitionActorField]] = input.transitionedBy;
       return wrap(row);
     },
 
@@ -426,6 +426,25 @@ test('moves a draft through review and approval CAS before freezing the same imm
   assert.equal(submitted.version.reviewSubmittedBy, context.actor);
   assert.deepEqual(submitted.version.snapshot, originalSnapshot);
 
+  const returned = await service.returnVersionToDraft(context, {
+    contractId: 'contract-1',
+    versionId: created.version.id,
+  });
+  assert.equal(returned.version.status, 'draft');
+  assert.deepEqual(returned.transition, {
+    from: 'internal_review',
+    to: 'draft',
+    at: EXPECTED_NOW,
+    by: context.actor,
+  });
+  assert.deepEqual(returned.version.snapshot, originalSnapshot);
+
+  const resubmitted = await service.submitVersionForReview(context, {
+    contractId: 'contract-1',
+    versionId: created.version.id,
+  });
+  assert.equal(resubmitted.version.status, 'internal_review');
+
   const approved = await service.approveVersion(context, {
     contractId: 'contract-1',
     versionId: created.version.id,
@@ -447,6 +466,8 @@ test('moves a draft through review and approval CAS before freezing the same imm
     item.input.status,
     item.input.actor,
   ]), [
+    ['draft', 'internal_review', context.actor],
+    ['internal_review', 'draft', context.actor],
     ['draft', 'internal_review', context.actor],
     ['internal_review', 'approved', context.actor],
   ]);
