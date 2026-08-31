@@ -195,6 +195,19 @@ function routeFor(method, pathname) {
     return { operation: 'previewInternal', capability: 'view', review: true, binary: true,
       contractId: decodeSegment(match[1]), versionId: decodeSegment(match[2]) };
   }
+  match = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/versions\/([^/]+)\/line-archives$/);
+  if (match) {
+    if (method === 'GET') return { operation: 'listLineArchives', capability: 'view', review: true,
+      contractId: decodeSegment(match[1]), versionId: decodeSegment(match[2]) };
+    if (method === 'POST') return { operation: 'backfillLineArchives', capability: 'manage', review: true, body: true,
+      contractId: decodeSegment(match[1]), versionId: decodeSegment(match[2]) };
+    return { methodNotAllowed: true, allow: 'GET, POST' };
+  }
+  match = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/versions\/([^/]+)\/line-archives\/([^/]+)$/);
+  if (method === 'GET' && match) {
+    return { operation: 'loadInternalLineArchive', capability: 'view', review: true, binary: true,
+      contractId: decodeSegment(match[1]), versionId: decodeSegment(match[2]), archiveId: decodeSegment(match[3]) };
+  }
   match = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/versions\/([^/]+)\/internal-attachments\/([^/]+)$/);
   if (method === 'GET' && match) {
     return { operation: 'loadInternalAttachment', capability: 'view', review: true, binary: true,
@@ -331,6 +344,7 @@ export function createContractWorkflowApiHandler(deps) {
       if (route.versionId) bindPathReference(input, 'versionId', route.versionId);
       if (route.sessionId) bindPathReference(input, 'sessionId', route.sessionId);
       if (route.attachmentId) bindPathReference(input, 'attachmentId', route.attachmentId);
+      if (route.archiveId) bindPathReference(input, 'archiveId', route.archiveId);
       if (route.issuance) issuanceService ||= createContractIssuanceService(deps);
       if (route.review) reviewService ||= createContractDraftReviewService(deps);
       const completionService = route.completion ? createContractCompletionService(deps, {

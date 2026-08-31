@@ -87,12 +87,12 @@ export function createContractArtifactService(deps, options = {}) {
     }
   }
 
-  async function storePdf({ projectLabel, contractLabel, filename, rendered }) {
+  async function storePdf({ projectLabel, contractLabel, filename, rendered, folderName = '正式簽署文件' }) {
     if (!deps.driveConfigured || !deps.driveRootFolderId) throw artifactError('工程合約 Drive 尚未設定', 503);
     const root = await deps.ensureDriveFolder('工程合約管理', deps.driveRootFolderId);
     const project = await deps.ensureDriveFolder(safeSegment(projectLabel, '工程專案'), root);
     const contract = await deps.ensureDriveFolder(safeSegment(contractLabel, '工程合約'), project);
-    const archive = await deps.ensureDriveFolder('正式簽署文件', contract);
+    const archive = await deps.ensureDriveFolder(safeSegment(folderName, '正式簽署文件'), contract);
     await requirePrivateDrive(archive);
     const uploaded = await deps.uploadToDrive(rendered.buffer, safeSegment(filename, 'contract.pdf'), 'application/pdf', archive);
     if (!uploaded?.id) throw artifactError('Drive 未回傳 PDF 檔案 ID', 502);

@@ -309,6 +309,84 @@ export function renderDraftReviewHistoryAppendix(payload = {}) {
   });
 }
 
+export function renderLineConversationArchive(payload = {}) {
+  const messages = Array.isArray(payload.messages) ? payload.messages : [];
+  const doc = new PDFDocument({
+    size: PAGE.size,
+    margins: { top: PAGE.margin, right: PAGE.margin, bottom: 60, left: PAGE.margin },
+    bufferPages: true,
+    autoFirstPage: true,
+    info: {
+      Title: `${clean(payload.contractNumber) || '工程合約'} V${clean(payload.versionNo) || '—'} LINE 對話封存`,
+      Author: '工程 AM',
+      Subject: '工程合約 LINE 群組對話截圖式封存',
+      CreationDate: safeDate(payload.endedAt),
+      ModDate: safeDate(payload.endedAt),
+    },
+  });
+  const chunks = [];
+  doc.on('data', (chunk) => chunks.push(chunk));
+  const writer = createWriter(doc);
+  writer.paragraph('LINE 群組對話截圖式封存', { size: 20, color: '#0f2742', lineHeight: 30, after: 2 });
+  writer.paragraph(`${clean(payload.contractNumber)} ${clean(payload.title)} ｜ V${clean(payload.versionNo) || '—'} ｜ ${clean(payload.stageLabel)}`, {
+    size: 10, color: '#64748b', after: 5,
+  });
+  writer.labelValue('LINE 群組', clean(payload.groupName) || '未提供');
+  writer.labelValue('封存區間', `${payload.startedAfter ? `${formatTime(payload.startedAfter)} 之後` : '系統最早保存訊息'} ～ ${formatTime(payload.endedAt)}`);
+  writer.labelValue('訊息數量', String(messages.length));
+  writer.paragraph('本檔案由工程 AM 依已落庫的 LINE 訊息自動排版，並非 LINE 官方匯出畫面；原始訊息 ID、時間與檔案雜湊另存於封存證據。', {
+    size: 9, color: '#991b1b', lineHeight: 16, after: 8,
+  });
+  writer.rule();
+  if (!messages.length) writer.paragraph('此封存區間沒有已落庫的 LINE 訊息。', { size: 11, color: '#64748b' });
+  let activeDay = '';
+  messages.forEach((message, index) => {
+    const day = formatTime(message.time).slice(0, 10);
+    if (day !== activeDay) {
+      activeDay = day;
+      writer.heading(day, 1);
+    }
+    writer.paragraph(`${formatTime(message.time).slice(11, 19)}　${clean(message.sender) || '未知發言人'}`, {
+      size: 9, color: '#166534', lineHeight: 15, after: 1,
+    });
+    writer.paragraph(clean(message.content) || `[${clean(message.messageType) || '其他訊息'}]`, {
+      x: PAGE.margin + 14, width: PAGE.width - (PAGE.margin * 2) - 28,
+      size: 10, color: '#1f2937', lineHeight: 17, after: 3,
+    });
+    for (const attachment of Array.isArray(message.attachments) ? message.attachments : []) {
+      writer.paragraph(`附件：${clean(attachment.name) || '未命名檔案'}${attachment.sha256 ? ` ｜ SHA-256 ${attachment.sha256}` : ''}`, {
+        x: PAGE.margin + 14, width: PAGE.width - (PAGE.margin * 2) - 28,
+        size: 8, color: '#64748b', lineHeight: 13, after: 2,
+      });
+      if (Buffer.isBuffer(attachment.buffer) && /^image\/(png|jpeg)$/.test(clean(attachment.mimeType))) {
+        writer.ensure(190);
+        try {
+          doc.image(attachment.buffer, PAGE.margin + 14, doc.y, { fit: [390, 180], align: 'left', valign: 'top' });
+          doc.y += 188;
+        } catch {
+          writer.paragraph('（圖片無法嵌入，但原始附件名稱與雜湊已保留。）', { size: 8, color: '#991b1b' });
+        }
+      }
+    }
+    writer.paragraph(`LINE 訊息 ID：${clean(message.messageId) || clean(message.pageId) || '未提供'}`, {
+      x: PAGE.margin + 14, size: 7, color: '#94a3b8', lineHeight: 11, after: 1,
+    });
+    if (index < messages.length - 1) writer.rule();
+  });
+  const range = doc.bufferedPageRange();
+  for (let index = 0; index < range.count; index += 1) {
+    doc.switchToPage(index);
+    writer.fixedText(`LINE 對話封存｜V${clean(payload.versionNo) || '—'}｜Engineering AM｜${index + 1} / ${range.count}`, {
+      x: PAGE.margin, y: PAGE.height - 90, width: PAGE.width - (PAGE.margin * 2), align: 'center', size: 8,
+    });
+  }
+  doc.end();
+  return new Promise((resolve, reject) => {
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+  });
+}
+
 function renderContractPdf(payload) {
   const contract = payload.contract;
   const version = payload.version;

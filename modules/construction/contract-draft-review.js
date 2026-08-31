@@ -4,6 +4,7 @@ import { createContractArtifactService } from './contract-artifacts.js';
 import { resolveAuthoritativeContractGroup } from './contract-authority.js';
 import { createContractManagementService } from './contract-management.js';
 import { renderDraftReviewHistoryAppendix } from './contract-pdf-renderer.js';
+import { captureContractLineArchive, publicLineArchive } from './contract-line-archive.js';
 import { isRenderInternalProxyPeer } from './contract-runtime.js';
 
 const REVIEW_TTL_MS = 14 * 24 * 60 * 60 * 1000;
@@ -76,9 +77,22 @@ function reviewAttachments(source) {
   });
 }
 
+function lineArchiveAttachments(rows) {
+  return (Array.isArray(rows) ? rows : []).map((row, index) => ({
+    id: `line-${row.id || index}`, fileId: text(row.pdf_drive_file_id || row.driveFileId),
+    sha256: text(row.pdf_sha256 || row.sha256).toLowerCase(),
+    name: row.file_name || `V${row.version_no || '—'} LINE 對話封存.pdf`,
+    category: 'line_conversation_archive', mimeType: 'application/pdf',
+  })).filter((item) => item.fileId && /^[a-f0-9]{64}$/.test(item.sha256));
+}
+function publicLineArchiveAttachments(rows) {
+  return lineArchiveAttachments(rows).map(({ id, name, category, mimeType }) => ({ id, name, category, mimeType }));
+}
+
 async function downloadVerifiedAttachment(deps, attachment) {
   if (typeof deps.auditDrivePrivate !== 'function') throw reviewError('DRAFT_REVIEW_PRIVACY_AUDIT_REQUIRED', 'Drive 隱私稽核尚未設定。', 503);
-  await deps.auditDrivePrivate(attachment.fileId);
+  const privacy = await deps.auditDrivePrivate(attachment.fileId);
+  if (privacy?.private !== true) throw reviewError('DRAFT_REVIEW_SOURCE_NOT_PRIVATE', `附件不是私有檔案：${attachment.name}`, 409);
   const downloaded = await deps.downloadFromDrive(attachment.fileId, MAX_SOURCE_BYTES);
   if (!Buffer.isBuffer(downloaded?.buffer) || !downloaded.buffer.length) throw reviewError('DRAFT_REVIEW_DOCUMENT_UNAVAILABLE', `無法讀取附件：${attachment.name}`, 502);
   if (crypto.createHash('sha256').update(downloaded.buffer).digest('hex') !== attachment.sha256) {
@@ -87,7 +101,7 @@ async function downloadVerifiedAttachment(deps, attachment) {
   return downloaded.buffer;
 }
 
-async function composeDraftBundle(baseBuffer, attachments, deps, reviewHistory = [], contract = {}, currentVersionNo = '') {
+export async function composeDraftBundle(baseBuffer, attachments, deps, reviewHistory = [], contract = {}, currentVersionNo = '', options = {}) {
   const { PDFDocument, StandardFonts, degrees, rgb } = await import('pdf-lib');
   const target = await PDFDocument.load(baseBuffer);
   const watermarkFont = await target.embedFont(StandardFonts.HelveticaBold);
@@ -104,19 +118,19 @@ async function composeDraftBundle(baseBuffer, attachments, deps, reviewHistory =
       if (attachment.mimeType === 'application/pdf' || attachment.name.toLowerCase().endsWith('.pdf')) {
         const source = await PDFDocument.load(bytes);
         const pages = await target.copyPages(source, source.getPageIndices());
-        pages.forEach((page) => { target.addPage(page); mark(page); });
+        pages.forEach((page) => { target.addPage(page); if (options.watermark !== false) mark(page); });
       } else if (attachment.mimeType === 'image/png' || attachment.name.toLowerCase().endsWith('.png')) {
         const image = await target.embedPng(bytes);
         const page = target.addPage([595.28, 841.89]);
         const scale = Math.min(523 / image.width, 770 / image.height, 1);
         const width = image.width * scale; const height = image.height * scale;
-        page.drawImage(image, { x: (595.28 - width) / 2, y: (841.89 - height) / 2, width, height }); mark(page);
+        page.drawImage(image, { x: (595.28 - width) / 2, y: (841.89 - height) / 2, width, height }); if (options.watermark !== false) mark(page);
       } else if (attachment.mimeType === 'image/jpeg' || /\.jpe?g$/i.test(attachment.name)) {
         const image = await target.embedJpg(bytes);
         const page = target.addPage([595.28, 841.89]);
         const scale = Math.min(523 / image.width, 770 / image.height, 1);
         const width = image.width * scale; const height = image.height * scale;
-        page.drawImage(image, { x: (595.28 - width) / 2, y: (841.89 - height) / 2, width, height }); mark(page);
+        page.drawImage(image, { x: (595.28 - width) / 2, y: (841.89 - height) / 2, width, height }); if (options.watermark !== false) mark(page);
       }
     } catch (error) {
       throw reviewError('DRAFT_REVIEW_ATTACHMENT_RENDER_FAILED', `附件無法合併到草約：${attachment.name}`, 422, { cause: error?.message });
@@ -132,7 +146,7 @@ async function composeDraftBundle(baseBuffer, attachments, deps, reviewHistory =
     if (appendix) {
       const source = await PDFDocument.load(appendix);
       const pages = await target.copyPages(source, source.getPageIndices());
-      pages.forEach((page) => { target.addPage(page); mark(page); });
+      pages.forEach((page) => { target.addPage(page); if (options.watermark !== false) mark(page); });
     }
   }
   const output = Buffer.from(await target.save({ useObjectStreams: false }));
@@ -316,6 +330,20 @@ export function createContractDraftReviewService(deps, options = {}) {
       throw reviewStepError(error, 'DRAFT_REVIEW_RECORD_FAILED',
         '草約審閱紀錄無法建立，LINE 尚未發送，請稍後重試。', 503);
     }
+    try {
+      await captureContractLineArchive(deps, {
+        context, contract, version, group, stage: 'draft_review',
+        endedAt: new Date(clock()).toISOString(), externalReviewId,
+        archiveKey: `draft-review-line-archive:${context.tenant.key}:${externalReviewId}`,
+      }, { artifactService: artifacts });
+    } catch (error) {
+      await deps.contractStore.revokeDraftReview(context.tenant, {
+        externalReviewId, revokedAt: new Date(clock()).toISOString(), actor: context.actor,
+        reason: 'line_archive_failed',
+      }).catch(() => {});
+      throw reviewStepError(error, 'DRAFT_REVIEW_LINE_ARCHIVE_FAILED',
+        'LINE 對話封存失敗，草約尚未送出；請確認訊息庫與 Drive 後重試。', 503);
+    }
     const baseUrl = text(deps.publicBaseUrl).replace(/\/+$/, '');
     if (!/^https:\/\//.test(baseUrl)) throw reviewError('DRAFT_REVIEW_PUBLIC_URL_REQUIRED', '草約審閱網址尚未設定。', 503);
     const protectedLink = `${baseUrl}/contract-review?openExternalBrowser=1#token=${encodeURIComponent(rawToken)}`;
@@ -385,8 +413,12 @@ export function createContractDraftReviewService(deps, options = {}) {
     const history = reviewHistory(
       await deps.contractStore.listDraftReviews(context.tenant, contract.id), version.versionNo,
     );
+    const archives = await deps.contractStore.listLineConversationArchives(
+      context.tenant, contract.id, version.versionNo,
+    );
     const buffer = await composeDraftBundle(
-      rendered.buffer, reviewAttachments(version), deps, history, contract, version.versionNo,
+      rendered.buffer, [...reviewAttachments(version), ...lineArchiveAttachments(archives)],
+      deps, history, contract, version.versionNo,
     );
     return {
       buffer, mimeType: 'application/pdf',
@@ -399,6 +431,52 @@ export function createContractDraftReviewService(deps, options = {}) {
     const { version } = await loadInternalVersion(context, input);
     const selected = reviewAttachments(version).find((item) => item.id === text(input.attachmentId));
     if (!selected) throw reviewError('DRAFT_REVIEW_ATTACHMENT_NOT_FOUND', '找不到這個附件。', 404);
+    const buffer = await downloadVerifiedAttachment(deps, selected);
+    return { buffer, fileId: selected.fileId, sha256: selected.sha256,
+      mimeType: selected.mimeType, fileName: selected.name };
+  }
+
+  async function listLineArchives(context, input = {}) {
+    const { contract, version } = await loadInternalVersion(context, input);
+    const rows = await deps.contractStore.listLineConversationArchives(
+      context.tenant, contract.id, version.versionNo,
+    );
+    return rows.map(publicLineArchive);
+  }
+
+  async function backfillLineArchives(context, input = {}) {
+    const detail = await management.getContractDetail(context, { contractId: input.contractId });
+    const contract = detail.contract;
+    const group = await authorityResolver(deps, {
+      groupBindingId: contractGroupId(contract), projectId: contract.projectId,
+    });
+    const reviews = (await deps.contractStore.listDraftReviews(context.tenant, contract.id))
+      .filter((row) => row.sent_at && row.external_review_id)
+      .sort((left, right) => Date.parse(left.sent_at) - Date.parse(right.sent_at));
+    let priorCutoff = null;
+    const output = [];
+    for (const review of reviews) {
+      const version = detail.versions.find((item) => Number(item.versionNo) === Number(review.version_no));
+      if (!version) continue;
+      const archiveKey = `draft-review-line-archive:${context.tenant.key}:${review.external_review_id}`;
+      const result = await captureContractLineArchive(deps, {
+        context, contract, version, group, stage: 'draft_review', archiveKey,
+        externalReviewId: review.external_review_id, endedAt: review.sent_at,
+        ...(priorCutoff ? { startedAfter: priorCutoff } : {}),
+      }, { artifactService: artifacts });
+      output.push(result);
+      priorCutoff = review.sent_at;
+    }
+    return { createdOrExisting: output.length, archives: output };
+  }
+
+  async function loadInternalLineArchive(context, input = {}) {
+    const { contract } = await loadInternalVersion(context, input);
+    const row = await deps.contractStore.getLineConversationArchive(context.tenant, text(input.archiveId));
+    if (!row || text(row.contract_id) !== text(contract.id)) {
+      throw reviewError('LINE_ARCHIVE_NOT_FOUND', '找不到這份 LINE 對話封存。', 404);
+    }
+    const selected = lineArchiveAttachments([row])[0];
     const buffer = await downloadVerifiedAttachment(deps, selected);
     return { buffer, fileId: selected.fileId, sha256: selected.sha256,
       mimeType: selected.mimeType, fileName: selected.name };
@@ -422,7 +500,9 @@ export function createContractDraftReviewService(deps, options = {}) {
       tokenDigest: loaded.tokenDigest, openedAt, ...evidence,
     }));
     const history = reviewHistory(await deps.contractStore.listDraftReviews(tenant, loaded.row.contract_id), loaded.row.version_no);
-    return { ...publicReview({ ...loaded.row, ...row }), reviewHistory: history };
+    const archives = await deps.contractStore.listLineConversationArchives(tenant, loaded.row.contract_id, loaded.row.version_no);
+    const result = publicReview({ ...loaded.row, ...row });
+    return { ...result, attachments: [...result.attachments, ...publicLineArchiveAttachments(archives)], reviewHistory: history };
   }
 
   async function respond(tenant, input = {}, req) {
@@ -438,12 +518,15 @@ export function createContractDraftReviewService(deps, options = {}) {
       respondedAt: new Date(clock()).toISOString(), ...requestEvidence(req),
     }));
     const history = reviewHistory(await deps.contractStore.listDraftReviews(tenant, loaded.row.contract_id), loaded.row.version_no);
-    return { ...publicReview({ ...loaded.row, ...row }), reviewHistory: history };
+    const archives = await deps.contractStore.listLineConversationArchives(tenant, loaded.row.contract_id, loaded.row.version_no);
+    const result = publicReview({ ...loaded.row, ...row });
+    return { ...result, attachments: [...result.attachments, ...publicLineArchiveAttachments(archives)], reviewHistory: history };
   }
 
   async function loadDocument(tenant, input = {}, kind = 'draft') {
     const { row } = await loadByToken(tenant, input.token);
-    const attachments = reviewAttachments(row);
+    const archiveRows = await deps.contractStore.listLineConversationArchives(tenant, row.contract_id, row.version_no);
+    const attachments = [...reviewAttachments(row), ...lineArchiveAttachments(archiveRows)];
     if (kind === 'attachment' || kind === 'source') {
       const selected = kind === 'source'
         ? attachments.find((item) => item.category === 'contract_body')
@@ -457,14 +540,18 @@ export function createContractDraftReviewService(deps, options = {}) {
       mimeType: 'application/pdf', fileName: `${row.contract_number || 'contract'}-V${row.version_no}-DRAFT.pdf` };
     const baseBuffer = await downloadVerifiedAttachment(deps, { ...selected, name: selected.fileName });
     const history = reviewHistory(await deps.contractStore.listDraftReviews(tenant, row.contract_id), row.version_no);
-    const buffer = await composeDraftBundle(baseBuffer, attachments, deps, history, row, row.version_no);
+    const buffer = await composeDraftBundle(
+      baseBuffer, attachments, deps, history, row, row.version_no,
+    );
     return { buffer, ...selected, sha256: crypto.createHash('sha256').update(buffer).digest('hex') };
   }
 
   return Object.freeze({
     issueDraftReview, listForContract, previewInternal, loadInternalAttachment,
+    listLineArchives, backfillLineArchives, loadInternalLineArchive,
     openReview, respond, loadDocument,
   });
 }
 
-export const __test = { digestToken, missingSections, requestEvidence, publicReview, reviewAttachments, reviewHistory, composeDraftBundle };
+export const __test = { digestToken, missingSections, requestEvidence, publicReview, reviewAttachments,
+  lineArchiveAttachments, publicLineArchiveAttachments, reviewHistory, composeDraftBundle };

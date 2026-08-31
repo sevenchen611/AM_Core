@@ -107,6 +107,9 @@ function fixture(overrides = {}) {
           external_session_id: record.externalSessionId || '',
         } : null;
       },
+      async listLineConversationArchives() {
+        return [{ version_no: 3, stage: 'final_issue', pdf_drive_file_id: 'lineArchiveFile123', pdf_sha256: 'c'.repeat(64) }];
+      },
     },
   };
   if (overrides.baseJobStatus) {
@@ -122,6 +125,14 @@ function fixture(overrides = {}) {
   return {
     service: createContractIssuanceService(deps, {
       managementService, artifactService, authorityResolver, signingFactory, outboxWorker,
+      lineArchiveCapture: async (_deps, input) => {
+        calls.push(['lineArchive', input]);
+        return { driveFileId: 'lineArchiveFile123', sha256: 'c'.repeat(64), fileName: 'line-archive.pdf' };
+      },
+      pdfComposer: async (buffer, attachments, _deps, _history, _contract, _versionNo, options) => {
+        calls.push(['compose', attachments, options]);
+        return buffer;
+      },
       randomUUID: () => 'retry-id',
       clock: () => new Date('2026-08-28T09:00:00.000Z'),
     }),
@@ -202,7 +213,7 @@ function fixture(overrides = {}) {
     contractId: 'contract-1', versionId: 'version-1', signerLineUserId: 'U-signer', actor: 'attacker',
   });
   assert.deepEqual(calls.map((item) => item[0]), [
-    'readiness', 'authority', 'signingFactory', 'render', 'storePdf', 'issueVersion',
+    'readiness', 'authority', 'signingFactory', 'lineArchive', 'render', 'compose', 'storePdf', 'issueVersion',
     'processOutbox', 'signingFactory', 'issueAndSend', 'processOutbox',
   ]);
   const issueCall = calls.find((item) => item[0] === 'issueVersion')[2];

@@ -4,7 +4,7 @@
 import crypto from 'node:crypto';
 
 const SCHEMA = 'engineering_contracts';
-const SCHEMA_VERSION = '2026-08-28.engineering-contract-evidence.v3';
+const SCHEMA_VERSION = '2026-08-31.engineering-contract-evidence.v4';
 
 function envValue(env, tenant, name, fallback = '') {
   const prefix = String(tenant?.envPrefix || '').trim();
@@ -1250,6 +1250,72 @@ export function createContractStore({ env = process.env, logger = console, poolF
     });
   }
 
+  async function createLineConversationArchive(tenant, input) {
+    if (!/^[a-f0-9]{64}$/.test(String(input.sourceManifestSha256 || ''))
+        || !/^[a-f0-9]{64}$/.test(String(input.pdfSha256 || ''))) {
+      throw new Error('LINE conversation archive requires valid SHA-256 evidence.');
+    }
+    return withTenant(tenant, async (client, config) => {
+      const inserted = await client.query(
+        `INSERT INTO ${SCHEMA}.contract_line_conversation_archives
+           (archive_key,version_id,draft_review_id,stage,group_binding_notion_page_id,line_group_id,
+            started_after,ended_at,first_message_id,last_message_id,message_count,source_manifest,
+            source_manifest_sha256,pdf_drive_file_id,pdf_sha256,pdf_byte_size,created_by)
+         SELECT $1,v.id,r.id,$4,$5,$6,$7::timestamptz,$8::timestamptz,$9,$10,$11,$12::jsonb,
+                $13,$14,$15,$16,$17
+           FROM ${SCHEMA}.contract_versions v
+           JOIN ${SCHEMA}.contracts c ON c.id = v.contract_id
+           LEFT JOIN ${SCHEMA}.contract_draft_reviews r
+             ON r.external_review_id = NULLIF($3,'') AND r.version_id = v.id
+          WHERE v.id = $2 AND c.tenant_key = $18
+            AND ($4 <> 'draft_review' OR r.id IS NOT NULL)
+         ON CONFLICT (archive_key) DO NOTHING
+         RETURNING *`,
+        [input.archiveKey, input.versionId, input.externalReviewId || '', input.stage,
+          input.groupBindingId, input.lineGroupId, input.startedAfter || null, input.endedAt,
+          input.firstMessageId || null, input.lastMessageId || null, Number(input.messageCount || 0),
+          JSON.stringify(input.sourceManifest || []), input.sourceManifestSha256,
+          input.pdfDriveFileId, input.pdfSha256, Number(input.pdfByteSize), input.actor, config.tenantKey],
+      );
+      if (inserted.rowCount) return inserted.rows[0];
+      const existing = await client.query(
+        `SELECT a.* FROM ${SCHEMA}.contract_line_conversation_archives a
+          JOIN ${SCHEMA}.contract_versions v ON v.id = a.version_id
+          JOIN ${SCHEMA}.contracts c ON c.id = v.contract_id
+         WHERE c.tenant_key = $1 AND a.archive_key = $2`,
+        [config.tenantKey, input.archiveKey],
+      );
+      return existing.rows[0] || null;
+    });
+  }
+
+  async function listLineConversationArchives(tenant, contractId, maximumVersionNo = null) {
+    const result = await withTenant(tenant, async (client, config) => client.query(
+      `SELECT a.*,v.version_no,r.external_review_id,r.status AS draft_review_status
+         FROM ${SCHEMA}.contract_line_conversation_archives a
+         JOIN ${SCHEMA}.contract_versions v ON v.id = a.version_id
+         JOIN ${SCHEMA}.contracts c ON c.id = v.contract_id
+         LEFT JOIN ${SCHEMA}.contract_draft_reviews r ON r.id = a.draft_review_id
+        WHERE c.tenant_key = $1 AND c.id = $2
+          AND ($3::integer IS NULL OR v.version_no <= $3::integer)
+        ORDER BY a.ended_at,a.created_at,a.id`,
+      [config.tenantKey, contractId, maximumVersionNo == null ? null : Number(maximumVersionNo)],
+    ), { readOnly: true });
+    return result.value.rows;
+  }
+
+  async function getLineConversationArchive(tenant, archiveId) {
+    const result = await withTenant(tenant, async (client, config) => client.query(
+      `SELECT a.*,v.version_no,c.id AS contract_id
+         FROM ${SCHEMA}.contract_line_conversation_archives a
+         JOIN ${SCHEMA}.contract_versions v ON v.id = a.version_id
+         JOIN ${SCHEMA}.contracts c ON c.id = v.contract_id
+        WHERE c.tenant_key = $1 AND a.id = $2 LIMIT 1`,
+      [config.tenantKey, archiveId],
+    ), { readOnly: true });
+    return result.value.rows[0] || null;
+  }
+
   return {
     schema: SCHEMA,
     configured: (tenant) => configFor(env, tenant).configured,
@@ -1281,6 +1347,9 @@ export function createContractStore({ env = process.env, logger = console, poolF
     openDraftReview,
     respondDraftReview,
     revokeDraftReview,
+    createLineConversationArchive,
+    listLineConversationArchives,
+    getLineConversationArchive,
     signingStorage,
     canonical,
     sha256,

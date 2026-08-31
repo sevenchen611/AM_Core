@@ -1,0 +1,75 @@
+{
+  "id": "AM-IMP-2026.0831.04",
+  "name": "Engineering contract LINE conversation archives",
+  "type": "AM Platform / contracts / LINE evidence",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-08-31",
+  "dependsOn": ["AM-IMP-2026.0831.03"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Version-bounded LINE group conversation capture",
+    "Screenshot-style immutable PDF archive",
+    "Draft, issued, signed, and internal-preview PDF composition",
+    "Management-only historical draft backfill"
+  ],
+  "requiresDatabases": ["Engineering-dedicated PostgreSQL schema engineering_contracts v4"],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-line-archive-schema.mjs",
+    "tools/dryrun-engineering-contract-line-archive.mjs",
+    "tools/dryrun-engineering-contract-draft-review.mjs",
+    "tools/dryrun-engineering-contract-issuance.mjs",
+    "tools/dryrun-engineering-contract-completion.mjs",
+    "tools/dryrun-engineering-contract-workflow-api.mjs",
+    "tools/dryrun-engineering-contract-workspace.mjs",
+    "tools/dryrun-engineering-contract-store.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Only messages related to the contract's authoritative Engineering group binding are queried; archives remain in the dedicated contract database and private Engineering Drive root."
+  },
+  "changes": [
+    "Add immutable tenant-scoped LINE conversation archive evidence",
+    "Capture each interval before draft review and final formal issue",
+    "Render sender, time, content, media, message IDs, and hashes into a private PDF",
+    "Append all prior archives to merged draft, issued, and signed PDFs",
+    "Expose protected archive files and a historical backfill action in Engineering AM"
+  ],
+  "definitionOfDone": [
+    "V1 captures all stored group messages up to its send boundary",
+    "Each later version starts strictly after the prior archive boundary",
+    "Archive failure prevents LINE send or formal issue",
+    "Archive retries are idempotent and evidence cannot be updated or deleted",
+    "Existing V1/V2 intervals can be reconstructed without resending LINE",
+    "Authorized staff can open each archive separately and in the merged contract PDF"
+  ],
+  "files": [
+    "core/contract-store.js",
+    "modules/construction/contract-artifacts.js",
+    "modules/construction/contract-completion.js",
+    "modules/construction/contract-draft-review.js",
+    "modules/construction/contract-draft-review-web.js",
+    "modules/construction/contract-issuance.js",
+    "modules/construction/contract-line-archive.js",
+    "modules/construction/contract-pdf-renderer.js",
+    "modules/construction/contract-workflow-api.js",
+    "modules/construction/contracts.js",
+    "tools/dryrun-engineering-contract-line-archive-schema.mjs",
+    "tools/dryrun-engineering-contract-line-archive.mjs",
+    "tools/dryrun-engineering-contract-draft-review.mjs",
+    "tools/dryrun-engineering-contract-issuance.mjs",
+    "tools/dryrun-engineering-contract-workspace.mjs",
+    "versions/AM-IMP-2026.0831.04/schemas/engineering-contract-line-archive-v4.sql",
+    "docs/tenants/engineering/project-improvement-manifest.md",
+    "docs/tenants/engineering/upgrades/AM-IMP-2026.0831.04-contract-line-conversation-archives.md",
+    "versions/AM-IMP-2026.0831.04/README.md",
+    "versions/AM-IMP-2026.0831.04/INSTALL.md",
+    "versions/AM-IMP-2026.0831.04/VERIFY.md",
+    "versions/AM-IMP-2026.0831.04/ROLLBACK.md",
+    "versions/AM-IMP-2026.0831.04/upgrade.json"
+  ]
+}
