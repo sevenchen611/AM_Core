@@ -58,6 +58,7 @@ const priorReview = {
   responded_at: '2026-08-28T10:00:00.000Z',
 };
 let currentResponse = null;
+let lineArchiveInput = null;
 
 const store = {
   async createDraftReview(_tenant, input) { storedInput = input; return { value: { ...baseReview } }; },
@@ -71,11 +72,32 @@ const store = {
   async respondDraftReview(_tenant, input) { responseInput = input; currentResponse = { ...baseReview, status: input.decision,
     decision: input.decision, reviewer_name: input.reviewerName, response_notes: input.notes, responded_at: input.respondedAt }; return { value: currentResponse }; },
   async revokeDraftReview() { return { value: { ...baseReview, status: 'revoked' } }; },
+  async listLineConversationArchives() { return lineArchiveInput ? [{
+    id: 'archive-1', ...lineArchiveInput, archive_key: lineArchiveInput.archiveKey,
+    version_id: lineArchiveInput.versionId, version_no: 2, stage: lineArchiveInput.stage,
+    started_after: lineArchiveInput.startedAfter, ended_at: lineArchiveInput.endedAt,
+    message_count: lineArchiveInput.messageCount, first_message_id: lineArchiveInput.firstMessageId,
+    last_message_id: lineArchiveInput.lastMessageId, pdf_drive_file_id: lineArchiveInput.pdfDriveFileId,
+    pdf_sha256: lineArchiveInput.pdfSha256, created_at: now,
+  }] : []; },
+  async createLineConversationArchive(_tenant, input) { lineArchiveInput = input; return {
+    id: 'archive-1', archive_key: input.archiveKey, version_id: input.versionId, version_no: 2,
+    stage: input.stage, started_after: input.startedAfter, ended_at: input.endedAt,
+    message_count: input.messageCount, first_message_id: input.firstMessageId,
+    last_message_id: input.lastMessageId, pdf_drive_file_id: input.pdfDriveFileId,
+    pdf_sha256: input.pdfSha256, created_at: now,
+  }; },
+  async getLineConversationArchive() { return null; },
 };
 
 const deps = {
   contractStore: store,
   publicBaseUrl: 'https://am.example.test',
+  dataSources: { messages: 'messages-ds-1234' },
+  async notionRequest(pathname) {
+    assert.match(pathname, /messages-ds-1234/);
+    return { results: [], has_more: false };
+  },
   async auditDrivePrivate() { return { private: true }; },
   async pushLineMessage(_groupId, message) { pushedMessage = message; return { ok: true, messageIds: ['line-message-1'] }; },
 };
@@ -129,7 +151,7 @@ const req = { headers: { 'user-agent': 'draft-review-test' }, socket: { remoteAd
 const opened = await service.openReview(context.tenant, { token: deterministicToken }, req);
 assert.equal(opened.status, 'opened');
 assert.equal(openedInput.ipAddress, '203.0.113.8');
-assert.deepEqual(opened.attachments.map((item) => item.category), ['contract_body', 'construction_drawing', 'quotation']);
+assert.deepEqual(opened.attachments.map((item) => item.category), ['contract_body', 'construction_drawing', 'quotation', 'line_conversation_archive']);
 assert.deepEqual(opened.reviewHistory.map((item) => [item.versionNo, item.reviewerName, item.responseNotes]), [
   [1, '陳師傅', 'V1 請補充付款日期與驗收方式'],
 ]);
@@ -148,6 +170,7 @@ assert.match(page, /草約｜不得簽署/);
 assert.match(page, /不構成簽約、承諾或電子簽章/);
 assert.match(page, /提出修改/);
 assert.match(page, /合約與附件檔案/);
+assert.match(page, /LINE 對話封存/);
 assert.match(page, /完整合併草約 PDF/);
 assert.match(page, /開啟 PDF 檔案/);
 assert.match(page, /本次審閱意見/);
@@ -238,6 +261,7 @@ const internalStore = {
   ...store,
   async createDraftReview() { internalReviewCreates += 1; throw new Error('must not create review'); },
   async listDraftReviews() { return [priorReview]; },
+  async listLineConversationArchives() { return []; },
 };
 const internalBuffers = { 'internal-body': bodyBytes, ...attachmentBuffers };
 const internalService = createContractDraftReviewService({
@@ -281,6 +305,15 @@ assert.equal(previewRoute.binary, true);
 const attachmentRoute = apiTest.routeFor('GET', '/contracts/api/v2/contracts/contract-1/versions/version-1/internal-attachments/2');
 assert.equal(attachmentRoute.operation, 'loadInternalAttachment');
 assert.equal(attachmentRoute.attachmentId, '2');
+const archiveListRoute = apiTest.routeFor('GET', '/contracts/api/v2/contracts/contract-1/versions/version-1/line-archives');
+assert.equal(archiveListRoute.operation, 'listLineArchives');
+assert.equal(archiveListRoute.capability, 'view');
+const archiveBackfillRoute = apiTest.routeFor('POST', '/contracts/api/v2/contracts/contract-1/versions/version-1/line-archives');
+assert.equal(archiveBackfillRoute.operation, 'backfillLineArchives');
+assert.equal(archiveBackfillRoute.capability, 'manage');
+const archiveFileRoute = apiTest.routeFor('GET', '/contracts/api/v2/contracts/contract-1/versions/version-1/line-archives/archive-1');
+assert.equal(archiveFileRoute.operation, 'loadInternalLineArchive');
+assert.equal(archiveFileRoute.binary, true);
 const binaryRes = { status: 0, headers: {}, body: null,
   writeHead(status, headers) { this.status = status; this.headers = headers; },
   end(body) { this.body = body; } };

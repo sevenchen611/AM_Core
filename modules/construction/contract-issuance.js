@@ -3,6 +3,8 @@ import { resolveAuthoritativeSigningGroup } from './contract-authority.js';
 import { createContractManagementService } from './contract-management.js';
 import { createRuntimeSigningService } from './contract-runtime.js';
 import { createContractOutboxWorker } from './contract-outbox.js';
+import { captureContractLineArchive } from './contract-line-archive.js';
+import { composeDraftBundle } from './contract-draft-review.js';
 import crypto from 'node:crypto';
 
 function issuanceError(code, message, statusCode = 400, details = {}) {
@@ -126,6 +128,8 @@ export function createContractIssuanceService(deps, options = {}) {
   const authorityResolver = options.authorityResolver || resolveAuthoritativeSigningGroup;
   const signingFactory = options.signingFactory || createRuntimeSigningService;
   const clock = options.clock || (() => new Date());
+  const lineArchiveCapture = options.lineArchiveCapture || captureContractLineArchive;
+  const pdfComposer = options.pdfComposer || composeDraftBundle;
   const outboxWorker = options.outboxWorker || createContractOutboxWorker(deps, {
     signingFactory, authorityResolver, workerId: options.workerId,
   });
@@ -180,20 +184,36 @@ export function createContractIssuanceService(deps, options = {}) {
       expectedSignerCompany: text(contract.counterpartyCompany),
       expectedSignerTitle: text(contract.counterpartyTitle),
     });
+    const issuedAt = new Date(clock()).toISOString();
+    await lineArchiveCapture(deps, {
+      context: authority, contract, version, group, stage: 'final_issue', endedAt: issuedAt,
+      archiveKey: `final-issue-line-archive:${authority.tenant.key}:${version.id}`,
+    }, { artifactService: artifacts });
+    const lineArchives = await deps.contractStore.listLineConversationArchives(
+      authority.tenant, contract.id, version.versionNo,
+    );
     const idempotencyKey = `engineering-contract-issued:${authority.tenant.key}:${version.id}:${version.attachmentManifestHash}`;
-    const rendered = await artifacts.renderPdf('issued_pdf', {
+    const baseRendered = await artifacts.renderPdf('issued_pdf', {
       contract,
       version,
       packageValidation: readiness.packageValidation,
       frozenBundleSha256: version.attachmentManifestHash,
     }, idempotencyKey);
+    const issuedBuffer = await pdfComposer(baseRendered.buffer, lineArchives.map((row) => ({
+      fileId: text(row.pdf_drive_file_id), sha256: text(row.pdf_sha256),
+      name: `V${row.version_no}-${row.stage === 'final_issue' ? '正式送簽前' : '草約送出前'}-LINE對話封存.pdf`,
+      category: 'line_conversation_archive', mimeType: 'application/pdf',
+    })), deps, [], contract, version.versionNo, { watermark: false });
+    const rendered = {
+      buffer: issuedBuffer, sha256: crypto.createHash('sha256').update(issuedBuffer).digest('hex'),
+      byteSize: issuedBuffer.length,
+    };
     const storedPdf = await artifacts.storePdf({
       projectLabel: contract.projectCode || contract.projectId,
       contractLabel: contract.contractNumber || contract.title || contract.id,
       filename: `${contract.contractNumber || contract.id}-v${version.versionNo}-issued.pdf`,
       rendered,
     });
-    const issuedAt = new Date(clock()).toISOString();
     const documentRef = driveDocumentRef(storedPdf.driveFileId);
     const invitationKey = `line-signing-invitation:${authority.tenant.key}:${version.id}:${signerLineUserId}`;
     const projectionKey = `contract-projection:${authority.tenant.key}:${version.id}:issued`;

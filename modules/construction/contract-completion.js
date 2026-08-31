@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { assertProjectScope, requireServerActor } from './contract-domain.js';
+import { composeDraftBundle } from './contract-draft-review.js';
 
 const HASH_RE = /^[a-f0-9]{64}$/;
 const COMPLETABLE = new Set(['signed', 'confirmed', 'completed']);
@@ -376,7 +377,7 @@ export function createContractCompletionService(deps, options = {}) {
 
     let signedPdf = findArtifact(bundle, 'signed_pdf');
     if (!signedPdf) {
-      const rendered = await artifacts.renderPdf('signed_pdf', {
+      const baseRendered = await artifacts.renderPdf('signed_pdf', {
         contract: bundle.contract,
         version: bundle.version,
         immutable: true,
@@ -391,6 +392,20 @@ export function createContractCompletionService(deps, options = {}) {
         times,
         verification,
       }, `engineering-contract-signed-pdf:${authority.tenant.key}:${sessionId}:${bundleHash}:${signatureHash}`);
+      const lineArchives = typeof deps.contractStore.listLineConversationArchives === 'function'
+        ? await deps.contractStore.listLineConversationArchives(
+          authority.tenant, bundle.contractId, Number(first(bundle.version, ['versionNo', 'version_no'])),
+        ) : [];
+      const archiveAttachments = lineArchives.map((row) => ({
+        fileId: text(row.pdf_drive_file_id), sha256: text(row.pdf_sha256),
+        name: `V${row.version_no}-${row.stage === 'final_issue' ? '正式送簽前' : '草約送出前'}-LINE對話封存.pdf`,
+        category: 'line_conversation_archive', mimeType: 'application/pdf',
+      }));
+      const signedBuffer = archiveAttachments.length
+        ? await composeDraftBundle(baseRendered.buffer, archiveAttachments, deps, [], bundle.contract,
+          first(bundle.version, ['versionNo', 'version_no']), { watermark: false })
+        : baseRendered.buffer;
+      const rendered = { buffer: signedBuffer, sha256: hash(signedBuffer), byteSize: signedBuffer.length };
       const stored = await artifacts.storePdf({
         projectLabel: bundle.projectCode || bundle.projectId,
         contractLabel: text(first(bundle.contract, ['contractNumber', 'contract_number', 'title'], bundle.contractId)),
