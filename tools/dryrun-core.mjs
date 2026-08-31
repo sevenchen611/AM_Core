@@ -200,6 +200,7 @@ await check('重複群組綁定一律拒絕路由', async () => {
   assert.equal((await router.resolveGroupBinding('gDUPLICATE')).tenant, null);
   router.invalidate();
   assert.equal((await router.resolveGroupBinding('gCROSS')).tenant, null);
+  assert.equal((await router.resolveGroupBinding('gCROSS')).resolution, 'ambiguous', 'cached ambiguity must remain fail closed');
 });
 
 // 7) 守衛:未登記的資料源 → 拒絕

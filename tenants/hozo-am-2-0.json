@@ -69,10 +69,13 @@
       "requireActiveBinding": true,
       "requireClaimCapability": true,
       "requireNamedSubmitter": true,
-      "v3GroupEntry": {
+      "v3Direct": {
         "enabledEnv": "HZ2_FINANCE_CLAIMS_V3_GROUP_ENTRY_ENABLED",
-        "gatewayUrlEnv": "HZ2_FINANCE_CLAIMS_V3_GATEWAY_URL",
-        "gatewayTokenEnv": "HZ2_FINANCE_CLAIMS_V3_GATEWAY_TOKEN"
+        "databaseUrlEnv": "HZ2_FINANCE_CLAIMS_V3_DATABASE_URL",
+        "recipientBindingsEnv": "HZ2_FINANCE_CLAIMS_V3_RECIPIENT_BINDINGS_JSON",
+        "sourceId": "source-hozo-company-group",
+        "formKey": "general_expense",
+        "tenantKey": "hozo"
       },
       "status": "已啟用；僅在群組綁定為啟用、群組啟用請款功能且送件人 LINE user ID 已列入白名單時才可送件。"
     }

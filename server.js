@@ -30,6 +30,9 @@ for (const t of tenants) {
 }
 
 const routes = dispatcher.collectRoutes();
+const financeClaimsModule = modules.get('claims') || null;
+const financeClaimsTenant = tenants.find((tenant) => tenant.key === 'hozo-am-2-0') || null;
+const financeInterceptedEvents = new WeakSet();
 
 const html = (value) => String(value || '').replace(/[&<>"']/g, (c) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -389,6 +392,37 @@ const server = http.createServer(async (req, res) => {
       logger.error('Unable to parse LINE webhook body:', error);
       return sendJson(res, 400, { error: 'Invalid JSON' });
     }
+    try {
+      for (const event of body.events || []) {
+        const financeCandidate = (event?.type === 'message'
+          && event.message?.type === 'text'
+          && ['請款', '費用申請'].includes(String(event.message.text || '').trim()))
+          || event?.type === 'memberJoined' || event?.type === 'memberLeft';
+        if (!financeCandidate
+          || typeof financeClaimsModule?.ownsFinanceV3LineEvent !== 'function'
+          || typeof financeClaimsModule?.preAckLineEvent !== 'function') continue;
+        const locallyOwned = financeClaimsModule.ownsFinanceV3LineEvent({ tenant: financeClaimsTenant, event });
+        const groupId = event.source?.groupId || event.source?.roomId || '';
+        if (!groupId) {
+          if (locallyOwned) throw new Error('finance_claim_group_missing');
+          continue;
+        }
+        const { tenant, binding, resolution } = await router.resolveGroupBinding(groupId);
+        const claimsCapability = String(financeClaimsTenant?.config?.claims?.capability || '請款');
+        const knownFinanceBinding = tenant?.key === financeClaimsTenant?.key
+          && binding && Array.isArray(binding.capabilities) && binding.capabilities.includes(claimsCapability);
+        if (!locallyOwned && !knownFinanceBinding) continue;
+        if (['lookup_failed', 'ambiguous'].includes(resolution)) {
+          throw new Error('finance_claim_binding_unavailable');
+        }
+        if (tenant && tenant.key !== financeClaimsTenant?.key) throw new Error('finance_claim_binding_scope_mismatch');
+        const result = await financeClaimsModule.preAckLineEvent({ tenant: financeClaimsTenant, binding, event });
+        if (result?.intercepted) financeInterceptedEvents.add(event);
+      }
+    } catch (error) {
+      logger.warn(`Finance Claims v3 pre-ack persistence failed: ${error.message}`);
+      return sendJson(res, 503, { error: 'Finance claim intake is temporarily unavailable.' });
+    }
     sendText(res, 200, 'OK'); // 先回 200,事件背景處理(比照 BuildAM)
     Promise.all((body.events || []).map((event) => handleEvent(event)))
       .catch((error) => logger.error('Unable to process LINE webhook events:', error));
@@ -431,6 +465,7 @@ const server = http.createServer(async (req, res) => {
 
 // 收到一則事件 → 解析租戶/綁定 → 交分派器。未綁定 = 不落庫、不回話(照 BuildAM)。
 async function handleEvent(event) {
+  if (financeInterceptedEvents.has(event)) return;
   const direct = await routeDirectLineEvent({
     event,
     router,

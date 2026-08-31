@@ -14,7 +14,8 @@
     "dryrun:contract-review": "node tools/dryrun-engineering-contract-draft-review.mjs",
     "dryrun:task-card": "node tools/dryrun-task-card.mjs",
     "dryrun:groups": "node tools/dryrun-groups.mjs",
-    "dryrun:finance-v3-gateway": "node tools/dryrun-finance-v3-group-gateway.mjs",
+    "dryrun:finance-v3-direct": "node tools/dryrun-finance-v3-direct.mjs",
+    "inventory:finance-v3-legacy": "node tools/inventory-finance-v3-legacy-jobs.mjs",
     "dryrun:processing-jobs": "node tools/dryrun-processing-jobs-store.mjs"
   },
   "dependencies": {
