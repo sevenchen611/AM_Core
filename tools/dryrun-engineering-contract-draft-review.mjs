@@ -218,6 +218,54 @@ const composed = await reviewTest.composeDraftBundle(baseBytes, [{
 const composedPdf = await PDFDocument.load(composed);
 assert.equal(composedPdf.getPageCount(), 5, 'draft preview must append source files and the review-history appendix');
 
+const bodyBytes = Buffer.from('internal contract source');
+const internalVersion = {
+  ...version,
+  snapshot: { documentPackage: {
+    contractBody: { fileId: 'internal-body', name: 'contract.docx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      sha256: crypto.createHash('sha256').update(bodyBytes).digest('hex') },
+    constructionDrawings: [{ fileId: 'drawing-file', name: 'drawing.pdf',
+      mimeType: 'application/pdf', sha256: drawingSha256 }],
+    quotation: { fileId: 'quotation-file', name: 'quotation.png',
+      mimeType: 'image/png', sha256: quotationSha256 },
+  } },
+};
+internalVersion.documentPackage = internalVersion.snapshot.documentPackage;
+let internalLineSends = 0;
+let internalReviewCreates = 0;
+const internalStore = {
+  ...store,
+  async createDraftReview() { internalReviewCreates += 1; throw new Error('must not create review'); },
+  async listDraftReviews() { return [priorReview]; },
+};
+const internalBuffers = { 'internal-body': bodyBytes, ...attachmentBuffers };
+const internalService = createContractDraftReviewService({
+  ...deps,
+  contractStore: internalStore,
+  async downloadFromDrive(id) { return { buffer: internalBuffers[id] }; },
+  async pushLineMessage() { internalLineSends += 1; throw new Error('must not send LINE'); },
+}, {
+  artifactService: {
+    async renderPdf() { return { buffer: baseBytes, sha256: crypto.createHash('sha256').update(baseBytes).digest('hex'), byteSize: baseBytes.length }; },
+    async storePdf() { throw new Error('must not store preview'); },
+  },
+  managementService: { async getContractDetail() { return { contract, versions: [internalVersion], latestVersion: internalVersion }; } },
+  bodyExtractor: async () => '工程合約書\n第一條：工程名稱',
+});
+const internalPreview = await internalService.previewInternal(context, {
+  contractId: contract.id, versionId: internalVersion.id,
+});
+assert.equal(internalPreview.mimeType, 'application/pdf');
+assert.match(internalPreview.fileName, /HZ-CT-001-V2-INTERNAL-REVIEW\.pdf/);
+assert.equal((await PDFDocument.load(internalPreview.buffer)).getPageCount(), 5);
+const internalBody = await internalService.loadInternalAttachment(context, {
+  contractId: contract.id, versionId: internalVersion.id, attachmentId: '0',
+});
+assert.deepEqual(internalBody.buffer, bodyBytes);
+assert.equal(internalLineSends, 0, 'internal preview must not send LINE');
+assert.equal(internalReviewCreates, 0, 'internal preview must not create an external review');
+
 const pdfPayload = pdfTest.validatePayload({ kind: 'draft_review_pdf', contract: {}, version: {} });
 assert.equal(pdfPayload.kind, 'draft_review_pdf');
 const issueRoute = apiTest.routeFor('POST', '/contracts/api/v2/contracts/contract-1/versions/version-1/draft-review');
@@ -226,5 +274,20 @@ assert.equal(issueRoute.capability, 'manage');
 const listRoute = apiTest.routeFor('GET', '/contracts/api/v2/contracts/contract-1/draft-reviews');
 assert.equal(listRoute.operation, 'listForContract');
 assert.equal(listRoute.capability, 'view');
+const previewRoute = apiTest.routeFor('GET', '/contracts/api/v2/contracts/contract-1/versions/version-1/internal-preview');
+assert.equal(previewRoute.operation, 'previewInternal');
+assert.equal(previewRoute.capability, 'view');
+assert.equal(previewRoute.binary, true);
+const attachmentRoute = apiTest.routeFor('GET', '/contracts/api/v2/contracts/contract-1/versions/version-1/internal-attachments/2');
+assert.equal(attachmentRoute.operation, 'loadInternalAttachment');
+assert.equal(attachmentRoute.attachmentId, '2');
+const binaryRes = { status: 0, headers: {}, body: null,
+  writeHead(status, headers) { this.status = status; this.headers = headers; },
+  end(body) { this.body = body; } };
+apiTest.sendBinary(binaryRes, { buffer: Buffer.from('pdf'), mimeType: 'application/pdf', fileName: '合約.pdf', sha256: 'a'.repeat(64) });
+assert.equal(binaryRes.status, 200);
+assert.equal(binaryRes.headers['Content-Type'], 'application/pdf');
+assert.match(binaryRes.headers['Content-Disposition'], /^inline;/);
+assert.deepEqual(binaryRes.body, Buffer.from('pdf'));
 
 console.log('Engineering contract draft-review dry-run passed: incomplete draft gating, watermarked render kind, LINE group invitation, non-signing disclaimer, open evidence, and reviewer feedback verified.');

@@ -44,6 +44,20 @@ function sendJson(res, statusCode, payload) {
   res.end(JSON.stringify(payload));
 }
 
+function sendBinary(res, data) {
+  const buffer = Buffer.isBuffer(data?.buffer) ? data.buffer : Buffer.from(data?.buffer || '');
+  const fileName = String(data?.fileName || 'contract-document').replace(/[\r\n]/g, '').slice(0, 240);
+  res.writeHead(200, {
+    'Content-Type': String(data?.mimeType || 'application/octet-stream'),
+    'Content-Disposition': `inline; filename*=UTF-8''${encodeURIComponent(fileName)}`,
+    'Content-Length': buffer.length,
+    'Cache-Control': 'private, no-store, max-age=0',
+    'X-Content-Type-Options': 'nosniff',
+    ...(data?.sha256 ? { 'X-Content-SHA256': String(data.sha256) } : {}),
+  });
+  res.end(buffer);
+}
+
 async function readJsonBody(req) {
   const chunks = [];
   let size = 0;
@@ -176,6 +190,16 @@ function routeFor(method, pathname) {
     return { operation: 'issueDraftReview', capability: 'manage', body: true, review: true,
       contractId: decodeSegment(match[1]), versionId: decodeSegment(match[2]) };
   }
+  match = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/versions\/([^/]+)\/internal-preview$/);
+  if (method === 'GET' && match) {
+    return { operation: 'previewInternal', capability: 'view', review: true, binary: true,
+      contractId: decodeSegment(match[1]), versionId: decodeSegment(match[2]) };
+  }
+  match = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/versions\/([^/]+)\/internal-attachments\/([^/]+)$/);
+  if (method === 'GET' && match) {
+    return { operation: 'loadInternalAttachment', capability: 'view', review: true, binary: true,
+      contractId: decodeSegment(match[1]), versionId: decodeSegment(match[2]), attachmentId: decodeSegment(match[3]) };
+  }
   match = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/versions\/([^/]+)\/(submit-review|return-draft|approve|freeze|readiness|issue|retry-signing)$/);
   if (!match) return { notFound: true };
   const action = match[3];
@@ -306,6 +330,7 @@ export function createContractWorkflowApiHandler(deps) {
       if (route.contractId) bindPathReference(input, 'contractId', route.contractId);
       if (route.versionId) bindPathReference(input, 'versionId', route.versionId);
       if (route.sessionId) bindPathReference(input, 'sessionId', route.sessionId);
+      if (route.attachmentId) bindPathReference(input, 'attachmentId', route.attachmentId);
       if (route.issuance) issuanceService ||= createContractIssuanceService(deps);
       if (route.review) reviewService ||= createContractDraftReviewService(deps);
       const completionService = route.completion ? createContractCompletionService(deps, {
@@ -329,7 +354,8 @@ export function createContractWorkflowApiHandler(deps) {
       const target = route.revocation ? revocationService
         : (route.completion ? completionService : (route.issuance ? issuanceService : (route.review ? reviewService : service)));
       const data = await target[route.operation](context, input);
-      sendJson(res, 200, { ok: true, data });
+      if (route.binary) sendBinary(res, data);
+      else sendJson(res, 200, { ok: true, data });
       return true;
     } catch (error) {
       console.error('[contract-workflow]', {
@@ -349,4 +375,4 @@ export async function handleContractWorkflowApiRequest(req, res, pathname, url, 
   return createContractWorkflowApiHandler(deps)(req, res, pathname, url, authority);
 }
 
-export const __test = { routeFor, publicError, cleanRequestInput };
+export const __test = { routeFor, publicError, cleanRequestInput, sendBinary };
