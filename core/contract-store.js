@@ -441,7 +441,9 @@ export function createContractStore({ env = process.env, logger = console, poolF
           `UPDATE ${SCHEMA}.contracts
               SET workflow_state = $2, updated_by = $3, updated_at = now(), row_version = row_version + 1
             WHERE id = $1 AND tenant_key = $4`,
-          [input.contractId, input.status === 'internal_review' ? 'internal_review' : 'ready_to_issue', input.actor, tenant.key],
+          [input.contractId, input.status === 'internal_review'
+            ? 'internal_review'
+            : (input.status === 'draft' ? 'draft' : 'ready_to_issue'), input.actor, tenant.key],
         );
       }
       return version;

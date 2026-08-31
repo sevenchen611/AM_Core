@@ -15,6 +15,16 @@ function reviewError(code, message, statusCode = 400, details = {}) {
   return Object.assign(new Error(message), { code, statusCode, details });
 }
 
+function reviewStepError(error, code, message, statusCode = 502) {
+  if (String(error?.code || '').startsWith('DRAFT_REVIEW_')
+      || String(error?.code || '').startsWith('CONTRACT_ARTIFACT_')
+      || String(error?.code || '').startsWith('PDF_')
+      || String(error?.code || '').startsWith('DRIVE_')) return error;
+  return reviewError(code, message, statusCode, {
+    cause: text(error?.message).slice(0, 500),
+  });
+}
+
 function text(value) { return String(value ?? '').trim(); }
 function unwrap(value) { return value && typeof value === 'object' && Object.hasOwn(value, 'value') ? value.value : value; }
 function digestToken(token) { return crypto.createHash('sha256').update(text(token), 'utf8').digest('hex'); }
@@ -242,34 +252,70 @@ export function createContractDraftReviewService(deps, options = {}) {
     if (!version) throw reviewError('DRAFT_REVIEW_VERSION_NOT_FOUND', '找不到這個合約版本。', 404);
     if (version.status !== 'draft') throw reviewError('DRAFT_REVIEW_VERSION_NOT_DRAFT', '只有草稿版本可以送出草約審閱。', 409);
     const body = contractBody(version);
-    const group = await authorityResolver(deps, {
-      groupBindingId: contractGroupId(contract), projectId: contract.projectId,
-    });
+    let group;
+    try {
+      group = await authorityResolver(deps, {
+        groupBindingId: contractGroupId(contract), projectId: contract.projectId,
+      });
+    } catch (error) {
+      throw reviewStepError(error, 'DRAFT_REVIEW_GROUP_UNAVAILABLE',
+        '無法確認這份合約綁定的工程 LINE 群組，請檢查群組綁定與機器人狀態。', 422);
+    }
     if (typeof deps.auditDrivePrivate !== 'function') throw reviewError('DRAFT_REVIEW_PRIVACY_AUDIT_REQUIRED', 'Drive 隱私稽核尚未設定。', 503);
-    await deps.auditDrivePrivate(body.fileId);
-    const contractBodyText = await bodyExtractor(deps, body);
+    try {
+      const privacy = await deps.auditDrivePrivate(body.fileId);
+      if (privacy?.private !== true) throw reviewError('DRAFT_REVIEW_SOURCE_NOT_PRIVATE', '草約本文不是私有檔案，禁止送出。', 409);
+    } catch (error) {
+      throw reviewStepError(error, 'DRAFT_REVIEW_PRIVACY_AUDIT_FAILED',
+        '草約本文的 Drive 私密狀態驗證失敗，請確認檔案仍存在且未公開分享。', 503);
+    }
+    let contractBodyText;
+    try {
+      contractBodyText = await bodyExtractor(deps, body);
+    } catch (error) {
+      throw reviewStepError(error, 'DRAFT_REVIEW_SOURCE_PREPARE_FAILED',
+        '草約本文無法讀取或轉換，請確認 Word／PDF 檔案可以正常開啟。', 422);
+    }
     const missing = missingSections(version);
     const idempotencyKey = `engineering-draft-review:${context.tenant.key}:${version.id}:${body.sha256}`;
-    const rendered = await artifacts.renderPdf('draft_review_pdf', {
-      contract, version, contractBodyText, missingSections: missing,
-    }, idempotencyKey);
-    const stored = await artifacts.storePdf({
-      projectLabel: contract.projectCode || contract.projectId,
-      contractLabel: contract.contractNumber || contract.title || contract.id,
-      filename: `${contract.contractNumber || contract.id}-v${version.versionNo}-DRAFT-草約.pdf`,
-      rendered,
-    });
+    let rendered;
+    try {
+      rendered = await artifacts.renderPdf('draft_review_pdf', {
+        contract, version, contractBodyText, missingSections: missing,
+      }, idempotencyKey);
+    } catch (error) {
+      throw reviewStepError(error, 'DRAFT_REVIEW_PDF_FAILED',
+        '草約 PDF 產生失敗，請稍後重試；合約仍維持草稿。', 502);
+    }
+    let stored;
+    try {
+      stored = await artifacts.storePdf({
+        projectLabel: contract.projectCode || contract.projectId,
+        contractLabel: contract.contractNumber || contract.title || contract.id,
+        filename: `${contract.contractNumber || contract.id}-v${version.versionNo}-DRAFT-草約.pdf`,
+        rendered,
+      });
+    } catch (error) {
+      throw reviewStepError(error, 'DRAFT_REVIEW_PDF_STORE_FAILED',
+        '草約 PDF 無法保存到工程合約 Drive，請檢查資料夾權限後重試。', 503);
+    }
     const rawToken = randomBytes(32).toString('base64url');
     const externalReviewId = `cr_${randomBytes(18).toString('base64url')}`;
     const expiresAt = new Date(new Date(clock()).getTime() + REVIEW_TTL_MS).toISOString();
-    const created = unwrap(await deps.contractStore.createDraftReview(context.tenant, {
-      externalReviewId, versionId: version.id, groupBindingId: group.groupBindingId,
-      lineGroupId: group.lineGroupId, tokenDigest: digestToken(rawToken),
-      draftPdfDriveFileId: stored.driveFileId, draftPdfSha256: safeHash(stored.sha256),
-      draftPdfByteSize: stored.byteSize, contractBodyDriveFileId: body.fileId,
-      contractBodySha256: body.sha256, contractBodyFileName: body.name,
-      contractBodyMimeType: body.mimeType, missingSections: missing, actor: context.actor, expiresAt,
-    }));
+    let created;
+    try {
+      created = unwrap(await deps.contractStore.createDraftReview(context.tenant, {
+        externalReviewId, versionId: version.id, groupBindingId: group.groupBindingId,
+        lineGroupId: group.lineGroupId, tokenDigest: digestToken(rawToken),
+        draftPdfDriveFileId: stored.driveFileId, draftPdfSha256: safeHash(stored.sha256),
+        draftPdfByteSize: stored.byteSize, contractBodyDriveFileId: body.fileId,
+        contractBodySha256: body.sha256, contractBodyFileName: body.name,
+        contractBodyMimeType: body.mimeType, missingSections: missing, actor: context.actor, expiresAt,
+      }));
+    } catch (error) {
+      throw reviewStepError(error, 'DRAFT_REVIEW_RECORD_FAILED',
+        '草約審閱紀錄無法建立，LINE 尚未發送，請稍後重試。', 503);
+    }
     const baseUrl = text(deps.publicBaseUrl).replace(/\/+$/, '');
     if (!/^https:\/\//.test(baseUrl)) throw reviewError('DRAFT_REVIEW_PUBLIC_URL_REQUIRED', '草約審閱網址尚未設定。', 503);
     const protectedLink = `${baseUrl}/contract-review?openExternalBrowser=1#token=${encodeURIComponent(rawToken)}`;
@@ -281,13 +327,15 @@ export function createContractDraftReviewService(deps, options = {}) {
       receipt = await deps.pushLineMessage(group.lineGroupId, message, undefined, {
         retryKey: `engineering-draft-review-line:${externalReviewId}`,
       });
-      if (receipt?.ok !== true) throw reviewError('DRAFT_REVIEW_LINE_SEND_FAILED', 'LINE 未接受草約審閱訊息。', 502);
+      if (receipt?.ok !== true) throw reviewError('DRAFT_REVIEW_LINE_SEND_FAILED',
+        'LINE 群組未接受草約審閱訊息，請確認機器人仍在群組內後重試。', 502);
     } catch (error) {
       await deps.contractStore.revokeDraftReview(context.tenant, {
         externalReviewId, revokedAt: new Date(clock()).toISOString(), actor: context.actor,
         reason: 'line_send_failed',
       }).catch(() => {});
-      throw error;
+      throw reviewStepError(error, 'DRAFT_REVIEW_LINE_SEND_FAILED',
+        '草約已產生，但 LINE 群組發送失敗；審閱連結已撤銷，請檢查群組與機器人狀態後重試。', 502);
     }
     const sent = unwrap(await deps.contractStore.recordDraftReviewSent(context.tenant, {
       externalReviewId, sentAt, lineMessageId: receipt.messageIds?.[0] || receipt.requestId || '',

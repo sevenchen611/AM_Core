@@ -1,0 +1,65 @@
+{
+  "id": "AM-IMP-2026.0831.02",
+  "name": "Engineering contract draft and review controls",
+  "type": "AM Platform / contracts / workflow UX",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-08-31",
+  "dependsOn": ["AM-IMP-2026.0831.01"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Internal review to draft return transition",
+    "Action success and stage-specific failure messages",
+    "Overview version-state projection before signing",
+    "Safe contract workflow error logging"
+  ],
+  "requiresDatabases": ["Engineering-dedicated PostgreSQL schema engineering_contracts v3"],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-management.mjs",
+    "tools/dryrun-engineering-contract-workflow-api.mjs",
+    "tools/dryrun-engineering-contract-workspace.mjs",
+    "tools/dryrun-engineering-contract-draft-review.mjs",
+    "tools/dryrun-engineering-contract-store.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The transition is tenant-scoped and preserves immutable version content and existing review evidence."
+  },
+  "changes": [
+    "Add POST return-draft for internal-review versions",
+    "Project returned versions back to draft in the contract aggregate",
+    "Show explicit success messages for internal review, return, approval, and freeze",
+    "Show stage-specific draft-review errors and safe server logs",
+    "Use workflow state and latest-version evidence in the overview before signing"
+  ],
+  "definitionOfDone": [
+    "An internal-review version can return to draft without replacing its content",
+    "The returned version can generate a draft-review message again",
+    "Successful internal review is visibly confirmed",
+    "Draft-review failures identify the failed stage and do not send LINE",
+    "The overview no longer labels an existing version as unversioned"
+  ],
+  "files": [
+    "core/contract-store.js",
+    "modules/construction/contract-management.js",
+    "modules/construction/contract-workflow-api.js",
+    "modules/construction/contract-draft-review.js",
+    "modules/construction/contracts.js",
+    "tools/dryrun-engineering-contract-management.mjs",
+    "tools/dryrun-engineering-contract-workflow-api.mjs",
+    "tools/dryrun-engineering-contract-workspace.mjs",
+    "tools/dryrun-engineering-contract-draft-review.mjs",
+    "tools/dryrun-engineering-contract-store.mjs",
+    "docs/tenants/engineering/project-improvement-manifest.md",
+    "docs/tenants/engineering/upgrades/AM-IMP-2026.0831.02-contract-draft-review-controls.md",
+    "versions/AM-IMP-2026.0831.02/README.md",
+    "versions/AM-IMP-2026.0831.02/INSTALL.md",
+    "versions/AM-IMP-2026.0831.02/VERIFY.md",
+    "versions/AM-IMP-2026.0831.02/ROLLBACK.md",
+    "versions/AM-IMP-2026.0831.02/upgrade.json"
+  ]
+}

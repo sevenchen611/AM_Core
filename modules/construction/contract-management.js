@@ -808,10 +808,13 @@ export function createContractManagementService({ store, clock = () => new Date(
     const contentFingerprint = versionContentFingerprint(version);
     const transitioned = patchContractVersion(version, { status: definition.to });
     const transitionedAt = nowIso(serviceClock);
-    const candidate = normalizeVersion({
-      ...transitioned,
+    const transitionEvidence = definition.timeField && definition.actorField ? {
       [definition.timeField]: transitionedAt,
       [definition.actorField]: actor,
+    } : {};
+    const candidate = normalizeVersion({
+      ...transitioned,
+      ...transitionEvidence,
     });
     const stored = unwrapStoreResult(await adapter.transitionVersion(tenant, {
       versionId: version.id,
@@ -821,8 +824,8 @@ export function createContractManagementService({ store, clock = () => new Date(
       nextStatus: definition.to,
       transitionedAt,
       transitionedBy: actor,
-      transitionTimeField: definition.timeField,
-      transitionActorField: definition.actorField,
+      transitionTimeField: definition.timeField || '',
+      transitionActorField: definition.actorField || '',
       actor,
     }), 'transitionVersion');
     if (!stored) {
@@ -842,8 +845,8 @@ export function createContractManagementService({ store, clock = () => new Date(
       persisted.id !== version.id
       || persisted.contractId !== contract.id
       || persisted.status !== definition.to
-      || persisted[definition.timeField] !== transitionedAt
-      || persisted[definition.actorField] !== actor
+      || (definition.timeField && persisted[definition.timeField] !== transitionedAt)
+      || (definition.actorField && persisted[definition.actorField] !== actor)
       || versionContentFingerprint(persisted) !== contentFingerprint
     ) {
       throw managementError(
@@ -877,6 +880,14 @@ export function createContractManagementService({ store, clock = () => new Date(
       to: 'internal_review',
       timeField: 'reviewSubmittedAt',
       actorField: 'reviewSubmittedBy',
+    });
+  }
+
+  async function returnVersionToDraft(context, input = {}) {
+    return transitionManagedVersion(context, input, {
+      operation: 'returnVersionToDraft',
+      from: 'internal_review',
+      to: 'draft',
     });
   }
 
@@ -1041,6 +1052,7 @@ export function createContractManagementService({ store, clock = () => new Date(
     createOrSyncContract,
     createDraftVersion,
     submitVersionForReview,
+    returnVersionToDraft,
     approveVersion,
     freezeVersion,
     issueReadiness,

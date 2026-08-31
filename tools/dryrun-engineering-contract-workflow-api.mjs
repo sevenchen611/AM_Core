@@ -65,12 +65,11 @@ function memoryStore() {
       calls.push(['transitionVersion', tenant.key, structuredClone(input)]);
       const current = versions.get(input.versionId);
       if (!current || current.contractId !== input.contractId || current.status !== input.expectedStatus) return null;
-      const value = {
-        ...current,
-        status: input.nextStatus,
+      const evidence = input.transitionTimeField && input.transitionActorField ? {
         [input.transitionTimeField]: input.transitionedAt,
         [input.transitionActorField]: input.transitionedBy,
-      };
+      } : {};
+      const value = { ...current, status: input.nextStatus, ...evidence };
       versions.set(value.id, value);
       return structuredClone(value);
     },
@@ -229,6 +228,22 @@ let versionId;
   });
   assert.equal(result.res.statusCode, 200);
   assert.equal(result.payload.data.version.status, 'internal_review');
+}
+
+{
+  const returned = await call(handler, 'POST', `/contracts/api/v2/contracts/${contractId}/versions/${versionId}/return-draft`, {
+    authority: manage,
+    body: {},
+  });
+  assert.equal(returned.res.statusCode, 200);
+  assert.equal(returned.payload.data.version.status, 'draft');
+
+  const resubmitted = await call(handler, 'POST', `/contracts/api/v2/contracts/${contractId}/versions/${versionId}/submit-review`, {
+    authority: manage,
+    body: {},
+  });
+  assert.equal(resubmitted.res.statusCode, 200);
+  assert.equal(resubmitted.payload.data.version.status, 'internal_review');
 }
 
 {
