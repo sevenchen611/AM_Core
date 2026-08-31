@@ -99,7 +99,12 @@ const store = createContractStore({
   logger: { warn() {} },
 });
 assert.equal(store.configured(tenant), true);
-assert.deepEqual(await store.status(tenant), { configured: true, schemaReady: true, schemaVersion: __test.SCHEMA_VERSION });
+assert.deepEqual(await store.status(tenant), {
+  configured: true,
+  schemaReady: true,
+  archiveSchemaReady: true,
+  schemaVersion: __test.SCHEMA_VERSION,
+});
 assert.ok(queries.some((entry) => entry.sql.includes("set_config('app.tenant_key'")), 'tenant context must be set per transaction');
 assert.ok(queries.some((entry) => entry.sql.includes('SET TRANSACTION READ ONLY')), 'status query must be read-only');
 
