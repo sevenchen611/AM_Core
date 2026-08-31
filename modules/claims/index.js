@@ -7,7 +7,7 @@ const SESSION_TTL_MS = 15 * 60 * 1000;
 const LIFF_SESSION_COOKIE = 'am_claims_liff_session';
 const EVENT_DEDUPE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_BODY_BYTES = 16 * 1024 * 1024;
-const COMMANDS = new Set(['請款', '我要請款', '請款按鈕', '開啟請款', '#請款']);
+const COMMANDS = new Set(['請款', '費用申請', '我要請款', '請款按鈕', '開啟請款', '#請款']);
 const EVENT_STATUSES = new Set([
   'submitted', 'supplement_requested', 'approved', 'rejected', 'awaiting_payment',
   'payment_processing', 'bank_review_approved', 'partially_paid', 'paid', 'cancelled',
@@ -33,6 +33,8 @@ const CLAIM_TYPE_ALIASES = new Map([
   ['其他', 'other'],
   ['其他費用', 'other'],
 ]);
+const V3_GROUP_COMMANDS = new Set(['請款', '費用申請']);
+const V3_GROUP_EVENT_CONTRACT = 'finance-claims-v3.group-event-ingress-v1';
 
 const sessions = new Map();
 const eventDedupe = new Map();
@@ -83,11 +85,18 @@ function isAllowedSubmitter(tenant, bindingId, userId, binding = null) {
   return allowedSubmitterIds(tenant, bindingId, binding).includes(cleanText(userId, 128));
 }
 
-function activeClaimsContext({ tenant, binding, userId }) {
+function activeClaimsAccess({ tenant, binding, userId }) {
   if (claimConfig(tenant).enabled !== true) return { ok: false, error: '此租戶的請款功能尚未啟用。' };
   if (!tenant || !binding || !isActiveBinding(binding)) return { ok: false, error: '此群組目前未啟用請款功能。' };
   if (!hasClaimsCapability(binding, tenant)) return { ok: false, error: '此群組尚未開啟請款功能。' };
   if (!isAllowedSubmitter(tenant, binding.pageId, userId, binding)) return { ok: false, error: '你的帳號尚未被指定為此群組的請款送件人。' };
+  return { ok: true };
+}
+
+function activeClaimsContext(input) {
+  const access = activeClaimsAccess(input);
+  if (!access.ok) return access;
+  const { tenant } = input;
   if (!claimsLiffId(tenant) || !claimsBaseUrl(tenant) || !claimsRentalToken(tenant)) {
     return { ok: false, error: '請款服務尚未完成設定，請聯絡系統管理者。' };
   }
@@ -116,6 +125,96 @@ function claimsEventToken(tenant) {
   const config = claimConfig(tenant);
   const envName = cleanText(config.eventTokenEnv, 160);
   return envName ? String(process.env[envName] || '').trim() : cleanText(config.rentalEventToken || config.eventToken, 1000);
+}
+
+function financeV3GroupEntryConfig(tenant, env = process.env) {
+  const config = claimConfig(tenant).v3GroupEntry;
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return { enabled: false, ready: false };
+  const enabledEnv = cleanText(config.enabledEnv, 160);
+  const urlEnv = cleanText(config.gatewayUrlEnv, 160);
+  const tokenEnv = cleanText(config.gatewayTokenEnv, 160);
+  const enabled = Boolean(enabledEnv && env[enabledEnv] === 'true');
+  let endpoint = '';
+  try {
+    const parsed = new URL(String(urlEnv ? env[urlEnv] || '' : '').trim());
+    if (parsed.protocol === 'https:' && !parsed.username && !parsed.password && !parsed.hash) {
+      parsed.pathname = '/control/finance/group-events/v3';
+      parsed.search = '';
+      endpoint = parsed.toString();
+    }
+  } catch { /* invalid endpoints fail closed */ }
+  const token = String(tokenEnv ? env[tokenEnv] || '' : '').trim();
+  return { enabled, ready: enabled && Boolean(endpoint) && token.length >= 32, endpoint, token };
+}
+
+function financeV3GroupEvent(ctx) {
+  const eventId = cleanText(ctx?.event?.webhookEventId || ctx?.event?.message?.id, 180);
+  const groupId = cleanText(ctx?.event?.source?.groupId, 128);
+  const userId = lineUserId(ctx);
+  const text = cleanText(ctx?.text, 80);
+  if (!eventId || !groupId || !userId || !V3_GROUP_COMMANDS.has(text)) return null;
+  return {
+    contractVersion: V3_GROUP_EVENT_CONTRACT,
+    eventId,
+    eventType: 'message',
+    occurredAt: new Date(Number(ctx?.event?.timestamp) || Date.now()).toISOString(),
+    source: { groupId, userId },
+    message: { type: 'text', text },
+  };
+}
+
+async function forwardFinanceV3GroupEvent(ctx, { env = process.env, fetchImpl = globalThis.fetch } = {}) {
+  const config = financeV3GroupEntryConfig(ctx?.tenant, env);
+  if (!config.enabled) return { handled: false, reason: 'disabled' };
+  const body = financeV3GroupEvent(ctx);
+  if (!body) return { handled: false, reason: 'not_v3_command' };
+  if (!config.ready) return { handled: true, delivered: false, reason: 'gateway_unavailable' };
+  let response;
+  try {
+    response = await fetchImpl(config.endpoint, {
+      method: 'POST',
+      redirect: 'error',
+      signal: AbortSignal.timeout(10_000),
+      headers: { authorization: `Bearer ${config.token}`, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    return { handled: true, delivered: false, reason: 'gateway_uncertain' };
+  }
+  if (response.redirected || response.url !== config.endpoint) {
+    await response.body?.cancel().catch(() => {});
+    return { handled: true, delivered: false, reason: 'gateway_invalid' };
+  }
+  let result = null;
+  try {
+    const raw = await response.text();
+    if (raw.length > 16 * 1024) throw new Error('response_too_large');
+    result = JSON.parse(raw);
+  } catch {
+    return { handled: true, delivered: false, reason: 'gateway_invalid' };
+  }
+  const valid = response.status === 200
+    && result && !Array.isArray(result) && result.contractVersion === V3_GROUP_EVENT_CONTRACT
+    && result.eventId === body.eventId && Number.isInteger(result.accepted) && result.accepted === 1
+    && Number.isInteger(result.intercepted) && result.intercepted === 1
+    && Number.isInteger(result.queued) && result.queued >= 0
+    && Number.isInteger(result.replayed) && result.replayed >= 0;
+  if (!valid) return { handled: true, delivered: false, reason: 'gateway_rejected' };
+  if (result.queued < 1 && result.replayed < 1) return { handled: true, delivered: false, reason: 'identity_not_allowed' };
+  return { handled: true, delivered: true, replayed: result.replayed > 0 };
+}
+
+async function notifyFinanceV3Applicant(ctx, message) {
+  const target = lineUserId(ctx);
+  if (!target) return false;
+  try {
+    await platform.pushLineMessage(target, message, undefined, {
+      retryKey: `finance-v3-entry-error:${cleanText(ctx?.event?.webhookEventId || ctx?.event?.message?.id, 120)}`,
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function sessionSecret() {
@@ -901,6 +1000,22 @@ async function onMessage(ctx) {
     await platform.replyLineMessage(ctx.event?.replyToken, message).catch(() => {});
     return true;
   }
+  const v3Config = financeV3GroupEntryConfig(ctx.tenant);
+  if (v3Config.enabled && V3_GROUP_COMMANDS.has(cleanText(ctx.text, 80))) {
+    const access = activeClaimsAccess({ tenant: ctx.tenant, binding, userId: lineUserId(ctx) });
+    if (!access.ok) {
+      await notifyFinanceV3Applicant(ctx, access.error);
+      return true;
+    }
+    const forwarded = await forwardFinanceV3GroupEvent({ ...ctx, binding });
+    if (forwarded.delivered) return true;
+    const message = forwarded.reason === 'identity_not_allowed'
+      ? '你的 LINE 身分尚未完成新版請款權限設定，請聯絡財務管理員。'
+      : '新版請款服務暫時無法建立連結，這次不會建立舊版請款單，請稍後再試。';
+    platform?.logger?.warn?.(`Finance Claims v3 group entry failed (tenant=${ctx.tenant?.key || 'unknown'}, reason=${forwarded.reason || 'unknown'}).`);
+    await notifyFinanceV3Applicant(ctx, message);
+    return true;
+  }
   const context = activeClaimsContext({ tenant: ctx.tenant, binding, userId: lineUserId(ctx) });
   if (!context.ok) {
     await platform.replyLineMessage(ctx.event?.replyToken, context.error).catch(() => {});
@@ -1045,6 +1160,11 @@ export const __test = {
   splitLineMessage,
   notifyInitialStatus,
   eligibleDirectClaimBindings,
+  activeClaimsAccess,
+  financeV3GroupEntryConfig,
+  financeV3GroupEvent,
+  forwardFinanceV3GroupEvent,
+  notifyFinanceV3Applicant,
   eventDedupe,
   sessions,
   cleanupMemory,
