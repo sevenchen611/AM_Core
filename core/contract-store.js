@@ -1295,30 +1295,40 @@ export function createContractStore({ env = process.env, logger = console, poolF
   }
 
   async function listLineConversationArchives(tenant, contractId, maximumVersionNo = null) {
-    const result = await withTenant(tenant, async (client, config) => client.query(
-      `SELECT a.*,v.version_no,r.external_review_id,r.status AS draft_review_status
-         FROM ${SCHEMA}.contract_line_conversation_archives a
-         JOIN ${SCHEMA}.contract_versions v ON v.id = a.version_id
-         JOIN ${SCHEMA}.contracts c ON c.id = v.contract_id
-         LEFT JOIN ${SCHEMA}.contract_draft_reviews r ON r.id = a.draft_review_id
-        WHERE c.tenant_key = $1 AND c.id = $2
-          AND ($3::integer IS NULL OR v.version_no <= $3::integer)
-        ORDER BY a.ended_at,a.created_at,a.id`,
-      [config.tenantKey, contractId, maximumVersionNo == null ? null : Number(maximumVersionNo)],
-    ), { readOnly: true });
-    return result.value.rows;
+    try {
+      const result = await withTenant(tenant, async (client, config) => client.query(
+        `SELECT a.*,v.version_no,r.external_review_id,r.status AS draft_review_status
+           FROM ${SCHEMA}.contract_line_conversation_archives a
+           JOIN ${SCHEMA}.contract_versions v ON v.id = a.version_id
+           JOIN ${SCHEMA}.contracts c ON c.id = v.contract_id
+           LEFT JOIN ${SCHEMA}.contract_draft_reviews r ON r.id = a.draft_review_id
+          WHERE c.tenant_key = $1 AND c.id = $2
+            AND ($3::integer IS NULL OR v.version_no <= $3::integer)
+          ORDER BY a.ended_at,a.created_at,a.id`,
+        [config.tenantKey, contractId, maximumVersionNo == null ? null : Number(maximumVersionNo)],
+      ), { readOnly: true });
+      return result.value.rows;
+    } catch (error) {
+      if (String(error?.code || '') === '42P01') return [];
+      throw error;
+    }
   }
 
   async function getLineConversationArchive(tenant, archiveId) {
-    const result = await withTenant(tenant, async (client, config) => client.query(
-      `SELECT a.*,v.version_no,c.id AS contract_id
-         FROM ${SCHEMA}.contract_line_conversation_archives a
-         JOIN ${SCHEMA}.contract_versions v ON v.id = a.version_id
-         JOIN ${SCHEMA}.contracts c ON c.id = v.contract_id
-        WHERE c.tenant_key = $1 AND a.id = $2 LIMIT 1`,
-      [config.tenantKey, archiveId],
-    ), { readOnly: true });
-    return result.value.rows[0] || null;
+    try {
+      const result = await withTenant(tenant, async (client, config) => client.query(
+        `SELECT a.*,v.version_no,c.id AS contract_id
+           FROM ${SCHEMA}.contract_line_conversation_archives a
+           JOIN ${SCHEMA}.contract_versions v ON v.id = a.version_id
+           JOIN ${SCHEMA}.contracts c ON c.id = v.contract_id
+          WHERE c.tenant_key = $1 AND a.id = $2 LIMIT 1`,
+        [config.tenantKey, archiveId],
+      ), { readOnly: true });
+      return result.value.rows[0] || null;
+    } catch (error) {
+      if (String(error?.code || '') === '42P01') return null;
+      throw error;
+    }
   }
 
   return {
