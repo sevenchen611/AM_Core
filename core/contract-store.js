@@ -5,6 +5,10 @@ import crypto from 'node:crypto';
 
 const SCHEMA = 'engineering_contracts';
 const SCHEMA_VERSION = '2026-08-31.engineering-contract-evidence.v4';
+const COMPATIBLE_SCHEMA_VERSIONS = new Set([
+  '2026-08-28.engineering-contract-evidence.v3',
+  SCHEMA_VERSION,
+]);
 
 function envValue(env, tenant, name, fallback = '') {
   const prefix = String(tenant?.envPrefix || '').trim();
@@ -244,7 +248,8 @@ export function createContractStore({ env = process.env, logger = console, poolF
       const schemaVersion = String(result.value.rows[0]?.schema_version || '');
       return {
         configured: true,
-        schemaReady: Boolean(result.value.rows[0]?.ready && schemaVersion === SCHEMA_VERSION),
+        schemaReady: Boolean(result.value.rows[0]?.ready && COMPATIBLE_SCHEMA_VERSIONS.has(schemaVersion)),
+        archiveSchemaReady: schemaVersion === SCHEMA_VERSION,
         schemaVersion,
       };
     } catch (error) {
