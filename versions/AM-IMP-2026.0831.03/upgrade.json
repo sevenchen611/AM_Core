@@ -3,7 +3,7 @@
   "name": "Engineering contract internal review preview",
   "type": "AM Platform / contracts / review UX",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-08-31",
   "dependsOn": ["AM-IMP-2026.0831.02"],
   "installTargets": ["AM_PLATFORM:engineering"],
