@@ -3,7 +3,7 @@
   "name": "Engineering contract draft and review controls",
   "type": "AM Platform / contracts / workflow UX",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-08-31",
   "dependsOn": ["AM-IMP-2026.0831.01"],
   "installTargets": ["AM_PLATFORM:engineering"],
