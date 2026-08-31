@@ -99,13 +99,13 @@ export function createRouter({ tenants, notionRequest, logger = console }) {
 
   // 解析群組 → { tenant, binding }。未綁定回 { tenant: null, binding: null }。
   async function resolveGroupBinding(groupId) {
-    if (!groupId) return { tenant: null, binding: null };
+    if (!groupId) return { tenant: null, binding: null, resolution: 'not_found' };
     const cached = cache.get(groupId);
     if (cached && Date.now() - cached.at < BINDING_CACHE_TTL_MS) {
-      return { tenant: cached.tenant, binding: cached.binding };
+      return { tenant: cached.tenant, binding: cached.binding, resolution: cached.resolution || 'not_found' };
     }
 
-    let hit = { tenant: null, binding: null };
+    let hit = { tenant: null, binding: null, resolution: 'not_found' };
     const records = [];
     let lookupFailed = false;
     // 必須查完所有租戶才知道 groupId 是否跨租戶重複；不可命中第一筆就短路。
@@ -121,11 +121,16 @@ export function createRouter({ tenants, notionRequest, logger = console }) {
     }
 
     // 任一租戶查核失敗時，無法證明群組歸屬唯一；安全地拒絕，且不快取暫時性失敗。
-    if (lookupFailed) return hit;
+    if (lookupFailed) return { tenant: null, binding: null, resolution: 'lookup_failed' };
     if (records.length > 1) {
       logger.warn(`Ambiguous group binding across tenants (group=${groupId}, tenants=${records.map((r) => r.tenant.key).join(',')}) — ignored.`);
+      hit = { tenant: null, binding: null, resolution: 'ambiguous' };
     } else if (records.length === 1 && records[0].binding) {
-      hit = records[0];
+      hit = { ...records[0], resolution: 'active' };
+    } else if (records.length === 1) {
+      // Preserve the long-standing public contract that inactive bindings have
+      // no routable tenant, while exposing the reason to pre-ack consumers.
+      hit = { tenant: null, binding: null, resolution: 'inactive' };
     }
 
     cache.set(groupId, { ...hit, at: Date.now() });

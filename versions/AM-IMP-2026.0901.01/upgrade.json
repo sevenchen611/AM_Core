@@ -1,0 +1,69 @@
+{
+  "id": "AM-IMP-2026.0901.01",
+  "name": "Direct Finance Claims v3 owner",
+  "type": "AM Platform / Finance Claims / direct durable delivery",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-01",
+  "dependsOn": ["AM-IMP-2026.0831.05"],
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
+  "scope": [
+    "Persist eligible LINE commands before webhook acknowledgement",
+    "Run Finance Claims v3 workflow and notification receiver inside AM Platform",
+    "Preserve database idempotency, staged retry and notification outbox semantics",
+    "Remove the cross-service operational-memory waiting queue"
+  ],
+  "requiresDatabases": [
+    "Existing Finance Claims v3 PostgreSQL ingress, workflow and delivery ledgers",
+    "Existing Rental Finance Claims notification outbox"
+  ],
+  "requiresEnv": [
+    "HZ2_FINANCE_CLAIMS_V3_DATABASE_URL",
+    "HZ2_FINANCE_CLAIMS_V3 receiver, bridge, binding and group-scope values",
+    "Existing AM Platform LINE_CHANNEL_ACCESS_TOKEN"
+  ],
+  "requiresScripts": [
+    "tools/dryrun-finance-v3-direct.mjs",
+    "tools/dryrun-core.mjs",
+    "tools/inventory-finance-v3-legacy-jobs.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Durable workflow rows use opaque line-ref:v1 identities; raw LINE targets remain only in environment bindings, and the existing PostgreSQL database preserves idempotency history."
+  },
+  "changes": [
+    "Embed Finance Claims v3 receiver and group-entry workflow in the claims module",
+    "Persist intercepted LINE events before returning HTTP 200",
+    "Return HTTP 503 when durable intake is unavailable so LINE can redeliver",
+    "Remove Finance v3 gateway jobs from AM operational memory",
+    "Keep staged retry, reconciliation and provider-delivery ledger"
+  ],
+  "definitionOfDone": [
+    "No Finance v3 command depends on the suspended HOZO-AM gateway",
+    "Duplicate LINE webhook delivery creates no duplicate record or message",
+    "Transient failures remain retryable or reconcilable without a second provider push",
+    "Rental notification outbox remains active",
+    "One production finance-group canary opens the v3 form through 葉小蝸 AI 小助手"
+  ],
+  "files": [
+    ".env.example",
+    "modules/claims/index.js",
+    "modules/claims/v3/receiver.js",
+    "modules/claims/v3/group-entry.js",
+    "server.js",
+    "tenants/hozo-am-2-0.json",
+    "package.json",
+    "tools/dryrun-finance-v3-direct.mjs",
+    "tools/inventory-finance-v3-legacy-jobs.mjs",
+    "docs/tenants/hozo-am-2-0/project-improvement-manifest.md",
+    "docs/tenants/hozo-am-2-0/upgrades/AM-IMP-2026.0901.01-finance-v3-direct-platform.md",
+    "versions/AM-IMP-2026.0901.01/README.md",
+    "versions/AM-IMP-2026.0901.01/INSTALL.md",
+    "versions/AM-IMP-2026.0901.01/VERIFY.md",
+    "versions/AM-IMP-2026.0901.01/ROLLBACK.md",
+    "versions/AM-IMP-2026.0901.01/upgrade.json"
+  ]
+}

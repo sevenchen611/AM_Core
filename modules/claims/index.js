@@ -1,7 +1,12 @@
 import crypto from 'node:crypto';
 import { normalizeId, readBody, sendJson } from '../../core/util.js';
+import { createFinanceClaimsV3Receiver } from './v3/receiver.js';
+import { createFinanceClaimsV3GroupEntryConsumer } from './v3/group-entry.js';
 
 let platform = null;
+let localFinanceV3Receiver = null;
+let localFinanceV3GroupEntry = null;
+let localFinanceV3InitPromise = null;
 
 const SESSION_TTL_MS = 15 * 60 * 1000;
 const LIFF_SESSION_COOKIE = 'am_claims_liff_session';
@@ -34,17 +39,36 @@ const CLAIM_TYPE_ALIASES = new Map([
   ['其他費用', 'other'],
 ]);
 const V3_GROUP_COMMANDS = new Set(['請款', '費用申請']);
-const V3_GROUP_EVENT_CONTRACT = 'finance-claims-v3.group-event-ingress-v1';
-const V3_GROUP_QUEUE_JOB_KIND = 'finance_claim_v3_group_entry';
-const V3_GROUP_QUEUE_MAX_ATTEMPTS = 6;
-const V3_GROUP_QUEUE_RETRY_SECONDS = [5, 15, 30, 60, 120, 300];
 
 const sessions = new Map();
 const eventDedupe = new Map();
-const financeV3QueueDrains = new Map();
 
 function init(injected) {
   platform = injected;
+  const env = localFinanceV3Env(process.env);
+  localFinanceV3Receiver = createFinanceClaimsV3Receiver({ env });
+  // AM Platform's five-second fast tick is the sole in-process scheduler.
+  // Keeping the consumer poller off avoids two owners racing the same leases.
+  localFinanceV3GroupEntry = createFinanceClaimsV3GroupEntryConsumer({
+    env,
+    receiver: localFinanceV3Receiver,
+    autoDrain: false,
+  });
+  localFinanceV3InitPromise = localFinanceV3GroupEntry.init().then(() => true).catch((error) => {
+    platform?.logger?.warn?.(`Finance Claims v3 local runtime initialization failed: ${error.message}`);
+    return false;
+  });
+}
+
+function localFinanceV3Env(env = process.env) {
+  const names = [
+    'ENABLED', 'RECEIVER_TOKEN', 'BRIDGE_ENABLED', 'BRIDGE_BASE_URL', 'BRIDGE_MACHINE_TOKEN',
+    'BRIDGE_CONTROL_TOKEN', 'GROUP_ENTRY_ENABLED', 'GROUP_ENTRY_EVENT_SECRET',
+    'RECIPIENT_BINDINGS_JSON', 'GROUP_ENTRY_SCOPES_JSON', 'ALLOWED_TENANTS',
+  ];
+  const scoped = { ...env, DATABASE_URL: env.HZ2_FINANCE_CLAIMS_V3_DATABASE_URL || '' };
+  for (const name of names) scoped[`HOZO_FINANCE_CLAIMS_V3_${name}`] = env[`HZ2_FINANCE_CLAIMS_V3_${name}`] || '';
+  return scoped;
 }
 
 function claimConfig(tenant) {
@@ -132,227 +156,13 @@ function claimsEventToken(tenant) {
 }
 
 function financeV3GroupEntryConfig(tenant, env = process.env) {
-  const config = claimConfig(tenant).v3GroupEntry;
-  if (!config || typeof config !== 'object' || Array.isArray(config)) return { enabled: false, ready: false };
-  const enabledEnv = cleanText(config.enabledEnv, 160);
-  const urlEnv = cleanText(config.gatewayUrlEnv, 160);
-  const tokenEnv = cleanText(config.gatewayTokenEnv, 160);
-  const enabled = Boolean(enabledEnv && env[enabledEnv] === 'true');
-  let endpoint = '';
-  try {
-    const parsed = new URL(String(urlEnv ? env[urlEnv] || '' : '').trim());
-    if (parsed.protocol === 'https:' && !parsed.username && !parsed.password && !parsed.hash) {
-      parsed.pathname = '/control/finance/group-events/v3';
-      parsed.search = '';
-      endpoint = parsed.toString();
-    }
-  } catch { /* invalid endpoints fail closed */ }
-  const token = String(tokenEnv ? env[tokenEnv] || '' : '').trim();
-  return { enabled, ready: enabled && Boolean(endpoint) && token.length >= 32, endpoint, token };
-}
-
-function financeV3GroupEvent(ctx) {
-  const eventId = cleanText(ctx?.event?.webhookEventId || ctx?.event?.message?.id, 180);
-  const groupId = cleanText(ctx?.event?.source?.groupId, 128);
-  const userId = lineUserId(ctx);
-  const text = cleanText(ctx?.text, 80);
-  if (!eventId || !groupId || !userId || !V3_GROUP_COMMANDS.has(text)) return null;
-  return {
-    contractVersion: V3_GROUP_EVENT_CONTRACT,
-    eventId,
-    eventType: 'message',
-    occurredAt: new Date(Number(ctx?.event?.timestamp) || Date.now()).toISOString(),
-    source: { groupId, userId },
-    message: { type: 'text', text },
-  };
-}
-
-async function deliverFinanceV3GroupEvent(tenant, body, {
-  env = process.env,
-  fetchImpl = globalThis.fetch,
-  timeoutMs = 10_000,
-} = {}) {
-  const config = financeV3GroupEntryConfig(tenant, env);
-  if (!config.enabled) return { handled: false, reason: 'disabled' };
-  if (!body || body.contractVersion !== V3_GROUP_EVENT_CONTRACT) return { handled: false, reason: 'not_v3_command' };
-  if (!config.ready) return { handled: true, delivered: false, reason: 'gateway_unavailable', retryable: true };
-  let response;
-  try {
-    response = await fetchImpl(config.endpoint, {
-      method: 'POST',
-      redirect: 'error',
-      signal: AbortSignal.timeout(Math.max(1_000, Math.min(Number(timeoutMs) || 10_000, 90_000))),
-      headers: { authorization: `Bearer ${config.token}`, 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-  } catch {
-    return { handled: true, delivered: false, reason: 'gateway_uncertain', retryable: true };
+  const direct = claimConfig(tenant).v3Direct;
+  if (direct && typeof direct === 'object' && !Array.isArray(direct)) {
+    const enabledEnv = cleanText(direct.enabledEnv, 160);
+    const enabled = Boolean(enabledEnv && env[enabledEnv] === 'true');
+    return { enabled, ready: enabled, mode: 'local', endpoint: '', token: '' };
   }
-  if (response.redirected || response.url !== config.endpoint) {
-    await response.body?.cancel().catch(() => {});
-    return { handled: true, delivered: false, reason: 'gateway_invalid', retryable: false };
-  }
-  let result = null;
-  try {
-    const raw = await response.text();
-    if (raw.length > 16 * 1024) throw new Error('response_too_large');
-    result = JSON.parse(raw);
-  } catch {
-    return {
-      handled: true,
-      delivered: false,
-      reason: 'gateway_invalid',
-      retryable: response.status === 429 || response.status >= 500,
-    };
-  }
-  const valid = response.status === 200
-    && result && !Array.isArray(result) && result.contractVersion === V3_GROUP_EVENT_CONTRACT
-    && result.eventId === body.eventId && Number.isInteger(result.accepted) && result.accepted === 1
-    && Number.isInteger(result.intercepted) && result.intercepted === 1
-    && Number.isInteger(result.queued) && result.queued >= 0
-    && Number.isInteger(result.replayed) && result.replayed >= 0;
-  if (!valid) return {
-    handled: true,
-    delivered: false,
-    reason: 'gateway_rejected',
-    retryable: response.status === 429 || response.status >= 500,
-  };
-  if (result.queued < 1 && result.replayed < 1) {
-    return { handled: true, delivered: false, reason: 'identity_not_allowed', retryable: false };
-  }
-  return { handled: true, delivered: true, replayed: result.replayed > 0 };
-}
-
-async function forwardFinanceV3GroupEvent(ctx, options = {}) {
-  const body = financeV3GroupEvent(ctx);
-  if (!body) return { handled: false, reason: 'not_v3_command' };
-  return deliverFinanceV3GroupEvent(ctx?.tenant, body, options);
-}
-
-function financeV3QueueInput(ctx) {
-  const event = financeV3GroupEvent(ctx);
-  if (!event) return null;
-  return {
-    contractVersion: V3_GROUP_EVENT_CONTRACT,
-    event,
-    applicantUserId: cleanText(event.source.userId, 128),
-  };
-}
-
-function financeV3QueueRetryDelay(attemptCount) {
-  return V3_GROUP_QUEUE_RETRY_SECONDS[Math.min(
-    V3_GROUP_QUEUE_RETRY_SECONDS.length - 1,
-    Math.max(0, Number(attemptCount || 1) - 1),
-  )];
-}
-
-async function enqueueFinanceV3GroupEvent(ctx) {
-  const memory = platform?.operationalMemory;
-  const inputPayload = financeV3QueueInput(ctx);
-  if (!inputPayload || typeof memory?.enqueueProcessingJob !== 'function') {
-    return { queued: false, reason: 'queue_unavailable' };
-  }
-  try {
-    const result = await memory.enqueueProcessingJob(ctx.tenant, {
-      jobKind: V3_GROUP_QUEUE_JOB_KIND,
-      idempotencyKey: inputPayload.event.eventId,
-      maxAttempts: V3_GROUP_QUEUE_MAX_ATTEMPTS,
-      inputPayload,
-    });
-    if (!result?.ok) return { queued: false, reason: result?.skipped || 'queue_unavailable' };
-    return { queued: true, status: cleanText(result.job?.status, 40), jobId: cleanText(result.job?.job_id, 120) };
-  } catch (error) {
-    platform?.logger?.warn?.(`Finance Claims v3 queue persist failed (tenant=${ctx.tenant?.key || 'unknown'}): ${error.message}`);
-    return { queued: false, reason: 'queue_persist_failed' };
-  }
-}
-
-function validFinanceV3QueuePayload(value) {
-  const event = value?.event;
-  return Boolean(value && value.contractVersion === V3_GROUP_EVENT_CONTRACT
-    && event?.contractVersion === V3_GROUP_EVENT_CONTRACT
-    && cleanText(event.eventId, 180)
-    && event.eventType === 'message'
-    && cleanText(event.source?.groupId, 128)
-    && cleanText(event.source?.userId, 128)
-    && event.message?.type === 'text'
-    && V3_GROUP_COMMANDS.has(cleanText(event.message?.text, 80)));
-}
-
-async function settleFinanceV3QueueJob(tenant, job, status, details = {}) {
-  return platform.operationalMemory.settleProcessingJob(tenant, {
-    jobId: cleanText(job.job_id, 120),
-    status,
-    retryDelaySeconds: financeV3QueueRetryDelay(job.attempt_count),
-    outputPayload: status === 'succeeded' ? details : {},
-    errorPayload: status === 'retry' || status === 'dead_letter' ? details : {},
-  });
-}
-
-async function drainFinanceV3GroupQueue(tenant, {
-  env = process.env,
-  fetchImpl = globalThis.fetch,
-  timeoutMs = 70_000,
-  limit = 2,
-} = {}) {
-  const memory = platform?.operationalMemory;
-  if (typeof memory?.leaseProcessingJobs !== 'function' || typeof memory?.settleProcessingJob !== 'function') {
-    return { processed: 0, skipped: 'queue_unavailable' };
-  }
-  const jobs = await memory.leaseProcessingJobs(tenant, {
-    jobKind: V3_GROUP_QUEUE_JOB_KIND,
-    limit,
-    leaseSeconds: Math.ceil((Number(timeoutMs) || 70_000) / 1000) + 30,
-  });
-  let delivered = 0;
-  let retried = 0;
-  let failed = 0;
-  for (const job of jobs) {
-    const input = job.input_payload;
-    if (!validFinanceV3QueuePayload(input)) {
-      await settleFinanceV3QueueJob(tenant, job, 'dead_letter', { reason: 'invalid_queue_payload' });
-      failed += 1;
-      continue;
-    }
-    const result = await deliverFinanceV3GroupEvent(tenant, input.event, { env, fetchImpl, timeoutMs });
-    if (result.delivered) {
-      await settleFinanceV3QueueJob(tenant, job, 'succeeded', { replayed: result.replayed === true });
-      delivered += 1;
-      continue;
-    }
-    const exhausted = Number(job.attempt_count) >= Number(job.max_attempts || V3_GROUP_QUEUE_MAX_ATTEMPTS);
-    if (result.retryable === true && !exhausted) {
-      await settleFinanceV3QueueJob(tenant, job, 'retry', { reason: result.reason || 'gateway_uncertain' });
-      retried += 1;
-      continue;
-    }
-    const message = result.reason === 'identity_not_allowed'
-      ? '你的 LINE 身分尚未完成新版請款權限設定，請聯絡財務管理員。'
-      : '新版請款服務多次嘗試後仍無法建立連結，這次沒有建立請款單，請稍後再試。';
-    await notifyFinanceV3Applicant({
-      event: {
-        webhookEventId: input.event.eventId,
-        source: { userId: input.applicantUserId || input.event.source.userId },
-      },
-    }, message);
-    await settleFinanceV3QueueJob(tenant, job, 'dead_letter', { reason: result.reason || 'gateway_failed' });
-    failed += 1;
-  }
-  return { processed: jobs.length, delivered, retried, failed };
-}
-
-function kickFinanceV3GroupQueue(tenant) {
-  const key = cleanText(tenant?.key, 120);
-  if (!key) return Promise.resolve({ processed: 0, skipped: 'tenant_missing' });
-  if (financeV3QueueDrains.has(key)) return financeV3QueueDrains.get(key);
-  const draining = drainFinanceV3GroupQueue(tenant)
-    .catch((error) => {
-      platform?.logger?.warn?.(`Finance Claims v3 queue drain failed (tenant=${key}): ${error.message}`);
-      return { processed: 0, error: error.message };
-    })
-    .finally(() => financeV3QueueDrains.delete(key));
-  financeV3QueueDrains.set(key, draining);
-  return draining;
+  return { enabled: false, ready: false };
 }
 
 async function notifyFinanceV3Applicant(ctx, message) {
@@ -1063,6 +873,26 @@ async function bindingForEvent(tenant, bindingId) {
   return binding;
 }
 
+async function bindingForGroupEvent(tenant, groupId) {
+  const normalizedGroupId = cleanText(groupId, 128);
+  if (!normalizedGroupId || !tenant?.dataSources?.groupBindings) {
+    throw Object.assign(new Error('Claim binding not found.'), { statusCode: 404 });
+  }
+  const result = await platform.notionRequest(`/v1/data_sources/${encodeURIComponent(tenant.dataSources.groupBindings)}/query`, {
+    method: 'POST',
+    tenantKey: tenant.key,
+    body: {
+      filter: { property: 'LINE 群組 ID', rich_text: { equals: normalizedGroupId } },
+      page_size: 2,
+    },
+  });
+  const pages = Array.isArray(result?.results) ? result.results : [];
+  if (pages.length !== 1) {
+    throw Object.assign(new Error(pages.length ? 'Ambiguous claim binding.' : 'Claim binding not found.'), { statusCode: pages.length ? 409 : 404 });
+  }
+  return bindingForEvent(tenant, pages[0].id);
+}
+
 function normalizeClaimEvent(body, tenant) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw Object.assign(new Error('Invalid event payload.'), { statusCode: 400 });
   for (const key of Object.keys(body)) if (!SAFE_EVENT_FIELDS.has(key)) throw Object.assign(new Error(`Unsupported event field: ${key}`), { statusCode: 400 });
@@ -1158,20 +988,11 @@ async function onMessage(ctx) {
       await notifyFinanceV3Applicant(ctx, access.error);
       return true;
     }
-    const queued = await enqueueFinanceV3GroupEvent({ ...ctx, binding });
-    if (queued.queued) {
-      void kickFinanceV3GroupQueue(ctx.tenant);
-      return true;
-    }
-    // A queue configuration outage must not silently drop the command. Keep a
-    // bounded direct path as a fail-safe; it still never falls back to v1.
-    const forwarded = await forwardFinanceV3GroupEvent({ ...ctx, binding }, { timeoutMs: 70_000 });
-    if (forwarded.delivered) return true;
-    const message = forwarded.reason === 'identity_not_allowed'
-      ? '你的 LINE 身分尚未完成新版請款權限設定，請聯絡財務管理員。'
-      : '新版請款服務暫時無法建立連結，這次不會建立舊版請款單，請稍後再試。';
-    platform?.logger?.warn?.(`Finance Claims v3 group entry failed (tenant=${ctx.tenant?.key || 'unknown'}, reason=${forwarded.reason || 'unknown'}).`);
-    await notifyFinanceV3Applicant(ctx, message);
+    // Production webhooks persist this command in preAckLineEvent before LINE
+    // receives 200. A caller that reaches this path bypassed that durability
+    // boundary, so fail closed instead of creating post-ack work.
+    platform?.logger?.warn?.(`Finance Claims v3 command bypassed pre-ack intake (tenant=${ctx.tenant?.key || 'unknown'}).`);
+    await notifyFinanceV3Applicant(ctx, '新版請款服務暫時無法受理，這次不會建立舊版請款單，請稍後再試。');
     return true;
   }
   const context = activeClaimsContext({ tenant: ctx.tenant, binding, userId: lineUserId(ctx) });
@@ -1191,7 +1012,95 @@ async function onMessage(ctx) {
 
 async function fastTick({ tenant }) {
   if (!financeV3GroupEntryConfig(tenant).enabled) return { processed: 0, skipped: 'disabled' };
-  return kickFinanceV3GroupQueue(tenant);
+  if (tenant?.key !== 'hozo-am-2-0' || !localFinanceV3GroupEntry) return { processed: 0, skipped: 'not_local_owner' };
+  try {
+    if (!await localFinanceV3InitPromise) return { processed: 0, skipped: 'local_runtime_unavailable' };
+    return localFinanceV3GroupEntry.drainOnce();
+  } catch (error) {
+    platform?.logger?.warn?.(`Finance Claims v3 local fast tick failed (tenant=${tenant.key}): ${error.message}`);
+    return { processed: 0, error: error.message };
+  }
+}
+
+function ownsFinanceV3LineEvent({ tenant, event }) {
+  if (tenant?.key !== 'hozo-am-2-0' || !financeV3GroupEntryConfig(tenant).enabled || !localFinanceV3GroupEntry) {
+    return false;
+  }
+  return localFinanceV3GroupEntry.partitionWebhook({ events: [event] }).intercepted === 1;
+}
+
+function financeV3IngressRequestHash(event) {
+  const source = event?.source || {};
+  const base = {
+    type: cleanText(event?.type, 40),
+    timestamp: Number(event?.timestamp) || 0,
+    source: {
+      type: cleanText(source.type, 20),
+      groupId: cleanText(source.groupId || source.roomId, 128),
+      userId: cleanText(source.userId, 128),
+    },
+  };
+  if (event?.type === 'message') {
+    base.message = {
+      id: cleanText(event.message?.id, 180),
+      type: cleanText(event.message?.type, 40),
+      text: cleanText(event.message?.text, 80),
+    };
+  } else {
+    const members = event?.type === 'memberJoined' ? event.joined?.members : event?.left?.members;
+    base.memberUserIds = [...new Set((Array.isArray(members) ? members : [])
+      .map((member) => cleanText(member?.userId, 128)).filter(Boolean))].sort();
+  }
+  return crypto.createHash('sha256').update(JSON.stringify(base)).digest('hex');
+}
+
+async function preAckLineEvent({ tenant, binding, event }) {
+  if (tenant?.key !== 'hozo-am-2-0' || !financeV3GroupEntryConfig(tenant).enabled || !localFinanceV3GroupEntry) {
+    return { intercepted: false };
+  }
+  if (!await localFinanceV3InitPromise) throw new Error('finance_v3_local_runtime_unavailable');
+  const partitioned = localFinanceV3GroupEntry.partitionWebhook({ events: [event] });
+  if (partitioned.intercepted !== 1) throw new Error('finance_v3_scope_unavailable');
+  let verifiedBinding;
+  try {
+    verifiedBinding = binding?.pageId
+      ? await bindingForEvent(tenant, binding.pageId)
+      : await bindingForGroupEvent(tenant, event?.source?.groupId || event?.source?.roomId);
+  } catch (error) {
+    if ([400, 403, 404, 409].includes(Number(error?.statusCode))) {
+      if (event?.type === 'message') await notifyFinanceV3Applicant({ tenant, binding, event }, '此群組目前未啟用請款功能。');
+      return { intercepted: true, queued: false, reason: 'binding_revoked' };
+    }
+    throw error;
+  }
+  const sourceGroupId = cleanText(event?.source?.groupId || event?.source?.roomId, 128);
+  if (!sourceGroupId || verifiedBinding.groupId !== sourceGroupId) {
+    if (event?.type === 'message') await notifyFinanceV3Applicant({ tenant, binding: verifiedBinding, event }, '此群組目前未啟用請款功能。');
+    return { intercepted: true, queued: false, reason: 'binding_group_mismatch' };
+  }
+  if (event?.type === 'message') {
+    const access = activeClaimsAccess({ tenant, binding: verifiedBinding, userId: cleanText(event.source?.userId, 128) });
+    if (!access.ok) {
+      await notifyFinanceV3Applicant({ tenant, binding: verifiedBinding, event }, access.error);
+      return { intercepted: true, queued: false, reason: 'access_denied' };
+    }
+  }
+  const eventId = cleanText(event?.webhookEventId || event?.message?.id, 180);
+  if (!eventId) throw new Error('finance_v3_event_id_missing');
+  const requestHash = financeV3IngressRequestHash(event);
+  const ingested = await localFinanceV3GroupEntry.ingestExternalEvent({ eventId, requestHash, event });
+  if (event?.type === 'message' && ingested.queuedCount !== 1) {
+    await notifyFinanceV3Applicant({ tenant, binding: verifiedBinding, event }, '你的 LINE 身分尚未完成新版請款權限設定，請聯絡財務管理員。');
+    return { intercepted: true, queued: false, reason: 'identity_not_allowed', replayed: ingested.replayedCount > 0 };
+  }
+  return { intercepted: true, queued: ingested.queuedCount > 0, replayed: ingested.replayedCount > 0 };
+}
+
+async function handleLocalFinanceV3Receiver(req, res, { pathname, tenant }) {
+  if (tenant?.key !== 'hozo-am-2-0' || !localFinanceV3Receiver) return sendJson(res, 404, { code: 'not_found' });
+  const handled = await localFinanceV3Receiver.handle(req, res, pathname);
+  if (!handled) return sendJson(res, 404, { code: 'not_found' });
+  return true;
 }
 
 async function replyDirectClaim(ctx, message, retryKey = '') {
@@ -1284,8 +1193,22 @@ export default {
   init,
   onMessage,
   onDirectMessage,
+  ownsFinanceV3LineEvent,
+  preAckLineEvent,
   fastTick,
   routes: [
+    {
+      prefix: '/control/finance/claim-events/v3',
+      tenantKey: 'hozo-am-2-0',
+      access: { kind: 'machine', scope: 'tenant', capability: 'finance.claim-events-v3' },
+      handler: handleLocalFinanceV3Receiver,
+    },
+    {
+      prefix: '/control/finance/claims-v3',
+      tenantKey: 'hozo-am-2-0',
+      access: { kind: 'machine', scope: 'tenant', capability: 'finance.claim-bridge-v3' },
+      handler: handleLocalFinanceV3Receiver,
+    },
     {
       prefix: '/claims/liff',
       access: { kind: 'public', scope: 'signed-liff-session' },
@@ -1326,15 +1249,11 @@ export const __test = {
   eligibleDirectClaimBindings,
   activeClaimsAccess,
   financeV3GroupEntryConfig,
-  financeV3GroupEvent,
-  forwardFinanceV3GroupEvent,
-  deliverFinanceV3GroupEvent,
-  enqueueFinanceV3GroupEvent,
-  drainFinanceV3GroupQueue,
-  financeV3QueueRetryDelay,
-  validFinanceV3QueuePayload,
-  financeV3QueueDrains,
   notifyFinanceV3Applicant,
+  localFinanceV3Env,
+  ownsFinanceV3LineEvent,
+  financeV3IngressRequestHash,
+  preAckLineEvent,
   eventDedupe,
   sessions,
   cleanupMemory,
