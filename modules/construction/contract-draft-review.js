@@ -349,6 +349,61 @@ export function createContractDraftReviewService(deps, options = {}) {
     return rows.map(publicReview);
   }
 
+  async function loadInternalVersion(context, input = {}) {
+    const detail = await management.getContractDetail(context, { contractId: input.contractId });
+    const version = detail.versions.find((item) => item.id === text(input.versionId));
+    if (!version) throw reviewError('DRAFT_REVIEW_VERSION_NOT_FOUND', '找不到這個合約版本。', 404);
+    return { contract: detail.contract, version };
+  }
+
+  async function previewInternal(context, input = {}) {
+    const { contract, version } = await loadInternalVersion(context, input);
+    const body = contractBody(version);
+    if (typeof deps.auditDrivePrivate !== 'function') throw reviewError('DRAFT_REVIEW_PRIVACY_AUDIT_REQUIRED', 'Drive 隱私稽核尚未設定。', 503);
+    try {
+      const privacy = await deps.auditDrivePrivate(body.fileId);
+      if (privacy?.private !== true) throw reviewError('DRAFT_REVIEW_SOURCE_NOT_PRIVATE', '合約本文不是私有檔案，禁止開啟。', 409);
+    } catch (error) {
+      throw reviewStepError(error, 'DRAFT_REVIEW_PRIVACY_AUDIT_FAILED',
+        '合約本文的 Drive 私密狀態驗證失敗，請確認檔案仍存在且未公開分享。', 503);
+    }
+    let contractBodyText;
+    try {
+      contractBodyText = await bodyExtractor(deps, body);
+    } catch (error) {
+      throw reviewStepError(error, 'DRAFT_REVIEW_SOURCE_PREPARE_FAILED',
+        '合約本文無法讀取或轉換，請確認 Word／PDF 檔案可以正常開啟。', 422);
+    }
+    let rendered;
+    try {
+      rendered = await artifacts.renderPdf('draft_review_pdf', {
+        contract, version, contractBodyText, missingSections: missingSections(version),
+      }, `engineering-internal-preview:${context.tenant.key}:${version.id}:${body.sha256}`);
+    } catch (error) {
+      throw reviewStepError(error, 'DRAFT_REVIEW_PDF_FAILED', '內部審查 PDF 產生失敗，請稍後重試。', 502);
+    }
+    const history = reviewHistory(
+      await deps.contractStore.listDraftReviews(context.tenant, contract.id), version.versionNo,
+    );
+    const buffer = await composeDraftBundle(
+      rendered.buffer, reviewAttachments(version), deps, history, contract, version.versionNo,
+    );
+    return {
+      buffer, mimeType: 'application/pdf',
+      fileName: `${contract.contractNumber || contract.contract_number || contract.id}-V${version.versionNo}-INTERNAL-REVIEW.pdf`,
+      sha256: crypto.createHash('sha256').update(buffer).digest('hex'),
+    };
+  }
+
+  async function loadInternalAttachment(context, input = {}) {
+    const { version } = await loadInternalVersion(context, input);
+    const selected = reviewAttachments(version).find((item) => item.id === text(input.attachmentId));
+    if (!selected) throw reviewError('DRAFT_REVIEW_ATTACHMENT_NOT_FOUND', '找不到這個附件。', 404);
+    const buffer = await downloadVerifiedAttachment(deps, selected);
+    return { buffer, fileId: selected.fileId, sha256: selected.sha256,
+      mimeType: selected.mimeType, fileName: selected.name };
+  }
+
   async function loadByToken(tenant, token) {
     const raw = text(token);
     if (!/^[A-Za-z0-9_-]{32,180}$/.test(raw)) throw reviewError('DRAFT_REVIEW_TOKEN_INVALID', '草約審閱連結無效。', 404);
@@ -406,7 +461,10 @@ export function createContractDraftReviewService(deps, options = {}) {
     return { buffer, ...selected, sha256: crypto.createHash('sha256').update(buffer).digest('hex') };
   }
 
-  return Object.freeze({ issueDraftReview, listForContract, openReview, respond, loadDocument });
+  return Object.freeze({
+    issueDraftReview, listForContract, previewInternal, loadInternalAttachment,
+    openReview, respond, loadDocument,
+  });
 }
 
 export const __test = { digestToken, missingSections, requestEvidence, publicReview, reviewAttachments, reviewHistory, composeDraftBundle };

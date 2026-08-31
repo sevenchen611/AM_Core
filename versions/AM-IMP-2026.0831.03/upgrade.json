@@ -1,0 +1,56 @@
+{
+  "id": "AM-IMP-2026.0831.03",
+  "name": "Engineering contract internal review preview",
+  "type": "AM Platform / contracts / review UX",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-08-31",
+  "dependsOn": ["AM-IMP-2026.0831.02"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Read-only merged PDF preview for internal contract review",
+    "Protected source-attachment opening from the contract workspace",
+    "Cross-version review history in the internal preview",
+    "View-only tenant and project authorization"
+  ],
+  "requiresDatabases": ["Engineering-dedicated PostgreSQL schema engineering_contracts v3"],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-workspace.mjs",
+    "tools/dryrun-engineering-contract-draft-review.mjs",
+    "tools/dryrun-engineering-contract-workflow-api.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Preview reads only the authorized Engineering contract version and verifies private Drive files before returning bytes."
+  },
+  "changes": [
+    "Add authorized binary endpoints for an internal merged PDF and original attachments",
+    "Add a read-only document panel to the Engineering AM contract workspace",
+    "Include prior draft-review feedback in the merged internal-review PDF",
+    "Prevent preview from sending LINE, changing status, or creating signing evidence"
+  ],
+  "definitionOfDone": [
+    "An internal reviewer can open the current version's merged PDF before acting",
+    "Each original attachment can be opened separately",
+    "Only view permission is required and project scope remains enforced",
+    "Preview has no workflow, LINE, storage, or signing side effects"
+  ],
+  "files": [
+    "modules/construction/contract-draft-review.js",
+    "modules/construction/contract-workflow-api.js",
+    "modules/construction/contracts.js",
+    "tools/dryrun-engineering-contract-workspace.mjs",
+    "tools/dryrun-engineering-contract-draft-review.mjs",
+    "docs/tenants/engineering/project-improvement-manifest.md",
+    "docs/tenants/engineering/upgrades/AM-IMP-2026.0831.03-contract-internal-review-preview.md",
+    "versions/AM-IMP-2026.0831.03/README.md",
+    "versions/AM-IMP-2026.0831.03/INSTALL.md",
+    "versions/AM-IMP-2026.0831.03/VERIFY.md",
+    "versions/AM-IMP-2026.0831.03/ROLLBACK.md",
+    "versions/AM-IMP-2026.0831.03/upgrade.json"
+  ]
+}
