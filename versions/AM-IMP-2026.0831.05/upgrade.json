@@ -1,0 +1,62 @@
+{
+  "id": "AM-IMP-2026.0831.05",
+  "name": "Durable Finance Claims v3 group ingress",
+  "type": "AM Platform / Finance Claims / durable delivery",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-08-31",
+  "dependsOn": ["AM-IMP-2026.0718.01"],
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
+  "scope": [
+    "Persist group-entry events before gateway delivery",
+    "Retry cold starts and transient failures with durable leases",
+    "Preserve end-to-end LINE event idempotency",
+    "Notify applicants only after terminal or exhausted failure"
+  ],
+  "requiresDatabases": ["Tenant-scoped am_memory.processing_jobs with forced RLS"],
+  "requiresEnv": [
+    "Tenant operational-memory database connection",
+    "Existing Finance Claims v3 gateway URL, token, and enable flag"
+  ],
+  "requiresScripts": [
+    "tools/dryrun-processing-jobs-store.mjs",
+    "tools/dryrun-finance-v3-group-gateway.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Every queue transaction sets the tenant UUID and relies on forced PostgreSQL RLS; raw LINE source identifiers remain only in the tenant-scoped operational database and are never logged by this package."
+  },
+  "changes": [
+    "Add reusable processing-job enqueue, lease, and settlement operations",
+    "Add a separate five-second fast module scheduler",
+    "Queue exact Finance Claims v3 group commands before delivery",
+    "Use a 70-second downstream attempt plus bounded exponential retries",
+    "Fail closed without legacy-form fallback"
+  ],
+  "definitionOfDone": [
+    "A sleeping downstream service no longer causes an immediate applicant error",
+    "Pending jobs survive AM process restarts and expired leases are recovered",
+    "Repeated webhook delivery cannot create duplicate jobs or group cards",
+    "Terminal identity failures remain private and no legacy form is created",
+    "The ordinary ten-minute module patrol cadence is unchanged"
+  ],
+  "files": [
+    "core/operational-memory.js",
+    "core/modules.js",
+    "modules/claims/index.js",
+    "server.js",
+    "package.json",
+    "tools/dryrun-processing-jobs-store.mjs",
+    "tools/dryrun-finance-v3-group-gateway.mjs",
+    "docs/tenants/hozo-am-2-0/project-improvement-manifest.md",
+    "docs/tenants/hozo-am-2-0/upgrades/AM-IMP-2026.0831.05-finance-v3-persistent-queue.md",
+    "versions/AM-IMP-2026.0831.05/README.md",
+    "versions/AM-IMP-2026.0831.05/INSTALL.md",
+    "versions/AM-IMP-2026.0831.05/VERIFY.md",
+    "versions/AM-IMP-2026.0831.05/ROLLBACK.md",
+    "versions/AM-IMP-2026.0831.05/upgrade.json"
+  ]
+}

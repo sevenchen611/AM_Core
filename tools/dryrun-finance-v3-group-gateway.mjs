@@ -6,6 +6,8 @@ const {
   financeV3GroupEvent,
   forwardFinanceV3GroupEvent,
   notifyFinanceV3Applicant,
+  enqueueFinanceV3GroupEvent,
+  drainFinanceV3GroupQueue,
   parseCommand,
 } = __test;
 
@@ -114,5 +116,77 @@ claimsModule.init({
 });
 assert.equal(await notifyFinanceV3Applicant(ctx, '新版入口暫時無法使用'), true);
 assert.equal(privateTarget, ctx.event.source.userId);
+
+const persisted = new Map();
+const settlements = [];
+const memory = {
+  async enqueueProcessingJob(_tenant, input) {
+    if (!persisted.has(input.idempotencyKey)) {
+      persisted.set(input.idempotencyKey, {
+        job_id: '00000000-0000-4000-8000-000000000001',
+        status: 'queued',
+        attempt_count: 0,
+        max_attempts: input.maxAttempts,
+        input_payload: input.inputPayload,
+        idempotency_key: input.idempotencyKey,
+      });
+    }
+    return { ok: true, job: persisted.get(input.idempotencyKey) };
+  },
+  async leaseProcessingJobs() {
+    const job = persisted.get('evt-safe-001');
+    if (!job || !['queued', 'retry'].includes(job.status)) return [];
+    job.status = 'leased';
+    job.attempt_count += 1;
+    return [{ ...job }];
+  },
+  async settleProcessingJob(_tenant, input) {
+    const job = persisted.get('evt-safe-001');
+    assert.equal(job.status, 'leased');
+    job.status = input.status;
+    settlements.push({ ...input });
+    return { job_id: job.job_id, status: job.status, attempt_count: job.attempt_count, max_attempts: job.max_attempts };
+  },
+};
+claimsModule.init({
+  operationalMemory: memory,
+  pushLineMessage: async (target) => { privateTarget = target; },
+  logger: { warn() {} },
+});
+assert.equal((await enqueueFinanceV3GroupEvent(ctx)).queued, true);
+assert.equal((await enqueueFinanceV3GroupEvent(ctx)).queued, true);
+assert.equal(persisted.size, 1);
+
+let deliveryAttempts = 0;
+let drained = await drainFinanceV3GroupQueue(tenant, {
+  env,
+  timeoutMs: 70_000,
+  fetchImpl: async () => {
+    deliveryAttempts += 1;
+    throw new Error('cold start');
+  },
+});
+assert.deepEqual(drained, { processed: 1, delivered: 0, retried: 1, failed: 0 });
+assert.equal(persisted.get('evt-safe-001').status, 'retry');
+assert.equal(settlements[0].retryDelaySeconds, 5);
+
+drained = await drainFinanceV3GroupQueue(tenant, {
+  env,
+  timeoutMs: 70_000,
+  fetchImpl: async () => {
+    deliveryAttempts += 1;
+    return response({
+      contractVersion: 'finance-claims-v3.group-event-ingress-v1',
+      eventId: 'evt-safe-001',
+      accepted: 1,
+      intercepted: 1,
+      queued: 1,
+      replayed: 0,
+    });
+  },
+});
+assert.deepEqual(drained, { processed: 1, delivered: 1, retried: 0, failed: 0 });
+assert.equal(persisted.get('evt-safe-001').status, 'succeeded');
+assert.equal(deliveryAttempts, 2);
 
 console.log('Finance Claims v3 葉小蝸 group gateway dry-run passed.');
