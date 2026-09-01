@@ -402,21 +402,16 @@ const server = http.createServer(async (req, res) => {
           || typeof financeClaimsModule?.ownsFinanceV3LineEvent !== 'function'
           || typeof financeClaimsModule?.preAckLineEvent !== 'function') continue;
         const locallyOwned = financeClaimsModule.ownsFinanceV3LineEvent({ tenant: financeClaimsTenant, event });
+        if (!locallyOwned) continue;
         const groupId = event.source?.groupId || event.source?.roomId || '';
         if (!groupId) {
-          if (locallyOwned) throw new Error('finance_claim_group_missing');
-          continue;
+          throw new Error('finance_claim_group_missing');
         }
-        const { tenant, binding, resolution } = await router.resolveGroupBinding(groupId);
-        const claimsCapability = String(financeClaimsTenant?.config?.claims?.capability || '請款');
-        const knownFinanceBinding = tenant?.key === financeClaimsTenant?.key
-          && binding && Array.isArray(binding.capabilities) && binding.capabilities.includes(claimsCapability);
-        if (!locallyOwned && !knownFinanceBinding) continue;
-        if (['lookup_failed', 'ambiguous'].includes(resolution)) {
-          throw new Error('finance_claim_binding_unavailable');
-        }
-        if (tenant && tenant.key !== financeClaimsTenant?.key) throw new Error('finance_claim_binding_scope_mismatch');
-        const result = await financeClaimsModule.preAckLineEvent({ tenant: financeClaimsTenant, binding, event });
+        // GROUP_ENTRY_SCOPES_JSON and RECIPIENT_BINDINGS_JSON are the exact,
+        // deploy-scoped finance registry. Rental revalidates the source/user
+        // membership before issuing the short-lived entry, so Notion is not a
+        // second authorization dependency in this latency-sensitive path.
+        const result = await financeClaimsModule.preAckLineEvent({ tenant: financeClaimsTenant, event });
         if (result?.intercepted) financeInterceptedEvents.add(event);
       }
     } catch (error) {

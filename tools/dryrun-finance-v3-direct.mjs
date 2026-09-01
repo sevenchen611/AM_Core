@@ -144,6 +144,17 @@ assert.equal(partitioned.intercepted, 1);
 assert.equal(partitioned.records.length, 1);
 assert.equal(JSON.stringify(partitioned.records).includes(GROUP), false);
 assert.equal(JSON.stringify(partitioned.records).includes(USER), false);
+const unknownUser = message('evt-unknown-user');
+unknownUser.source.userId = `U${'c'.repeat(32)}`;
+const unknownUserPartition = consumer.partitionWebhook({ events: [unknownUser] });
+assert.equal(unknownUserPartition.intercepted, 1);
+assert.equal(unknownUserPartition.records.length, 0);
+const unknownGroup = message('evt-unknown-group');
+unknownGroup.source.groupId = `C${'d'.repeat(32)}`;
+assert.equal(consumer.partitionWebhook({ events: [unknownGroup] }).intercepted, 0);
+const spacedKeyword = message('evt-spaced-keyword');
+spacedKeyword.message.text = ' 請款 ';
+assert.equal(consumer.partitionWebhook({ events: [spacedKeyword] }).records.length, 1);
 const first = await consumer.ingestExternalEvent({ eventId: 'evt-1', requestHash: 'hash-1', event: message() });
 const replay = await consumer.ingestExternalEvent({ eventId: 'evt-1', requestHash: 'hash-1', event: message() });
 assert.deepEqual(first, { intercepted: 1, queuedCount: 1, replayedCount: 0 });
@@ -162,6 +173,7 @@ assert.deepEqual(store.attempts, ['pending_entry']);
 const source = await readFile(new URL('../modules/claims/index.js', import.meta.url), 'utf8');
 const groupEntrySource = await readFile(new URL('../modules/claims/v3/group-entry.js', import.meta.url), 'utf8');
 const receiverSource = await readFile(new URL('../modules/claims/v3/receiver.js', import.meta.url), 'utf8');
+const serverSource = await readFile(new URL('../server.js', import.meta.url), 'utf8');
 const envelopeSource = groupEntrySource.slice(groupEntrySource.indexOf('function entryEnvelope'), groupEntrySource.indexOf('function safeAck'));
 assert.match(envelopeSource, /templateKey: 'claim_web_entry'/);
 assert.doesNotMatch(envelopeSource, /claim_web_entry_test|testMode/);
@@ -170,6 +182,10 @@ assert.match(receiverSource, /expires <= nowMs \+ MAX_SOURCE_HINT_AGE_SECONDS \*
 assert.doesNotMatch(receiverSource, /expires <= nowMs \+ 5 \* 60 \* 1000/);
 assert.equal(source.includes('group-events/v3'), false);
 assert.equal(source.includes('enqueueProcessingJob'), false);
+const preAckSource = source.slice(source.indexOf('async function preAckLineEvent'), source.indexOf('async function handleLocalFinanceV3Receiver'));
+assert.doesNotMatch(preAckSource, /bindingForEvent|bindingForGroupEvent|activeClaimsAccess/);
+const webhookFinancePath = serverSource.slice(serverSource.indexOf("if (req.method === 'POST' && pathname === '/webhook/line')"), serverSource.indexOf("sendText(res, 200, 'OK')"));
+assert.doesNotMatch(webhookFinancePath, /router\.resolveGroupBinding/);
 const v3Route = source.indexOf("prefix: '/control/finance/claim-events/v3'");
 const legacyRoute = source.indexOf("prefix: '/control/finance/claim-events'");
 assert.ok(v3Route >= 0 && legacyRoute >= 0 && v3Route < legacyRoute);
@@ -249,5 +265,32 @@ assert.equal(tenMinuteDelivery.status, 200);
 assert.equal(deliveredMessage.to, GROUP);
 assert.match(deliveredMessage.messages[0].text, /HOZO 費用申請/);
 assert.match(deliveredMessage.messages[0].text, /rental\.example\.test\/finance-claims/);
+
+const immediateStore = new MemoryStore();
+const immediateStages = [];
+const immediateConsumer = createFinanceClaimsV3GroupEntryConsumer({
+  env: localEnv(),
+  store: immediateStore,
+  client: {
+    ready: true,
+    async syncMembership() { throw new Error('not expected'); },
+    async createWebEntry() {
+      return { kind: 'created', url: tenMinuteEntryUrl, expiresAt: '2026-09-01T00:10:00.000Z' };
+    },
+    async deliver() { return { kind: 'delivered', ackReference: 'line-ack:v1:66666666-6666-4666-8666-666666666666' }; },
+    async reconcile() { throw new Error('not expected'); },
+  },
+  now: () => clock,
+  autoDrain: false,
+  wakeOnEnqueue: true,
+  onStage(stage) { immediateStages.push(stage); },
+});
+await immediateConsumer.init();
+await immediateConsumer.ingestExternalEvent({ eventId: 'evt-immediate', requestHash: 'hash-immediate', event: message('evt-immediate') });
+for (let attempt = 0; attempt < 10 && [...immediateStore.rows.values()][0]?.status !== 'delivered'; attempt += 1) {
+  await new Promise((resolve) => setImmediate(resolve));
+}
+assert.equal([...immediateStore.rows.values()][0].status, 'delivered');
+assert.deepEqual(immediateStages, ['ingress_committed', 'worker_claimed', 'rental_entry_completed', 'line_delivery_completed', 'job_completed']);
 
 console.log('Finance Claims v3 direct AM Platform dry-run passed.');

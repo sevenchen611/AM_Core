@@ -1,5 +1,5 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
-import pg from 'pg';
+import { createFinanceClaimsV3Pool } from './postgres.js';
 
 export const FINANCE_CLAIMS_V3_APPROVAL_CONTRACT = 'finance-claims-v3.approval-v1';
 export const FINANCE_CLAIMS_V3_ACK_CONTRACT = 'finance-claims-v3.notification-ack-v1';
@@ -295,6 +295,7 @@ export function createFinanceClaimsV3Receiver({
   }
 
   const service = {
+    init: async () => Boolean(await getStore()),
     handle,
     receiverEnabled,
     bridgeEnabled,
@@ -315,8 +316,8 @@ export function createFinanceClaimsV3Receiver({
   return service;
 }
 
-export function createPostgresFinanceClaimsV3Store(databaseUrl) {
-  const pool = new pg.Pool(buildPoolConfig(databaseUrl));
+export function createPostgresFinanceClaimsV3Store(databaseUrl, { pool: injectedPool = null } = {}) {
+  const pool = injectedPool || createFinanceClaimsV3Pool(databaseUrl);
   let initialized = false;
   return {
     async init() {
@@ -906,10 +907,4 @@ function sendNoContent(res, status) {
   res.writeHead(status, { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
   res.end();
   return true;
-}
-
-function buildPoolConfig(databaseUrl) {
-  const parsed = new URL(databaseUrl);
-  const isLocal = ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname);
-  return { connectionString: databaseUrl, ssl: isLocal ? false : { rejectUnauthorized: false }, max: 4, idleTimeoutMillis: 30_000 };
 }

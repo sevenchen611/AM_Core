@@ -1,7 +1,8 @@
 import crypto from 'node:crypto';
 import { normalizeId, readBody, sendJson } from '../../core/util.js';
-import { createFinanceClaimsV3Receiver } from './v3/receiver.js';
-import { createFinanceClaimsV3GroupEntryConsumer } from './v3/group-entry.js';
+import { createFinanceClaimsV3Receiver, createPostgresFinanceClaimsV3Store } from './v3/receiver.js';
+import { createFinanceClaimsV3GroupEntryConsumer, createPostgresGroupEntryStore } from './v3/group-entry.js';
+import { createFinanceClaimsV3Pool } from './v3/postgres.js';
 
 let platform = null;
 let localFinanceV3Receiver = null;
@@ -46,15 +47,31 @@ const eventDedupe = new Map();
 function init(injected) {
   platform = injected;
   const env = localFinanceV3Env(process.env);
-  localFinanceV3Receiver = createFinanceClaimsV3Receiver({ env });
-  // AM Platform's five-second fast tick is the sole in-process scheduler.
-  // Keeping the consumer poller off avoids two owners racing the same leases.
+  const databaseUrl = String(env.DATABASE_URL || '').trim();
+  const sharedPool = databaseUrl ? createFinanceClaimsV3Pool(databaseUrl, {
+    onError(error) {
+      platform?.logger?.warn?.(`Finance Claims v3 PostgreSQL idle client failed: ${error.message}`);
+    },
+  }) : null;
+  const deliveryStore = sharedPool ? createPostgresFinanceClaimsV3Store(databaseUrl, { pool: sharedPool }) : null;
+  const groupEntryStore = sharedPool ? createPostgresGroupEntryStore(databaseUrl, { pool: sharedPool }) : null;
+  localFinanceV3Receiver = createFinanceClaimsV3Receiver({ env, store: deliveryStore });
+  // A durable commit wakes the local consumer immediately. The platform's
+  // five-second fast tick remains as recovery for restarts and missed wakes.
   localFinanceV3GroupEntry = createFinanceClaimsV3GroupEntryConsumer({
     env,
+    store: groupEntryStore,
     receiver: localFinanceV3Receiver,
     autoDrain: false,
+    wakeOnEnqueue: true,
+    onStage(stage, details) {
+      platform?.logger?.log?.(`[finance-v3-timing] ${stage} ${JSON.stringify(details)}`);
+    },
   });
-  localFinanceV3InitPromise = localFinanceV3GroupEntry.init().then(() => true).catch((error) => {
+  localFinanceV3InitPromise = Promise.all([
+    localFinanceV3Receiver.init(),
+    localFinanceV3GroupEntry.init(),
+  ]).then(() => true).catch((error) => {
     platform?.logger?.warn?.(`Finance Claims v3 local runtime initialization failed: ${error.message}`);
     return false;
   });
@@ -1054,45 +1071,27 @@ function financeV3IngressRequestHash(event) {
   return crypto.createHash('sha256').update(JSON.stringify(base)).digest('hex');
 }
 
-async function preAckLineEvent({ tenant, binding, event }) {
+async function preAckLineEvent({ tenant, event }) {
+  const startedAt = Date.now();
   if (tenant?.key !== 'hozo-am-2-0' || !financeV3GroupEntryConfig(tenant).enabled || !localFinanceV3GroupEntry) {
     return { intercepted: false };
   }
   if (!await localFinanceV3InitPromise) throw new Error('finance_v3_local_runtime_unavailable');
   const partitioned = localFinanceV3GroupEntry.partitionWebhook({ events: [event] });
   if (partitioned.intercepted !== 1) throw new Error('finance_v3_scope_unavailable');
-  let verifiedBinding;
-  try {
-    verifiedBinding = binding?.pageId
-      ? await bindingForEvent(tenant, binding.pageId)
-      : await bindingForGroupEvent(tenant, event?.source?.groupId || event?.source?.roomId);
-  } catch (error) {
-    if ([400, 403, 404, 409].includes(Number(error?.statusCode))) {
-      if (event?.type === 'message') await notifyFinanceV3Applicant({ tenant, binding, event }, '此群組目前未啟用請款功能。');
-      return { intercepted: true, queued: false, reason: 'binding_revoked' };
-    }
-    throw error;
-  }
-  const sourceGroupId = cleanText(event?.source?.groupId || event?.source?.roomId, 128);
-  if (!sourceGroupId || verifiedBinding.groupId !== sourceGroupId) {
-    if (event?.type === 'message') await notifyFinanceV3Applicant({ tenant, binding: verifiedBinding, event }, '此群組目前未啟用請款功能。');
-    return { intercepted: true, queued: false, reason: 'binding_group_mismatch' };
-  }
-  if (event?.type === 'message') {
-    const access = activeClaimsAccess({ tenant, binding: verifiedBinding, userId: cleanText(event.source?.userId, 128) });
-    if (!access.ok) {
-      await notifyFinanceV3Applicant({ tenant, binding: verifiedBinding, event }, access.error);
-      return { intercepted: true, queued: false, reason: 'access_denied' };
-    }
-  }
   const eventId = cleanText(event?.webhookEventId || event?.message?.id, 180);
   if (!eventId) throw new Error('finance_v3_event_id_missing');
   const requestHash = financeV3IngressRequestHash(event);
   const ingested = await localFinanceV3GroupEntry.ingestExternalEvent({ eventId, requestHash, event });
   if (event?.type === 'message' && ingested.queuedCount !== 1) {
-    await notifyFinanceV3Applicant({ tenant, binding: verifiedBinding, event }, '你的 LINE 身分尚未完成新版請款權限設定，請聯絡財務管理員。');
+    await notifyFinanceV3Applicant({ tenant, event }, '你的 LINE 身分尚未完成新版請款權限設定，請聯絡財務管理員。');
     return { intercepted: true, queued: false, reason: 'identity_not_allowed', replayed: ingested.replayedCount > 0 };
   }
+  platform?.logger?.log?.(`[finance-v3-timing] pre_ack_completed ${JSON.stringify({
+    durationMs: Math.max(0, Date.now() - startedAt),
+    queuedCount: ingested.queuedCount,
+    replayed: ingested.replayedCount > 0,
+  })}`);
   return { intercepted: true, queued: ingested.queuedCount > 0, replayed: ingested.replayedCount > 0 };
 }
 
