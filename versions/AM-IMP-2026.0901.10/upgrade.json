@@ -1,0 +1,58 @@
+{
+  "id": "AM-IMP-2026.0901.10",
+  "name": "Visible attachment removal and LINE archive recovery",
+  "type": "AM Platform / contracts / workspace usability",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-01",
+  "dependsOn": ["AM-IMP-2026.0901.09"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Always-visible attachment exclusion controls",
+    "Draft-review and archive count reconciliation",
+    "Prominent historical LINE archive backfill action",
+    "Clear automatic future-interval capture guidance"
+  ],
+  "requiresDatabases": ["Existing Engineering contract PostgreSQL LINE archive tables"],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-workspace.mjs",
+    "tools/dryrun-engineering-contract-line-archive.mjs",
+    "tools/dryrun-engineering-contract-line-archive-schema.mjs",
+    "tools/dryrun-engineering-contract-draft-review.mjs",
+    "tools/dryrun-engineering-contract-management.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Archive counts and backfill remain restricted to the current tenant-scoped contract and its bound LINE group."
+  },
+  "changes": [
+    "Keep the red attachment × visible without pointer hover",
+    "Increase the exclusion control size and keyboard focus visibility",
+    "Show sent-review and existing-archive counts when history is incomplete",
+    "Explain why reviews sent before activation require one historical backfill",
+    "Promote the backfill action and state that it does not resend LINE messages",
+    "Retain automatic interval capture for every future draft send"
+  ],
+  "definitionOfDone": [
+    "V5 attachment exclusions are visually discoverable",
+    "Historical archive gaps are explicit rather than appearing as an unexplained empty list",
+    "The backfill action is prominent and safe",
+    "Future sends still capture non-overlapping intervals automatically",
+    "Targeted dry-runs and package validation pass"
+  ],
+  "files": [
+    "modules/construction/contracts.js",
+    "tools/dryrun-engineering-contract-workspace.mjs",
+    "versions/AM-IMP-2026.0901.10/README.md",
+    "versions/AM-IMP-2026.0901.10/INSTALL.md",
+    "versions/AM-IMP-2026.0901.10/VERIFY.md",
+    "versions/AM-IMP-2026.0901.10/ROLLBACK.md",
+    "versions/AM-IMP-2026.0901.10/upgrade.json",
+    "docs/tenants/engineering/project-improvement-manifest.md",
+    "docs/tenants/engineering/upgrades/AM-IMP-2026.0901.10-visible-removal-line-archive-recovery.md"
+  ]
+}
