@@ -161,6 +161,10 @@ assert.equal([...store.rows.values()][0].status, 'delivered');
 assert.deepEqual(store.attempts, ['pending_membership', 'membership_uncertain', 'pending_entry', 'pending_delivery']);
 
 const source = await readFile(new URL('../modules/claims/index.js', import.meta.url), 'utf8');
+const groupEntrySource = await readFile(new URL('../modules/claims/v3/group-entry.js', import.meta.url), 'utf8');
+const envelopeSource = groupEntrySource.slice(groupEntrySource.indexOf('function entryEnvelope'), groupEntrySource.indexOf('function safeAck'));
+assert.match(envelopeSource, /templateKey: 'claim_web_entry'/);
+assert.doesNotMatch(envelopeSource, /claim_web_entry_test|testMode/);
 assert.equal(source.includes('group-events/v3'), false);
 assert.equal(source.includes('enqueueProcessingJob'), false);
 const v3Route = source.indexOf("prefix: '/control/finance/claim-events/v3'");

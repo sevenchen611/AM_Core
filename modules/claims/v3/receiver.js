@@ -34,6 +34,7 @@ const TEMPLATE_RULES = new Map([
   ['claim_needs_info', { recipient: 'line_user', events: new Set(['claim_needs_info']) }],
   ['payment_date_changed', { recipient: 'line_user', events: new Set(['payment_date_changed']) }],
   ['payment_exception', { recipient: 'line_user', events: new Set(['payment_date_changed']) }],
+  ['claim_web_entry', { recipient: 'line_user', events: new Set(['claim_web_entry']), contract: FINANCE_CLAIMS_V3_GROUP_ENTRY_CONTRACT }],
   ['claim_web_entry_test', { recipient: 'line_user', events: new Set(['claim_web_entry']), contract: FINANCE_CLAIMS_V3_GROUP_ENTRY_CONTRACT }],
 ]);
 const PAYLOAD_KEYS = new Set([
@@ -489,7 +490,8 @@ function parseBridge(body, kind, bindings) {
 function validPayload(payload, eventKey, eventType, contractVersion = FINANCE_CLAIMS_V3_APPROVAL_CONTRACT) {
   if (!payload || Array.isArray(payload) || typeof payload !== 'object') return false;
   if (contractVersion === FINANCE_CLAIMS_V3_GROUP_ENTRY_CONTRACT) {
-    return exactObject(payload, ['contractVersion', 'eventKey', 'eventType', 'entryUrl', 'expiresAt', 'testMode'])
+    return (exactObject(payload, ['contractVersion', 'eventKey', 'eventType', 'entryUrl', 'expiresAt'])
+      || exactObject(payload, ['contractVersion', 'eventKey', 'eventType', 'entryUrl', 'expiresAt', 'testMode']))
       && payload.contractVersion === contractVersion && payload.eventKey === eventKey && payload.eventType === eventType;
   }
   if (Object.keys(payload).some((key) => !PAYLOAD_KEYS.has(key))) return false;
@@ -513,8 +515,10 @@ function validPayload(payload, eventKey, eventType, contractVersion = FINANCE_CL
 }
 
 function validTemplatePayload(templateKey, eventType, payload, env, nowMs) {
-  if (templateKey === 'claim_web_entry_test') {
-    if (!exactObject(payload, ['contractVersion', 'eventKey', 'eventType', 'entryUrl', 'expiresAt', 'testMode']) || payload.testMode !== true || eventType !== 'claim_web_entry') return false;
+  if (templateKey === 'claim_web_entry' || templateKey === 'claim_web_entry_test') {
+    const production = templateKey === 'claim_web_entry';
+    if (!(production ? exactObject(payload, ['contractVersion', 'eventKey', 'eventType', 'entryUrl', 'expiresAt']) : exactObject(payload, ['contractVersion', 'eventKey', 'eventType', 'entryUrl', 'expiresAt', 'testMode']))
+      || (!production && payload.testMode !== true) || eventType !== 'claim_web_entry') return false;
     const base = safeHttpsBase(env.HOZO_FINANCE_CLAIMS_V3_BRIDGE_BASE_URL); let url;
     try { url = new URL(payload.entryUrl); } catch { return false; }
     const expires = Date.parse(payload.expiresAt);
@@ -551,6 +555,7 @@ function validTemplatePayload(templateKey, eventType, payload, env, nowMs) {
 }
 
 function renderTemplate(templateKey, payload) {
+  if (templateKey === 'claim_web_entry') return `HOZO 費用申請\n請使用以下短效連結開啟申請頁：\n${payload.entryUrl}\n連結失效後，請回原群組重新輸入「請款」或「費用申請」。`;
   if (templateKey === 'claim_web_entry_test') return `【測試】HOZO 費用申請\n請使用以下短效連結開啟申請頁：\n${payload.entryUrl}\n連結失效後，請回原群組重新輸入「請款」或「費用申請」。`;
   const amount = `${payload.currency} ${Number(payload.amountTotal).toLocaleString('zh-TW')}`;
   if (templateKey === 'claim_submitted') return `HOZO 費用申請已成立\n金額：${amount}\n狀態：等待審核`;

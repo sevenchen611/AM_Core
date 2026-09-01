@@ -258,8 +258,8 @@ export function createGroupEntryClient({ env, now, receiver = null }) {
 }
 
 function entryEnvelope(row) {
-  return { contractVersion: ENTRY_CONTRACT, eventKey: row.delivery_event_key, eventType: 'claim_web_entry', recipient: { type: 'line_user', identityReference: row.applicant_reference }, templateKey: 'claim_web_entry_test', payload: {
-    contractVersion: ENTRY_CONTRACT, eventKey: row.delivery_event_key, eventType: 'claim_web_entry', entryUrl: row.entry_url, expiresAt: row.entry_expires_at, testMode: true,
+  return { contractVersion: ENTRY_CONTRACT, eventKey: row.delivery_event_key, eventType: 'claim_web_entry', recipient: { type: 'line_user', identityReference: row.applicant_reference }, templateKey: 'claim_web_entry', payload: {
+    contractVersion: ENTRY_CONTRACT, eventKey: row.delivery_event_key, eventType: 'claim_web_entry', entryUrl: row.entry_url, expiresAt: row.entry_expires_at,
   } };
 }
 
