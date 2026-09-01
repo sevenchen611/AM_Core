@@ -422,6 +422,80 @@ function draftSnapshot(input, documentPackage) {
   return snapshot;
 }
 
+function documentIdentity(document) {
+  if (!document || typeof document !== 'object' || Array.isArray(document)) return '';
+  const fileId = clean(first(document, ['fileId', 'file_id', 'driveFileId', 'drive_file_id']));
+  if (fileId) return `file:${fileId}`;
+  const hash = clean(first(document, ['sha256', 'contentSha256', 'contentHash'])).toLowerCase();
+  if (hash) return `sha256:${hash}`;
+  const url = clean(first(document, ['url', 'webViewLink']));
+  if (url) return `url:${url}`;
+  return '';
+}
+
+function packageDocuments(documentPackage, sourceVersionNo = 0) {
+  const pkg = documentPackage && typeof documentPackage === 'object' && !Array.isArray(documentPackage)
+    ? documentPackage
+    : {};
+  const output = [];
+  const add = (document, category) => {
+    if (!document || typeof document !== 'object' || Array.isArray(document)) return;
+    output.push({
+      ...cloneValue(document),
+      category: clean(document.category) || category,
+      sourceVersionNo: Number(document.sourceVersionNo) || sourceVersionNo || undefined,
+    });
+  };
+  add(pkg.contractBody, 'contract_body');
+  for (const drawing of Array.isArray(pkg.constructionDrawings) ? pkg.constructionDrawings : []) {
+    add(drawing, 'construction_drawing');
+  }
+  add(pkg.quotation, 'quotation');
+  for (const attachment of Array.isArray(pkg.attachments) ? pkg.attachments : []) {
+    add(attachment, clean(attachment?.category) || 'other');
+  }
+  return output;
+}
+
+function inheritHistoricalAttachments(versions, requestedPackage, nextVersionNo) {
+  const documentPackage = cloneValue(
+    requestedPackage && typeof requestedPackage === 'object' && !Array.isArray(requestedPackage)
+      ? requestedPackage
+      : {},
+  );
+  const existingAttachments = Array.isArray(documentPackage.attachments)
+    ? cloneValue(documentPackage.attachments)
+    : [];
+  const currentDocuments = packageDocuments({ ...documentPackage, attachments: existingAttachments }, nextVersionNo);
+  const seen = new Set(currentDocuments.map(documentIdentity).filter(Boolean));
+  const inherited = [];
+  const ordered = [...versions].sort((a, b) => a.versionNo - b.versionNo || a.createdAt.localeCompare(b.createdAt));
+  for (const version of ordered) {
+    for (const document of packageDocuments(packageFromVersion(version), version.versionNo)) {
+      const identity = documentIdentity(document);
+      if (!identity || seen.has(identity)) continue;
+      seen.add(identity);
+      const sourceVersionNo = Number(document.sourceVersionNo) || version.versionNo;
+      inherited.push({
+        ...document,
+        sourceVersionNo,
+        revision: clean(document.revision) || `V${sourceVersionNo}`,
+        inherited: true,
+      });
+    }
+  }
+  if (existingAttachments.length || inherited.length) {
+    documentPackage.attachments = [...existingAttachments, ...inherited];
+  } else {
+    delete documentPackage.attachments;
+  }
+  return {
+    documentPackage,
+    inheritedCount: inherited.length,
+    sourceVersionNos: [...new Set(inherited.map((item) => Number(item.sourceVersionNo)).filter(Boolean))].sort((a, b) => a - b),
+  };
+}
+
 function rejectVersionContentOverride(input, operation) {
   for (const field of VERSION_CONTENT_INPUT_FIELDS) {
     if (own(input, field)) {
@@ -750,9 +824,15 @@ export function createContractManagementService({ store, clock = () => new Date(
       );
     }
 
-    const documentPackage = draftPackage(input);
+    const inheritance = inheritHistoricalAttachments(versions, draftPackage(input), versionNo);
+    const documentPackage = inheritance.documentPackage;
     const validation = validateContractPackage(documentPackage, { contractAmount: contractAmount(contract) });
     const snapshot = draftSnapshot(input, documentPackage);
+    snapshot.attachmentLineage = {
+      mode: 'cumulative',
+      inheritedCount: inheritance.inheritedCount,
+      sourceVersionNos: inheritance.sourceVersionNos,
+    };
     const createdAt = nowIso(serviceClock);
     const stored = unwrapStoreResult(await adapter.createVersion(tenant, {
       contractId: contract.id,

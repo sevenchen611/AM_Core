@@ -1,0 +1,62 @@
+{
+  "id": "AM-IMP-2026.0901.08",
+  "name": "Cumulative Engineering contract-version attachments",
+  "type": "AM Platform / contracts / version lineage",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-01",
+  "dependsOn": ["AM-IMP-2026.0901.07"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "All-prior-version attachment inheritance",
+    "Original source-version labels",
+    "Immutable file-identity deduplication",
+    "Historical omission repair when creating the next version"
+  ],
+  "requiresDatabases": ["Existing Engineering contract PostgreSQL version snapshots"],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-management.mjs",
+    "tools/dryrun-engineering-contract-workspace.mjs",
+    "tools/dryrun-engineering-contract-draft-review.mjs",
+    "tools/dryrun-engineering-contract-issuance.mjs",
+    "tools/dryrun-engineering-contract-pdf-renderer.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Inheritance reads only versions belonging to the same tenant-scoped Engineering contract."
+  },
+  "changes": [
+    "Build every new version from the complete earlier-version attachment history",
+    "Move replaced primary documents into cumulative historical attachments",
+    "Record sourceVersionNo and a default V-number revision label",
+    "Deduplicate identical files before manifest generation",
+    "Append newly uploaded drawings instead of replacing the current drawing list",
+    "Show source-version labels in the Engineering AM workspace"
+  ],
+  "definitionOfDone": [
+    "V2 retains V1 files",
+    "V3 retains unique V1 and V2 files",
+    "V4 retains unique V1, V2, and V3 files",
+    "Old incomplete lineage is reconstructed during the next version creation",
+    "No immutable historical version is modified",
+    "Targeted dry-runs and package validation pass"
+  ],
+  "files": [
+    "modules/construction/contract-management.js",
+    "modules/construction/contracts.js",
+    "tools/dryrun-engineering-contract-management.mjs",
+    "tools/dryrun-engineering-contract-workspace.mjs",
+    "versions/AM-IMP-2026.0828.01/config/engineering-contract-workflow.json",
+    "versions/AM-IMP-2026.0901.08/README.md",
+    "versions/AM-IMP-2026.0901.08/INSTALL.md",
+    "versions/AM-IMP-2026.0901.08/VERIFY.md",
+    "versions/AM-IMP-2026.0901.08/ROLLBACK.md",
+    "versions/AM-IMP-2026.0901.08/upgrade.json",
+    "docs/tenants/engineering/project-improvement-manifest.md",
+    "docs/tenants/engineering/upgrades/AM-IMP-2026.0901.08-cumulative-version-attachments.md"
+  ]
+}
