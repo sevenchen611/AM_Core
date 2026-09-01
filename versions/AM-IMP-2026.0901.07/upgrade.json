@@ -3,7 +3,7 @@
   "name": "Contractor required details and Word-like contract PDF tables",
   "type": "AM Platform / contracts / signing and PDF layout",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-09-01",
   "dependsOn": ["AM-IMP-2026.0901.03"],
   "installTargets": ["AM_PLATFORM:engineering"],
@@ -48,6 +48,14 @@
     "Every generated sample PDF page passes visual inspection",
     "Targeted dry-runs and package validation pass"
   ],
+  "deploymentEvidence": {
+    "pullRequest": "https://github.com/sevenchen611/AM_Core/pull/75",
+    "commit": "c651b6821b9b8e667f1873b855d8f1c793934b46",
+    "renderService": "srv-d97s94utrd3s739lin30",
+    "renderDeploy": "dep-dabatlrncjis73f0p7f0",
+    "verifiedAt": "2026-09-01T18:55:00+08:00",
+    "checks": ["Render status Live", "GET /health = 200", "GET / = 200"]
+  },
   "files": [
     "modules/construction/contract-signing-web.js",
     "modules/construction/contract-signing.js",
