@@ -3,7 +3,7 @@
   "name": "Direct Finance Claims v3 owner",
   "type": "AM Platform / Finance Claims / direct durable delivery",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-09-01",
   "dependsOn": ["AM-IMP-2026.0831.05"],
   "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
