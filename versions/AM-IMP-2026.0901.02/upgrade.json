@@ -1,0 +1,47 @@
+{
+  "id": "AM-IMP-2026.0901.02",
+  "name": "Production Finance Claim entry message",
+  "type": "AM Platform / Finance Claims / LINE private entry",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-01",
+  "dependsOn": ["AM-IMP-2026.0901.01"],
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
+  "scope": [
+    "Use the production private-message template for Finance Claims v3 web entry",
+    "Retain the canary template only for explicit synthetic tests",
+    "Preserve private-only entry delivery and post-submission group publication"
+  ],
+  "requiresDatabases": ["Existing Finance Claims v3 PostgreSQL ledgers"],
+  "requiresEnv": ["Existing HZ2_FINANCE_CLAIMS_V3 configuration"],
+  "requiresScripts": ["tools/dryrun-finance-v3-direct.mjs", "tools/dryrun-core.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The patch changes only an allowlisted template and carries the existing opaque identity reference."
+  },
+  "changes": [
+    "Add an allowlisted claim_web_entry production template",
+    "Remove testMode from production entry envelopes",
+    "Keep claim_web_entry_test available only for explicit canaries"
+  ],
+  "definitionOfDone": [
+    "Fresh claim entry private messages contain no test marker",
+    "Duplicate webhook delivery still creates no duplicate private message",
+    "No Finance Claims v3 database or environment migration is required"
+  ],
+  "files": [
+    "modules/claims/v3/receiver.js",
+    "modules/claims/v3/group-entry.js",
+    "tools/dryrun-finance-v3-direct.mjs",
+    "docs/tenants/hozo-am-2-0/project-improvement-manifest.md",
+    "docs/tenants/hozo-am-2-0/upgrades/AM-IMP-2026.0901.02-finance-entry-production-template.md",
+    "versions/AM-IMP-2026.0901.02/README.md",
+    "versions/AM-IMP-2026.0901.02/INSTALL.md",
+    "versions/AM-IMP-2026.0901.02/VERIFY.md",
+    "versions/AM-IMP-2026.0901.02/ROLLBACK.md",
+    "versions/AM-IMP-2026.0901.02/upgrade.json"
+  ]
+}
