@@ -26,6 +26,14 @@
     "issuedPdfRequired": true,
     "issueFailurePolicy": "fail_closed"
   },
+  "versionAttachmentInheritance": {
+    "mode": "cumulative_all_prior_versions",
+    "sameContractAndTenantOnly": true,
+    "historicalVersionsMutable": false,
+    "deduplicateBy": ["driveFileId", "sha256", "url"],
+    "preserveSourceVersion": true,
+    "repairOnNextVersionCreation": true
+  },
   "contractVersionStates": [
     "draft",
     "internal_review",

@@ -22,6 +22,7 @@ Runtime target: `AM_PLATFORM`
 | AM-IMP-2026.0831.04 | Installed | Contract LINE conversation archives | Version-bounded immutable LINE conversation PDFs, merged contract evidence, and historical backfill | Local schema and workflow dry-runs verify non-overlapping boundaries, media evidence, hashes, idempotency, send blocking, protected files, and no LINE activity during backfill. Production migration and HZ-CT-001 V1/V2 backfill are pending. |
 | AM-IMP-2026.0901.03 | Deployed | Contractor identity-document evidence | Mandatory ID-card front/back capture at formal signing, private Drive storage, immutable hashes and receipt verification | PR #69 merged as `daede2b`; Render deployment `dep-dab7e9dg1s2s73e7ph0g` reports the same commit Live, and production health returned HTTP 200. Both sides are required before signing; raw images remain private. |
 | AM-IMP-2026.0901.07 | Deployed | Contractor required details and Word-like contract PDF tables | Mandatory contractor name/identity number/address, immutable evidence, Word table preservation, and clean party/payment grids | PR #75; commit c651b68; Render dep-dabatlrncjis73f0p7f0 Live; public root and health HTTP 200. |
+| AM-IMP-2026.0901.08 | Installed | Cumulative contract-version attachments | Every new version retains all unique V1..Vn files, source-version labels, immutable deduplication, and repair of older omissions | Management, workspace, draft-review, issuance, and PDF-renderer checks pass locally. Production deployment verification is pending. |
 
 ## Tenant and evidence boundaries
 

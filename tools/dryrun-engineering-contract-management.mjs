@@ -60,6 +60,29 @@ function completePackage(amount = 100_000) {
   };
 }
 
+function versionedPackage(versionNo, amount = 100_000) {
+  const value = completePackage(amount);
+  value.contractBody = {
+    ...value.contractBody,
+    name: `工程合約本文 V${versionNo}.pdf`,
+    fileId: `body-file-v${versionNo}`,
+    sha256: String(versionNo).repeat(64),
+  };
+  value.constructionDrawings = [{
+    ...value.constructionDrawings[0],
+    name: `施工圖 V${versionNo}.pdf`,
+    fileId: `drawing-file-v${versionNo}`,
+    sha256: String(versionNo + 3).repeat(64),
+  }];
+  value.quotation = {
+    ...value.quotation,
+    name: `報價單 V${versionNo}.pdf`,
+    fileId: `quote-file-v${versionNo}`,
+    sha256: String(versionNo + 6).repeat(64),
+  };
+  return value;
+}
+
 function urlOnlyPackage(amount = 100_000) {
   const value = completePackage(amount);
   value.contractBody = { name: '工程合約本文.pdf', url: 'https://files.example/body.pdf' };
@@ -399,6 +422,62 @@ test('creates the next numbered draft with a canonical manifest hash', async () 
   assert.equal(result.packageValidation.ok, true);
   assert.equal(result.version.attachmentManifestHash, expected.manifestHash);
   assert.deepEqual(result.version.manifest, expected.manifest);
+});
+
+test('cumulatively restores every unique attachment from all earlier versions', async () => {
+  const { service, store, context } = createFixture();
+  seedDefaultContract(store);
+  store.seedVersion({
+    id: 'version-history-1', contractId: 'contract-1', versionNo: 1,
+    documentPackage: versionedPackage(1), createdAt: '2026-08-01T00:00:00.000Z',
+  });
+  store.seedVersion({
+    id: 'version-history-2', contractId: 'contract-1', versionNo: 2,
+    documentPackage: versionedPackage(2), createdAt: '2026-08-02T00:00:00.000Z',
+  });
+
+  // Simulate the old UI bug: V3 only submits its current three documents and
+  // omits every attachment from V1 and V2. The server must repair the lineage.
+  const result = await service.createDraftVersion(context, {
+    contractId: 'contract-1',
+    documentPackage: versionedPackage(3),
+  });
+
+  assert.equal(result.version.versionNo, 3);
+  assert.equal(result.version.documentPackage.contractBody.fileId, 'body-file-v3');
+  assert.equal(result.version.documentPackage.attachments.length, 6);
+  assert.deepEqual(result.version.snapshot.attachmentLineage, {
+    mode: 'cumulative', inheritedCount: 6, sourceVersionNos: [1, 2],
+  });
+  assert.deepEqual(
+    result.version.documentPackage.attachments.map((item) => [item.fileId, item.sourceVersionNo, item.revision]),
+    [
+      ['body-file-v1', 1, 'V1'], ['drawing-file-v1', 1, 'A1'], ['quote-file-v1', 1, 'V1'],
+      ['body-file-v2', 2, 'V2'], ['drawing-file-v2', 2, 'A1'], ['quote-file-v2', 2, 'V2'],
+    ],
+  );
+  assert.equal(result.version.manifest.length, 9);
+  assert.equal(result.packageValidation.ok, true);
+});
+
+test('deduplicates attachments already carried by the previous cumulative version', async () => {
+  const { service, store, context } = createFixture();
+  seedDefaultContract(store);
+  const first = await service.createDraftVersion(context, {
+    contractId: 'contract-1', documentPackage: versionedPackage(1),
+  });
+  const second = await service.createDraftVersion(context, {
+    contractId: 'contract-1', documentPackage: versionedPackage(2),
+  });
+  const third = await service.createDraftVersion(context, {
+    contractId: 'contract-1', documentPackage: copy(second.version.documentPackage),
+  });
+
+  assert.equal(first.version.documentPackage.attachments?.length || 0, 0);
+  assert.equal(second.version.documentPackage.attachments.length, 3);
+  assert.equal(third.version.documentPackage.attachments.length, 3);
+  assert.equal(third.version.snapshot.attachmentLineage.inheritedCount, 0);
+  assert.equal(new Set(third.version.manifest.map((item) => item.fileId)).size, third.version.manifest.length);
 });
 
 test('moves a draft through review and approval CAS before freezing the same immutable content', async () => {
