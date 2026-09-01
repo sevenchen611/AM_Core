@@ -4,10 +4,12 @@ Tenant: `engineering`
 
 Runtime target: `AM_PLATFORM`
 
-Status: Installed
+Status: Deployed
 
 The formal signing page requires the contractor's legal name, identity number, and address before accepting a signature. These values join the identity photos and signature in immutable PostgreSQL evidence and are written into the final signed contract PDF. LINE status messages, public API responses, and draft-review pages do not expose the submitted values.
 
 Word contract bodies now carry Mammoth's safe structural HTML into the trusted PDF renderer so original Word tables remain tables instead of collapsing into a repeated text list. The generated party, payment, acceptance, and attachment sections use bordered grids with reserved footer space and no orphan table headings.
 
 No database DDL is required because the existing signed evidence snapshot is JSON and is already covered by its immutable SHA-256.
+
+Production evidence: PR #75 was squash-merged as `c651b6821b9b8e667f1873b855d8f1c793934b46`; Render deploy `dep-dabatlrncjis73f0p7f0` reached Live on service `srv-d97s94utrd3s739lin30`. Public `/` and `/health` checks returned HTTP 200.
