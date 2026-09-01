@@ -66,7 +66,8 @@
       "expected_signer_line_user_id is a current member of line_group_id",
       "group_binding_notion_page_id is active and belongs to the contract project",
       "submitted bundleSha256 exactly equals the issued version bundle_sha256",
-      "contractor identity-document front and back images are both present, private, content-validated and SHA-256 hashed"
+      "contractor identity-document front and back images are both present, private, content-validated and SHA-256 hashed",
+      "contractor name, identity number, and address are all present and bound to the immutable signature evidence"
     ],
     "authorityFields": [
       "signing_sessions.expected_signer_line_user_id",
@@ -89,7 +90,13 @@
       "privateDriveFolder": "簽署證據/{sessionId}/身分證件（機密）",
       "publicExposure": "none",
       "signedPdfRepresentation": "received timestamps and SHA-256 hashes only",
-      "consentVersion": "engineering-contract-consent-v2-id-documents"
+      "consentVersion": "engineering-contract-consent-v3-party-details"
+    },
+    "counterpartyDetails": {
+      "requiredFields": ["name", "identityNumber", "address"],
+      "storedIn": ["immutable PostgreSQL signature evidence", "signed PDF"],
+      "excludedFrom": ["LINE status messages", "public API responses", "draft review pages", "evidence receipt raw fields"],
+      "receiptRepresentation": "canonical SHA-256 only"
     }
   },
   "workflowStates": [

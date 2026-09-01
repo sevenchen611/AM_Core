@@ -141,8 +141,12 @@ function validatePayload(payload) {
   }
   if (payload.kind === 'signed_pdf') {
     const signature = payload.signature || {};
+    const party = payload.counterpartyDetails || {};
     if (!clean(signature.base64) || !clean(payload.ipAddress) || !payload.times || !clean(payload.bundleHash)) {
       throw rendererError('SIGNED_EVIDENCE_REQUIRED', 'Signed PDF requires signature, IP, timeline, and bundle hash.');
+    }
+    if (!clean(party.name) || !clean(party.address) || !/^[A-Z0-9-]{6,30}$/.test(clean(party.identityNumber).toUpperCase())) {
+      throw rendererError('COUNTERPARTY_DETAILS_REQUIRED', 'Signed PDF requires contractor name, identity number, and address.');
     }
     const bytes = Buffer.from(signature.base64, 'base64');
     if (!bytes.length || bytes.length > MAX_SIGNATURE_BYTES) {
@@ -155,7 +159,7 @@ function validatePayload(payload) {
 function createWriter(doc) {
   const registered = new Set();
   const right = PAGE.width - PAGE.margin;
-  const bottom = PAGE.height - 58;
+  const bottom = PAGE.height - 110;
 
   function ensure(height = 22) {
     if (doc.y + height <= bottom) return;
@@ -235,6 +239,87 @@ function createWriter(doc) {
     paragraph(value, { x: PAGE.margin + 120, width: right - PAGE.margin - 120, size: 10, after: 2 });
   }
 
+  function wrapLines(value, width, size = 9) {
+    const lines = [];
+    let line = '';
+    let lineWidth = 0;
+    const push = () => { lines.push(line || ' '); line = ''; lineWidth = 0; };
+    for (const character of [...(clean(value) || '未提供')]) {
+      if (character === '\n') { push(); continue; }
+      const fontName = characterFont(doc, character, registered);
+      const charWidth = widthOf(character, fontName, size);
+      if (line && lineWidth + charWidth > width) push();
+      line += character;
+      lineWidth += charWidth;
+    }
+    if (line || !lines.length) push();
+    return lines;
+  }
+
+  function drawLine(value, x, y, size, color) {
+    let cursorX = x;
+    for (const character of [...value]) {
+      const fontName = characterFont(doc, character, registered);
+      doc.font(fontName).fontSize(size).fillColor(color).text(character, cursorX, y, { lineBreak: false });
+      cursorX += widthOf(character, fontName, size);
+    }
+  }
+
+  function gridRows(rows, widths, options = {}) {
+    const x = options.x ?? PAGE.margin;
+    const size = options.size || 8.5;
+    const lineHeight = options.lineHeight || size * 1.55;
+    const paddingX = options.paddingX ?? 6;
+    const paddingY = options.paddingY ?? 5;
+    const headerRows = options.headerRows ?? 0;
+    rows.forEach((row, rowIndex) => {
+      const cells = widths.map((width, columnIndex) => wrapLines(row[columnIndex], width - (paddingX * 2), size));
+      const rowHeight = Math.max(24, Math.max(...cells.map((lines) => lines.length)) * lineHeight + (paddingY * 2));
+      ensure(rowHeight + 1);
+      const rowY = doc.y;
+      let cellX = x;
+      widths.forEach((width, columnIndex) => {
+        if (rowIndex < headerRows) doc.rect(cellX, rowY, width, rowHeight).fill('#e8f0ec');
+        doc.rect(cellX, rowY, width, rowHeight).lineWidth(0.7).strokeColor('#94a3b8').stroke();
+        cells[columnIndex].forEach((line, lineIndex) => drawLine(
+          line, cellX + paddingX, rowY + paddingY + (lineIndex * lineHeight), size,
+          rowIndex < headerRows ? '#173f2a' : '#243043',
+        ));
+        cellX += width;
+      });
+      doc.y = rowY + rowHeight;
+    });
+    doc.y += options.after ?? 8;
+  }
+
+  function gridTable(title, rows, columns) {
+    ensure(84);
+    heading(title, 1);
+    if (!rows.length) return paragraph('未提供');
+    const widths = columns.map((column) => column.width);
+    const tableRows = [columns.map((column) => column.label), ...rows.map((row) => columns.map((column) => {
+      const raw = typeof column.format === 'function' ? column.format(row) : row[column.field];
+      return clean(raw) || '未提供';
+    }))];
+    gridRows(tableRows, widths, { headerRows: 1 });
+  }
+
+  function documentBlocks(blocks) {
+    for (const block of blocks) {
+      if (block.type === 'table') {
+        const columnCount = Math.max(...block.rows.map((row) => row.length));
+        const width = (PAGE.width - (PAGE.margin * 2)) / Math.max(1, columnCount);
+        gridRows(block.rows.map((row) => Array.from({ length: columnCount }, (_, index) => row[index] || '')), Array(columnCount).fill(width), {
+          headerRows: 0, size: 8.5, after: 7,
+        });
+      } else if (block.type === 'heading') {
+        heading(block.text, block.level <= 2 ? 1 : 2);
+      } else {
+        paragraph(block.text, { size: 9.5, lineHeight: 16, after: 4 });
+      }
+    }
+  }
+
   function rule() {
     ensure(12);
     doc.moveTo(PAGE.margin, doc.y + 2).lineTo(right, doc.y + 2).lineWidth(0.6).strokeColor('#cbd5e1').stroke();
@@ -242,20 +327,78 @@ function createWriter(doc) {
   }
 
   function table(title, rows, columns) {
-    heading(title, 1);
-    if (!rows.length) return paragraph('未提供');
-    rows.forEach((row, index) => {
-      ensure(38);
-      paragraph(`${index + 1}. ${clean(row[columns[0].field]) || columns[0].fallback || '未命名'}`, { size: 10, color: '#0f172a', after: 1 });
-      for (const column of columns.slice(1)) {
-        const raw = typeof column.format === 'function' ? column.format(row) : row[column.field];
-        if (raw !== undefined && raw !== null && clean(raw)) labelValue(column.label, raw);
-      }
-      if (index < rows.length - 1) rule();
-    });
+    const available = PAGE.width - (PAGE.margin * 2);
+    const width = available / columns.length;
+    return gridTable(title, rows, columns.map((column, index) => ({
+      ...column,
+      label: column.label || column.fallback || `欄位 ${index + 1}`,
+      width,
+    })));
   }
 
-  return { paragraph, fixedText, heading, labelValue, rule, table, ensure };
+  return { paragraph, fixedText, heading, labelValue, rule, table, gridRows, gridTable, documentBlocks, ensure };
+}
+
+function decodeHtml(value) {
+  return clean(value)
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
+    .replace(/<[^>]+>/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .trim();
+}
+
+function contractBodyBlocks(html) {
+  const source = clean(html);
+  if (!source) return [];
+  const blocks = [];
+  const pattern = /<table\b[\s\S]*?<\/table>|<h[1-6]\b[\s\S]*?<\/h[1-6]>|<p\b[\s\S]*?<\/p>|<li\b[\s\S]*?<\/li>/gi;
+  for (const match of source.matchAll(pattern)) {
+    const fragment = match[0];
+    if (/^<table\b/i.test(fragment)) {
+      const rows = [...fragment.matchAll(/<tr\b[\s\S]*?<\/tr>/gi)].map((rowMatch) => (
+        [...rowMatch[0].matchAll(/<(?:td|th)\b[\s\S]*?<\/(?:td|th)>/gi)]
+          .map((cell) => decodeHtml(cell[0]))
+      )).filter((row) => row.length);
+      if (rows.length) blocks.push({ type: 'table', rows });
+      continue;
+    }
+    const value = decodeHtml(fragment);
+    if (!value) continue;
+    const headingMatch = /^<h([1-6])\b/i.exec(fragment);
+    blocks.push({
+      type: headingMatch ? 'heading' : 'paragraph',
+      level: headingMatch ? Number(headingMatch[1]) : undefined,
+      text: /^<li\b/i.test(fragment) ? `• ${value}` : value,
+    });
+  }
+  return blocks;
+}
+
+function partyProfiles(contract, counterpartyDetails = {}) {
+  const partyA = {
+    organization: first(contract, ['partyACompany', 'party_a_company', 'ownerCompany', 'owner_company', 'clientCompany', 'client_company']),
+    taxId: first(contract, ['partyATaxId', 'party_a_tax_id', 'ownerTaxId', 'owner_tax_id', 'clientTaxId', 'client_tax_id']),
+    responsiblePerson: first(contract, ['partyAResponsiblePerson', 'party_a_responsible_person', 'ownerResponsiblePerson', 'owner_responsible_person']),
+    representative: first(contract, ['partyARepresentative', 'party_a_representative', 'ownerRepresentative', 'owner_representative']),
+    identityNumber: first(contract, ['partyAIdentityNumber', 'party_a_identity_number', 'ownerIdentityNumber', 'owner_identity_number']),
+    address: first(contract, ['partyAAddress', 'party_a_address', 'ownerAddress', 'owner_address', 'clientAddress', 'client_address']),
+  };
+  const partyB = {
+    organization: first(contract, ['counterpartyCompany', 'counterparty_company']),
+    taxId: first(contract, ['counterpartyTaxId', 'counterparty_tax_id', 'counterpartyRegistrationNumber', 'counterparty_registration_number']),
+    responsiblePerson: first(contract, ['counterpartyResponsiblePerson', 'counterparty_responsible_person']),
+    representative: clean(counterpartyDetails.name) || first(contract, ['counterpartyRepresentative', 'counterparty_representative', 'counterpartyName', 'counterparty_name']),
+    identityNumber: clean(counterpartyDetails.identityNumber) || first(contract, ['counterpartyIdentityNumber', 'counterparty_identity_number']),
+    address: clean(counterpartyDetails.address) || first(contract, ['counterpartyAddress', 'counterparty_address']),
+  };
+  return { partyA, partyB };
 }
 
 export function renderDraftReviewHistoryAppendix(payload = {}) {
@@ -437,34 +580,52 @@ function renderContractPdf(payload) {
   writer.labelValue('工種', first(contract, ['trade'], '未指定'));
   writer.labelValue('承攬對象', first(contract, ['counterpartyCompany', 'counterparty_company', 'counterpartyName', 'counterparty_name']));
   writer.labelValue('合約金額', money(contract.amount, contract.currency));
+  const parties = partyProfiles(contract, payload.kind === 'signed_pdf' ? payload.counterpartyDetails : {});
+  writer.gridTable('立約雙方資料', [
+    { field: '主體／公司', partyA: parties.partyA.organization, partyB: parties.partyB.organization },
+    { field: '統一編號', partyA: parties.partyA.taxId, partyB: parties.partyB.taxId },
+    { field: '負責人', partyA: parties.partyA.responsiblePerson, partyB: parties.partyB.responsiblePerson },
+    { field: '代表人／簽約人', partyA: parties.partyA.representative, partyB: parties.partyB.representative },
+    { field: '身分證字號', partyA: parties.partyA.identityNumber, partyB: parties.partyB.identityNumber },
+    { field: '地址', partyA: parties.partyA.address, partyB: parties.partyB.address },
+  ], [
+    { field: 'field', label: '資料項目', width: 90 },
+    { field: 'partyA', label: '甲方', width: 204.5 },
+    { field: 'partyB', label: '乙方', width: 204.5 },
+  ]);
   const bodySummary = first(payload, ['contractBodyText'], first(documentPackage, ['contractBodyText', 'bodyText', 'contractTerms', 'terms'],
     first(version.snapshot, ['contractBodyText', 'bodyText', 'contractTerms'], '合約本文以本版本附件及其 SHA-256 雜湊為準。')));
   writer.heading('合約本文');
-  writer.paragraph(bodySummary);
+  const bodyBlocks = contractBodyBlocks(payload.contractBodyHtml);
+  if (bodyBlocks.length) writer.documentBlocks(bodyBlocks);
+  else writer.paragraph(bodySummary);
 
   const payments = first(documentPackage, ['paymentMilestones', 'paymentTerms'], []);
-  writer.table('付款條件', Array.isArray(payments) ? payments : [], [
-    { field: 'label', fallback: '付款節點' },
-    { label: '比例／金額', format: (row) => `${row.percentage ?? '未定'}% ／ ${money(row.amount, contract.currency)}` },
-    { field: 'dueDate', label: '付款日期' },
-    { field: 'dueTime', label: '付款時間' },
-    { field: 'trigger', label: '付款條件' },
+  writer.gridTable('付款條件', Array.isArray(payments) ? payments : [], [
+    { field: 'label', label: '付款節點', width: 84 },
+    { label: '比例／金額', width: 115, format: (row) => `${row.percentage ?? '未定'}% ／ ${money(row.amount, contract.currency)}` },
+    { field: 'dueDate', label: '付款日期', width: 72 },
+    { field: 'dueTime', label: '付款時間', width: 58 },
+    { field: 'trigger', label: '付款條件', width: 170 },
   ]);
 
   const acceptance = first(documentPackage, ['acceptanceCriteria', 'acceptanceStandards'], []);
-  writer.table('驗收標準', Array.isArray(acceptance) ? acceptance : [], [
-    { field: 'criterion', fallback: '驗收項目' },
-    { field: 'reference', label: '依據' },
-    { field: 'verificationMethod', label: '驗證方式' },
-    { field: 'passCondition', label: '通過條件' },
-    { field: 'evidenceRequired', label: '必要證據' },
+  writer.gridTable('驗收標準', Array.isArray(acceptance) ? acceptance : [], [
+    { field: 'criterion', label: '驗收項目', width: 118 },
+    { field: 'reference', label: '依據', width: 84 },
+    { field: 'verificationMethod', label: '驗證方式', width: 92 },
+    { field: 'passCondition', label: '通過條件', width: 110 },
+    { field: 'evidenceRequired', label: '必要證據', width: 95 },
   ]);
 
-  writer.table('附件與文件雜湊', attachmentRows(payload, documentPackage), [
-    { field: 'name', fallback: '附件' },
-    { field: 'category', label: '文件類型' },
-    { field: 'revision', label: '版次' },
-    { field: 'sha256', label: 'SHA-256' },
+  writer.gridTable('附件與文件雜湊', attachmentRows(payload, documentPackage), [
+    { field: 'name', label: '附件', width: 152 },
+    { label: '文件類型', width: 86, format: (row) => ({
+      contract_body: '合約本文', construction_drawing: '施工圖', quotation: '報價單',
+      line_conversation_archive: 'LINE 對話封存',
+    })[clean(row.category)] || clean(row.category) },
+    { field: 'revision', label: '版次', width: 52 },
+    { field: 'sha256', label: 'SHA-256', width: 209 },
   ]);
 
   writer.heading('不可變版本證據');
@@ -473,7 +634,8 @@ function renderContractPdf(payload) {
 
   if (payload.kind === 'signed_pdf') {
     writer.heading('電子簽署證據');
-    writer.labelValue('簽署者', first(contract, ['counterpartyName', 'counterparty_name'], '指定簽署人'));
+    writer.labelValue('簽署者', clean(payload.counterpartyDetails?.name)
+      || first(contract, ['counterpartyName', 'counterparty_name'], '指定簽署人'));
     writer.labelValue('IP 位址', payload.ipAddress);
     writer.labelValue('簽發時間', formatTime(times.issuedAt));
     writer.labelValue('LINE 送達時間', formatTime(times.sentAt));

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { assertProjectScope, requireServerActor } from './contract-domain.js';
-import { composeDraftBundle } from './contract-draft-review.js';
+import { composeDraftBundle, extractContractBodyForVersion } from './contract-draft-review.js';
 
 const HASH_RE = /^[a-f0-9]{64}$/;
 const COMPLETABLE = new Set(['signed', 'confirmed', 'completed']);
@@ -28,6 +28,12 @@ function unwrap(value) {
 
 function hash(value) {
   return createHash('sha256').update(value).digest('hex');
+}
+
+function canonical(value) {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((item) => canonical(item)).join(',')}]`;
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
 }
 
 function sha256(value, field) {
@@ -218,6 +224,7 @@ function validateService(deps, options) {
 export function createContractCompletionService(deps, options = {}) {
   const { artifacts, signing } = validateService(deps, options);
   const clock = options.clock || (() => new Date());
+  const bodyExtractor = options.bodyExtractor || extractContractBodyForVersion;
 
   async function load(authority, sessionId) {
     const bundle = normalizeBundle(
@@ -367,6 +374,18 @@ export function createContractCompletionService(deps, options = {}) {
       };
     }
 
+    const counterpartySource = runtime.state.submission?.counterpartyDetails || {};
+    const counterpartyDetails = {
+      name: text(counterpartySource.name),
+      identityNumber: text(counterpartySource.identityNumber).toUpperCase().replace(/\s+/g, ''),
+      address: text(counterpartySource.address),
+    };
+    if (!counterpartyDetails.name || !counterpartyDetails.address
+      || !/^[A-Z0-9-]{6,30}$/.test(counterpartyDetails.identityNumber)) {
+      throw completionError('COUNTERPARTY_DETAILS_MISSING', '乙方姓名、身分證字號或住址資料不完整。', 409);
+    }
+    const counterpartyDetailsHash = hash(canonical(counterpartyDetails));
+
     const signedMetadata = eventMetadata(bundle, 'signed');
     const signedEvent = bundle.events.find((item) => eventType(item) === 'signed') || {};
     const ipAddress = text(first(bundle.signatureEvidence, ['ipAddress', 'ip_address'], first(signedEvent, ['ip', 'ipAddress', 'ip_address'])));
@@ -399,6 +418,7 @@ export function createContractCompletionService(deps, options = {}) {
         front: verifiedIdentityDocuments.front.receivedAt,
         back: verifiedIdentityDocuments.back.receivedAt,
       },
+      counterpartyDetailsHash,
     };
     if (!verification.liffIdentityVerified || !verification.groupMembershipVerified
       || !verification.designatedUserMatched || !verification.lineGroupId
@@ -408,9 +428,12 @@ export function createContractCompletionService(deps, options = {}) {
 
     let signedPdf = findArtifact(bundle, 'signed_pdf');
     if (!signedPdf) {
+      const contractBody = await bodyExtractor(deps, bundle.version);
       const baseRendered = await artifacts.renderPdf('signed_pdf', {
         contract: bundle.contract,
         version: bundle.version,
+        contractBodyText: contractBody.text,
+        contractBodyHtml: contractBody.html,
         immutable: true,
         bundleHash,
         documentHash: originalDocumentHash,
@@ -422,6 +445,7 @@ export function createContractCompletionService(deps, options = {}) {
         ipAddress,
         times,
         verification,
+        counterpartyDetails,
       }, `engineering-contract-signed-pdf:${authority.tenant.key}:${sessionId}:${bundleHash}:${signatureHash}`);
       const lineArchives = typeof deps.contractStore.listLineConversationArchives === 'function'
         ? await deps.contractStore.listLineConversationArchives(
@@ -456,7 +480,7 @@ export function createContractCompletionService(deps, options = {}) {
     if (!receiptArtifact) {
       const generatedUtc = new Date(clock()).toISOString();
       const receipt = {
-        schemaVersion: 'engineering-contract-evidence-receipt-v1',
+        schemaVersion: 'engineering-contract-evidence-receipt-v2-party-details',
         generatedAt: { utc: generatedUtc, asiaTaipei: taipeiTime(generatedUtc) },
         tenantKey: authority.tenant.key,
         project: { id: bundle.projectId, code: bundle.projectCode },

@@ -95,6 +95,18 @@ function normalizeIdentityDocuments(value) {
   return normalized;
 }
 
+function normalizeCounterpartyDetails(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const name = requiredText(source.name, 'counterpartyDetails.name', 100);
+  const identityNumber = requiredText(source.identityNumber, 'counterpartyDetails.identityNumber', 30)
+    .toUpperCase().replace(/\s+/g, '');
+  const address = requiredText(source.address, 'counterpartyDetails.address', 300);
+  if (!/^[A-Z0-9-]{6,30}$/.test(identityNumber)) {
+    throw signingError('COUNTERPARTY_IDENTITY_NUMBER_INVALID', '乙方身分證字號格式不正確。', 400);
+  }
+  return { name, identityNumber, address };
+}
+
 function dateFromClock(clock) {
   const raw = typeof clock === 'function' ? clock() : clock?.now?.();
   const date = raw instanceof Date ? new Date(raw.getTime()) : new Date(raw ?? Date.now());
@@ -321,7 +333,7 @@ export function createContractSigningService(options = {}) {
   if (Buffer.byteLength(tokenPepper, 'utf8') < 32) {
     throw new Error('contract signing tokenPepper must contain at least 32 bytes');
   }
-  const consentVersion = requiredText(options.consentVersion || 'engineering-contract-consent-v2-id-documents', 'consentVersion', 120);
+  const consentVersion = requiredText(options.consentVersion || 'engineering-contract-consent-v3-party-details', 'consentVersion', 120);
   const signingPath = options.signingPath || '/engineering/contracts/sign';
   const proxyOptions = {
     isTrustedProxy: options.isTrustedProxy,
@@ -663,6 +675,7 @@ export function createContractSigningService(options = {}) {
     }
     const signatureHash = normalizeHash(input.signatureHash, 'signatureHash');
     const submissionRef = requiredText(input.submissionRef, 'submissionRef', 1000);
+    const counterpartyDetails = normalizeCounterpartyDetails(input.counterpartyDetails);
     const identityDocuments = normalizeIdentityDocuments(input.identityDocuments);
     const evidence = requestEvidence(input.requestMeta);
     const submitted = await mutate(session.id, (draft) => {
@@ -680,6 +693,7 @@ export function createContractSigningService(options = {}) {
         documentHash,
         signatureHash,
         submissionRef,
+        counterpartyDetails,
         identityDocuments,
         consentVersion,
         reviewAcknowledged: true,
@@ -692,6 +706,7 @@ export function createContractSigningService(options = {}) {
         metadata: {
           identitySource: 'verified_liff', membershipVerified: true, specifiedUserMatched: true,
           reviewAcknowledged: true, documentHash, signatureHash, consentVersion,
+          counterpartyName: counterpartyDetails.name,
           identityDocumentHashes: { front: identityDocuments.front.hash, back: identityDocuments.back.hash },
           identityDocumentsReceivedAt: { front: identityDocuments.front.receivedAt, back: identityDocuments.back.receivedAt },
         }, randomBytes,
@@ -699,7 +714,7 @@ export function createContractSigningService(options = {}) {
       appendEvent(draft, {
         type: 'submission_received', at, actorType: 'system', actorId: 'engineering-am',
         idempotencyKey, ip: evidence.ip, userAgent: evidence.userAgent,
-        metadata: { documentHash, signatureHash, submissionRef, identityDocuments, consentVersion, reviewAcknowledged: true }, randomBytes,
+        metadata: { documentHash, signatureHash, submissionRef, counterpartyDetails, identityDocuments, consentVersion, reviewAcknowledged: true }, randomBytes,
       });
       return { result: { idempotent: false } };
     });

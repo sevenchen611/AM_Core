@@ -137,6 +137,17 @@ function decodeIdentityPhotoDataUrl(value, side, maxBytes) {
   return { bytes, contentType: match[1] };
 }
 
+function normalizeCounterpartyDetails(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const name = requireText(source.name, '乙方姓名', 100);
+  const identityNumber = requireText(source.identityNumber, '乙方身分證字號', 30).toUpperCase().replace(/\s+/g, '');
+  const address = requireText(source.address, '乙方住址', 300);
+  if (!/^[A-Z0-9-]{6,30}$/.test(identityNumber)) {
+    throw error('COUNTERPARTY_IDENTITY_NUMBER_INVALID', '乙方身分證字號格式不正確。', 400);
+  }
+  return { name, identityNumber, address };
+}
+
 function normalizeDocumentUrl(value) {
   const candidate = requireText(value, 'documentUrl', 3000);
   if (/[\u0000-\u001f\u007f]/.test(candidate) || candidate.includes('\\')) {
@@ -288,6 +299,10 @@ byId('submit-signature').addEventListener('click',async()=>{
   const button=byId('submit-signature');
   if(!state.signing){ show('合約尚未完成驗證。','error'); return; }
   if(!state.reviewAcknowledged){ show('請先開啟合約文件詳閱。','error'); return; }
+  const counterpartyName=byId('counterparty-name').value.trim();
+  const counterpartyIdentityNumber=byId('counterparty-identity-number').value.trim().toUpperCase().replace(/\s+/g,'');
+  const counterpartyAddress=byId('counterparty-address').value.trim();
+  if(!counterpartyName||!counterpartyIdentityNumber||!counterpartyAddress){ show('請完整填寫乙方姓名、身分證字號與住址。','error'); return; }
   if(!state.strokes.length){ show('請先在簽名框內簽名。','error'); return; }
   if(!byId('identity-front').files?.[0]||!byId('identity-back').files?.[0]){ show('請先提供身分證正面與反面照片。','error'); return; }
   if(!byId('consent').checked){ show('請先勾選同意簽署。','error'); return; }
@@ -298,6 +313,7 @@ byId('submit-signature').addEventListener('click',async()=>{
     const result=await api('${CONTRACT_SIGNING_SUBMIT_PATH}',{
       token:state.token,liffCredential:state.credential,idempotencyKey:idem.value,
       documentHash:state.signing.documentHash,signatureDataUrl:state.canvas.toDataURL('image/png'),
+      counterpartyDetails:{name:counterpartyName,identityNumber:counterpartyIdentityNumber,address:counterpartyAddress},
       identityDocuments:{frontDataUrl,backDataUrl},
       reviewAcknowledged:true,consent:true
     });
@@ -327,6 +343,7 @@ h2{font-size:15px;margin:0 0 8px}.hint{font-size:13px;color:var(--dim);margin:0}
 .document-button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;margin-top:12px;border-radius:9px;background:#eef6f1;color:#1f683e;padding:9px 14px;font-weight:700;text-decoration:none}.signature-wrap{border:1px dashed #9aac9f;border-radius:10px;background:#fff;overflow:hidden;touch-action:none;margin:10px 0}canvas{display:block;width:100%;height:180px;touch-action:none}
 .actions{display:flex;gap:9px}.button{min-height:46px;border-radius:9px;border:1px solid var(--line);background:#fff;color:var(--ink);padding:10px 14px;font:inherit;font-weight:650}.button.primary{flex:1;background:var(--green);border-color:var(--green);color:#fff}.button:disabled{opacity:.55}.consent{display:flex;align-items:flex-start;gap:9px;font-size:13px;margin:14px 0}.consent input{width:20px;height:20px;flex:none;margin-top:2px}
 .identity-grid{display:grid;grid-template-columns:1fr;gap:10px;margin:12px 0}.identity-upload{border:1px dashed #9aac9f;border-radius:10px;padding:12px;background:#fbfdfc}.identity-upload label{display:block;font-weight:700;font-size:14px}.identity-upload input{display:block;width:100%;margin-top:8px}.identity-state{font-size:12px;color:var(--dim);margin-top:6px}.privacy-note{border-radius:10px;background:#f5f1e8;color:#5c4b2c;padding:11px 12px;font-size:12px;margin-top:10px}
+.party-fields{display:grid;grid-template-columns:1fr;gap:10px;margin:12px 0}.party-fields label{display:block;font-weight:700;font-size:14px}.party-fields input,.party-fields textarea{display:block;width:100%;box-sizing:border-box;margin-top:6px;border:1px solid var(--line);border-radius:9px;padding:11px 12px;background:#fff;color:var(--ink);font:inherit}.party-fields textarea{min-height:76px;resize:vertical}.required-note{font-size:12px;color:#991b1b;margin-top:6px}
 @media(min-width:700px){main{padding:22px}.card{padding:20px}canvas{height:210px}}
 </style>
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js" nonce="${nonce}"></script>
@@ -337,6 +354,13 @@ h2{font-size:15px;margin:0 0 8px}.hint{font-size:13px;color:var(--dim);margin:0}
   <section class="card"><h2>安全驗證</h2><div id="message" class="message">頁面載入中…</div></section>
   <section class="card"><h2>合約確認</h2><p id="contract-state" class="hint">完成 LINE 身分與群組資格驗證後，才會開放合約文件。</p><a id="document-link" class="document-button" href="#" target="_blank" rel="noopener noreferrer" hidden>開啟合約文件</a><p id="review-state" class="hint" aria-live="polite"></p></section>
   <section class="card" id="sign-panel" hidden>
+    <h2>乙方簽約資料</h2><p class="hint">以下三項會直接寫入電子簽署完成版合約，請依本人證件完整填寫。</p>
+    <div class="party-fields">
+      <label for="counterparty-name">乙方姓名（必填）<input id="counterparty-name" name="counterpartyName" autocomplete="name" maxlength="100" required></label>
+      <label for="counterparty-identity-number">身分證字號（必填）<input id="counterparty-identity-number" name="counterpartyIdentityNumber" inputmode="text" autocomplete="off" maxlength="30" required></label>
+      <label for="counterparty-address">住址（必填）<textarea id="counterparty-address" name="counterpartyAddress" autocomplete="street-address" maxlength="300" required></textarea></label>
+    </div>
+    <p class="required-note">姓名、身分證字號或住址缺少任一項，系統將不允許送出簽署。</p>
     <h2>承包人身分證件</h2><p class="hint">正式簽署前，請提供本人身分證正面與反面清晰照片，兩張缺一不可。</p>
     <div class="identity-grid">
       <div class="identity-upload"><label for="identity-front">身分證正面</label><input id="identity-front" type="file" accept="image/jpeg,image/png" capture="environment"><div id="identity-front-state" class="identity-state">尚未選擇</div></div>
@@ -346,7 +370,7 @@ h2{font-size:15px;margin:0 0 8px}.hint{font-size:13px;color:var(--dim);margin:0}
     <h2>簽名</h2><p class="hint">請使用手指或滑鼠在下方簽名。簽名只會提交至受保護的工程 AM 儲存空間。</p>
     <div class="signature-wrap"><canvas id="signature" aria-label="簽名區"></canvas></div>
     <div class="actions"><button class="button" id="clear-signature" type="button">全部清除</button></div>
-    <label class="consent"><input id="consent" type="checkbox" disabled><span>我已詳閱本工程合約及其附件，確認內容與版本無誤；我也同意依上述用途提供身分證正反面影像，並同意以本簽名完成簽署。</span></label>
+    <label class="consent"><input id="consent" type="checkbox" disabled><span>我已詳閱本工程合約及其附件，確認內容與版本無誤；我確認上述乙方資料正確，同意將其寫入簽署完成版合約，也同意依上述用途提供身分證正反面影像，並同意以本簽名完成簽署。</span></label>
     <button class="button primary" id="submit-signature" type="button" disabled>送出簽名</button>
   </section>
 </main>
@@ -427,6 +451,7 @@ export function createContractSigningWebHandler(options = {}) {
       const documentHash = requireText(body.documentHash, 'documentHash', 64).toLowerCase();
       if (!SHA256_PATTERN.test(documentHash)) throw error('INVALID_DOCUMENT_HASH', '合約版本雜湊格式不正確。', 400);
       const signature = decodeSignatureDataUrl(body.signatureDataUrl, signatureLimit);
+      const counterpartyDetails = normalizeCounterpartyDetails(body.counterpartyDetails);
       const identityFront = decodeIdentityPhotoDataUrl(body.identityDocuments?.frontDataUrl, 'front', identityPhotoLimit);
       const identityBack = decodeIdentityPhotoDataUrl(body.identityDocuments?.backDataUrl, 'back', identityPhotoLimit);
 
@@ -473,6 +498,7 @@ export function createContractSigningWebHandler(options = {}) {
         documentHash,
         signatureHash,
         submissionRef,
+        counterpartyDetails,
         identityDocuments,
         reviewAcknowledged: true,
         requestMeta,
@@ -491,4 +517,4 @@ export function createContractSigningWebHandler(options = {}) {
   };
 }
 
-export const __test = Object.freeze({ decodeSignatureDataUrl, decodeIdentityPhotoDataUrl });
+export const __test = Object.freeze({ decodeSignatureDataUrl, decodeIdentityPhotoDataUrl, normalizeCounterpartyDetails });

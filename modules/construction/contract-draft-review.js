@@ -185,12 +185,24 @@ async function extractContractBody(deps, body) {
   if (body.mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
       || body.name.toLowerCase().endsWith('.docx')) {
     const mammoth = await import('mammoth');
-    const result = await mammoth.extractRawText({ buffer });
-    const raw = text(result.value);
+    const [rawResult, htmlResult] = await Promise.all([
+      mammoth.extractRawText({ buffer }),
+      mammoth.convertToHtml({ buffer }),
+    ]);
+    const raw = text(rawResult.value);
     if (!raw) throw reviewError('DRAFT_REVIEW_TEXT_EMPTY', 'Word 草約沒有可供審閱的文字。', 422);
-    return raw.slice(0, 160_000);
+    return { text: raw.slice(0, 160_000), html: text(htmlResult.value).slice(0, 500_000) };
   }
-  return '合約本文為附件檔案；請同時開啟草約本文附件查閱。';
+  return { text: '合約本文為附件檔案；請同時開啟草約本文附件查閱。', html: '' };
+}
+
+function normalizedBodyExtraction(value) {
+  if (typeof value === 'string') return { text: text(value), html: '' };
+  return { text: text(value?.text), html: text(value?.html) };
+}
+
+export async function extractContractBodyForVersion(deps, version) {
+  return normalizedBodyExtraction(await extractContractBody(deps, contractBody(version)));
 }
 
 function contractGroupId(contract) {
@@ -283,9 +295,9 @@ export function createContractDraftReviewService(deps, options = {}) {
       throw reviewStepError(error, 'DRAFT_REVIEW_PRIVACY_AUDIT_FAILED',
         '草約本文的 Drive 私密狀態驗證失敗，請確認檔案仍存在且未公開分享。', 503);
     }
-    let contractBodyText;
+    let extractedBody;
     try {
-      contractBodyText = await bodyExtractor(deps, body);
+      extractedBody = normalizedBodyExtraction(await bodyExtractor(deps, body));
     } catch (error) {
       throw reviewStepError(error, 'DRAFT_REVIEW_SOURCE_PREPARE_FAILED',
         '草約本文無法讀取或轉換，請確認 Word／PDF 檔案可以正常開啟。', 422);
@@ -295,7 +307,8 @@ export function createContractDraftReviewService(deps, options = {}) {
     let rendered;
     try {
       rendered = await artifacts.renderPdf('draft_review_pdf', {
-        contract, version, contractBodyText, missingSections: missing,
+        contract, version, contractBodyText: extractedBody.text, contractBodyHtml: extractedBody.html,
+        missingSections: missing,
       }, idempotencyKey);
     } catch (error) {
       throw reviewStepError(error, 'DRAFT_REVIEW_PDF_FAILED',
@@ -395,9 +408,9 @@ export function createContractDraftReviewService(deps, options = {}) {
       throw reviewStepError(error, 'DRAFT_REVIEW_PRIVACY_AUDIT_FAILED',
         '合約本文的 Drive 私密狀態驗證失敗，請確認檔案仍存在且未公開分享。', 503);
     }
-    let contractBodyText;
+    let extractedBody;
     try {
-      contractBodyText = await bodyExtractor(deps, body);
+      extractedBody = normalizedBodyExtraction(await bodyExtractor(deps, body));
     } catch (error) {
       throw reviewStepError(error, 'DRAFT_REVIEW_SOURCE_PREPARE_FAILED',
         '合約本文無法讀取或轉換，請確認 Word／PDF 檔案可以正常開啟。', 422);
@@ -405,7 +418,8 @@ export function createContractDraftReviewService(deps, options = {}) {
     let rendered;
     try {
       rendered = await artifacts.renderPdf('draft_review_pdf', {
-        contract, version, contractBodyText, missingSections: missingSections(version),
+        contract, version, contractBodyText: extractedBody.text, contractBodyHtml: extractedBody.html,
+        missingSections: missingSections(version),
       }, `engineering-internal-preview:${context.tenant.key}:${version.id}:${body.sha256}`);
     } catch (error) {
       throw reviewStepError(error, 'DRAFT_REVIEW_PDF_FAILED', '內部審查 PDF 產生失敗，請稍後重試。', 502);

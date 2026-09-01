@@ -88,6 +88,11 @@ assert.match(
   /identityDocuments:\s*submission\.identityDocuments/,
   'immutable signature evidence must include both private identity-document records',
 );
+assert.match(
+  storeSource,
+  /counterpartyDetails:\s*submission\.counterpartyDetails/,
+  'immutable signature evidence must include contractor name, identity number, and address',
+);
 
 const queries = [];
 const fakeClient = {

@@ -106,6 +106,7 @@ const artifactService = {
   async renderPdf(kind, payload) {
     assert.equal(kind, 'draft_review_pdf');
     assert.match(payload.contractBodyText, /第一條/);
+    assert.match(payload.contractBodyHtml, /<table>/);
     assert.deepEqual(payload.missingSections, ['付款條件', '驗收標準']);
     return { buffer: Buffer.from('%PDF-draft'), sha256: pdfHash, byteSize: 10 };
   },
@@ -116,7 +117,10 @@ const service = createContractDraftReviewService(deps, {
   artifactService,
   managementService: { async getContractDetail() { return { contract, versions: [version], latestVersion: version }; } },
   authorityResolver: async () => ({ groupBindingId: 'notion-group-binding-1234', lineGroupId: 'Cgroup1234', groupName: '工程群組', members: {} }),
-  bodyExtractor: async () => '工程合約書\n第一條：工程名稱',
+  bodyExtractor: async () => ({
+    text: '工程合約書\n第一條：工程名稱',
+    html: '<h1>工程合約書</h1><table><tr><td>甲方</td><td>乙方</td></tr></table>',
+  }),
   randomBytes: (size) => Buffer.alloc(size, 7),
   clock: () => new Date(now),
 });
