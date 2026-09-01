@@ -3,7 +3,7 @@
   "name": "Contract attachment opening and immutable exclusion",
   "type": "AM Platform / contracts / attachment lifecycle",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-09-01",
   "dependsOn": ["AM-IMP-2026.0901.08"],
   "installTargets": ["AM_PLATFORM:engineering"],
@@ -47,6 +47,21 @@
     "Exclusions persist through subsequent versions",
     "Targeted dry-runs and package validation pass"
   ],
+  "deploymentEvidence": {
+    "pullRequest": "https://github.com/sevenchen611/AM_Core/pull/79",
+    "commit": "c933ce446c29170a421de211ebdd22ad612066d3",
+    "renderService": "srv-d97s94utrd3s739lin30",
+    "renderDeploy": "dep-dabdp0mk1f9s73fig340",
+    "verifiedAt": "2026-09-01T22:12:00+08:00",
+    "checks": [
+      "Render status Live",
+      "GET / = 200",
+      "GET /health = 200",
+      "authenticated HZ-CT-001 V4 workspace shows six exclusion controls",
+      "production PDF, JPG, and historical PNG attachment routes open",
+      "attachment path identifiers 0 through 5 pass exact binding regression coverage"
+    ]
+  },
   "files": [
     "modules/construction/contract-management.js",
     "modules/construction/contract-workflow-api.js",
