@@ -23,6 +23,7 @@ Environment prefix: `HZ2`
 | AM-IMP-2026.0901.02 | Deployed | Production Finance Claim entry message | Replace the canary-labelled private entry message with the production template | Production canary on 2026-09-01 delivered the unlabelled `HOZO 費用申請` private message from 葉小蝸 AI 小助手. |
 | AM-IMP-2026.0901.04 | Deployed | Finance Claim 10-minute entry compatibility | Accept Rental's ten-minute signed source hint in the bridge and durable entry consumer | Production canary on 2026-09-01 accepted the ten-minute entry through membership and web-entry validation without `entry_response_invalid`. |
 | AM-IMP-2026.0901.05 | Deployed | Finance Claim entry delivery TTL alignment | Apply the same ten-minute signed source-hint ceiling at the final LINE private-message delivery boundary | Render deployed `daa561d`; the 17:11 canary reached `delivered` in about 6.4 seconds, LINE Login identified Seven, and the authorized new expense form loaded successfully. |
+| AM-IMP-2026.0901.06 | Installed | Finance Claim source-group entry and fast delivery | Return the applicant-bound entry URL in the originating group and complete the normal path in one durable queue attempt | Syntax, direct-flow and package verification are required before merge; production group latency and no-private-message behavior remain the deployment canary. |
 
 ## Tenant boundaries
 

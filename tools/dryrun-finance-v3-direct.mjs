@@ -51,7 +51,7 @@ class MemoryStore {
       applicant_reference: record.applicantReference, desired_state: record.desiredState,
       keyword: record.keyword, occurred_at: record.occurredAt, membership_sequence: 1,
       membership_request_id: record.membershipRequestId, entry_request_id: record.entryRequestId,
-      delivery_event_key: record.deliveryEventKey, status: 'pending_membership', attempts: 0,
+      delivery_event_key: record.deliveryEventKey, status: record.jobKind === 'entry' ? 'pending_entry' : 'pending_membership', attempts: 0,
       available_at: clock, lease_token: null, entry_url: '', entry_expires_at: null,
       ack_reference: '', last_error: '',
     };
@@ -155,11 +155,9 @@ await assert.rejects(
 assert.equal(store.rows.size, 1);
 assert.equal(store.ingress.size, 1);
 await consumer.drainOnce();
-assert.equal([...store.rows.values()][0].status, 'membership_uncertain');
-clock += 30_000;
-await consumer.drainOnce();
 assert.equal([...store.rows.values()][0].status, 'delivered');
-assert.deepEqual(store.attempts, ['pending_membership', 'membership_uncertain', 'pending_entry', 'pending_delivery']);
+assert.equal(membershipCalls, 0);
+assert.deepEqual(store.attempts, ['pending_entry']);
 
 const source = await readFile(new URL('../modules/claims/index.js', import.meta.url), 'utf8');
 const groupEntrySource = await readFile(new URL('../modules/claims/v3/group-entry.js', import.meta.url), 'utf8');
@@ -237,7 +235,7 @@ const tenMinuteDelivery = await deliveryReceiver.deliverEnvelope({
   contractVersion: 'finance-claims-v3.group-entry-v1',
   eventKey: 'entry-invite-ten-minute-delivery',
   eventType: 'claim_web_entry',
-  recipient: { type: 'line_user', identityReference: USER_REF },
+  recipient: { type: 'group_binding', identityReference: GROUP_REF },
   templateKey: 'claim_web_entry',
   payload: {
     contractVersion: 'finance-claims-v3.group-entry-v1',
@@ -248,6 +246,7 @@ const tenMinuteDelivery = await deliveryReceiver.deliverEnvelope({
   },
 }, { tenantKey: 'hozo' });
 assert.equal(tenMinuteDelivery.status, 200);
+assert.equal(deliveredMessage.to, GROUP);
 assert.match(deliveredMessage.messages[0].text, /HOZO 費用申請/);
 assert.match(deliveredMessage.messages[0].text, /rental\.example\.test\/finance-claims/);
 
