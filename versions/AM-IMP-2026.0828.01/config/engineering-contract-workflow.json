@@ -32,7 +32,9 @@
     "historicalVersionsMutable": false,
     "deduplicateBy": ["driveFileId", "sha256", "url"],
     "preserveSourceVersion": true,
-    "repairOnNextVersionCreation": true
+    "repairOnNextVersionCreation": true,
+    "removalMode": "next_version_exclusion_tombstone",
+    "physicalDriveDeletion": false
   },
   "contractVersionStates": [
     "draft",

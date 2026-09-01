@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
 
 import { createContractWorkflowApiHandler } from '../modules/construction/contract-workflow-api.js';
+import { __test as workflowApiTest } from '../modules/construction/contract-workflow-api.js';
 
 const NOW = '2026-08-28T01:30:00.000Z';
 
@@ -287,6 +288,20 @@ let versionId;
   });
   assert.equal(result.res.statusCode, 405);
   assert.equal(result.res.headers.Allow, 'POST');
+}
+
+{
+  for (let attachmentId = 0; attachmentId < 6; attachmentId += 1) {
+    const input = {};
+    workflowApiTest.bindPathReference(input, 'contractId', contractId);
+    workflowApiTest.bindPathReference(input, 'versionId', versionId);
+    workflowApiTest.bindPathReference(input, 'attachmentId', String(attachmentId));
+    assert.deepEqual(input, { contractId, versionId, attachmentId: String(attachmentId) });
+  }
+  const input = { contractId, versionId };
+  workflowApiTest.bindPathReference(input, 'archiveId', 'archive-1');
+  assert.equal(input.versionId, versionId, 'archive binding must not compare against or erase versionId');
+  assert.equal(input.archiveId, 'archive-1');
 }
 
 {

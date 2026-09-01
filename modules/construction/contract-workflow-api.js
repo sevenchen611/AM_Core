@@ -126,8 +126,14 @@ function sameReference(left, right) {
 }
 
 function bindPathReference(input, field, value) {
-  const aliases = field === 'contractId' ? ['contractId', 'contract_id']
-    : field === 'sessionId' ? ['sessionId', 'externalSessionId'] : ['versionId', 'version_id'];
+  const aliasesByField = {
+    contractId: ['contractId', 'contract_id'],
+    versionId: ['versionId', 'version_id'],
+    sessionId: ['sessionId', 'externalSessionId'],
+    attachmentId: ['attachmentId', 'attachment_id'],
+    archiveId: ['archiveId', 'archive_id'],
+  };
+  const aliases = aliasesByField[field] || [field];
   for (const alias of aliases) {
     if (input[alias] !== undefined && !sameReference(input[alias], value)) {
       throw apiError(
@@ -389,4 +395,4 @@ export async function handleContractWorkflowApiRequest(req, res, pathname, url, 
   return createContractWorkflowApiHandler(deps)(req, res, pathname, url, authority);
 }
 
-export const __test = { routeFor, publicError, cleanRequestInput, sendBinary };
+export const __test = { routeFor, publicError, cleanRequestInput, bindPathReference, sendBinary };

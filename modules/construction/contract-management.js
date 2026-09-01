@@ -433,6 +433,44 @@ function documentIdentity(document) {
   return '';
 }
 
+function normalizeAttachmentExclusion(value) {
+  const raw = clean(value);
+  if (!raw) return '';
+  if (/^(?:file|sha256|url):/.test(raw)) return raw;
+  return `file:${raw}`;
+}
+
+function cumulativeAttachmentExclusions(versions, input) {
+  const values = [];
+  for (const version of versions) {
+    const snapshot = version?.snapshot || {};
+    if (Array.isArray(snapshot.attachmentExclusions)) values.push(...snapshot.attachmentExclusions);
+  }
+  if (Array.isArray(input.attachmentExclusions)) values.push(...input.attachmentExclusions);
+  if (Array.isArray(input.snapshot?.attachmentExclusions)) values.push(...input.snapshot.attachmentExclusions);
+  return [...new Set(values.map(normalizeAttachmentExclusion).filter(Boolean))].sort();
+}
+
+function withoutExcludedDocuments(requestedPackage, exclusions) {
+  const documentPackage = cloneValue(
+    requestedPackage && typeof requestedPackage === 'object' && !Array.isArray(requestedPackage)
+      ? requestedPackage
+      : {},
+  );
+  const excluded = new Set(exclusions);
+  const retained = (document) => !excluded.has(documentIdentity(document));
+  if (documentPackage.contractBody && !retained(documentPackage.contractBody)) delete documentPackage.contractBody;
+  if (Array.isArray(documentPackage.constructionDrawings)) {
+    documentPackage.constructionDrawings = documentPackage.constructionDrawings.filter(retained);
+  }
+  if (documentPackage.quotation && !retained(documentPackage.quotation)) delete documentPackage.quotation;
+  if (Array.isArray(documentPackage.attachments)) {
+    documentPackage.attachments = documentPackage.attachments.filter(retained);
+    if (!documentPackage.attachments.length) delete documentPackage.attachments;
+  }
+  return documentPackage;
+}
+
 function packageDocuments(documentPackage, sourceVersionNo = 0) {
   const pkg = documentPackage && typeof documentPackage === 'object' && !Array.isArray(documentPackage)
     ? documentPackage
@@ -457,7 +495,7 @@ function packageDocuments(documentPackage, sourceVersionNo = 0) {
   return output;
 }
 
-function inheritHistoricalAttachments(versions, requestedPackage, nextVersionNo) {
+function inheritHistoricalAttachments(versions, requestedPackage, nextVersionNo, exclusions = []) {
   const documentPackage = cloneValue(
     requestedPackage && typeof requestedPackage === 'object' && !Array.isArray(requestedPackage)
       ? requestedPackage
@@ -468,12 +506,13 @@ function inheritHistoricalAttachments(versions, requestedPackage, nextVersionNo)
     : [];
   const currentDocuments = packageDocuments({ ...documentPackage, attachments: existingAttachments }, nextVersionNo);
   const seen = new Set(currentDocuments.map(documentIdentity).filter(Boolean));
+  const excluded = new Set(exclusions);
   const inherited = [];
   const ordered = [...versions].sort((a, b) => a.versionNo - b.versionNo || a.createdAt.localeCompare(b.createdAt));
   for (const version of ordered) {
     for (const document of packageDocuments(packageFromVersion(version), version.versionNo)) {
       const identity = documentIdentity(document);
-      if (!identity || seen.has(identity)) continue;
+      if (!identity || excluded.has(identity) || seen.has(identity)) continue;
       seen.add(identity);
       const sourceVersionNo = Number(document.sourceVersionNo) || version.versionNo;
       inherited.push({
@@ -824,7 +863,9 @@ export function createContractManagementService({ store, clock = () => new Date(
       );
     }
 
-    const inheritance = inheritHistoricalAttachments(versions, draftPackage(input), versionNo);
+    const attachmentExclusions = cumulativeAttachmentExclusions(versions, input);
+    const requestedPackage = withoutExcludedDocuments(draftPackage(input), attachmentExclusions);
+    const inheritance = inheritHistoricalAttachments(versions, requestedPackage, versionNo, attachmentExclusions);
     const documentPackage = inheritance.documentPackage;
     const validation = validateContractPackage(documentPackage, { contractAmount: contractAmount(contract) });
     const snapshot = draftSnapshot(input, documentPackage);
@@ -833,6 +874,7 @@ export function createContractManagementService({ store, clock = () => new Date(
       inheritedCount: inheritance.inheritedCount,
       sourceVersionNos: inheritance.sourceVersionNos,
     };
+    snapshot.attachmentExclusions = attachmentExclusions;
     const createdAt = nowIso(serviceClock);
     const stored = unwrapStoreResult(await adapter.createVersion(tenant, {
       contractId: contract.id,

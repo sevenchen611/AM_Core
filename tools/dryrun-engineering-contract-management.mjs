@@ -480,6 +480,27 @@ test('deduplicates attachments already carried by the previous cumulative versio
   assert.equal(new Set(third.version.manifest.map((item) => item.fileId)).size, third.version.manifest.length);
 });
 
+test('persists attachment exclusions so removed files never reappear in later versions', async () => {
+  const { service, store, context } = createFixture();
+  seedDefaultContract(store);
+  await service.createDraftVersion(context, {
+    contractId: 'contract-1', documentPackage: versionedPackage(1),
+  });
+  const second = await service.createDraftVersion(context, {
+    contractId: 'contract-1', documentPackage: versionedPackage(2),
+    attachmentExclusions: ['body-file-v1'],
+  });
+  assert.deepEqual(second.version.snapshot.attachmentExclusions, ['file:body-file-v1']);
+  assert.equal(second.version.manifest.some((item) => item.fileId === 'body-file-v1'), false);
+  assert.equal(second.version.manifest.some((item) => item.fileId === 'drawing-file-v1'), true);
+
+  const third = await service.createDraftVersion(context, {
+    contractId: 'contract-1', documentPackage: copy(second.version.documentPackage),
+  });
+  assert.deepEqual(third.version.snapshot.attachmentExclusions, ['file:body-file-v1']);
+  assert.equal(third.version.manifest.some((item) => item.fileId === 'body-file-v1'), false);
+});
+
 test('moves a draft through review and approval CAS before freezing the same immutable content', async () => {
   const { service, store, context } = createFixture();
   seedDefaultContract(store);
