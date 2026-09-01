@@ -3,7 +3,7 @@
   "name": "Contractor identity-document evidence",
   "type": "AM Platform / contracts / electronic signing",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-09-01",
   "dependsOn": ["AM-IMP-2026.0828.01"],
   "installTargets": ["AM_PLATFORM:engineering"],
