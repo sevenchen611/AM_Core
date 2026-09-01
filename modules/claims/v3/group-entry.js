@@ -96,13 +96,11 @@ export function createFinanceClaimsV3GroupEntryConsumer({ env = process.env, sto
         const result = await activeClient.syncMembership(row);
         if (result.kind === 'uncertain') return activeStore.finish(row, 'membership_uncertain', { error: result.code, retry: true });
         if (result.kind !== row.desired_state) return activeStore.finish(row, 'manual_review', { error: result.code || 'membership_rejected' });
-        return activeStore.finish(row, row.job_kind === 'membership' ? 'completed' : 'pending_entry', {});
+        if (row.job_kind === 'membership') return activeStore.finish(row, 'completed', {});
+        return createAndDeliverEntry(row);
       }
       if (row.status === 'pending_entry' || row.status === 'entry_uncertain') {
-        const result = await activeClient.createWebEntry(row);
-        if (result.kind === 'uncertain') return activeStore.finish(row, 'entry_uncertain', { error: result.code, retry: true });
-        if (result.kind !== 'created') return activeStore.finish(row, 'manual_review', { error: result.code || 'entry_rejected' });
-        return activeStore.finish(row, 'pending_delivery', { entryUrl: result.url, entryExpiresAt: result.expiresAt });
+        return createAndDeliverEntry(row);
       }
       if (row.status === 'pending_delivery') {
         if (!row.entry_expires_at || Date.parse(row.entry_expires_at) <= now()) return activeStore.finish(row, 'expired', { error: 'entry_expired_new_command_required' });
@@ -121,6 +119,19 @@ export function createFinanceClaimsV3GroupEntryConsumer({ env = process.env, sto
     } catch {
       return activeStore.finish(row, row.status, { error: 'stage_uncertain', retry: true });
     }
+  }
+
+  async function createAndDeliverEntry(row) {
+    const entry = await activeClient.createWebEntry(row);
+    if (entry.kind === 'uncertain') return activeStore.finish(row, 'entry_uncertain', { error: entry.code, retry: true });
+    if (entry.kind !== 'created') return activeStore.finish(row, 'manual_review', { error: entry.code || 'entry_rejected' });
+    const deliveryRow = { ...row, entry_url: entry.url, entry_expires_at: entry.expiresAt };
+    const evidence = { entryUrl: entry.url, entryExpiresAt: entry.expiresAt };
+    if (Date.parse(entry.expiresAt) <= now()) return activeStore.finish(row, 'expired', { ...evidence, error: 'entry_expired_new_command_required' });
+    const delivery = await activeClient.deliver(deliveryRow);
+    if (delivery.kind === 'uncertain') return activeStore.finish(row, 'delivery_uncertain', { ...evidence, error: delivery.code });
+    if (delivery.kind === 'delivered') return activeStore.finish(row, 'delivered', { ...evidence, ackReference: delivery.ackReference });
+    return activeStore.finish(row, 'manual_review', { ...evidence, error: delivery.code || 'delivery_rejected' });
   }
 
   async function stats() { return config.enabled && initialized ? activeStore.stats() : { enabled: config.enabled, initialized, ready: config.valid && Boolean(activeStore) && activeClient.ready }; }
@@ -259,7 +270,7 @@ export function createGroupEntryClient({ env, now, receiver = null }) {
 }
 
 function entryEnvelope(row) {
-  return { contractVersion: ENTRY_CONTRACT, eventKey: row.delivery_event_key, eventType: 'claim_web_entry', recipient: { type: 'line_user', identityReference: row.applicant_reference }, templateKey: 'claim_web_entry', payload: {
+  return { contractVersion: ENTRY_CONTRACT, eventKey: row.delivery_event_key, eventType: 'claim_web_entry', recipient: { type: 'group_binding', identityReference: row.group_reference }, templateKey: 'claim_web_entry', payload: {
     contractVersion: ENTRY_CONTRACT, eventKey: row.delivery_event_key, eventType: 'claim_web_entry', entryUrl: row.entry_url, expiresAt: row.entry_expires_at,
   } };
 }
@@ -367,7 +378,7 @@ export function createPostgresGroupEntryStore(databaseUrl) {
 }
 
 async function enqueueRecordWithClient(client, record) {
-  const inserted = (await client.query(`INSERT INTO finance_claim_group_entry_queue_v3(event_key,job_kind,tenant_key,source_id,form_key,group_reference,applicant_reference,desired_state,keyword,occurred_at,membership_request_id,entry_request_id,delivery_event_key,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'pending_membership') ON CONFLICT(event_key) DO NOTHING RETURNING event_key`, [record.eventKey, record.jobKind, record.tenantKey, record.sourceId, record.formKey, record.groupReference, record.applicantReference, record.desiredState, record.keyword, record.occurredAt, record.membershipRequestId, record.entryRequestId, record.deliveryEventKey])).rows[0];
+  const inserted = (await client.query(`INSERT INTO finance_claim_group_entry_queue_v3(event_key,job_kind,tenant_key,source_id,form_key,group_reference,applicant_reference,desired_state,keyword,occurred_at,membership_request_id,entry_request_id,delivery_event_key,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,CASE WHEN $2='entry' THEN 'pending_entry' ELSE 'pending_membership' END) ON CONFLICT(event_key) DO NOTHING RETURNING event_key`, [record.eventKey, record.jobKind, record.tenantKey, record.sourceId, record.formKey, record.groupReference, record.applicantReference, record.desiredState, record.keyword, record.occurredAt, record.membershipRequestId, record.entryRequestId, record.deliveryEventKey])).rows[0];
   if (inserted) {
     const sequence = (await client.query(`INSERT INTO finance_claim_group_membership_sequences_v3(tenant_key,source_id,applicant_reference,last_sequence) VALUES($1,$2,$3,1) ON CONFLICT(tenant_key,source_id,applicant_reference) DO UPDATE SET last_sequence=finance_claim_group_membership_sequences_v3.last_sequence+1,updated_at=now() RETURNING last_sequence`, [record.tenantKey, record.sourceId, record.applicantReference])).rows[0].last_sequence;
     await client.query('UPDATE finance_claim_group_entry_queue_v3 SET membership_sequence=$2 WHERE event_key=$1', [record.eventKey, sequence]);

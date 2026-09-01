@@ -1,0 +1,44 @@
+{
+  "id": "AM-IMP-2026.0901.06",
+  "name": "Finance Claim source-group entry and fast delivery",
+  "type": "AM Platform / Finance Claims v3",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-01",
+  "dependsOn": ["AM-IMP-2026.0901.05"],
+  "installTargets": ["AM_PLATFORM:shared", "AM_PLATFORM:hozo-am-2-0"],
+  "scope": ["Source-group claim entry delivery", "Single-lease successful path"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": ["tools/dryrun-finance-v3-direct.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The queue and receiver resolve only tenant-scoped opaque group and applicant references; raw LINE targets remain environment-owned."
+  },
+  "changes": [
+    "Deliver claim_web_entry to the originating group binding",
+    "Create and deliver a successful entry within one durable queue attempt",
+    "Start entry commands at web-entry validation while preserving membership events and all retry/reconciliation states"
+  ],
+  "definitionOfDone": [
+    "An authorized group command produces exactly one entry link in the source group",
+    "The successful queue path reaches delivered in one attempt",
+    "Provider delivery evidence and replay protection remain valid",
+    "Direct Finance Claims v3 dry-run passes"
+  ],
+  "files": [
+    "modules/claims/v3/group-entry.js",
+    "modules/claims/v3/receiver.js",
+    "tools/dryrun-finance-v3-direct.mjs",
+    "versions/AM-IMP-2026.0901.06/README.md",
+    "versions/AM-IMP-2026.0901.06/INSTALL.md",
+    "versions/AM-IMP-2026.0901.06/VERIFY.md",
+    "versions/AM-IMP-2026.0901.06/ROLLBACK.md",
+    "versions/AM-IMP-2026.0901.06/upgrade.json",
+    "docs/tenants/hozo-am-2-0/project-improvement-manifest.md",
+    "docs/tenants/hozo-am-2-0/upgrades/AM-IMP-2026.0901.06-finance-entry-group-fast-path.md"
+  ]
+}
