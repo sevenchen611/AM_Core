@@ -23,6 +23,7 @@ Runtime target: `AM_PLATFORM`
 | AM-IMP-2026.0901.03 | Deployed | Contractor identity-document evidence | Mandatory ID-card front/back capture at formal signing, private Drive storage, immutable hashes and receipt verification | PR #69 merged as `daede2b`; Render deployment `dep-dab7e9dg1s2s73e7ph0g` reports the same commit Live, and production health returned HTTP 200. Both sides are required before signing; raw images remain private. |
 | AM-IMP-2026.0901.07 | Deployed | Contractor required details and Word-like contract PDF tables | Mandatory contractor name/identity number/address, immutable evidence, Word table preservation, and clean party/payment grids | PR #75; commit c651b68; Render dep-dabatlrncjis73f0p7f0 Live; public root and health HTTP 200. |
 | AM-IMP-2026.0901.08 | Deployed | Cumulative contract-version attachments | Every new version retains all unique V1..Vn files, source-version labels, immutable deduplication, and repair of older omissions | PR #77; commit a6e1a30; Render dep-dabdbb0u01pc73ednoa0 Live; root/health HTTP 200; authenticated workspace markers verified. |
+| AM-IMP-2026.0901.09 | Installed | Contract attachment opening and immutable exclusion | Correct attachment/archive route binding plus hover × controls that create a new version with persistent exclusions | All targeted contract workflow, management, workspace, review, issuance, completion, and PDF dry-runs pass; production deployment pending. |
 
 ## Tenant and evidence boundaries
 

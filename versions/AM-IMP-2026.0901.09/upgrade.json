@@ -1,0 +1,66 @@
+{
+  "id": "AM-IMP-2026.0901.09",
+  "name": "Contract attachment opening and immutable exclusion",
+  "type": "AM Platform / contracts / attachment lifecycle",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-01",
+  "dependsOn": ["AM-IMP-2026.0901.08"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Protected attachment and LINE archive path binding",
+    "Hover and touch attachment exclusion controls",
+    "Next-version immutable attachment exclusion",
+    "Persistent exclusion across cumulative future versions"
+  ],
+  "requiresDatabases": ["Existing Engineering contract PostgreSQL version snapshots"],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-workflow-api.mjs",
+    "tools/dryrun-engineering-contract-management.mjs",
+    "tools/dryrun-engineering-contract-workspace.mjs",
+    "tools/dryrun-engineering-contract-draft-review.mjs",
+    "tools/dryrun-engineering-contract-issuance.mjs",
+    "tools/dryrun-engineering-contract-completion.mjs",
+    "tools/dryrun-engineering-contract-pdf-renderer.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Attachment opening and exclusion remain within the same tenant-scoped contract and immutable version lineage."
+  },
+  "changes": [
+    "Bind attachmentId and archiveId against their exact route fields",
+    "Show a hover or touch-visible × beside manager attachment links",
+    "Create the next draft rather than mutating the displayed historical version",
+    "Persist normalized file-identity exclusion tombstones in version snapshots",
+    "Prevent excluded files from reappearing through cumulative inheritance",
+    "Retain the original private Drive file for audit evidence"
+  ],
+  "definitionOfDone": [
+    "All six V4 attachment routes open without reference mismatch",
+    "LINE archive routes remain independently addressable",
+    "Excluding an attachment creates a new draft version",
+    "Old versions and Drive source files remain unchanged",
+    "Exclusions persist through subsequent versions",
+    "Targeted dry-runs and package validation pass"
+  ],
+  "files": [
+    "modules/construction/contract-management.js",
+    "modules/construction/contract-workflow-api.js",
+    "modules/construction/contracts.js",
+    "tools/dryrun-engineering-contract-management.mjs",
+    "tools/dryrun-engineering-contract-workflow-api.mjs",
+    "tools/dryrun-engineering-contract-workspace.mjs",
+    "versions/AM-IMP-2026.0828.01/config/engineering-contract-workflow.json",
+    "versions/AM-IMP-2026.0901.09/README.md",
+    "versions/AM-IMP-2026.0901.09/INSTALL.md",
+    "versions/AM-IMP-2026.0901.09/VERIFY.md",
+    "versions/AM-IMP-2026.0901.09/ROLLBACK.md",
+    "versions/AM-IMP-2026.0901.09/upgrade.json",
+    "docs/tenants/engineering/project-improvement-manifest.md",
+    "docs/tenants/engineering/upgrades/AM-IMP-2026.0901.09-contract-attachment-opening-exclusion.md"
+  ]
+}
