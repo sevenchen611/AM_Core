@@ -3,7 +3,7 @@
   "name": "Visible attachment removal and LINE archive recovery",
   "type": "AM Platform / contracts / workspace usability",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-09-01",
   "dependsOn": ["AM-IMP-2026.0901.09"],
   "installTargets": ["AM_PLATFORM:engineering"],
@@ -44,6 +44,24 @@
     "Future sends still capture non-overlapping intervals automatically",
     "Targeted dry-runs and package validation pass"
   ],
+  "deploymentEvidence": {
+    "pullRequests": [
+      "https://github.com/sevenchen611/AM_Core/pull/82",
+      "https://github.com/sevenchen611/AM_Core/pull/83"
+    ],
+    "commit": "bd019ef966ee7f3a071159441bb5d2a143d4c4f4",
+    "renderService": "srv-d97s94utrd3s739lin30",
+    "renderDeploy": "dep-dabe46gu01pc73ees0g0",
+    "verifiedAt": "2026-09-01T22:34:00+08:00",
+    "checks": [
+      "Render status Live",
+      "authenticated HZ-CT-001 workspace is V5",
+      "all eight attachment exclusion controls have opacity 1 and width 24px",
+      "archive status reports three sent reviews and zero archives",
+      "prominent backfill action reports three pending versions",
+      "no attachment exclusion or archive backfill was executed during verification"
+    ]
+  },
   "files": [
     "modules/construction/contracts.js",
     "tools/dryrun-engineering-contract-workspace.mjs",
