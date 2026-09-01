@@ -3,7 +3,7 @@
   "name": "Cumulative Engineering contract-version attachments",
   "type": "AM Platform / contracts / version lineage",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-09-01",
   "dependsOn": ["AM-IMP-2026.0901.07"],
   "installTargets": ["AM_PLATFORM:engineering"],
@@ -45,6 +45,14 @@
     "No immutable historical version is modified",
     "Targeted dry-runs and package validation pass"
   ],
+  "deploymentEvidence": {
+    "pullRequest": "https://github.com/sevenchen611/AM_Core/pull/77",
+    "commit": "a6e1a30dc5b01735de49dd435d84056d6af6f658",
+    "renderService": "srv-d97s94utrd3s739lin30",
+    "renderDeploy": "dep-dabdbb0u01pc73ednoa0",
+    "verifiedAt": "2026-09-01T21:40:00+08:00",
+    "checks": ["Render status Live", "GET / = 200", "GET /health = 200", "production workspace contains cumulative inheritance markers"]
+  },
   "files": [
     "modules/construction/contract-management.js",
     "modules/construction/contracts.js",
