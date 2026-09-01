@@ -1,6 +1,6 @@
-import { createHash, createHmac, randomUUID } from 'node:crypto';
-import pg from 'pg';
+import { createHmac } from 'node:crypto';
 import { createFinanceClaimsV3Receiver, getFinanceClaimsV3LocalService } from './receiver.js';
+import { createFinanceClaimsV3Pool } from './postgres.js';
 
 const ENTRY_CONTRACT = 'finance-claims-v3.group-entry-v1';
 const BRIDGE_CONTRACT = 'finance-claims-v3.am-bridge-v1';
@@ -14,11 +14,24 @@ const LEASE_SECONDS = 45;
 const MAX_STEPS_PER_DRAIN = 20;
 const MAX_ENTRY_LIFETIME_MS = 10 * 60 * 1000;
 
-export function createFinanceClaimsV3GroupEntryConsumer({ env = process.env, store, client, receiver, now = () => Date.now(), autoDrain = true } = {}) {
+export function createFinanceClaimsV3GroupEntryConsumer({
+  env = process.env,
+  store,
+  client,
+  receiver,
+  now = () => Date.now(),
+  autoDrain = true,
+  wakeOnEnqueue = autoDrain,
+  onStage = () => {},
+} = {}) {
   const config = readConfig(env);
   const activeStore = store || (config.enabled && env.DATABASE_URL ? createPostgresGroupEntryStore(env.DATABASE_URL) : null);
   const activeClient = client || createGroupEntryClient({ env, now, receiver });
   let initialized = false; let draining = false; let kickRequested = false; let retryPoller = null;
+
+  function emitStage(stage, details = {}) {
+    try { onStage(stage, details); } catch { /* observability must never block claims */ }
+  }
 
   async function init() {
     if (!config.enabled) return;
@@ -54,17 +67,23 @@ export function createFinanceClaimsV3GroupEntryConsumer({ env = process.env, sto
       if (row?.inserted === false && !sameDurableRecord(row, record)) throw new Error('finance_group_entry_idempotency_mismatch');
       rows.push(row);
     }
-    if (rows.some((row) => row?.inserted) && autoDrain) kick();
+    if (rows.some((row) => row?.inserted) && wakeOnEnqueue) kick();
     return rows;
   }
 
   async function ingestExternalEvent({ eventId, requestHash, event }) {
     if (!config.enabled || !initialized || typeof activeStore?.enqueueIngress !== 'function') throw new Error('finance_group_entry_unavailable');
+    const startedAt = now();
     const result = await activeStore.enqueueIngress(eventId, requestHash, () => {
       const routed = routeEvent(event, config);
       return { ...routed, intercepted: routed.intercepted ? 1 : 0 };
     });
-    if (result.inserted && result.queuedCount > 0 && autoDrain) kick();
+    emitStage('ingress_committed', {
+      durationMs: Math.max(0, now() - startedAt),
+      queuedCount: result.queuedCount,
+      replayed: !result.inserted,
+    });
+    if (result.inserted && result.queuedCount > 0 && wakeOnEnqueue) kick();
     return { intercepted: result.intercepted, queuedCount: result.queuedCount, replayedCount: result.inserted ? 0 : result.queuedCount };
   }
 
@@ -81,11 +100,19 @@ export function createFinanceClaimsV3GroupEntryConsumer({ env = process.env, sto
         kickRequested = false;
         const rows = await activeStore.claimBatch(Math.min(5, MAX_STEPS_PER_DRAIN - processed), LEASE_SECONDS);
         if (!rows.length) break;
-        for (const row of rows) { await processRow(row); processed++; }
+        for (const row of rows) {
+          const createdAt = Date.parse(row.created_at);
+          emitStage('worker_claimed', {
+            queueWaitMs: Number.isFinite(createdAt) ? Math.max(0, now() - createdAt) : null,
+            attempt: Number(row.attempts) || 0,
+            jobKind: row.job_kind,
+          });
+          await processRow(row); processed++;
+        }
       }
     } finally {
       draining = false;
-      if (autoDrain && (kickRequested || processed >= MAX_STEPS_PER_DRAIN)) setImmediate(() => drainOnce().catch(() => {}));
+      if ((autoDrain || wakeOnEnqueue) && (kickRequested || processed >= MAX_STEPS_PER_DRAIN)) setImmediate(() => drainOnce().catch(() => {}));
     }
     return processed;
   }
@@ -122,15 +149,24 @@ export function createFinanceClaimsV3GroupEntryConsumer({ env = process.env, sto
   }
 
   async function createAndDeliverEntry(row) {
+    const entryStartedAt = now();
     const entry = await activeClient.createWebEntry(row);
+    emitStage('rental_entry_completed', { durationMs: Math.max(0, now() - entryStartedAt), outcome: entry.kind });
     if (entry.kind === 'uncertain') return activeStore.finish(row, 'entry_uncertain', { error: entry.code, retry: true });
     if (entry.kind !== 'created') return activeStore.finish(row, 'manual_review', { error: entry.code || 'entry_rejected' });
     const deliveryRow = { ...row, entry_url: entry.url, entry_expires_at: entry.expiresAt };
     const evidence = { entryUrl: entry.url, entryExpiresAt: entry.expiresAt };
     if (Date.parse(entry.expiresAt) <= now()) return activeStore.finish(row, 'expired', { ...evidence, error: 'entry_expired_new_command_required' });
+    const deliveryStartedAt = now();
     const delivery = await activeClient.deliver(deliveryRow);
+    emitStage('line_delivery_completed', { durationMs: Math.max(0, now() - deliveryStartedAt), outcome: delivery.kind });
     if (delivery.kind === 'uncertain') return activeStore.finish(row, 'delivery_uncertain', { ...evidence, error: delivery.code });
-    if (delivery.kind === 'delivered') return activeStore.finish(row, 'delivered', { ...evidence, ackReference: delivery.ackReference });
+    if (delivery.kind === 'delivered') {
+      const finished = await activeStore.finish(row, 'delivered', { ...evidence, ackReference: delivery.ackReference });
+      const createdAt = Date.parse(row.created_at);
+      emitStage('job_completed', { totalMs: Number.isFinite(createdAt) ? Math.max(0, now() - createdAt) : null });
+      return finished;
+    }
     return activeStore.finish(row, 'manual_review', { ...evidence, error: delivery.code || 'delivery_rejected' });
   }
 
@@ -153,10 +189,11 @@ function routeEvent(event, config) {
   const scope = config.groupsByTarget.get(groupTarget);
   if (!scope) return { intercepted: false, records: [] };
   const base = { tenantKey: scope.tenantKey, sourceId: scope.sourceId, formKey: scope.formKey, groupReference: scope.groupReference };
-  if (event?.type === 'message' && event.message?.type === 'text' && KEYWORDS.has(String(event.message.text || ''))) {
+  const keyword = String(event?.message?.text || '').trim();
+  if (event?.type === 'message' && event.message?.type === 'text' && KEYWORDS.has(keyword)) {
     const applicant = config.usersByTarget.get(String(event.source.userId || ''));
     const applicantReference = applicant?.tenantKey === scope.tenantKey ? applicant.identityReference : '';
-    return { intercepted: true, records: applicantReference ? [safeRecord(event, { ...base, applicantReference, jobKind: 'entry', desiredState: 'active', keyword: String(event.message.text) }, config.eventSecret)] : [] };
+    return { intercepted: true, records: applicantReference ? [safeRecord(event, { ...base, applicantReference, jobKind: 'entry', desiredState: 'active', keyword }, config.eventSecret)] : [] };
   }
   const members = event?.type === 'memberJoined' ? event.joined?.members : event?.type === 'memberLeft' ? event.left?.members : null;
   if (Array.isArray(members)) {
@@ -306,10 +343,9 @@ function safeId(value) { return typeof value === 'string' && SAFE_ID.test(value)
 function safeSourceHint(value) { const hint = String(value || ''); return /^[A-Za-z0-9_-]{20,2048}\.[A-Za-z0-9_-]{43}$/.test(hint) && !/(?:^|[^A-Za-z0-9_-])[UCR][A-Za-z0-9_-]{32,99}(?:$|[^A-Za-z0-9_-])/.test(hint); }
 function exactObject(value, keys) { return Boolean(value && !Array.isArray(value) && typeof value === 'object' && Object.keys(value).sort().join(',') === [...keys].sort().join(',')); }
 function safeHttpsBase(value) { try { const url = new URL(String(value || '')); return url.protocol === 'https:' && !url.username && !url.password && url.pathname === '/' && !url.search && !url.hash ? new URL(url.origin) : null; } catch { return null; } }
-function stableUuid(value) { const hex = createHash('sha256').update(value).digest('hex').slice(0, 32).split(''); hex[12] = '4'; hex[16] = ['8', '9', 'a', 'b'][Number.parseInt(hex[16], 16) % 4]; return `${hex.slice(0, 8).join('')}-${hex.slice(8, 12).join('')}-${hex.slice(12, 16).join('')}-${hex.slice(16, 20).join('')}-${hex.slice(20).join('')}`; }
 
-export function createPostgresGroupEntryStore(databaseUrl) {
-  const pool = new pg.Pool({ connectionString: databaseUrl, max: 3, ...(!/localhost|127\.0\.0\.1/.test(databaseUrl) ? { ssl: { rejectUnauthorized: false } } : {}) }); let initialized = false;
+export function createPostgresGroupEntryStore(databaseUrl, { pool: injectedPool = null } = {}) {
+  const pool = injectedPool || createFinanceClaimsV3Pool(databaseUrl); let initialized = false;
   return {
     async init() {
       if (initialized) return;
@@ -332,9 +368,10 @@ export function createPostgresGroupEntryStore(databaseUrl) {
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
-        const inserted = (await client.query(`INSERT INTO finance_claim_group_ingress_v3(event_id,request_hash) VALUES($1,$2) ON CONFLICT(event_id) DO NOTHING RETURNING event_id`, [eventId, requestHash])).rows[0];
-        const reservation = (await client.query('SELECT * FROM finance_claim_group_ingress_v3 WHERE event_id=$1 FOR UPDATE', [eventId])).rows[0];
+        const reservation = (await client.query(`INSERT INTO finance_claim_group_ingress_v3(event_id,request_hash) VALUES($1,$2)
+          ON CONFLICT(event_id) DO UPDATE SET updated_at=finance_claim_group_ingress_v3.updated_at RETURNING *`, [eventId, requestHash])).rows[0];
         if (!reservation || reservation.request_hash !== requestHash) throw new Error('finance_group_entry_idempotency_mismatch');
+        const inserted = Number(reservation.intercepted) < 0 && Number(reservation.queued_count) < 0;
         if (!inserted) {
           if (reservation.intercepted < 0 || reservation.queued_count < 0) throw new Error('finance_group_entry_unavailable');
           await client.query('COMMIT');
@@ -349,40 +386,68 @@ export function createPostgresGroupEntryStore(databaseUrl) {
       } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
     },
     async claimBatch(limit, leaseSeconds) {
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-        const rows = (await client.query(`SELECT * FROM finance_claim_group_entry_queue_v3 WHERE status=ANY($1) AND available_at<=now() AND (lease_until IS NULL OR lease_until<=now()) ORDER BY created_at LIMIT $2 FOR UPDATE SKIP LOCKED`, [[...ACTIVE_STATES], limit])).rows;
-        const claimed = [];
-        for (const row of rows) {
-          const token = randomUUID(); const attemptNo = Number(row.attempts) + 1; const attemptId = stableUuid(`${row.event_key}:${attemptNo}`);
-          if (Number(row.attempts) > 0) await client.query(`UPDATE finance_claim_group_entry_attempts_v3 SET status='retry',error_code='lease_expired',finished_at=now() WHERE event_key=$1 AND attempt_no=$2 AND status='processing'`, [row.event_key, row.attempts]);
-          const updated = (await client.query(`UPDATE finance_claim_group_entry_queue_v3 SET attempts=$2,lease_token=$3,lease_until=now()+($4||' seconds')::interval,updated_at=now() WHERE event_key=$1 AND attempts=($2::integer-1) RETURNING *`, [row.event_key, attemptNo, token, String(leaseSeconds)])).rows[0];
-          if (updated) { await client.query(`INSERT INTO finance_claim_group_entry_attempts_v3(id,event_key,attempt_no,stage,status,lease_token) VALUES($1,$2,$3,$4,'processing',$5)`, [attemptId, row.event_key, attemptNo, row.status, token]); claimed.push(updated); }
-        }
-        await client.query('COMMIT'); return claimed;
-      } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
+      return (await pool.query(`WITH candidates AS (
+          SELECT event_key FROM finance_claim_group_entry_queue_v3
+          WHERE status=ANY($1) AND available_at<=now() AND (lease_until IS NULL OR lease_until<=now())
+          ORDER BY created_at LIMIT $2 FOR UPDATE SKIP LOCKED
+        ), expired_attempts AS (
+          UPDATE finance_claim_group_entry_attempts_v3 attempt
+          SET status='retry',error_code='lease_expired',finished_at=now()
+          FROM finance_claim_group_entry_queue_v3 queued, candidates candidate
+          WHERE queued.event_key=candidate.event_key AND attempt.event_key=queued.event_key
+            AND queued.attempts>0 AND attempt.attempt_no=queued.attempts AND attempt.status='processing'
+          RETURNING attempt.event_key
+        ), claimed AS (
+          UPDATE finance_claim_group_entry_queue_v3 queued
+          SET attempts=queued.attempts+1,lease_token=gen_random_uuid(),
+            lease_until=now()+($3||' seconds')::interval,updated_at=now()
+          FROM candidates candidate WHERE queued.event_key=candidate.event_key
+          RETURNING queued.*
+        ), inserted_attempts AS (
+          INSERT INTO finance_claim_group_entry_attempts_v3(id,event_key,attempt_no,stage,status,lease_token)
+          SELECT gen_random_uuid(),event_key,attempts,status,'processing',lease_token FROM claimed
+          RETURNING event_key
+        )
+        SELECT claimed.* FROM claimed JOIN inserted_attempts USING(event_key) ORDER BY claimed.created_at`, [[...ACTIVE_STATES], limit, String(leaseSeconds)])).rows;
     },
     async finish(row, status, options = {}) {
-      const retry = options.retry === true; const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-        const updated = (await client.query(`UPDATE finance_claim_group_entry_queue_v3 SET status=$4,entry_url=CASE WHEN $5<>'' THEN $5 ELSE entry_url END,entry_expires_at=CASE WHEN $6<>'' THEN $6::timestamptz ELSE entry_expires_at END,ack_reference=CASE WHEN $7<>'' THEN $7 ELSE ack_reference END,last_error=$8,lease_token=NULL,lease_until=NULL,available_at=CASE WHEN $9 THEN now()+interval '30 seconds' ELSE now() END,updated_at=now() WHERE event_key=$1 AND lease_token=$2 AND attempts=$3 RETURNING *`, [row.event_key, row.lease_token, row.attempts, status, options.entryUrl || '', options.entryExpiresAt || '', options.ackReference || '', String(options.error || '').slice(0, 120), retry])).rows[0];
-        if (!updated) throw new Error('stale_group_entry_lease');
-        await client.query(`UPDATE finance_claim_group_entry_attempts_v3 SET status=$4,error_code=$5,finished_at=now() WHERE event_key=$1 AND attempt_no=$2 AND lease_token=$3 AND status='processing'`, [row.event_key, row.attempts, row.lease_token, status === 'manual_review' ? 'manual_review' : retry ? 'retry' : 'succeeded', String(options.error || '').slice(0, 120)]);
-        await client.query('COMMIT'); return updated;
-      } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
+      const retry = options.retry === true;
+      const errorCode = String(options.error || '').slice(0, 120);
+      const attemptStatus = status === 'manual_review' ? 'manual_review' : retry ? 'retry' : 'succeeded';
+      const updated = (await pool.query(`WITH updated AS (
+          UPDATE finance_claim_group_entry_queue_v3
+          SET status=$4,entry_url=CASE WHEN $5<>'' THEN $5 ELSE entry_url END,
+            entry_expires_at=CASE WHEN $6<>'' THEN $6::timestamptz ELSE entry_expires_at END,
+            ack_reference=CASE WHEN $7<>'' THEN $7 ELSE ack_reference END,last_error=$8,
+            lease_token=NULL,lease_until=NULL,
+            available_at=CASE WHEN $9 THEN now()+interval '30 seconds' ELSE now() END,updated_at=now()
+          WHERE event_key=$1 AND lease_token=$2 AND attempts=$3 RETURNING *
+        ), finished_attempt AS (
+          UPDATE finance_claim_group_entry_attempts_v3 attempt
+          SET status=$10,error_code=$8,finished_at=now()
+          FROM updated
+          WHERE attempt.event_key=updated.event_key AND attempt.attempt_no=updated.attempts
+            AND attempt.lease_token=$2 AND attempt.status='processing'
+          RETURNING attempt.event_key
+        )
+        SELECT updated.* FROM updated JOIN finished_attempt USING(event_key)`, [
+        row.event_key, row.lease_token, row.attempts, status,
+        options.entryUrl || '', options.entryExpiresAt || '', options.ackReference || '', errorCode, retry, attemptStatus,
+      ])).rows[0];
+      if (!updated) throw new Error('stale_group_entry_lease');
+      return updated;
     },
     async stats() { const rows = (await pool.query('SELECT status,count(*)::int count FROM finance_claim_group_entry_queue_v3 GROUP BY status')).rows; return { enabled: true, initialized, ready: initialized, counts: Object.fromEntries(rows.map((row) => [row.status, row.count])) }; },
   };
 }
 
 async function enqueueRecordWithClient(client, record) {
-  const inserted = (await client.query(`INSERT INTO finance_claim_group_entry_queue_v3(event_key,job_kind,tenant_key,source_id,form_key,group_reference,applicant_reference,desired_state,keyword,occurred_at,membership_request_id,entry_request_id,delivery_event_key,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,CASE WHEN $2='entry' THEN 'pending_entry' ELSE 'pending_membership' END) ON CONFLICT(event_key) DO NOTHING RETURNING event_key`, [record.eventKey, record.jobKind, record.tenantKey, record.sourceId, record.formKey, record.groupReference, record.applicantReference, record.desiredState, record.keyword, record.occurredAt, record.membershipRequestId, record.entryRequestId, record.deliveryEventKey])).rows[0];
-  if (inserted) {
+  let row = (await client.query(`INSERT INTO finance_claim_group_entry_queue_v3(event_key,job_kind,tenant_key,source_id,form_key,group_reference,applicant_reference,desired_state,keyword,occurred_at,membership_request_id,entry_request_id,delivery_event_key,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,CASE WHEN $2='entry' THEN 'pending_entry' ELSE 'pending_membership' END) ON CONFLICT(event_key) DO NOTHING RETURNING *`, [record.eventKey, record.jobKind, record.tenantKey, record.sourceId, record.formKey, record.groupReference, record.applicantReference, record.desiredState, record.keyword, record.occurredAt, record.membershipRequestId, record.entryRequestId, record.deliveryEventKey])).rows[0];
+  if (row?.job_kind === 'membership') {
     const sequence = (await client.query(`INSERT INTO finance_claim_group_membership_sequences_v3(tenant_key,source_id,applicant_reference,last_sequence) VALUES($1,$2,$3,1) ON CONFLICT(tenant_key,source_id,applicant_reference) DO UPDATE SET last_sequence=finance_claim_group_membership_sequences_v3.last_sequence+1,updated_at=now() RETURNING last_sequence`, [record.tenantKey, record.sourceId, record.applicantReference])).rows[0].last_sequence;
-    await client.query('UPDATE finance_claim_group_entry_queue_v3 SET membership_sequence=$2 WHERE event_key=$1', [record.eventKey, sequence]);
+    row = (await client.query('UPDATE finance_claim_group_entry_queue_v3 SET membership_sequence=$2 WHERE event_key=$1 RETURNING *', [record.eventKey, sequence])).rows[0];
   }
-  const row = (await client.query('SELECT * FROM finance_claim_group_entry_queue_v3 WHERE event_key=$1', [record.eventKey])).rows[0];
-  return { ...row, inserted: Boolean(inserted) };
+  if (row) return { ...row, inserted: true };
+  const existing = (await client.query('SELECT * FROM finance_claim_group_entry_queue_v3 WHERE event_key=$1', [record.eventKey])).rows[0];
+  return { ...existing, inserted: false };
 }
