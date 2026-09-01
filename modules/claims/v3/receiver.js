@@ -10,6 +10,12 @@ export const FINANCE_CLAIMS_V3_GROUP_ENTRY_CONTRACT = 'finance-claims-v3.group-e
 
 const MAX_BODY_BYTES = 64 * 1024;
 const MAX_SOURCE_HINT_AGE_SECONDS = 300;
+// Rental's first D1-backed membership/web-entry request can legitimately spend
+// more than 10 seconds warming and ensuring its idempotent schema. This runs in
+// the durable background drainer, after the LINE webhook has already been
+// acknowledged, so allow the upstream operation to complete instead of
+// repeatedly classifying a successful write as uncertain.
+const BRIDGE_UPSTREAM_TIMEOUT_MS = 35_000;
 const LEASE_SECONDS = 45;
 const PROVIDER_RETRY_WINDOW_MS = 23 * 60 * 60 * 1000;
 const LINE_PUSH_URL = 'https://api.line.me/v2/bot/message/push';
@@ -213,7 +219,7 @@ export function createFinanceClaimsV3Receiver({
         method: kind === 'capability' ? 'GET' : 'POST',
         headers: { authorization: `Bearer ${machineToken}`, ...(kind === 'capability' ? {} : { 'content-type': 'application/json', 'idempotency-key': body.requestId }) },
         body: upstreamBody ? stableJson(upstreamBody) : undefined,
-        signal: AbortSignal.timeout(10_000),
+        signal: AbortSignal.timeout(BRIDGE_UPSTREAM_TIMEOUT_MS),
         redirect: 'error',
       });
     } catch {
