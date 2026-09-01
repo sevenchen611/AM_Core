@@ -3,7 +3,7 @@
   "name": "Production Finance Claim entry message",
   "type": "AM Platform / Finance Claims / LINE private entry",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-09-01",
   "dependsOn": ["AM-IMP-2026.0901.01"],
   "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
