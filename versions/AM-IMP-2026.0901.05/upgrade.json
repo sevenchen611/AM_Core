@@ -1,0 +1,42 @@
+{
+  "id": "AM-IMP-2026.0901.05",
+  "name": "Finance Claim entry delivery TTL alignment",
+  "type": "AM Platform / Finance Claims v3",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-01",
+  "dependsOn": ["AM-IMP-2026.0901.04"],
+  "installTargets": ["AM_PLATFORM:shared", "AM_PLATFORM:hozo-am-2-0"],
+  "scope": ["Ten-minute final LINE entry-delivery validation"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": ["tools/dryrun-finance-v3-direct.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The change validates only the already signed opaque source hint and does not expose or persist raw LINE identities."
+  },
+  "changes": [
+    "Use the ten-minute source-hint ceiling at the final claim_web_entry delivery boundary",
+    "Add a regression assertion that prevents the historical five-minute literal from returning"
+  ],
+  "definitionOfDone": [
+    "A valid ten-minute entry reaches the LINE provider delivery path",
+    "Entries over ten minutes still fail closed",
+    "Direct Finance Claims v3 dry-run passes",
+    "A production finance-group command reaches the delivered queue state"
+  ],
+  "files": [
+    "modules/claims/v3/receiver.js",
+    "tools/dryrun-finance-v3-direct.mjs",
+    "versions/AM-IMP-2026.0901.05/README.md",
+    "versions/AM-IMP-2026.0901.05/INSTALL.md",
+    "versions/AM-IMP-2026.0901.05/VERIFY.md",
+    "versions/AM-IMP-2026.0901.05/ROLLBACK.md",
+    "versions/AM-IMP-2026.0901.05/upgrade.json",
+    "docs/tenants/hozo-am-2-0/project-improvement-manifest.md",
+    "docs/tenants/hozo-am-2-0/upgrades/AM-IMP-2026.0901.05-finance-entry-delivery-ttl.md"
+  ]
+}

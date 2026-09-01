@@ -525,7 +525,7 @@ function validTemplatePayload(templateKey, eventType, payload, env, nowMs) {
     return Boolean(base && url.origin === base.origin && url.pathname === '/finance-claims' && !url.username && !url.password && !url.hash
       && [...url.searchParams.keys()].length === 1 && url.searchParams.getAll('sourceHint').length === 1 && safeSourceHint(url.searchParams.get('sourceHint'))
       && typeof payload.expiresAt === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(payload.expiresAt)
-      && Number.isFinite(expires) && new Date(expires).toISOString() === payload.expiresAt && expires > nowMs && expires <= nowMs + 5 * 60 * 1000);
+      && Number.isFinite(expires) && new Date(expires).toISOString() === payload.expiresAt && expires > nowMs && expires <= nowMs + MAX_SOURCE_HINT_AGE_SECONDS * 1000);
   }
   if (templateKey === 'claim_submitted') return [1, 2].includes(payload.approvalStages);
   if (['approval_pending', 'classification_needs_attention', 'second_approval_pending'].includes(templateKey)) {

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createFinanceClaimsV3GroupEntryConsumer, createGroupEntryClient } from '../modules/claims/v3/group-entry.js';
+import { createFinanceClaimsV3Receiver } from '../modules/claims/v3/receiver.js';
 import { __test as claimsTest } from '../modules/claims/index.js';
 
 const NOW = Date.parse('2026-09-01T00:00:00.000Z');
@@ -162,9 +163,13 @@ assert.deepEqual(store.attempts, ['pending_membership', 'membership_uncertain', 
 
 const source = await readFile(new URL('../modules/claims/index.js', import.meta.url), 'utf8');
 const groupEntrySource = await readFile(new URL('../modules/claims/v3/group-entry.js', import.meta.url), 'utf8');
+const receiverSource = await readFile(new URL('../modules/claims/v3/receiver.js', import.meta.url), 'utf8');
 const envelopeSource = groupEntrySource.slice(groupEntrySource.indexOf('function entryEnvelope'), groupEntrySource.indexOf('function safeAck'));
 assert.match(envelopeSource, /templateKey: 'claim_web_entry'/);
 assert.doesNotMatch(envelopeSource, /claim_web_entry_test|testMode/);
+assert.match(receiverSource, /const MAX_SOURCE_HINT_AGE_SECONDS = 10 \* 60;/);
+assert.match(receiverSource, /expires <= nowMs \+ MAX_SOURCE_HINT_AGE_SECONDS \* 1000/);
+assert.doesNotMatch(receiverSource, /expires <= nowMs \+ 5 \* 60 \* 1000/);
 assert.equal(source.includes('group-events/v3'), false);
 assert.equal(source.includes('enqueueProcessingJob'), false);
 const v3Route = source.indexOf("prefix: '/control/finance/claim-events/v3'");
@@ -193,5 +198,57 @@ assert.deepEqual(await tenMinuteClient.createWebEntry({
   kind: 'created', url: 'https://rental.example.test/finance-claims?sourceHint=aaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
   expiresAt: '2026-09-01T00:10:00.000Z',
 });
+
+let deliveredMessage = null;
+const deliveryStore = {
+  async init() {},
+  async beginDispatch(input) {
+    return { kind: 'claimed', row: {
+      tenant_key: input.tenantKey,
+      event_key: input.eventKey,
+      retry_key: input.retryKey,
+      lease_token: input.leaseToken,
+      message_text: input.messageText,
+    } };
+  },
+  async markDelivered(row) {
+    return { ...row, provider_reference: `line-ack:v1:${row.retry_key}`, status: 'delivered' };
+  },
+};
+const deliveryEnv = localEnv();
+const deliveryReceiver = createFinanceClaimsV3Receiver({
+  env: deliveryEnv,
+  store: deliveryStore,
+  now: () => NOW,
+  async fetchImpl(url, options) {
+    assert.equal(String(url), 'https://api.line.me/v2/bot/message/push');
+    deliveredMessage = JSON.parse(options.body);
+    return {
+      status: 200,
+      redirected: false,
+      url: 'https://api.line.me/v2/bot/message/push',
+      body: null,
+      headers: { get(name) { return name.toLowerCase() === 'x-line-request-id' ? 'line-request-10m-entry' : null; } },
+    };
+  },
+});
+const tenMinuteEntryUrl = 'https://rental.example.test/finance-claims?sourceHint=aaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+const tenMinuteDelivery = await deliveryReceiver.deliverEnvelope({
+  contractVersion: 'finance-claims-v3.group-entry-v1',
+  eventKey: 'entry-invite-ten-minute-delivery',
+  eventType: 'claim_web_entry',
+  recipient: { type: 'line_user', identityReference: USER_REF },
+  templateKey: 'claim_web_entry',
+  payload: {
+    contractVersion: 'finance-claims-v3.group-entry-v1',
+    eventKey: 'entry-invite-ten-minute-delivery',
+    eventType: 'claim_web_entry',
+    entryUrl: tenMinuteEntryUrl,
+    expiresAt: '2026-09-01T00:10:00.000Z',
+  },
+}, { tenantKey: 'hozo' });
+assert.equal(tenMinuteDelivery.status, 200);
+assert.match(deliveredMessage.messages[0].text, /HOZO 費用申請/);
+assert.match(deliveredMessage.messages[0].text, /rental\.example\.test\/finance-claims/);
 
 console.log('Finance Claims v3 direct AM Platform dry-run passed.');
