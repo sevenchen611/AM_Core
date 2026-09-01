@@ -18,6 +18,8 @@ const signatureBytes = Buffer.from(
   'base64',
 );
 const signatureDataUrl = `data:image/png;base64,${signatureBytes.toString('base64')}`;
+const identityFrontDataUrl = signatureDataUrl;
+const identityBackDataUrl = signatureDataUrl;
 
 function getHeader(headers, name) {
   const wanted = name.toLowerCase();
@@ -60,7 +62,7 @@ async function invoke(handler, requestOptions = {}) {
 }
 
 function createFixture(options = {}) {
-  const calls = { open: [], submit: [], save: [], resolve: [], document: [], logs: [] };
+  const calls = { open: [], submit: [], save: [], saveIdentity: [], resolve: [], document: [], logs: [] };
   const openResult = options.openResult || {
     sessionId: 'signing-session-001',
     contractId: 'contract-001',
@@ -102,6 +104,15 @@ function createFixture(options = {}) {
     if (options.saveResult) return typeof options.saveResult === 'function' ? options.saveResult(input) : options.saveResult;
     return { hash: digest(input.bytes), ref: `protected://signatures/${input.idempotencyKey}.png` };
   };
+  const saveIdentityDocuments = async (input) => {
+    calls.saveIdentity.push(input);
+    if (options.saveIdentityError) throw options.saveIdentityError;
+    const receivedAt = '2026-09-01T01:02:03.000Z';
+    return {
+      front: { hash: digest(input.front.bytes), ref: 'drive-id-front', contentType: input.front.contentType, byteSize: input.front.bytes.length, receivedAt },
+      back: { hash: digest(input.back.bytes), ref: 'drive-id-back', contentType: input.back.contentType, byteSize: input.back.bytes.length, receivedAt },
+    };
+  };
   const defaultResolver = async (input) => {
     calls.resolve.push(input);
     return `/contract-sign/document/${encodeURIComponent(input.sessionId)}`;
@@ -112,6 +123,7 @@ function createFixture(options = {}) {
   const handler = createContractSigningWebHandler({
     service,
     saveSignature,
+    saveIdentityDocuments,
     liffId: '2000000000-engineering',
     bodyLimit: options.bodyLimit,
     signatureLimit: options.signatureLimit,
@@ -135,6 +147,7 @@ const validSubmitBody = {
   idempotencyKey: 'browser-submit-001',
   documentHash,
   signatureDataUrl,
+  identityDocuments: { frontDataUrl: identityFrontDataUrl, backDataUrl: identityBackDataUrl },
   reviewAcknowledged: true,
   consent: true,
 };
@@ -147,6 +160,9 @@ const jsonHeaders = { 'content-type': 'application/json' };
   assert.match(html, /<meta name="viewport"[^>]*width=device-width/);
   assert.match(html, /static\.line-scdn\.net\/liff\/edge\/2\/sdk\.js/);
   assert.match(html, /<canvas id="signature"/);
+  assert.match(html, /id="identity-front"[^>]*type="file"/);
+  assert.match(html, /id="identity-back"[^>]*type="file"/);
+  assert.match(html, /身分證正面與反面/);
   assert.match(html, /id="consent" type="checkbox"/);
   assert.match(html, /id="consent" type="checkbox" disabled/);
   assert.match(html, /id="submit-signature" type="button" disabled/);
@@ -338,7 +354,7 @@ const jsonHeaders = { 'content-type': 'application/json' };
   assert.equal(invalidJson.response.statusCode, 400);
   assert.equal(invalidJson.json.code, 'INVALID_JSON');
 
-  const largeFixture = createFixture();
+  const largeFixture = createFixture({ bodyLimit: 100 });
   const tooLarge = await invoke(largeFixture.handler, {
     method: 'POST',
     url: CONTRACT_SIGNING_OPEN_PATH,
@@ -373,6 +389,7 @@ const jsonHeaders = { 'content-type': 'application/json' };
   });
   assert.equal(fixture.calls.open.length, 1);
   assert.equal(fixture.calls.save.length, 1);
+  assert.equal(fixture.calls.saveIdentity.length, 1);
   assert.equal(fixture.calls.submit.length, 1);
   const saved = fixture.calls.save[0];
   assert.equal(saved.sessionId, 'signing-session-001');
@@ -388,6 +405,8 @@ const jsonHeaders = { 'content-type': 'application/json' };
   const coreSubmission = fixture.calls.submit[0];
   assert.equal(coreSubmission.signatureHash, digest(signatureBytes));
   assert.equal(coreSubmission.submissionRef, 'protected://signatures/browser-submit-001.png');
+  assert.equal(coreSubmission.identityDocuments.front.ref, 'drive-id-front');
+  assert.equal(coreSubmission.identityDocuments.back.ref, 'drive-id-back');
   assert.equal(coreSubmission.requestMeta.remoteAddress, '198.51.100.16');
   assert.equal(coreSubmission.reviewAcknowledged, true);
   assert.equal(Object.hasOwn(coreSubmission, 'signatureDataUrl'), false);
@@ -416,6 +435,17 @@ const jsonHeaders = { 'content-type': 'application/json' };
   assert.equal(noConsent.json.code, 'CONSENT_REQUIRED');
   assert.equal(noConsentFixture.calls.open.length, 0);
   assert.equal(noConsentFixture.calls.save.length, 0);
+
+  const missingIdentityFixture = createFixture();
+  const missingIdentity = await invoke(missingIdentityFixture.handler, {
+    method: 'POST', url: CONTRACT_SIGNING_SUBMIT_PATH, headers: jsonHeaders,
+    body: { ...validSubmitBody, identityDocuments: undefined },
+  });
+  assert.equal(missingIdentity.response.statusCode, 400);
+  assert.equal(missingIdentity.json.code, 'FIELD_REQUIRED');
+  assert.equal(missingIdentityFixture.calls.open.length, 0);
+  assert.equal(missingIdentityFixture.calls.save.length, 0);
+  assert.equal(missingIdentityFixture.calls.saveIdentity.length, 0);
 
   const fakePngFixture = createFixture();
   const fakePng = await invoke(fakePngFixture.handler, {

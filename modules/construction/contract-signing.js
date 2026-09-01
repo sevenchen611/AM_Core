@@ -67,6 +67,34 @@ function optionalText(value, maxLength = 500) {
   return String(value || '').trim().slice(0, maxLength);
 }
 
+function normalizeIdentityDocuments(value) {
+  const source = value && typeof value === 'object' ? value : {};
+  const normalized = {};
+  for (const side of ['front', 'back']) {
+    const item = source[side] && typeof source[side] === 'object' ? source[side] : {};
+    const receivedAt = requiredText(item.receivedAt, `identityDocuments.${side}.receivedAt`, 80);
+    if (!Number.isFinite(Date.parse(receivedAt))) {
+      throw signingError('IDENTITY_DOCUMENT_TIME_INVALID', '身分證照片收件時間格式不正確。', 400);
+    }
+    const contentType = requiredText(item.contentType, `identityDocuments.${side}.contentType`, 40);
+    if (!['image/png', 'image/jpeg'].includes(contentType)) {
+      throw signingError('IDENTITY_DOCUMENT_TYPE_INVALID', '身分證照片格式不正確。', 400);
+    }
+    const byteSize = Number(item.byteSize);
+    if (!Number.isSafeInteger(byteSize) || byteSize < 500 || byteSize > 3 * 1024 * 1024) {
+      throw signingError('IDENTITY_DOCUMENT_SIZE_INVALID', '身分證照片大小不正確。', 400);
+    }
+    normalized[side] = {
+      hash: normalizeHash(item.hash, `identityDocuments.${side}.hash`),
+      ref: requiredText(item.ref, `identityDocuments.${side}.ref`, 1000),
+      contentType,
+      byteSize,
+      receivedAt: new Date(receivedAt).toISOString(),
+    };
+  }
+  return normalized;
+}
+
 function dateFromClock(clock) {
   const raw = typeof clock === 'function' ? clock() : clock?.now?.();
   const date = raw instanceof Date ? new Date(raw.getTime()) : new Date(raw ?? Date.now());
@@ -293,7 +321,7 @@ export function createContractSigningService(options = {}) {
   if (Buffer.byteLength(tokenPepper, 'utf8') < 32) {
     throw new Error('contract signing tokenPepper must contain at least 32 bytes');
   }
-  const consentVersion = requiredText(options.consentVersion || 'engineering-contract-consent-v1', 'consentVersion', 120);
+  const consentVersion = requiredText(options.consentVersion || 'engineering-contract-consent-v2-id-documents', 'consentVersion', 120);
   const signingPath = options.signingPath || '/engineering/contracts/sign';
   const proxyOptions = {
     isTrustedProxy: options.isTrustedProxy,
@@ -635,6 +663,7 @@ export function createContractSigningService(options = {}) {
     }
     const signatureHash = normalizeHash(input.signatureHash, 'signatureHash');
     const submissionRef = requiredText(input.submissionRef, 'submissionRef', 1000);
+    const identityDocuments = normalizeIdentityDocuments(input.identityDocuments);
     const evidence = requestEvidence(input.requestMeta);
     const submitted = await mutate(session.id, (draft) => {
       if (draft.status === 'signed') {
@@ -651,6 +680,7 @@ export function createContractSigningService(options = {}) {
         documentHash,
         signatureHash,
         submissionRef,
+        identityDocuments,
         consentVersion,
         reviewAcknowledged: true,
         idempotencyKeyHash: idempotencyHash,
@@ -659,12 +689,17 @@ export function createContractSigningService(options = {}) {
       appendEvent(draft, {
         type: 'signed', at, actorType: 'signer', actorId: identity.userId,
         idempotencyKey: `signed:${idempotencyKey}`, ip: evidence.ip, userAgent: evidence.userAgent,
-        metadata: { identitySource: 'verified_liff', membershipVerified: true, specifiedUserMatched: true, reviewAcknowledged: true, documentHash, signatureHash, consentVersion }, randomBytes,
+        metadata: {
+          identitySource: 'verified_liff', membershipVerified: true, specifiedUserMatched: true,
+          reviewAcknowledged: true, documentHash, signatureHash, consentVersion,
+          identityDocumentHashes: { front: identityDocuments.front.hash, back: identityDocuments.back.hash },
+          identityDocumentsReceivedAt: { front: identityDocuments.front.receivedAt, back: identityDocuments.back.receivedAt },
+        }, randomBytes,
       });
       appendEvent(draft, {
         type: 'submission_received', at, actorType: 'system', actorId: 'engineering-am',
         idempotencyKey, ip: evidence.ip, userAgent: evidence.userAgent,
-        metadata: { documentHash, signatureHash, submissionRef, consentVersion, reviewAcknowledged: true }, randomBytes,
+        metadata: { documentHash, signatureHash, submissionRef, identityDocuments, consentVersion, reviewAcknowledged: true }, randomBytes,
       });
       return { result: { idempotent: false } };
     });

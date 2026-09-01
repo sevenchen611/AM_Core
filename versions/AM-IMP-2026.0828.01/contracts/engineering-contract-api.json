@@ -33,7 +33,7 @@
     { "method": "GET", "path": "/contract-sign#token={opaqueToken}", "accessKind": "public", "authority": "fragment token is not sent in the HTTP request", "returns": "LIFF bootstrap page only" },
     { "method": "POST", "path": "/contract-sign/api/open", "accessKind": "public", "authority": "HMAC token plus LIFF exact user plus current group membership", "requestContains": ["token", "liffCredential"], "purpose": "Record authenticated first open and return only a protected document endpoint" },
     { "method": "POST", "path": "/contract-sign/api/document", "accessKind": "public", "authority": "identity and membership are rechecked", "requestContains": ["token", "liffCredential"], "purpose": "Stream the private issued PDF only after Drive SHA-256 verification" },
-    { "method": "POST", "path": "/contract-sign/api/submit", "accessKind": "public", "authority": "identity and membership rechecked plus exact document hash", "idempotent": true, "requestContains": ["token", "liffCredential", "signatureDataUrl", "consent", "reviewAcknowledged", "documentHash", "idempotencyKey"], "purpose": "Store the signature image and immutable signed/submission events" }
+    { "method": "POST", "path": "/contract-sign/api/submit", "accessKind": "public", "authority": "identity and membership rechecked plus exact document hash", "idempotent": true, "requestContains": ["token", "liffCredential", "signatureDataUrl", "identityDocuments.frontDataUrl", "identityDocuments.backDataUrl", "consent", "reviewAcknowledged", "documentHash", "idempotencyKey"], "purpose": "Store the signature and both private contractor identity-document images, then append immutable signed/submission evidence" }
   ],
   "requiredErrorBehavior": {
     "invalidOrForeignResource": 404,

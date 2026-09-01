@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createContractLineAdapter, createRuntimeSigningService, isRenderInternalProxyPeer, loadContractPdf, saveContractSignature, __test } from '../modules/construction/contract-runtime.js';
+import { createContractLineAdapter, createRuntimeSigningService, isRenderInternalProxyPeer, loadContractPdf, saveContractIdentityDocuments, saveContractSignature, __test } from '../modules/construction/contract-runtime.js';
 import { getTrustedClientIp } from '../modules/construction/contract-signing.js';
 import { createHash } from 'node:crypto';
 
@@ -83,6 +83,26 @@ const saved = await saveContractSignature({
 assert.equal(saved.submissionRef, 'drive-signature-id');
 assert.match(saved.signatureHash, /^[a-f0-9]{64}$/);
 assert.match(uploaded[0].folder, /工程合約管理\/簽署證據\/cs_example$/);
+
+const identityUploads = [];
+const identityDocuments = await saveContractIdentityDocuments({
+  driveConfigured: true,
+  driveRootFolderId: 'root',
+  ensureDriveFolder: async (name, parent) => `${parent}/${name}`,
+  uploadToDrive: async (buffer, filename, contentType, folder) => {
+    identityUploads.push({ buffer, filename, contentType, folder });
+    return { id: `drive-${filename}` };
+  },
+  auditDrivePrivate: async () => ({ private: true }),
+}, {
+  sessionId: 'cs_example',
+  front: { bytes: Buffer.alloc(800, 2), contentType: 'image/jpeg' },
+  back: { bytes: Buffer.alloc(900, 3), contentType: 'image/png' },
+});
+assert.match(identityUploads[0].folder, /簽署證據\/cs_example\/身分證件（機密）$/);
+assert.match(identityDocuments.front.hash, /^[a-f0-9]{64}$/);
+assert.match(identityDocuments.back.hash, /^[a-f0-9]{64}$/);
+assert.equal(identityDocuments.front.contentType, 'image/jpeg');
 
 const pdf = Buffer.from('%PDF-1.7\ncontract\n%%EOF');
 const loaded = await loadContractPdf({

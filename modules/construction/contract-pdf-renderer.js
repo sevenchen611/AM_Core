@@ -482,6 +482,12 @@ function renderContractPdf(payload) {
     writer.labelValue('我方確認時間', formatTime(times.confirmedAt));
     writer.labelValue('Bundle SHA-256', payload.bundleHash);
     writer.labelValue('簽名 SHA-256', payload.signature?.sha256);
+    writer.labelValue('身分證正面收件', payload.verification?.identityDocumentsVerified
+      ? `${formatTime(payload.verification.identityDocumentsReceivedAt?.front)}／SHA-256 ${clean(payload.verification.identityDocumentHashes?.front)}`
+      : '未驗證');
+    writer.labelValue('身分證反面收件', payload.verification?.identityDocumentsVerified
+      ? `${formatTime(payload.verification.identityDocumentsReceivedAt?.back)}／SHA-256 ${clean(payload.verification.identityDocumentHashes?.back)}`
+      : '未驗證');
     writer.ensure(145);
     writer.paragraph('簽名', { size: 11, color: '#1e3a5f', after: 4 });
     const signature = Buffer.from(payload.signature.base64, 'base64');

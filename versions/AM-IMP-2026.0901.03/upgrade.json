@@ -1,0 +1,18 @@
+{
+  "id": "AM-IMP-2026.0901.03",
+  "name": "Contractor identity-document evidence",
+  "type": "AM Platform / contracts / electronic signing",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-01",
+  "dependsOn": ["AM-IMP-2026.0828.01"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": ["Mandatory contractor identity-card front and back photos", "Private Drive storage and immutable signature evidence", "Signed-PDF and receipt hash verification", "Personal-data purpose notice and consent v2"],
+  "requiresDatabases": ["Existing Engineering contract PostgreSQL signatures evidence_snapshot"],
+  "requiresEnv": [],
+  "requiresScripts": ["tools/dryrun-engineering-contract-signing-web.mjs", "tools/dryrun-engineering-contract-signing.mjs", "tools/dryrun-engineering-contract-runtime.mjs", "tools/dryrun-engineering-contract-store.mjs", "tools/dryrun-engineering-contract-completion.mjs", "tools/dryrun-engineering-contract-pdf-renderer.mjs"],
+  "dataIsolation": {"canCopyCode": true, "canCopySchema": true, "canCopyData": false, "canCopySecrets": false, "guard": "Identity images remain below the Engineering private signing-session Drive folder. Only hashes, private references and received metadata enter immutable Engineering signature evidence."},
+  "changes": ["Require both contractor identity-card sides before signature submission", "Resize in the browser and validate bytes and limits again on the server", "Store both files in a private confidential session folder", "Bind refs, hashes, sizes, MIME types and received times to immutable signature evidence", "Verify both originals again during final completion", "Expose only received times and hashes in the signed PDF and receipt", "Advance consent text to engineering-contract-consent-v2-id-documents"],
+  "definitionOfDone": ["Either missing side fails closed with no signature", "Both files pass private Drive audit and SHA-256 storage", "Immutable signature evidence contains both document records", "Finalization recomputes both hashes", "No identity image or private ref is exposed in LINE, draft review or signed PDF", "Relevant dry-runs and package validation pass"],
+  "files": ["modules/construction/contract-signing-web.js", "modules/construction/contract-runtime.js", "modules/construction/contract-signing.js", "modules/construction/contract-completion.js", "modules/construction/contract-pdf-renderer.js", "modules/construction/index.js", "core/contract-store.js", "tools/dryrun-engineering-contract-signing-web.mjs", "tools/dryrun-engineering-contract-signing.mjs", "tools/dryrun-engineering-contract-runtime.mjs", "tools/dryrun-engineering-contract-completion.mjs", "versions/AM-IMP-2026.0901.03/README.md", "versions/AM-IMP-2026.0901.03/INSTALL.md", "versions/AM-IMP-2026.0901.03/VERIFY.md", "versions/AM-IMP-2026.0901.03/ROLLBACK.md", "versions/AM-IMP-2026.0901.03/upgrade.json", "docs/tenants/engineering/project-improvement-manifest.md", "docs/tenants/engineering/upgrades/AM-IMP-2026.0901.03-contractor-identity-documents.md"]
+}

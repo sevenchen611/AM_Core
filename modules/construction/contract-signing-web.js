@@ -8,8 +8,9 @@ export const CONTRACT_SIGNING_WEB_PATH = '/contract-sign';
 export const CONTRACT_SIGNING_OPEN_PATH = '/contract-sign/api/open';
 export const CONTRACT_SIGNING_SUBMIT_PATH = '/contract-sign/api/submit';
 export const CONTRACT_SIGNING_DOCUMENT_PATH = '/contract-sign/api/document';
-export const DEFAULT_CONTRACT_SIGNING_BODY_LIMIT = 450_000;
+export const DEFAULT_CONTRACT_SIGNING_BODY_LIMIT = 9 * 1024 * 1024;
 export const DEFAULT_SIGNATURE_DATA_LIMIT = 320_000;
+export const DEFAULT_IDENTITY_PHOTO_LIMIT = 3 * 1024 * 1024;
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/i;
 
@@ -35,7 +36,7 @@ function webSecurityHeaders(nonce, contentType) {
   const headers = contractSigningSecurityHeaders({
     connectSources: ['https://api.line.me', 'https://access.line.me'],
   });
-  headers['Permissions-Policy'] = 'camera=(), microphone=(), geolocation=(), payment=(), usb=()';
+  headers['Permissions-Policy'] = 'camera=(self), microphone=(), geolocation=(), payment=(), usb=()';
   headers['Content-Security-Policy'] = [
     "default-src 'self'",
     "base-uri 'none'",
@@ -113,6 +114,26 @@ function decodeSignatureDataUrl(value, maxBytes) {
     && bytes.at(-2) === 0xff
     && bytes.at(-1) === 0xd9;
   if (!isPng && !isJpeg) throw error('INVALID_SIGNATURE_BYTES', '簽名圖片內容與格式不符。', 400);
+  return { bytes, contentType: match[1] };
+}
+
+function decodeIdentityPhotoDataUrl(value, side, maxBytes) {
+  const label = side === 'front' ? '身分證正面' : '身分證反面';
+  const dataUrl = requireText(value, label, Math.ceil(maxBytes * 1.5) + 100);
+  const match = /^data:(image\/(?:png|jpeg));base64,([A-Za-z0-9+/]+={0,2})$/.exec(dataUrl);
+  if (!match) throw error('INVALID_IDENTITY_PHOTO_FORMAT', `${label}必須是 PNG 或 JPEG 圖片。`, 400);
+  const bytes = Buffer.from(match[2], 'base64');
+  if (!bytes.length || bytes.length > maxBytes) throw error('IDENTITY_PHOTO_TOO_LARGE', `${label}圖片過大。`, 413);
+  const isPng = match[1] === 'image/png'
+    && bytes.length >= 8
+    && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  const isJpeg = match[1] === 'image/jpeg'
+    && bytes.length >= 4
+    && bytes[0] === 0xff
+    && bytes[1] === 0xd8
+    && bytes.at(-2) === 0xff
+    && bytes.at(-1) === 0xd9;
+  if (!isPng && !isJpeg) throw error('INVALID_IDENTITY_PHOTO_BYTES', `${label}圖片內容與格式不符。`, 400);
   return { bytes, contentType: match[1] };
 }
 
@@ -219,6 +240,20 @@ function initCanvas() {
   canvas.addEventListener('pointerup',finish); canvas.addEventListener('pointercancel',finish);
 }
 function clearSignature() { state.strokes=[]; if(state.context)state.context.clearRect(0,0,state.width,state.height); }
+async function identityPhotoDataUrl(inputId,label) {
+  const file=byId(inputId).files?.[0];
+  if(!file)throw new Error('請提供'+label+'照片。');
+  if(file.size>12*1024*1024)throw new Error(label+'原始照片過大，請改用 12 MB 以下圖片。');
+  let bitmap;
+  try{bitmap=await createImageBitmap(file);}catch{throw new Error(label+'無法讀取，請改用 JPG 或 PNG 照片。');}
+  const maxSide=2000;const scale=Math.min(1,maxSide/Math.max(bitmap.width,bitmap.height));
+  const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));
+  const context=canvas.getContext('2d',{alpha:false});context.fillStyle='#fff';context.fillRect(0,0,canvas.width,canvas.height);context.drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close?.();
+  const dataUrl=canvas.toDataURL('image/jpeg',0.88);
+  if(dataUrl.length>4.2*1024*1024)throw new Error(label+'壓縮後仍過大，請降低照片解析度後再試。');
+  return dataUrl;
+}
+function identitySelected(inputId,stateId,label){const file=byId(inputId).files?.[0];byId(stateId).textContent=file?'✓ 已選擇'+label+'：'+file.name:'尚未選擇';}
 function idempotencyKey() {
   const key='engineering-contract-submit-'+state.signing.sessionId;
   let value=sessionStorage.getItem(key);
@@ -247,17 +282,23 @@ byId('document-link').addEventListener('click',async(event)=>{
   try{const response=await fetch(state.signing.documentUrl,{method:'POST',credentials:'same-origin',cache:'no-store',referrerPolicy:'no-referrer',headers:{'content-type':'application/json'},body:JSON.stringify({token:state.token,liffCredential:state.credential})});if(!response.ok){const failure=await response.json().catch(()=>({}));throw new Error(failure.error||'無法讀取合約文件');}const blob=await response.blob();const blobUrl=URL.createObjectURL(blob);if(target)target.location.replace(blobUrl);else location.href=blobUrl;state.reviewAcknowledged=true;byId('consent').disabled=false;byId('submit-signature').disabled=false;byId('review-state').textContent='已開啟合約文件；請詳閱後勾選同意簽署。';}catch(failure){if(target)target.close();show(failure.message||'無法讀取合約文件','error');}
 });
 byId('clear-signature').addEventListener('click',clearSignature);
+byId('identity-front').addEventListener('change',()=>identitySelected('identity-front','identity-front-state','正面'));
+byId('identity-back').addEventListener('change',()=>identitySelected('identity-back','identity-back-state','反面'));
 byId('submit-signature').addEventListener('click',async()=>{
   const button=byId('submit-signature');
   if(!state.signing){ show('合約尚未完成驗證。','error'); return; }
   if(!state.reviewAcknowledged){ show('請先開啟合約文件詳閱。','error'); return; }
   if(!state.strokes.length){ show('請先在簽名框內簽名。','error'); return; }
+  if(!byId('identity-front').files?.[0]||!byId('identity-back').files?.[0]){ show('請先提供身分證正面與反面照片。','error'); return; }
   if(!byId('consent').checked){ show('請先勾選同意簽署。','error'); return; }
-  const idem=idempotencyKey(); button.disabled=true; show('正在安全送出簽名…');
+  const idem=idempotencyKey(); button.disabled=true; show('正在處理身分證照片並安全送出…');
   try {
+    const frontDataUrl=await identityPhotoDataUrl('identity-front','身分證正面');
+    const backDataUrl=await identityPhotoDataUrl('identity-back','身分證反面');
     const result=await api('${CONTRACT_SIGNING_SUBMIT_PATH}',{
       token:state.token,liffCredential:state.credential,idempotencyKey:idem.value,
       documentHash:state.signing.documentHash,signatureDataUrl:state.canvas.toDataURL('image/png'),
+      identityDocuments:{frontDataUrl,backDataUrl},
       reviewAcknowledged:true,consent:true
     });
     sessionStorage.removeItem(TOKEN_STORAGE_KEY); sessionStorage.removeItem(idem.key);
@@ -285,6 +326,7 @@ main{width:min(100%,680px);margin:auto;padding:14px}.card{background:#fff;border
 h2{font-size:15px;margin:0 0 8px}.hint{font-size:13px;color:var(--dim);margin:0}.message{min-height:48px;border-radius:10px;padding:12px 14px;background:#eef2f0;font-size:14px}.message.ok{background:#eaf6ee;color:#1f683e}.message.error{background:#fff0ed;color:var(--danger)}
 .document-button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;margin-top:12px;border-radius:9px;background:#eef6f1;color:#1f683e;padding:9px 14px;font-weight:700;text-decoration:none}.signature-wrap{border:1px dashed #9aac9f;border-radius:10px;background:#fff;overflow:hidden;touch-action:none;margin:10px 0}canvas{display:block;width:100%;height:180px;touch-action:none}
 .actions{display:flex;gap:9px}.button{min-height:46px;border-radius:9px;border:1px solid var(--line);background:#fff;color:var(--ink);padding:10px 14px;font:inherit;font-weight:650}.button.primary{flex:1;background:var(--green);border-color:var(--green);color:#fff}.button:disabled{opacity:.55}.consent{display:flex;align-items:flex-start;gap:9px;font-size:13px;margin:14px 0}.consent input{width:20px;height:20px;flex:none;margin-top:2px}
+.identity-grid{display:grid;grid-template-columns:1fr;gap:10px;margin:12px 0}.identity-upload{border:1px dashed #9aac9f;border-radius:10px;padding:12px;background:#fbfdfc}.identity-upload label{display:block;font-weight:700;font-size:14px}.identity-upload input{display:block;width:100%;margin-top:8px}.identity-state{font-size:12px;color:var(--dim);margin-top:6px}.privacy-note{border-radius:10px;background:#f5f1e8;color:#5c4b2c;padding:11px 12px;font-size:12px;margin-top:10px}
 @media(min-width:700px){main{padding:22px}.card{padding:20px}canvas{height:210px}}
 </style>
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js" nonce="${nonce}"></script>
@@ -295,10 +337,16 @@ h2{font-size:15px;margin:0 0 8px}.hint{font-size:13px;color:var(--dim);margin:0}
   <section class="card"><h2>安全驗證</h2><div id="message" class="message">頁面載入中…</div></section>
   <section class="card"><h2>合約確認</h2><p id="contract-state" class="hint">完成 LINE 身分與群組資格驗證後，才會開放合約文件。</p><a id="document-link" class="document-button" href="#" target="_blank" rel="noopener noreferrer" hidden>開啟合約文件</a><p id="review-state" class="hint" aria-live="polite"></p></section>
   <section class="card" id="sign-panel" hidden>
+    <h2>承包人身分證件</h2><p class="hint">正式簽署前，請提供本人身分證正面與反面清晰照片，兩張缺一不可。</p>
+    <div class="identity-grid">
+      <div class="identity-upload"><label for="identity-front">身分證正面</label><input id="identity-front" type="file" accept="image/jpeg,image/png" capture="environment"><div id="identity-front-state" class="identity-state">尚未選擇</div></div>
+      <div class="identity-upload"><label for="identity-back">身分證反面</label><input id="identity-back" type="file" accept="image/jpeg,image/png" capture="environment"><div id="identity-back-state" class="identity-state">尚未選擇</div></div>
+    </div>
+    <div class="privacy-note">證件影像僅供本工程合約的當事人身分確認、履約管理及爭議處理，儲存在工程 AM 私有簽署證據區，不會出現在草約頁、LINE 訊息或合約 PDF 內。若不同意電子提供，請聯繫工程人員改採書面核驗方式。</div>
     <h2>簽名</h2><p class="hint">請使用手指或滑鼠在下方簽名。簽名只會提交至受保護的工程 AM 儲存空間。</p>
     <div class="signature-wrap"><canvas id="signature" aria-label="簽名區"></canvas></div>
     <div class="actions"><button class="button" id="clear-signature" type="button">全部清除</button></div>
-    <label class="consent"><input id="consent" type="checkbox" disabled><span>我已詳閱本工程合約及其附件，確認內容與版本無誤，並同意以本簽名完成簽署。</span></label>
+    <label class="consent"><input id="consent" type="checkbox" disabled><span>我已詳閱本工程合約及其附件，確認內容與版本無誤；我也同意依上述用途提供身分證正反面影像，並同意以本簽名完成簽署。</span></label>
     <button class="button primary" id="submit-signature" type="button" disabled>送出簽名</button>
   </section>
 </main>
@@ -319,6 +367,9 @@ export function createContractSigningWebHandler(options = {}) {
   if (typeof loadDocument !== 'function') throw new Error('contract signing web loadDocument is required');
   const bodyLimit = positiveInteger(options.bodyLimit, DEFAULT_CONTRACT_SIGNING_BODY_LIMIT, 'bodyLimit');
   const signatureLimit = positiveInteger(options.signatureLimit, DEFAULT_SIGNATURE_DATA_LIMIT, 'signatureLimit');
+  const identityPhotoLimit = positiveInteger(options.identityPhotoLimit, DEFAULT_IDENTITY_PHOTO_LIMIT, 'identityPhotoLimit');
+  const saveIdentityDocuments = options.saveIdentityDocuments;
+  if (typeof saveIdentityDocuments !== 'function') throw new Error('contract signing web saveIdentityDocuments is required');
   const logger = options.logger || console;
   const getRequestMeta = typeof options.getRequestMeta === 'function'
     ? options.getRequestMeta
@@ -376,6 +427,8 @@ export function createContractSigningWebHandler(options = {}) {
       const documentHash = requireText(body.documentHash, 'documentHash', 64).toLowerCase();
       if (!SHA256_PATTERN.test(documentHash)) throw error('INVALID_DOCUMENT_HASH', '合約版本雜湊格式不正確。', 400);
       const signature = decodeSignatureDataUrl(body.signatureDataUrl, signatureLimit);
+      const identityFront = decodeIdentityPhotoDataUrl(body.identityDocuments?.frontDataUrl, 'front', identityPhotoLimit);
+      const identityBack = decodeIdentityPhotoDataUrl(body.identityDocuments?.backDataUrl, 'back', identityPhotoLimit);
 
       // Authenticate and bind the upload to the exact signing session and
       // document version before persisting signature evidence.
@@ -401,6 +454,18 @@ export function createContractSigningWebHandler(options = {}) {
       if (!SHA256_PATTERN.test(signatureHash) || !submissionRef) {
         throw error('SIGNATURE_STORAGE_FAILED', '簽名儲存結果不完整。', 500);
       }
+      const identityDocuments = await saveIdentityDocuments({
+        sessionId,
+        idempotencyKey,
+        front: identityFront,
+        back: identityBack,
+      });
+      for (const side of ['front', 'back']) {
+        const item = identityDocuments?.[side];
+        if (!SHA256_PATTERN.test(String(item?.hash || '')) || !String(item?.ref || '').trim()) {
+          throw error('IDENTITY_DOCUMENT_STORAGE_FAILED', '身分證正反面儲存結果不完整。', 500);
+        }
+      }
       const result = await service.submitSignature({
         token,
         liffCredential,
@@ -408,6 +473,7 @@ export function createContractSigningWebHandler(options = {}) {
         documentHash,
         signatureHash,
         submissionRef,
+        identityDocuments,
         reviewAcknowledged: true,
         requestMeta,
       });
@@ -425,4 +491,4 @@ export function createContractSigningWebHandler(options = {}) {
   };
 }
 
-export const __test = Object.freeze({ decodeSignatureDataUrl });
+export const __test = Object.freeze({ decodeSignatureDataUrl, decodeIdentityPhotoDataUrl });

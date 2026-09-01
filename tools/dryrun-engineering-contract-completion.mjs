@@ -5,6 +5,10 @@ import { createContractCompletionService } from '../modules/construction/contrac
 const digest = (value) => createHash('sha256').update(value).digest('hex');
 const signatureBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4, 5]);
 const signatureHash = digest(signatureBytes);
+const identityFrontBytes = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), Buffer.from('identity-front-photo')]);
+const identityBackBytes = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), Buffer.from('identity-back-photo')]);
+const identityFrontHash = digest(identityFrontBytes);
+const identityBackHash = digest(identityBackBytes);
 const documentHash = digest('issued-pdf');
 const bundleHash = digest('frozen-bundle');
 const issuedHash = digest('issued-artifact');
@@ -53,6 +57,10 @@ function fixture() {
     documentHash, lineGroupId: 'C-group-1', signerLineUserId: 'U-signer-1',
     submission: {
       signatureHash, submissionRef: 'drive-signature-1',
+      identityDocuments: {
+        front: { hash: identityFrontHash, ref: 'drive-id-front', contentType: 'image/png', byteSize: identityFrontBytes.length, receivedAt: '2026-08-28T01:05:00.000Z' },
+        back: { hash: identityBackHash, ref: 'drive-id-back', contentType: 'image/png', byteSize: identityBackBytes.length, receivedAt: '2026-08-28T01:05:01.000Z' },
+      },
       consentVersion: 'engineering-contract-consent-v1', reviewAcknowledged: true,
     },
     confirmation: null,
@@ -143,6 +151,8 @@ const deps = {
   artifactService,
   async downloadFromDrive(ref) {
     calls.push(`download:${ref}`);
+    if (ref === 'drive-id-front') return { buffer: identityFrontBytes, mimeType: 'image/jpeg' };
+    if (ref === 'drive-id-back') return { buffer: identityBackBytes, mimeType: 'image/jpeg' };
     return { buffer: signatureBytes, mimeType: 'image/png' };
   },
 };
@@ -183,6 +193,9 @@ assert.deepEqual(Object.keys(signedPdfPayload.times).sort(), [
 assert.equal(signedPdfPayload.verification.liffIdentityVerified, true);
 assert.equal(signedPdfPayload.verification.groupMembershipVerified, true);
 assert.equal(signedPdfPayload.verification.designatedUserMatched, true);
+assert.equal(signedPdfPayload.verification.identityDocumentsVerified, true);
+assert.equal(signedPdfPayload.verification.identityDocumentHashes.front, identityFrontHash);
+assert.equal(signedPdfPayload.verification.identityDocumentHashes.back, identityBackHash);
 
 // Receipt has dual timezone timestamps, the confirmed hash-chain head,
 // verification evidence, and the issued/signed/signature artifact hashes.
@@ -195,6 +208,8 @@ assert.equal(receiptPayload.verification.designatedUserMatched, true);
 assert.ok(receiptPayload.artifacts.some((item) => item.kind === 'issued_pdf' && item.sha256 === issuedHash));
 assert.ok(receiptPayload.artifacts.some((item) => item.kind === 'signed_pdf'));
 assert.ok(receiptPayload.artifacts.some((item) => item.kind === 'signature_image' && item.sha256 === signatureHash));
+assert.ok(receiptPayload.artifacts.some((item) => item.kind === 'identity_document_front' && item.sha256 === identityFrontHash));
+assert.ok(receiptPayload.artifacts.some((item) => item.kind === 'identity_document_back' && item.sha256 === identityBackHash));
 
 // Public output never exposes sensitive evidence.
 const publicJson = JSON.stringify(result);
