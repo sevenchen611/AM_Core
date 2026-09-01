@@ -1,0 +1,77 @@
+{
+  "id": "AM-IMP-2026.0901.07",
+  "name": "Contractor required details and Word-like contract PDF tables",
+  "type": "AM Platform / contracts / signing and PDF layout",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-01",
+  "dependsOn": ["AM-IMP-2026.0901.03"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Mandatory contractor name, identity number, and address",
+    "Immutable evidence and signed-PDF insertion",
+    "Word structural-table preservation",
+    "Bordered party, payment, acceptance, and attachment tables"
+  ],
+  "requiresDatabases": ["Existing Engineering contract PostgreSQL signatures evidence_snapshot JSON"],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-signing-web.mjs",
+    "tools/dryrun-engineering-contract-signing.mjs",
+    "tools/dryrun-engineering-contract-store.mjs",
+    "tools/dryrun-engineering-contract-draft-review.mjs",
+    "tools/dryrun-engineering-contract-issuance.mjs",
+    "tools/dryrun-engineering-contract-completion.mjs",
+    "tools/dryrun-engineering-contract-pdf-renderer.mjs",
+    "tools/render-engineering-contract-layout-sample.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Contractor details stay inside Engineering immutable signing evidence and the signed contract PDF. LINE and public responses never expose them."
+  },
+  "changes": [
+    "Require contractor name, identity number, and address before signature submission",
+    "Bind the three fields to immutable signing evidence and a canonical receipt hash",
+    "Insert the verified values into the signed PDF's explicit 乙方 column",
+    "Carry Mammoth structural HTML from verified DOCX sources into PDF rendering",
+    "Render party, payment, acceptance, and attachment sections as bordered A4 tables",
+    "Reserve footer space and keep table headings with their first rows"
+  ],
+  "definitionOfDone": [
+    "Incomplete contractor details fail closed",
+    "Immutable PostgreSQL evidence retains the exact values",
+    "Signed PDF clearly separates 甲方 and 乙方",
+    "Word and payment tables render as aligned grids",
+    "Every generated sample PDF page passes visual inspection",
+    "Targeted dry-runs and package validation pass"
+  ],
+  "files": [
+    "modules/construction/contract-signing-web.js",
+    "modules/construction/contract-signing.js",
+    "modules/construction/contract-draft-review.js",
+    "modules/construction/contract-issuance.js",
+    "modules/construction/contract-completion.js",
+    "modules/construction/contract-pdf-renderer.js",
+    "core/contract-store.js",
+    "tools/dryrun-engineering-contract-signing-web.mjs",
+    "tools/dryrun-engineering-contract-signing.mjs",
+    "tools/dryrun-engineering-contract-store.mjs",
+    "tools/dryrun-engineering-contract-draft-review.mjs",
+    "tools/dryrun-engineering-contract-issuance.mjs",
+    "tools/dryrun-engineering-contract-completion.mjs",
+    "tools/dryrun-engineering-contract-pdf-renderer.mjs",
+    "tools/render-engineering-contract-layout-sample.mjs",
+    "versions/AM-IMP-2026.0901.07/README.md",
+    "versions/AM-IMP-2026.0901.07/INSTALL.md",
+    "versions/AM-IMP-2026.0901.07/VERIFY.md",
+    "versions/AM-IMP-2026.0901.07/ROLLBACK.md",
+    "versions/AM-IMP-2026.0901.07/upgrade.json",
+    "docs/tenants/engineering/project-improvement-manifest.md",
+    "docs/tenants/engineering/upgrades/AM-IMP-2026.0901.07-contractor-details-pdf-layout.md",
+    "versions/AM-IMP-2026.0828.01/config/engineering-contract-workflow.json",
+    "versions/AM-IMP-2026.0828.01/contracts/engineering-contract-api.json"
+  ]
+}

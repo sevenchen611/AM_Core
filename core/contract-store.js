@@ -898,6 +898,7 @@ export function createContractStore({ env = process.env, logger = console, poolF
               documentHash: submission.documentHash,
               signatureHash: submission.signatureHash,
               signatureDriveFileId: submission.submissionRef,
+              counterpartyDetails: submission.counterpartyDetails,
               identityDocuments: submission.identityDocuments,
               consentVersion: submission.consentVersion,
               liffVerified: true,

@@ -133,6 +133,7 @@ function fixture(overrides = {}) {
         calls.push(['compose', attachments, options]);
         return buffer;
       },
+      bodyExtractor: async () => ({ text: '工程合約本文', html: '<p>工程合約本文</p>' }),
       randomUUID: () => 'retry-id',
       clock: () => new Date('2026-08-28T09:00:00.000Z'),
     }),

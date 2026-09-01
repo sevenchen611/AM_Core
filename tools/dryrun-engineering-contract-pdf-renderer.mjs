@@ -22,6 +22,8 @@ function payload(kind = 'issued_pdf') {
       id: 'contract-1', contractNumber: 'ZS-CT-001', title: '泥作工程承攬合約',
       projectCode: 'ZS', trade: '泥作', counterpartyName: '王大明',
       counterpartyCompany: '安心泥作工程行', amount: 360000, currency: 'TWD',
+      partyACompany: '範例甲方股份有限公司', partyATaxId: '12345678',
+      partyARepresentative: '甲方代表', partyAAddress: '臺中市西區甲方路 1 號',
     },
     version: {
       id: 'version-1', versionNo: 2, frozenAt: '2026-08-28T01:00:00.000Z',
@@ -44,6 +46,7 @@ function payload(kind = 'issued_pdf') {
       },
     },
     frozenBundleSha256: 'd'.repeat(64),
+    contractBodyHtml: '<h1>工程合約書</h1><p>雙方同意條款如下。</p><table><tr><td>甲方</td><td>範例甲方股份有限公司</td><td>乙方</td><td>安心泥作工程行</td></tr><tr><td>地址</td><td>臺中市西區甲方路 1 號</td><td>地址</td><td>臺中市西屯區工程路 1 號</td></tr></table>',
   };
   if (kind === 'signed_pdf') Object.assign(value, {
     immutable: true,
@@ -51,6 +54,7 @@ function payload(kind = 'issued_pdf') {
     documentHash: 'e'.repeat(64),
     signature: { mimeType: 'image/png', base64: ONE_PIXEL_PNG, sha256: 'f'.repeat(64) },
     ipAddress: '203.0.113.42',
+    counterpartyDetails: { name: '王大明', identityNumber: 'A123456789', address: '臺中市西屯區工程路 1 號' },
     times: {
       issuedAt: '2026-08-28T01:00:00.000Z', sentAt: '2026-08-28T01:01:00.000Z',
       receivedAt: '2026-08-28T01:03:00.000Z', signedAt: '2026-08-28T01:05:00.000Z',
@@ -158,12 +162,19 @@ let signed;
 const issuedText = (await extractText(issued)).replace(/\s+/g, '');
 assert.match(issuedText, /泥作工程承攬合約/);
 assert.match(issuedText, /付款條件/);
+assert.match(issuedText, /立約雙方資料/);
+assert.match(issuedText, /甲方/);
+assert.match(issuedText, /乙方/);
+assert.match(issuedText, /範例甲方股份有限公司/);
+assert.match(issuedText, /簽約款/);
 assert.match(issuedText, /驗收標準/);
 assert.match(issuedText, /施工圖A1/);
 assert.match(issuedText, /BundleSHA-256/);
 
 const signedText = (await extractText(signed)).replace(/\s+/g, '');
 assert.match(signedText, /電子簽署證據/);
+assert.match(signedText, /A123456789/);
+assert.match(signedText, /臺中市西屯區工程路1號/);
 assert.match(signedText, /IP位址/);
 assert.match(signedText, /203\.0\.113\.42/);
 assert.match(signedText, /簽發時間/);

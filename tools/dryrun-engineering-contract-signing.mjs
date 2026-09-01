@@ -17,6 +17,9 @@ const identityDocuments = {
   front: { hash: digest('id-front'), ref: 'object://identity/front', contentType: 'image/jpeg', byteSize: 1234, receivedAt: '2026-08-28T01:05:00.000Z' },
   back: { hash: digest('id-back'), ref: 'object://identity/back', contentType: 'image/jpeg', byteSize: 1250, receivedAt: '2026-08-28T01:05:01.000Z' },
 };
+const counterpartyDetails = {
+  name: '王大明', identityNumber: 'A123456789', address: '臺中市西屯區工程路 1 號',
+};
 assert.notEqual(hashSigningToken('same-token', tokenPepper), hashSigningToken('same-token', `${tokenPepper}-other`));
 assert.throws(() => hashSigningToken('same-token'), (error) => error.code === 'TOKEN_PEPPER_REQUIRED');
 
@@ -270,6 +273,7 @@ const submitted = await service.submitSignature({
   documentHash,
   signatureHash,
   submissionRef: 'object://submissions/submission-1',
+  counterpartyDetails,
   identityDocuments,
   reviewAcknowledged: true,
   requestMeta: trustedRequest,
@@ -285,6 +289,7 @@ for (const sensitive of [documentHash, signatureHash, '203.0.113.45', 'object://
 session = await service.getSession(issued.sessionId);
 assert.equal(session.status, 'signed');
 assert.equal(session.submission.documentHash, documentHash);
+assert.deepEqual(session.submission.counterpartyDetails, counterpartyDetails);
 assert.deepEqual(session.submission.identityDocuments, identityDocuments);
 assert.deepEqual(
   session.events.filter((event) => ['signed', 'submission_received'].includes(event.type)).map((event) => event.type),

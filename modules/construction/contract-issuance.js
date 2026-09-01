@@ -4,7 +4,7 @@ import { createContractManagementService } from './contract-management.js';
 import { createRuntimeSigningService } from './contract-runtime.js';
 import { createContractOutboxWorker } from './contract-outbox.js';
 import { captureContractLineArchive } from './contract-line-archive.js';
-import { composeDraftBundle } from './contract-draft-review.js';
+import { composeDraftBundle, extractContractBodyForVersion } from './contract-draft-review.js';
 import crypto from 'node:crypto';
 
 function issuanceError(code, message, statusCode = 400, details = {}) {
@@ -130,6 +130,7 @@ export function createContractIssuanceService(deps, options = {}) {
   const clock = options.clock || (() => new Date());
   const lineArchiveCapture = options.lineArchiveCapture || captureContractLineArchive;
   const pdfComposer = options.pdfComposer || composeDraftBundle;
+  const bodyExtractor = options.bodyExtractor || extractContractBodyForVersion;
   const outboxWorker = options.outboxWorker || createContractOutboxWorker(deps, {
     signingFactory, authorityResolver, workerId: options.workerId,
   });
@@ -193,9 +194,12 @@ export function createContractIssuanceService(deps, options = {}) {
       authority.tenant, contract.id, version.versionNo,
     );
     const idempotencyKey = `engineering-contract-issued:${authority.tenant.key}:${version.id}:${version.attachmentManifestHash}`;
+    const contractBody = await bodyExtractor(deps, version);
     const baseRendered = await artifacts.renderPdf('issued_pdf', {
       contract,
       version,
+      contractBodyText: contractBody.text,
+      contractBodyHtml: contractBody.html,
       packageValidation: readiness.packageValidation,
       frozenBundleSha256: version.attachmentManifestHash,
     }, idempotencyKey);

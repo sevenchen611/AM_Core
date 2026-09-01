@@ -9,6 +9,11 @@ const identityFrontBytes = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 
 const identityBackBytes = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), Buffer.from('identity-back-photo')]);
 const identityFrontHash = digest(identityFrontBytes);
 const identityBackHash = digest(identityBackBytes);
+const contractBodyBytes = Buffer.from('%PDF-1.7 contract body');
+const contractBodyHash = digest(contractBodyBytes);
+const counterpartyDetails = {
+  name: '王大明', identityNumber: 'A123456789', address: '臺中市西屯區工程路 1 號',
+};
 const documentHash = digest('issued-pdf');
 const bundleHash = digest('frozen-bundle');
 const issuedHash = digest('issued-artifact');
@@ -23,6 +28,9 @@ function fixture() {
     version: {
       id: 'version-1', contractId: 'contract-1', versionNo: 1,
       bundleSha256: bundleHash,
+      snapshot: { documentPackage: { contractBody: {
+        fileId: 'drive-body-1', name: 'contract-body.pdf', mimeType: 'application/pdf', sha256: contractBodyHash,
+      } } },
     },
     session: {
       externalSessionId: 'session-1', versionId: 'version-1', status: 'signed',
@@ -31,7 +39,7 @@ function fixture() {
     },
     signatureEvidence: {
       signatureDriveFileId: 'drive-signature-1', signatureSha256: signatureHash,
-      ipAddress: '203.0.113.45', consentVersion: 'engineering-contract-consent-v1',
+      ipAddress: '203.0.113.45', consentVersion: 'engineering-contract-consent-v3-party-details',
       reviewAcknowledged: true, receivedAt: '2026-08-28T01:06:00.000Z',
       signedAt: '2026-08-28T01:06:00.000Z',
     },
@@ -57,11 +65,12 @@ function fixture() {
     documentHash, lineGroupId: 'C-group-1', signerLineUserId: 'U-signer-1',
     submission: {
       signatureHash, submissionRef: 'drive-signature-1',
+      counterpartyDetails,
       identityDocuments: {
         front: { hash: identityFrontHash, ref: 'drive-id-front', contentType: 'image/png', byteSize: identityFrontBytes.length, receivedAt: '2026-08-28T01:05:00.000Z' },
         back: { hash: identityBackHash, ref: 'drive-id-back', contentType: 'image/png', byteSize: identityBackBytes.length, receivedAt: '2026-08-28T01:05:01.000Z' },
       },
-      consentVersion: 'engineering-contract-consent-v1', reviewAcknowledged: true,
+      consentVersion: 'engineering-contract-consent-v3-party-details', reviewAcknowledged: true,
     },
     confirmation: null,
   };
@@ -151,6 +160,7 @@ const deps = {
   artifactService,
   async downloadFromDrive(ref) {
     calls.push(`download:${ref}`);
+    if (ref === 'drive-body-1') return { buffer: contractBodyBytes, mimeType: 'application/pdf' };
     if (ref === 'drive-id-front') return { buffer: identityFrontBytes, mimeType: 'image/jpeg' };
     if (ref === 'drive-id-back') return { buffer: identityBackBytes, mimeType: 'image/jpeg' };
     return { buffer: signatureBytes, mimeType: 'image/png' };
@@ -159,6 +169,7 @@ const deps = {
 
 const service = createContractCompletionService(deps, {
   clock: () => new Date('2026-08-28T01:11:12.000Z'),
+  bodyExtractor: async () => ({ text: '工程合約本文', html: '<p>工程合約本文</p>' }),
 });
 const context = {
   tenant: { key: 'engineering' }, actor: 'admin@example.com',
@@ -187,6 +198,7 @@ assert.equal(signedPdfPayload.signature.base64, signatureBytes.toString('base64'
 assert.equal(signedPdfPayload.signature.sha256, signatureHash);
 assert.equal(signedPdfPayload.ipAddress, '203.0.113.45');
 assert.equal(signedPdfPayload.bundleHash, bundleHash);
+assert.deepEqual(signedPdfPayload.counterpartyDetails, counterpartyDetails);
 assert.deepEqual(Object.keys(signedPdfPayload.times).sort(), [
   'confirmedAt', 'issuedAt', 'receivedAt', 'sentAt', 'signedAt',
 ]);
@@ -205,6 +217,11 @@ assert.equal(receiptPayload.eventChain.headHash, eventHash('confirmed'));
 assert.equal(receiptPayload.verification.liffIdentityVerified, true);
 assert.equal(receiptPayload.verification.groupMembershipVerified, true);
 assert.equal(receiptPayload.verification.designatedUserMatched, true);
+assert.equal(receiptPayload.verification.counterpartyDetailsHash, digest(JSON.stringify({
+  address: counterpartyDetails.address,
+  identityNumber: counterpartyDetails.identityNumber,
+  name: counterpartyDetails.name,
+})));
 assert.ok(receiptPayload.artifacts.some((item) => item.kind === 'issued_pdf' && item.sha256 === issuedHash));
 assert.ok(receiptPayload.artifacts.some((item) => item.kind === 'signed_pdf'));
 assert.ok(receiptPayload.artifacts.some((item) => item.kind === 'signature_image' && item.sha256 === signatureHash));
