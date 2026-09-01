@@ -31,7 +31,13 @@ import { createContractSigningWebHandler } from './contract-signing-web.js';
 import { createContractDraftReviewWebHandler } from './contract-draft-review-web.js';
 import { handleEngineeringContractPdfRender } from './contract-pdf-renderer.js';
 import { createContractOutboxWorker } from './contract-outbox.js';
-import { createRuntimeSigningService, loadContractPdf, saveContractSignature, signingRequestMeta } from './contract-runtime.js';
+import {
+  createRuntimeSigningService,
+  loadContractPdf,
+  saveContractIdentityDocuments,
+  saveContractSignature,
+  signingRequestMeta,
+} from './contract-runtime.js';
 import { SOP_STAGES, readSopState, writeSopCheck } from './sop.js';
 import { handleDashboardRequest } from './dashboard.js';
 import { handleTaskCardRequest } from './task-card.js';
@@ -253,6 +259,10 @@ async function publicContractSigningRoute(req, res, ctx) {
         const saved = await saveContractSignature(deps, { sessionId, buffer: bytes, contentType });
         return { hash: saved.signatureHash, ref: saved.submissionRef };
       },
+      saveIdentityDocuments: async ({ sessionId, front, back }) => saveContractIdentityDocuments(
+        deps,
+        { sessionId, front, back },
+      ),
       logger: platform.logger || console,
     });
     return handler(req, res, ctx.pathname, ctx.url);

@@ -345,6 +345,28 @@ export function createContractCompletionService(deps, options = {}) {
       throw completionError('SIGNATURE_DOWNLOAD_HASH_MISMATCH', '下載的簽名圖檔與不可變簽名雜湊不一致。', 409);
     }
 
+    const identityDocuments = runtime.state.submission?.identityDocuments || {};
+    const verifiedIdentityDocuments = {};
+    for (const side of ['front', 'back']) {
+      const item = identityDocuments[side] || {};
+      const ref = text(item.ref);
+      const documentHash = sha256(item.hash, `identityDocuments.${side}.hash`);
+      const receivedAt = text(item.receivedAt);
+      if (!ref || !receivedAt || !Number.isFinite(Date.parse(receivedAt))) {
+        throw completionError('IDENTITY_DOCUMENT_EVIDENCE_MISSING', '身分證正反面收件證據不完整。', 409, { side });
+      }
+      const downloaded = bufferResult(await deps.downloadFromDrive(ref));
+      if (hash(downloaded.buffer) !== documentHash) {
+        throw completionError('IDENTITY_DOCUMENT_HASH_MISMATCH', '身分證照片與不可變雜湊不一致。', 409, { side });
+      }
+      verifiedIdentityDocuments[side] = {
+        sha256: documentHash,
+        receivedAt,
+        contentType: text(item.contentType),
+        byteSize: Number(item.byteSize),
+      };
+    }
+
     const signedMetadata = eventMetadata(bundle, 'signed');
     const signedEvent = bundle.events.find((item) => eventType(item) === 'signed') || {};
     const ipAddress = text(first(bundle.signatureEvidence, ['ipAddress', 'ip_address'], first(signedEvent, ['ip', 'ipAddress', 'ip_address'])));
@@ -368,6 +390,15 @@ export function createContractCompletionService(deps, options = {}) {
       signerLineUserId: text(first(bundle.session, ['signerLineUserId', 'signer_line_user_id'], runtime.state.signerLineUserId)),
       consentVersion: text(first(bundle.signatureEvidence, ['consentVersion', 'consent_version'], runtime.state.submission?.consentVersion)),
       reviewAcknowledged: first(bundle.signatureEvidence, ['reviewAcknowledged', 'review_acknowledged'], runtime.state.submission?.reviewAcknowledged) === true,
+      identityDocumentsVerified: true,
+      identityDocumentHashes: {
+        front: verifiedIdentityDocuments.front.sha256,
+        back: verifiedIdentityDocuments.back.sha256,
+      },
+      identityDocumentsReceivedAt: {
+        front: verifiedIdentityDocuments.front.receivedAt,
+        back: verifiedIdentityDocuments.back.receivedAt,
+      },
     };
     if (!verification.liffIdentityVerified || !verification.groupMembershipVerified
       || !verification.designatedUserMatched || !verification.lineGroupId
@@ -443,6 +474,8 @@ export function createContractCompletionService(deps, options = {}) {
             kind: artifactKind(item), sha256: sha256(artifactHash(item), `artifact.${artifactKind(item)}`),
           })),
           { kind: 'signature_image', sha256: signatureHash },
+          { kind: 'identity_document_front', sha256: verifiedIdentityDocuments.front.sha256 },
+          { kind: 'identity_document_back', sha256: verifiedIdentityDocuments.back.sha256 },
         ].filter((item, index, all) => all.findIndex((candidate) => candidate.kind === item.kind && candidate.sha256 === item.sha256) === index),
         confirmedBy: authority.actor,
       };

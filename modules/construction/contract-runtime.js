@@ -171,6 +171,48 @@ export async function saveContractSignature(deps, { sessionId, buffer, contentTy
   return { signatureHash: digest, submissionRef: uploaded.id, driveUrl: uploaded.webViewLink || '' };
 }
 
+export async function saveContractIdentityDocuments(deps, { sessionId, front, back }) {
+  if (!deps.driveConfigured || !deps.driveRootFolderId) throw Object.assign(new Error('工程合約 Drive 尚未設定'), { statusCode: 503 });
+  if (typeof deps.auditDrivePrivate !== 'function') throw Object.assign(new Error('工程合約 Drive 隱私稽核尚未設定'), { statusCode: 503 });
+  const items = { front, back };
+  for (const [side, item] of Object.entries(items)) {
+    if (!Buffer.isBuffer(item?.bytes) || item.bytes.length < 500 || item.bytes.length > 3 * 1024 * 1024) {
+      throw Object.assign(new Error(`身分證${side === 'front' ? '正面' : '反面'}圖片大小不合法`), { statusCode: 422 });
+    }
+    if (!['image/png', 'image/jpeg'].includes(item.contentType)) {
+      throw Object.assign(new Error('身分證照片必須是 PNG 或 JPEG'), { statusCode: 415 });
+    }
+  }
+  const root = await deps.ensureDriveFolder('工程合約管理', deps.driveRootFolderId);
+  const evidence = await deps.ensureDriveFolder('簽署證據', root);
+  const sessionFolder = await deps.ensureDriveFolder(safeSegment(sessionId, 'unknown-session'), evidence);
+  const identityFolder = await deps.ensureDriveFolder('身分證件（機密）', sessionFolder);
+  const folderPrivacy = await deps.auditDrivePrivate(identityFolder);
+  if (folderPrivacy?.private !== true) throw Object.assign(new Error('身分證件資料夾不可公開分享'), { statusCode: 503 });
+  const stored = {};
+  for (const [side, item] of Object.entries(items)) {
+    const hash = crypto.createHash('sha256').update(item.bytes).digest('hex');
+    const extension = item.contentType === 'image/jpeg' ? 'jpg' : 'png';
+    const uploaded = await deps.uploadToDrive(
+      item.bytes,
+      `identity-${side}-${hash.slice(0, 12)}.${extension}`,
+      item.contentType,
+      identityFolder,
+    );
+    if (!uploaded?.id) throw new Error('Drive 未回傳身分證照片檔案 ID');
+    const privacy = await deps.auditDrivePrivate(uploaded.id);
+    if (privacy?.private !== true) throw Object.assign(new Error('身分證照片不可公開分享'), { statusCode: 503 });
+    stored[side] = {
+      hash,
+      ref: uploaded.id,
+      contentType: item.contentType,
+      byteSize: item.bytes.length,
+      receivedAt: new Date().toISOString(),
+    };
+  }
+  return stored;
+}
+
 export async function loadContractPdf(deps, { documentRef, documentHash }) {
   if (typeof deps.downloadFromDrive !== 'function') throw Object.assign(new Error('工程合約 Drive 讀取功能尚未設定'), { statusCode: 503 });
   let fileId = String(documentRef || '').trim();

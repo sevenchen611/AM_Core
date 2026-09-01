@@ -83,6 +83,11 @@ assert.doesNotMatch(
   /CASE WHEN status = '(?:created|sent)'/,
   'draft-review updates must not use an ambiguous unqualified status column',
 );
+assert.match(
+  storeSource,
+  /identityDocuments:\s*submission\.identityDocuments/,
+  'immutable signature evidence must include both private identity-document records',
+);
 
 const queries = [];
 const fakeClient = {
