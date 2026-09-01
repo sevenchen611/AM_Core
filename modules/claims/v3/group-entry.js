@@ -12,6 +12,7 @@ const SAFE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{1,239}$/;
 const ACTIVE_STATES = new Set(['pending_membership', 'membership_uncertain', 'pending_entry', 'entry_uncertain', 'pending_delivery', 'delivery_uncertain']);
 const LEASE_SECONDS = 45;
 const MAX_STEPS_PER_DRAIN = 20;
+const MAX_ENTRY_LIFETIME_MS = 10 * 60 * 1000;
 
 export function createFinanceClaimsV3GroupEntryConsumer({ env = process.env, store, client, receiver, now = () => Date.now(), autoDrain = true } = {}) {
   const config = readConfig(env);
@@ -287,7 +288,7 @@ function exactWebEntry(value, expectedRequestId, baseValue, nowMs) {
   try { url = new URL(value.url); } catch { return null; }
   const hints = url.searchParams.getAll('sourceHint'); const expires = Date.parse(value.expiresAt);
   if (!base || url.origin !== base.origin || url.pathname !== '/finance-claims' || url.username || url.password || url.hash || [...url.searchParams.keys()].length !== 1 || hints.length !== 1 || !safeSourceHint(hints[0])) return null;
-  if (typeof value.expiresAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value.expiresAt) || !Number.isFinite(expires) || new Date(expires).toISOString() !== value.expiresAt || expires <= nowMs || expires > nowMs + 300_000) return null;
+  if (typeof value.expiresAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value.expiresAt) || !Number.isFinite(expires) || new Date(expires).toISOString() !== value.expiresAt || expires <= nowMs || expires > nowMs + MAX_ENTRY_LIFETIME_MS) return null;
   return { url: url.toString(), expiresAt: value.expiresAt };
 }
 function safeId(value) { return typeof value === 'string' && SAFE_ID.test(value); }

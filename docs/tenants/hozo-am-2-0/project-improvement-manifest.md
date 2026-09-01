@@ -21,6 +21,7 @@ Environment prefix: `HZ2`
 | AM-IMP-2026.0831.05 | Superseded | Durable Finance Claims v3 ingress | Tenant-scoped PostgreSQL processing queue, fast leases, cold-start retry and terminal private failure notice | Superseded by the direct AM Platform owner model in `AM-IMP-2026.0901.01`; accepted pending/retry rows must be reconciled before cutover and completed history remains for audit. |
 | AM-IMP-2026.0901.01 | Deployed | Direct Finance Claims v3 owner | AM Platform pre-ack persistence, database idempotency, staged retry and LINE notification ledger | Production cutover and the HOZO finance-group canary passed on 2026-09-01: the v3 link was privately delivered by 葉小蝸 AI 小助手, the new receipt/OCR form returned 200, a transient Rental warmup recovered through the durable retry state, and replaying the same LINE event produced no duplicate row or message. |
 | AM-IMP-2026.0901.02 | Installed | Production Finance Claim entry message | Replace the canary-labelled private entry message with the production template | Runtime and dry-run coverage are installed. Production status waits for the merged Render deploy and a fresh authorized finance-group entry message without the test marker. |
+| AM-IMP-2026.0901.04 | Installed | Finance Claim 10-minute entry compatibility | Accept Rental's ten-minute signed source hint in the bridge and durable entry consumer | Runtime and direct dry-run coverage are installed. Production status waits for the merged Render deploy and a fresh authorized finance-group entry. |
 
 ## Tenant boundaries
 

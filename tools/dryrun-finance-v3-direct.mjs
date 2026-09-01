@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { createFinanceClaimsV3GroupEntryConsumer } from '../modules/claims/v3/group-entry.js';
+import { createFinanceClaimsV3GroupEntryConsumer, createGroupEntryClient } from '../modules/claims/v3/group-entry.js';
 import { __test as claimsTest } from '../modules/claims/index.js';
 
 const NOW = Date.parse('2026-09-01T00:00:00.000Z');
@@ -170,5 +170,28 @@ assert.equal(source.includes('enqueueProcessingJob'), false);
 const v3Route = source.indexOf("prefix: '/control/finance/claim-events/v3'");
 const legacyRoute = source.indexOf("prefix: '/control/finance/claim-events'");
 assert.ok(v3Route >= 0 && legacyRoute >= 0 && v3Route < legacyRoute);
+
+const tenMinuteReceiver = {
+  receiverEnabled: () => true,
+  bridgeEnabled: () => true,
+  async bridgeMembership() { throw new Error('not expected'); },
+  async bridgeWebEntry(body) {
+    return { status: 200, body: {
+      contractVersion: 'finance-claims-v3.am-bridge-v1', requestId: body.requestId,
+      url: 'https://rental.example.test/finance-claims?sourceHint=aaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      expiresAt: '2026-09-01T00:10:00.000Z', replayed: false,
+    } };
+  },
+  async deliverEnvelope() { throw new Error('not expected'); },
+  async reconcileEvent() { throw new Error('not expected'); },
+};
+const tenMinuteClient = createGroupEntryClient({ env: localEnv(), receiver: tenMinuteReceiver, now: () => NOW });
+assert.deepEqual(await tenMinuteClient.createWebEntry({
+  entry_request_id: 'entry-ten-minute', tenant_key: 'hozo', source_id: 'source-hozo-company-group',
+  form_key: 'general_expense', applicant_reference: USER_REF,
+}), {
+  kind: 'created', url: 'https://rental.example.test/finance-claims?sourceHint=aaaaaaaaaaaaaaaaaaaa.bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+  expiresAt: '2026-09-01T00:10:00.000Z',
+});
 
 console.log('Finance Claims v3 direct AM Platform dry-run passed.');

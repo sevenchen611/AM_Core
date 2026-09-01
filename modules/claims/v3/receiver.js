@@ -9,7 +9,7 @@ export const FINANCE_CLAIMS_V3_RECEIVER_CAPABILITY_CONTRACT = 'finance-claims-v3
 export const FINANCE_CLAIMS_V3_GROUP_ENTRY_CONTRACT = 'finance-claims-v3.group-entry-v1';
 
 const MAX_BODY_BYTES = 64 * 1024;
-const MAX_SOURCE_HINT_AGE_SECONDS = 300;
+const MAX_SOURCE_HINT_AGE_SECONDS = 10 * 60;
 // Rental's first D1-backed membership/web-entry request can legitimately spend
 // more than 10 seconds warming and ensuring its idempotent schema. This runs in
 // the durable background drainer, after the LINE webhook has already been
@@ -854,7 +854,7 @@ function sanitizeBridgeCapabilities(value) {
     || typeof value.capabilities.notificationReceiverHandshake !== 'boolean'
     || value.notificationCapabilityContract !== 'finance-claims-v3.notification-capability-v1'
     || value.notificationAckContract !== FINANCE_CLAIMS_V3_ACK_CONTRACT
-    || !Number.isSafeInteger(value.sourceHintMaxAgeSeconds) || value.sourceHintMaxAgeSeconds < 1 || value.sourceHintMaxAgeSeconds > 300) return null;
+    || !Number.isSafeInteger(value.sourceHintMaxAgeSeconds) || value.sourceHintMaxAgeSeconds < 1 || value.sourceHintMaxAgeSeconds > MAX_SOURCE_HINT_AGE_SECONDS) return null;
   return {
     contractVersion: FINANCE_CLAIMS_V3_AM_BRIDGE_CAPABILITIES_CONTRACT,
     capabilities: {
