@@ -11,5 +11,9 @@
 9. Run `node tools/check-upgrade-package.js AM-IMP-2026.0831.04`.
 10. Run `node tools/audit-alignment.js` and `node tools/compare-project-manifests.js`.
 11. In production, verify schema version `2026-08-31.engineering-contract-evidence.v4`, forced RLS, immutable update/delete triggers, and restricted SELECT/INSERT grants.
-12. Backfill HZ-CT-001 V1/V2, verify two non-overlapping archive intervals, open each PDF, and confirm the V3 merged internal preview appends them.
+12. Backfill all historical sent versions, verify non-overlapping archive intervals, open at least one protected PDF, and confirm the current merged internal preview appends them.
 13. Production verification must not approve, return, issue, sign, or send LINE.
+
+Production result (2026-09-02): schema v4 is live; HZ-CT-001 V1 through V3
+produced three tenant-scoped archives containing 17 messages in total. V1 was
+opened through the protected archive endpoint, and no LINE message was resent.
