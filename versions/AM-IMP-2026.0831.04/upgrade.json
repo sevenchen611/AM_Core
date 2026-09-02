@@ -3,7 +3,7 @@
   "name": "Engineering contract LINE conversation archives",
   "type": "AM Platform / contracts / LINE evidence",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-08-31",
   "dependsOn": ["AM-IMP-2026.0831.03"],
   "installTargets": ["AM_PLATFORM:engineering"],
