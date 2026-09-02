@@ -1,6 +1,6 @@
 # AM-IMP-2026.0902.06 - Personal Party A signing readiness
 
-Status: Installed
+Status: Deployed
 
 ## Engineering installation
 
@@ -22,6 +22,10 @@ be enabled only after explicit operator confirmation.
 
 ## Verification
 
-Local syntax and contract dry-runs pass. Production deployment, authenticated
-readiness verification, and any separately authorized activation are recorded
-after deployment.
+Local syntax and contract dry-runs pass. PR #97 was merged at commit `2dde261`.
+Render deployment `dep-dabuthajnfac73ecnd0g` reached Live after the authorized
+`ENG_CONTRACTS_SIGNING_ENABLED=1` change. The public health endpoint returned
+HTTP 200, the authenticated Engineering AM banner reported that the electronic
+signing foundation was ready, and HZ-CT-001 V12 passed the read-only issuance
+check without a Party A company registration number. No PDF or LINE signing
+invitation was sent during verification.
