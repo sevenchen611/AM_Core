@@ -3,7 +3,7 @@
   "name": "Mobile large signature pad",
   "type": "AM Platform / contracts / signing UX",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-09-02",
   "dependsOn": ["AM-IMP-2026.0902.07"],
   "installTargets": ["AM_PLATFORM:engineering"],

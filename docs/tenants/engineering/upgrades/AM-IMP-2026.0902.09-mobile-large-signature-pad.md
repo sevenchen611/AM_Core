@@ -1,6 +1,6 @@
 # AM-IMP-2026.0902.09 - Mobile large signature pad
 
-Status: Installed
+Status: Deployed
 
 ## Engineering installation
 
@@ -16,5 +16,9 @@ Status: Installed
 
 ## Verification boundary
 
-Local verification is pending deployment. No invitation was opened and no
-signature or LINE message was submitted during implementation.
+Signing-page, signing-service, runtime, security-gate, package, syntax, and
+whitespace verification passed. PR #101 was merged at commit `432b055` and
+Render deployment `dep-dabvjj3bc2fs73eulre0` reached Live. Public health and
+signing pages returned HTTP 200 and served the PDF warning, large-canvas CSS,
+and small-PDF-frame guidance. No invitation was opened and no signature or LINE
+message was submitted during verification.
