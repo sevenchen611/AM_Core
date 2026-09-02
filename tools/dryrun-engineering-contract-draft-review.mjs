@@ -24,6 +24,18 @@ const version = {
   } },
 };
 version.documentPackage = version.snapshot.documentPackage;
+const inheritedHistory = { fileId: 'old-quote-history', name: 'V1 舊報價.pdf',
+  mimeType: 'application/pdf', sha256: '5'.repeat(64), category: 'quotation', inherited: true };
+const currentGeneralAttachment = { fileId: 'current-general-file', name: '本版補充附件.pdf',
+  mimeType: 'application/pdf', sha256: '6'.repeat(64), category: 'other', inherited: false };
+const attachmentVisibilityVersion = {
+  ...version,
+  documentPackage: { ...version.documentPackage, attachments: [inheritedHistory, currentGeneralAttachment] },
+};
+assert.equal(reviewTest.reviewAttachments(attachmentVisibilityVersion).some((item) => item.fileId === inheritedHistory.fileId), false,
+  '歷史繼承檔不應重複併入本版正文');
+assert.equal(reviewTest.reviewAttachments(attachmentVisibilityVersion).some((item) => item.fileId === currentGeneralAttachment.fileId), true,
+  '本版一般附件仍應併入正文');
 const contract = {
   id: 'contract-1', projectId: 'project-1', projectCode: 'HZ', contractNumber: 'HZ-CT-001',
   title: '拆除合約', counterpartyName: '測試工班', group_binding_notion_page_id: 'notion-group-binding-1234',

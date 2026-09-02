@@ -1,0 +1,52 @@
+{
+  "id": "AM-IMP-2026.0902.02",
+  "name": "Contract next-version editor and single-source clauses",
+  "type": "AM Platform / contracts / authoring",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-02",
+  "dependsOn": [
+    "AM-IMP-2026.0901.07",
+    "AM-IMP-2026.0901.09"
+  ],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Visible carry-forward of the effective contract body, construction drawings, and quotation",
+    "Explicit replacement and persistent next-version exclusion",
+    "Structured multi-stage payment editor embedded into Article 5",
+    "Structured project acceptance editor embedded into Article 10",
+    "Historical evidence index without repeated current-PDF attachment pages"
+  ],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-workspace.mjs",
+    "tools/dryrun-engineering-contract-structured-body.mjs",
+    "tools/dryrun-engineering-contract-management.mjs",
+    "tools/dryrun-engineering-contract-draft-review.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Only tenant-scoped Engineering contract versions and their existing private files are read; no customer document is copied into AMCore."
+  },
+  "definitionOfDone": [
+    "A later version lists and reuses currently effective documents without mandatory re-upload",
+    "Managers can replace or exclude a document while prior evidence remains immutable",
+    "Payment milestones are carried forward, validated, and rendered exactly once in Article 5",
+    "Project acceptance criteria are carried forward and rendered exactly once in Article 10",
+    "Historical inherited files remain indexed but are not repeatedly appended to the current PDF",
+    "Workspace, structured-body, management, and draft-review dry-runs pass"
+  ],
+  "files": [
+    "modules/construction/contracts.js",
+    "modules/construction/contract-domain.js",
+    "modules/construction/contract-pdf-renderer.js",
+    "modules/construction/contract-draft-review.js",
+    "tools/dryrun-engineering-contract-workspace.mjs",
+    "tools/dryrun-engineering-contract-structured-body.mjs",
+    "tools/dryrun-engineering-contract-draft-review.mjs"
+  ]
+}

@@ -61,7 +61,7 @@ function reviewAttachments(source) {
     pkg.contractBody ? { ...pkg.contractBody, category: 'contract_body' } : null,
     ...(Array.isArray(pkg.constructionDrawings) ? pkg.constructionDrawings.map((item) => ({ ...item, category: 'construction_drawing' })) : []),
     pkg.quotation ? { ...pkg.quotation, category: 'quotation' } : null,
-    ...(Array.isArray(pkg.attachments) ? pkg.attachments : []),
+    ...(Array.isArray(pkg.attachments) ? pkg.attachments.filter((item) => item?.inherited !== true) : []),
   ].filter(Boolean);
   const seen = new Set();
   return candidates.flatMap((item) => {

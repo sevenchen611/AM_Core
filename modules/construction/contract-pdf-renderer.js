@@ -122,13 +122,23 @@ function packageFrom(payload) {
 }
 
 function attachmentRows(payload, documentPackage) {
-  const manifest = first(payload.packageValidation, ['manifest'], first(payload.version, ['manifest', 'bundle_manifest'], []));
-  if (Array.isArray(manifest) && manifest.length) return manifest;
   return [
     { category: 'contract_body', ...(documentPackage.contractBody || {}) },
     ...(documentPackage.constructionDrawings || []).map((item) => ({ category: 'construction_drawing', ...item })),
     { category: 'quotation', ...(documentPackage.quotation || {}) },
+    ...(Array.isArray(documentPackage.attachments)
+      ? documentPackage.attachments.filter((item) => item?.inherited !== true)
+      : []),
   ].filter((item) => clean(item.name || item.fileName || item.fileId));
+}
+
+function historicalAttachmentRows(documentPackage) {
+  return (Array.isArray(documentPackage.attachments) ? documentPackage.attachments : [])
+    .filter((item) => item?.inherited === true)
+    .map((item) => ({
+      ...item,
+      sourceVersion: item.sourceVersionNo ? `V${item.sourceVersionNo}` : (item.revision || '舊版'),
+    }));
 }
 
 function validatePayload(payload) {
@@ -274,7 +284,7 @@ function createWriter(doc) {
     const headerRows = options.headerRows ?? 0;
     rows.forEach((row, rowIndex) => {
       const cells = widths.map((width, columnIndex) => wrapLines(row[columnIndex], width - (paddingX * 2), size));
-      const rowHeight = Math.max(24, Math.max(...cells.map((lines) => lines.length)) * lineHeight + (paddingY * 2));
+      const rowHeight = gridRowHeight(row, widths, options);
       ensure(rowHeight + 1);
       const rowY = doc.y;
       let cellX = x;
@@ -292,15 +302,28 @@ function createWriter(doc) {
     doc.y += options.after ?? 8;
   }
 
+  function gridRowHeight(row, widths, options = {}) {
+    const size = options.size || 8.5;
+    const lineHeight = options.lineHeight || size * 1.55;
+    const paddingX = options.paddingX ?? 6;
+    const paddingY = options.paddingY ?? 5;
+    const lineCounts = widths.map((width, columnIndex) => wrapLines(
+      row[columnIndex], width - (paddingX * 2), size,
+    ).length);
+    return Math.max(24, Math.max(...lineCounts) * lineHeight + (paddingY * 2));
+  }
+
   function gridTable(title, rows, columns) {
-    ensure(84);
-    heading(title, 1);
-    if (!rows.length) return paragraph('未提供');
     const widths = columns.map((column) => column.width);
     const tableRows = [columns.map((column) => column.label), ...rows.map((row) => columns.map((column) => {
       const raw = typeof column.format === 'function' ? column.format(row) : row[column.field];
       return clean(raw) || '未提供';
     }))];
+    const firstRowsHeight = tableRows.slice(0, Math.min(2, tableRows.length))
+      .reduce((sum, row) => sum + gridRowHeight(row, widths), 0);
+    ensure(36 + firstRowsHeight);
+    heading(title, 1);
+    if (!rows.length) return paragraph('未提供');
     gridRows(tableRows, widths, { headerRows: 1 });
   }
 
@@ -379,6 +402,97 @@ function contractBodyBlocks(html) {
     });
   }
   return blocks;
+}
+
+function paymentTable(writer, payments, contract, title = '付款條件表') {
+  writer.gridTable(title, Array.isArray(payments) ? payments : [], [
+    { field: 'label', label: '付款節點', width: 84 },
+    { label: '比例／金額', width: 115, format: (row) => `${row.percentage ?? '未定'}% ／ ${money(row.amount, contract.currency)}` },
+    { field: 'dueDate', label: '付款日期', width: 72 },
+    { field: 'dueTime', label: '付款時間', width: 58 },
+    { field: 'trigger', label: '施工里程碑／付款條件', width: 170 },
+  ]);
+}
+
+function acceptanceTable(writer, acceptance, title = '專案驗收標準表') {
+  writer.gridTable(title, Array.isArray(acceptance) ? acceptance : [], [
+    { field: 'criterion', label: '驗收項目', width: 118 },
+    { field: 'reference', label: '依據', width: 84 },
+    { field: 'verificationMethod', label: '驗證方式', width: 92 },
+    { field: 'passCondition', label: '通過條件', width: 110 },
+    { field: 'evidenceRequired', label: '必要證據', width: 95 },
+  ]);
+}
+
+function isPaymentGeneralClause(block) {
+  const value = clean(block?.text);
+  return block?.type !== 'table'
+    && /發票|請款|稅|匯款|付款帳戶/.test(value)
+    && !/^第[一二三四五六七八九十]+期/.test(value)
+    && !/期款|尾款|設備器具/.test(value);
+}
+
+function renderStructuredContractBody(writer, blocks, payments, acceptance, contract) {
+  let paymentRendered = false;
+  let acceptanceRendered = false;
+  let skipOldPayment = false;
+  let insideAcceptance = false;
+  const paymentHeadingIndex = blocks.findIndex((block) => /^第五條\s*[：:]?/.test(clean(block.text)));
+  const paymentEndIndex = paymentHeadingIndex < 0 ? -1
+    : blocks.findIndex((block, index) => index > paymentHeadingIndex && /^第六條\s*[：:]?/.test(clean(block.text)));
+  const paymentGeneral = paymentHeadingIndex >= 0
+    ? blocks.slice(paymentHeadingIndex + 1, paymentEndIndex < 0 ? blocks.length : paymentEndIndex).filter(isPaymentGeneralClause)
+    : [];
+
+  for (const block of blocks) {
+    const value = clean(block.text);
+    if (/^第五條\s*[：:]?/.test(value) && payments.length) {
+      writer.documentBlocks([block]);
+      writer.paragraph('本工程各期付款節點、比例、金額、日期及付款條件，以本條下列付款條件表為準。', {
+        size: 9.5, lineHeight: 16, after: 5,
+      });
+      paymentTable(writer, payments, contract);
+      if (paymentGeneral.length) writer.documentBlocks(paymentGeneral);
+      else writer.paragraph('乙方應依各期約定完成條件並檢附合法請款文件，甲方依表列條件辦理付款。', {
+        size: 9.5, lineHeight: 16, after: 4,
+      });
+      paymentRendered = true;
+      skipOldPayment = true;
+      continue;
+    }
+    if (skipOldPayment) {
+      if (!/^第六條\s*[：:]?/.test(value)) continue;
+      skipOldPayment = false;
+    }
+    if (/\{\{PAYMENT_(?:TERMS|SCHEDULE)_TABLE\}\}/i.test(value) && payments.length) {
+      paymentTable(writer, payments, contract);
+      paymentRendered = true;
+      continue;
+    }
+    if (/^第十條\s*[：:]?/.test(value)) insideAcceptance = true;
+    if (/^第十一條\s*[：:]?/.test(value) && insideAcceptance && acceptance.length && !acceptanceRendered) {
+      writer.paragraph('本工程具體驗收項目、驗證方式及合格條件，以本條下列專案驗收標準表為準。', {
+        size: 9.5, lineHeight: 16, after: 5,
+      });
+      acceptanceTable(writer, acceptance);
+      acceptanceRendered = true;
+      insideAcceptance = false;
+    }
+    if (/\{\{ACCEPTANCE_(?:CRITERIA|STANDARDS)_TABLE\}\}/i.test(value) && acceptance.length) {
+      acceptanceTable(writer, acceptance);
+      acceptanceRendered = true;
+      continue;
+    }
+    writer.documentBlocks([block]);
+  }
+  if (insideAcceptance && acceptance.length && !acceptanceRendered) {
+    writer.paragraph('本工程具體驗收項目、驗證方式及合格條件，以本條下列專案驗收標準表為準。', {
+      size: 9.5, lineHeight: 16, after: 5,
+    });
+    acceptanceTable(writer, acceptance);
+    acceptanceRendered = true;
+  }
+  return { paymentRendered, acceptanceRendered };
 }
 
 function partyProfiles(contract, counterpartyDetails = {}) {
@@ -595,28 +709,17 @@ function renderContractPdf(payload) {
   ]);
   const bodySummary = first(payload, ['contractBodyText'], first(documentPackage, ['contractBodyText', 'bodyText', 'contractTerms', 'terms'],
     first(version.snapshot, ['contractBodyText', 'bodyText', 'contractTerms'], '合約本文以本版本附件及其 SHA-256 雜湊為準。')));
+  const payments = first(documentPackage, ['paymentMilestones', 'paymentTerms'], []);
+  const acceptance = first(documentPackage, ['acceptanceCriteria', 'acceptanceStandards'], []);
   writer.heading('合約本文');
   const bodyBlocks = contractBodyBlocks(payload.contractBodyHtml);
-  if (bodyBlocks.length) writer.documentBlocks(bodyBlocks);
-  else writer.paragraph(bodySummary);
-
-  const payments = first(documentPackage, ['paymentMilestones', 'paymentTerms'], []);
-  writer.gridTable('付款條件', Array.isArray(payments) ? payments : [], [
-    { field: 'label', label: '付款節點', width: 84 },
-    { label: '比例／金額', width: 115, format: (row) => `${row.percentage ?? '未定'}% ／ ${money(row.amount, contract.currency)}` },
-    { field: 'dueDate', label: '付款日期', width: 72 },
-    { field: 'dueTime', label: '付款時間', width: 58 },
-    { field: 'trigger', label: '付款條件', width: 170 },
-  ]);
-
-  const acceptance = first(documentPackage, ['acceptanceCriteria', 'acceptanceStandards'], []);
-  writer.gridTable('驗收標準', Array.isArray(acceptance) ? acceptance : [], [
-    { field: 'criterion', label: '驗收項目', width: 118 },
-    { field: 'reference', label: '依據', width: 84 },
-    { field: 'verificationMethod', label: '驗證方式', width: 92 },
-    { field: 'passCondition', label: '通過條件', width: 110 },
-    { field: 'evidenceRequired', label: '必要證據', width: 95 },
-  ]);
+  const embedded = bodyBlocks.length
+    ? renderStructuredContractBody(writer, bodyBlocks, Array.isArray(payments) ? payments : [],
+      Array.isArray(acceptance) ? acceptance : [], contract)
+    : { paymentRendered: false, acceptanceRendered: false };
+  if (!bodyBlocks.length) writer.paragraph(bodySummary);
+  if (!embedded.paymentRendered) paymentTable(writer, payments, contract, '付款條件');
+  if (!embedded.acceptanceRendered) acceptanceTable(writer, acceptance, '驗收標準');
 
   writer.gridTable('附件與文件雜湊', attachmentRows(payload, documentPackage), [
     { field: 'name', label: '附件', width: 152 },
@@ -626,6 +729,13 @@ function renderContractPdf(payload) {
     })[clean(row.category)] || clean(row.category) },
     { field: 'revision', label: '版次', width: 52 },
     { field: 'sha256', label: 'SHA-256', width: 209 },
+  ]);
+  const historical = historicalAttachmentRows(documentPackage);
+  if (historical.length) writer.gridTable('歷史版本證據索引（不重複併入本版正文）', historical, [
+    { field: 'name', label: '歷史文件', width: 190 },
+    { field: 'sourceVersion', label: '來源版本', width: 72 },
+    { field: 'revision', label: '版次', width: 72 },
+    { field: 'sha256', label: 'SHA-256', width: 165 },
   ]);
 
   writer.heading('不可變版本證據');
@@ -792,4 +902,8 @@ export const __test = {
   validatePayload,
   renderContractPdf,
   safeTokenEqual,
+  contractBodyBlocks,
+  historicalAttachmentRows,
+  isPaymentGeneralClause,
+  renderStructuredContractBody,
 };
