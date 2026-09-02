@@ -1,0 +1,27 @@
+{
+  "version": "AM-IMP-2026.0902.08",
+  "authority": "engineering_contracts.party_a_profiles",
+  "profileTypes": {
+    "company": {
+      "requiredFields": ["displayName", "legalName", "taxId", "responsiblePerson", "address"],
+      "requiredAssets": ["large_seal"]
+    },
+    "individual": {
+      "requiredFields": ["displayName", "legalName", "address"],
+      "requiredAssets": ["signature"]
+    }
+  },
+  "assetStorage": {
+    "provider": "engineering-private-drive",
+    "allowedMimeTypes": ["image/png", "image/jpeg"],
+    "maximumBytes": 2097152,
+    "publicSharingAllowed": false,
+    "hash": "sha256"
+  },
+  "versionBehavior": {
+    "selectionCopiesSnapshot": true,
+    "masterEditsRewriteExistingVersions": false,
+    "archivingDeletesSnapshots": false,
+    "renderSigningAssetsAt": "final_party_a_confirmation"
+  }
+}

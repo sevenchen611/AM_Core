@@ -1,0 +1,50 @@
+{
+  "id": "AM-IMP-2026.0902.08",
+  "name": "Engineering Party A profile master",
+  "type": "AM Platform / contracts / reusable contracting parties",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-02",
+  "dependsOn": ["AM-IMP-2026.0902.07"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Add a Party A master page for company and individual profiles",
+    "Keep company large seals and individual signatures in private Drive storage",
+    "Copy the selected Party A into each immutable contract version",
+    "Render the selected Party A signing assets only in the final confirmed PDF"
+  ],
+  "requiresDatabases": ["engineering_contracts.party_a_profiles"],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-party-a-profiles.mjs",
+    "tools/dryrun-engineering-contract-store.mjs",
+    "tools/dryrun-engineering-contract-management.mjs",
+    "tools/dryrun-engineering-contract-pdf-renderer.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Real Party A records and signing images remain in the Engineering dedicated PostgreSQL and private Drive boundary."
+  },
+  "definitionOfDone": [
+    "Contract managers can create, edit, and archive company or individual Party A profiles",
+    "Company profiles require a large seal and individual profiles require a signature",
+    "Selecting a profile fills Party A legal fields and stores a version snapshot",
+    "Profile edits do not change prior version snapshots",
+    "Final PDF rendering verifies private asset hashes before applying Party A signing images"
+  ],
+  "files": [
+    "core/contract-store.js",
+    "modules/construction/contract-party-a-profiles.js",
+    "modules/construction/contracts.js",
+    "modules/construction/contract-management.js",
+    "modules/construction/contract-completion.js",
+    "modules/construction/contract-pdf-renderer.js",
+    "versions/AM-IMP-2026.0902.08/config/party-a-profile-contract.json",
+    "versions/AM-IMP-2026.0902.08/schemas/engineering-contract-party-a-profiles-v6.sql",
+    "tools/dryrun-engineering-party-a-profiles.mjs",
+    "tools/dryrun-engineering-contract-store.mjs"
+  ]
+}

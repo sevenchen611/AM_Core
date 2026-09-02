@@ -4,10 +4,11 @@
 import crypto from 'node:crypto';
 
 const SCHEMA = 'engineering_contracts';
-const SCHEMA_VERSION = '2026-09-02.engineering-contract-evidence.v5';
+const SCHEMA_VERSION = '2026-09-02.engineering-contract-evidence.v6';
 const COMPATIBLE_SCHEMA_VERSIONS = new Set([
   '2026-08-28.engineering-contract-evidence.v3',
   '2026-08-31.engineering-contract-evidence.v4',
+  '2026-09-02.engineering-contract-evidence.v5',
   SCHEMA_VERSION,
 ]);
 
@@ -239,10 +240,14 @@ export function createContractStore({ env = process.env, logger = console, poolF
     if (!config.configured) return { configured: false, schemaReady: false };
     try {
       const result = await withTenant(tenant, async (client) => client.query(
-        `SELECT EXISTS (
+         `SELECT EXISTS (
            SELECT 1 FROM information_schema.tables
             WHERE table_schema = $1 AND table_name = 'signing_sessions'
          ) AS ready,
+         EXISTS (
+           SELECT 1 FROM information_schema.tables
+            WHERE table_schema = $1 AND table_name = 'party_a_profiles'
+         ) AS profile_ready,
          (SELECT version FROM ${SCHEMA}.schema_meta WHERE singleton = true) AS schema_version`,
         [SCHEMA],
       ), { readOnly: true });
@@ -250,6 +255,7 @@ export function createContractStore({ env = process.env, logger = console, poolF
       return {
         configured: true,
         schemaReady: Boolean(result.value.rows[0]?.ready && COMPATIBLE_SCHEMA_VERSIONS.has(schemaVersion)),
+        partyAProfileSchemaReady: result.value.rows[0]?.profile_ready === true,
         archiveSchemaReady: schemaVersion === SCHEMA_VERSION,
         schemaVersion,
       };
@@ -257,6 +263,75 @@ export function createContractStore({ env = process.env, logger = console, poolF
       logger.warn?.(`Contract store status failed (tenant=${tenant?.key || '-'}): ${error.message}`);
       return { configured: true, schemaReady: false, error: 'contract-store-unavailable' };
     }
+  }
+
+  async function listPartyAProfiles(tenant, { includeArchived = false } = {}) {
+    return withTenant(tenant, async (client, config) => {
+      const result = await client.query(
+        `SELECT id, profile_type AS "profileType", display_name AS "displayName",
+                legal_name AS "legalName", tax_id AS "taxId",
+                responsible_person AS "responsiblePerson", representative,
+                identity_number AS "identityNumber", address, assets, status,
+                created_at AS "createdAt", updated_at AS "updatedAt"
+           FROM ${SCHEMA}.party_a_profiles
+          WHERE tenant_key = $1 AND ($2::boolean OR status = 'active')
+          ORDER BY status, lower(display_name), created_at`,
+        [config.tenantKey, includeArchived === true],
+      );
+      return result.rows;
+    }, { readOnly: true });
+  }
+
+  async function upsertPartyAProfile(tenant, input) {
+    return withTenant(tenant, async (client, config) => {
+      const values = [config.tenantKey, input.profileType, input.displayName, input.legalName,
+        input.taxId || null, input.responsiblePerson || null, input.representative || null,
+        input.identityNumber || null, input.address, JSON.stringify(input.assets || {}), input.actor];
+      if (!input.id) {
+        const inserted = await client.query(
+          `INSERT INTO ${SCHEMA}.party_a_profiles
+             (tenant_key, profile_type, display_name, legal_name, tax_id,
+              responsible_person, representative, identity_number, address, assets,
+              created_by, updated_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$11)
+           RETURNING id, profile_type AS "profileType", display_name AS "displayName",
+             legal_name AS "legalName", tax_id AS "taxId", responsible_person AS "responsiblePerson",
+             representative, identity_number AS "identityNumber", address, assets, status,
+             created_at AS "createdAt", updated_at AS "updatedAt"`,
+          values,
+        );
+        return inserted.rows[0];
+      }
+      const updated = await client.query(
+        `UPDATE ${SCHEMA}.party_a_profiles
+            SET profile_type=$2, display_name=$3, legal_name=$4, tax_id=$5,
+                responsible_person=$6, representative=$7, identity_number=$8,
+                address=$9, assets=$10::jsonb, updated_by=$11,
+                updated_at=clock_timestamp(), row_version=row_version+1
+          WHERE tenant_key=$1 AND id=$12 AND status='active'
+          RETURNING id, profile_type AS "profileType", display_name AS "displayName",
+            legal_name AS "legalName", tax_id AS "taxId", responsible_person AS "responsiblePerson",
+            representative, identity_number AS "identityNumber", address, assets, status,
+            created_at AS "createdAt", updated_at AS "updatedAt"`,
+        [...values, input.id],
+      );
+      if (!updated.rowCount) throw Object.assign(new Error('找不到可編輯的甲方主檔'), { statusCode: 404 });
+      return updated.rows[0];
+    });
+  }
+
+  async function archivePartyAProfile(tenant, { id, actor }) {
+    return withTenant(tenant, async (client, config) => {
+      const result = await client.query(
+        `UPDATE ${SCHEMA}.party_a_profiles
+            SET status='archived', updated_by=$3, updated_at=clock_timestamp(), row_version=row_version+1
+          WHERE tenant_key=$1 AND id=$2 AND status='active'
+          RETURNING id, status`,
+        [config.tenantKey, id, actor],
+      );
+      if (!result.rowCount) throw Object.assign(new Error('找不到可封存的甲方主檔'), { statusCode: 404 });
+      return result.rows[0];
+    });
   }
 
   async function upsertContract(tenant, input) {
@@ -1338,6 +1413,9 @@ export function createContractStore({ env = process.env, logger = console, poolF
     schema: SCHEMA,
     configured: (tenant) => configFor(env, tenant).configured,
     status,
+    listPartyAProfiles,
+    upsertPartyAProfile,
+    archivePartyAProfile,
     upsertContract,
     getContract,
     createVersion,
