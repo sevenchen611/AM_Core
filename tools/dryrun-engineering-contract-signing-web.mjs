@@ -76,6 +76,7 @@ function createFixture(options = {}) {
     expiresAt: '2026-09-04T01:00:00.000Z',
     idempotent: false,
     canSign: true,
+    canInspectSigning: true,
     accessMode: 'signer',
     signerLineUserId: 'U-sensitive-signer',
     events: [{ type: 'first_opened', ip: '203.0.113.10' }],
@@ -186,6 +187,10 @@ const jsonHeaders = { 'content-type': 'application/json' };
   assert.match(html, /id="submit-signature" type="button" disabled/);
   assert.match(html, /id="document-link"[^>]*target="_blank"[^>]*hidden/);
   assert.match(html, /state\.signing\.canSign/);
+  assert.match(html, /簽署檢查模式（唯讀）/);
+  assert.match(html, /對方要在這個大框內直接簽名/);
+  assert.match(html, /enableSigningInspection/);
+  assert.match(html, /檢查模式不可送出/);
   assert.match(html, /群組成員，可以檢視完整合約/);
   assert.match(html, /群組成員唯讀檢視，無法簽署/);
   assert.match(html, /\[hidden\]\{display:none!important\}/);
@@ -283,6 +288,7 @@ const jsonHeaders = { 'content-type': 'application/json' };
     expiresAt: '2026-09-04T01:00:00.000Z',
     idempotent: false,
     canSign: true,
+    canInspectSigning: true,
     accessMode: 'signer',
   });
   assert.equal(fixture.calls.open.length, 1);
@@ -312,13 +318,14 @@ const jsonHeaders = { 'content-type': 'application/json' };
 // in read-only mode, but a submit attempt is rejected before any signature or
 // identity object is stored.
 {
-  const fixture = createFixture({ openResult: { canSign: false, accessMode: 'group_member_read_only', status: 'sent', idempotent: true } });
+  const fixture = createFixture({ openResult: { canSign: false, canInspectSigning: true, accessMode: 'signer_inspection_read_only', status: 'sent', idempotent: true } });
   const opened = await invoke(fixture.handler, {
     method: 'POST', url: CONTRACT_SIGNING_OPEN_PATH, headers: jsonHeaders, body: validOpenBody,
   });
   assert.equal(opened.response.statusCode, 200);
   assert.equal(opened.json.signing.canSign, false);
-  assert.equal(opened.json.signing.accessMode, 'group_member_read_only');
+  assert.equal(opened.json.signing.canInspectSigning, true);
+  assert.equal(opened.json.signing.accessMode, 'signer_inspection_read_only');
 
   const document = await invoke(fixture.handler, {
     method: 'POST', url: CONTRACT_SIGNING_DOCUMENT_PATH, headers: jsonHeaders, body: validOpenBody,

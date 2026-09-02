@@ -1,0 +1,44 @@
+{
+  "id": "AM-IMP-2026.0902.13",
+  "name": "Read-only signer inspection mode",
+  "type": "AM Platform / contracts / signing authorization",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-02",
+  "dependsOn": ["AM-IMP-2026.0902.11"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Show verified non-signer group members the same signer layout for support and position guidance",
+    "Disable all counterparty, identity-upload, signature, consent, and submission controls in inspection mode",
+    "Preserve the designated-signer-only server authorization and evidence boundary"
+  ],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-signing.mjs",
+    "tools/dryrun-engineering-contract-signing-web.mjs",
+    "tools/dryrun-engineering-contract-runtime.mjs",
+    "tools/dryrun-engineering-contract-security-gates.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Inspection exposes only the already-authorized contract signing layout; it does not expose another browser's local entries or grant evidence-write authority."
+  },
+  "definitionOfDone": [
+    "A verified non-signer group member sees the full signer layout with a clear read-only inspection banner",
+    "All form, upload, signature, consent, and submission controls are disabled for the inspector",
+    "The signature location is visibly identified inside the large signature box",
+    "A non-signer submit request is rejected before evidence storage",
+    "Inspection does not change contract status or create signer first-open evidence"
+  ],
+  "files": [
+    "modules/construction/contract-signing.js",
+    "modules/construction/contract-signing-web.js",
+    "tools/dryrun-engineering-contract-signing.mjs",
+    "tools/dryrun-engineering-contract-signing-web.mjs"
+  ]
+}
+
