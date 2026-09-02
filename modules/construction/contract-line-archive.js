@@ -5,6 +5,7 @@ import { renderLineConversationArchive } from './contract-pdf-renderer.js';
 
 const MAX_MESSAGES = 5000;
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
+const STICKER_MARKER = /^\[sticker\]\s+package:([^\s]*)\s+sticker:([^\s]+)$/i;
 
 function archiveError(code, message, statusCode = 400, details = {}) {
   return Object.assign(new Error(message), { code, statusCode, details });
@@ -18,7 +19,31 @@ function canonical(value) {
 }
 function sha256(value) { return crypto.createHash('sha256').update(value).digest('hex'); }
 function driveFileId(url) { return text(url).match(/\/file\/d\/([A-Za-z0-9_-]+)/)?.[1] || ''; }
-function stageLabel(stage) { return stage === 'final_issue' ? '正式確認版送簽前' : '草約送廠商確認前'; }
+function stageLabel(stage) {
+  if (stage === 'final_issue') return '正式確認版送簽前';
+  if (stage === 'historical_supplement') return 'V1 前歷史補充封存';
+  return '草約送廠商確認前';
+}
+
+async function fetchBoundedImage(url, timeoutMs = 12_000) {
+  const parsed = new URL(url);
+  if (parsed.protocol !== 'https:') throw new Error('Only HTTPS media is allowed.');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(parsed, { signal: controller.signal, redirect: 'follow' });
+    if (!response.ok) throw new Error(`Media download failed (${response.status}).`);
+    const contentType = text(response.headers.get('content-type')).split(';')[0].toLowerCase();
+    if (!['image/png', 'image/jpeg'].includes(contentType)) throw new Error('Media is not a supported image.');
+    const length = Number(response.headers.get('content-length') || 0);
+    if (length > MAX_IMAGE_BYTES) throw new Error('Media exceeds the archive limit.');
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (!buffer.length || buffer.length > MAX_IMAGE_BYTES) throw new Error('Media size is invalid.');
+    return { buffer, mimeType: contentType };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function queryAllMessages(deps, groupBindingId, startedAfter, endedAt) {
   if (!deps.dataSources?.messages) throw archiveError('LINE_ARCHIVE_MESSAGES_UNAVAILABLE', '工程 LINE 訊息資料庫尚未設定。', 503);
@@ -54,6 +79,8 @@ async function messageAttachments(deps, messagePageId) {
     const properties = page.properties || {};
     const name = plain(properties['檔案名稱']?.rich_text) || plain(properties['附件項目']?.title) || 'LINE 附件';
     const id = driveFileId(properties['Drive 連結']?.url);
+    const notionFile = properties['檔案']?.files?.[0];
+    const notionUrl = text(notionFile?.file?.url || notionFile?.external?.url);
     const attachment = { name, fileId: id, mimeType: '', sha256: '', buffer: null };
     if (id && typeof deps.downloadFromDrive === 'function') {
       try {
@@ -67,9 +94,35 @@ async function messageAttachments(deps, messagePageId) {
         }
       } catch { /* metadata remains in the immutable archive even when media cannot be embedded */ }
     }
+    if (!attachment.buffer && notionUrl) {
+      try {
+        const downloaded = await fetchBoundedImage(notionUrl);
+        attachment.buffer = downloaded.buffer;
+        attachment.mimeType = downloaded.mimeType;
+        attachment.sha256 = sha256(downloaded.buffer);
+      } catch { /* keep metadata even when the temporary Notion URL is unavailable */ }
+    }
     output.push(attachment);
   }
   return output;
+}
+
+async function stickerAttachment(content) {
+  const match = text(content).match(STICKER_MARKER);
+  if (!match) return [];
+  const stickerId = match[2];
+  if (!/^\d{1,20}$/.test(stickerId)) return [];
+  try {
+    const downloaded = await fetchBoundedImage(
+      `https://stickershop.line-scdn.net/stickershop/v1/sticker/${encodeURIComponent(stickerId)}/android/sticker.png`,
+    );
+    return [{
+      name: `LINE-貼圖-${stickerId}.png`, fileId: '', mimeType: downloaded.mimeType,
+      sha256: sha256(downloaded.buffer), buffer: downloaded.buffer,
+    }];
+  } catch {
+    return [];
+  }
 }
 
 async function normalizedMessages(deps, pages) {
@@ -86,6 +139,7 @@ async function normalizedMessages(deps, pages) {
       attachments: [],
     };
     if (['照片', '檔案'].includes(message.messageType)) message.attachments = await messageAttachments(deps, page.id);
+    if (message.messageType === '貼圖') message.attachments = await stickerAttachment(message.content);
     messages.push(message);
   }
   return messages;
@@ -105,7 +159,9 @@ export function publicLineArchive(row) {
     stageLabel: stageLabel(row.stage), startedAfter: row.started_after, endedAt: row.ended_at,
     messageCount: Number(row.message_count), firstMessageId: row.first_message_id,
     lastMessageId: row.last_message_id, fileName: row.file_name
-      || `V${row.version_no}-${row.stage === 'final_issue' ? '正式送簽前' : '草約送出前'}-LINE對話封存.pdf`,
+      || (row.stage === 'historical_supplement'
+        ? `V${row.version_no}-V1前歷史補充-LINE對話封存.pdf`
+        : `V${row.version_no}-${row.stage === 'final_issue' ? '正式送簽前' : '草約送出前'}-LINE對話封存.pdf`),
     mimeType: 'application/pdf', sha256: row.pdf_sha256, createdAt: row.created_at,
   };
 }
@@ -153,4 +209,4 @@ export async function captureContractLineArchive(deps, input, options = {}) {
   return { ...publicLineArchive({ ...row, file_name: fileName }), driveFileId: stored.driveFileId };
 }
 
-export const __test = { canonical, stageLabel, evidenceManifest, publicLineArchive, driveFileId };
+export const __test = { canonical, stageLabel, evidenceManifest, publicLineArchive, driveFileId, stickerAttachment };

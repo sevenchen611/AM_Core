@@ -25,6 +25,7 @@ Runtime target: `AM_PLATFORM`
 | AM-IMP-2026.0901.08 | Deployed | Cumulative contract-version attachments | Every new version retains all unique V1..Vn files, source-version labels, immutable deduplication, and repair of older omissions | PR #77; commit a6e1a30; Render dep-dabdbb0u01pc73ednoa0 Live; root/health HTTP 200; authenticated workspace markers verified. |
 | AM-IMP-2026.0901.09 | Deployed | Contract attachment opening and immutable exclusion | Correct attachment/archive route binding plus hover × controls that create a new version with persistent exclusions | PR #79; commit c933ce4; Render dep-dabdp0mk1f9s73fig340 Live; root/health HTTP 200; authenticated V4 shows six × controls and production PDF/JPG/PNG attachments open. |
 | AM-IMP-2026.0901.10 | Deployed | Visible attachment removal and LINE archive recovery | Always-visible red × controls plus an explicit archive-count warning and prominent historical LINE backfill action | PR #82/#83; commit bd019ef; Render dep-dabe46gu01pc73ees0g0 Live; V5 has eight visible × controls and reports 3 sent reviews / 0 archives with a 3-version backfill action. |
+| AM-IMP-2026.0902.01 | Installed | Historical LINE evidence and media-complete archives | Private historical PDF supplements, sticker visuals, photo fallback, and merged-contract inclusion | Code, schema v5, UI and dry-run coverage are installed locally; production deployment and approved HZ-CT-001 upload are pending. |
 
 ## Tenant and evidence boundaries
 

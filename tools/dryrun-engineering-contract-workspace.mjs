@@ -67,6 +67,8 @@ assert.match(pageRes.body, /功能上線前送出的草約不會自動補建/);
 assert.match(pageRes.body, /esc\(String\(draftArchiveCount\)\)/);
 assert.match(pageRes.body, /workflowBackfillLineArchives/);
 assert.match(pageRes.body, /line-archives/);
+assert.match(pageRes.body, /補充早期 LINE 對話證據/);
+assert.match(pageRes.body, /line-archive-supplements/);
 assert.match(pageRes.body, /r\.workflowState \|\| r\.signingStatus/);
 assert.doesNotMatch(pageRes.body, /請先上傳三份必要附件/);
 assert.match(pageRes.body, /const CAN_MANAGE = true/);

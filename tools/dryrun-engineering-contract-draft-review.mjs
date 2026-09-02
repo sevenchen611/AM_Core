@@ -315,6 +315,16 @@ assert.equal(archiveListRoute.capability, 'view');
 const archiveBackfillRoute = apiTest.routeFor('POST', '/contracts/api/v2/contracts/contract-1/versions/version-1/line-archives');
 assert.equal(archiveBackfillRoute.operation, 'backfillLineArchives');
 assert.equal(archiveBackfillRoute.capability, 'manage');
+const archiveSupplementRoute = apiTest.routeFor('POST', '/contracts/api/v2/contracts/contract-1/versions/version-1/line-archive-supplements');
+assert.equal(archiveSupplementRoute.operation, 'createLineArchiveSupplement');
+assert.equal(archiveSupplementRoute.capability, 'manage');
+assert.deepEqual(reviewTest.historicalSupplementRange({
+  startedAt: '2026-08-24T00:00:00+08:00', endedAt: '2026-08-28T18:17:00+08:00',
+  messageCount: 26, sourceNote: 'LINE 電腦版匯出與畫面截圖',
+}), {
+  startedAt: '2026-08-23T16:00:00.000Z', endedAt: '2026-08-28T10:17:00.000Z',
+  messageCount: 26, sourceNote: 'LINE 電腦版匯出與畫面截圖',
+});
 const archiveFileRoute = apiTest.routeFor('GET', '/contracts/api/v2/contracts/contract-1/versions/version-1/line-archives/archive-1');
 assert.equal(archiveFileRoute.operation, 'loadInternalLineArchive');
 assert.equal(archiveFileRoute.binary, true);

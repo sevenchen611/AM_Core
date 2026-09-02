@@ -209,6 +209,12 @@ function routeFor(method, pathname) {
       contractId: decodeSegment(match[1]), versionId: decodeSegment(match[2]) };
     return { methodNotAllowed: true, allow: 'GET, POST' };
   }
+  match = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/versions\/([^/]+)\/line-archive-supplements$/);
+  if (match) {
+    if (method !== 'POST') return { methodNotAllowed: true, allow: 'POST' };
+    return { operation: 'createLineArchiveSupplement', capability: 'manage', review: true, body: true,
+      contractId: decodeSegment(match[1]), versionId: decodeSegment(match[2]) };
+  }
   match = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/versions\/([^/]+)\/line-archives\/([^/]+)$/);
   if (method === 'GET' && match) {
     return { operation: 'loadInternalLineArchive', capability: 'view', review: true, binary: true,
