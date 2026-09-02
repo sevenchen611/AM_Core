@@ -1,0 +1,54 @@
+{
+  "id": "AM-IMP-2026.0902.17",
+  "name": "Party A signed PDF handoff",
+  "type": "AM Platform / contracts / staged dual-party PDF signing",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-02",
+  "dependsOn": ["AM-IMP-2026.0902.14", "AM-IMP-2026.0902.16"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Render an individual Party A signature into the PDF shown to Party B",
+    "Preserve the immutable issued PDF reference and original signing hash",
+    "Verify every Party A signature and contract relationship before rendering",
+    "Label every staged page as Party A signed and Party B pending",
+    "Keep final dual-party PDF generation behind Party B signing and internal confirmation"
+  ],
+  "requiresDatabases": ["engineering_contracts schema v9"],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-pdf-renderer.mjs",
+    "tools/dryrun-engineering-contract-runtime.mjs",
+    "tools/dryrun-engineering-contract-signing-web.mjs",
+    "tools/dryrun-engineering-contract-signing.mjs",
+    "tools/dryrun-engineering-contract-completion.mjs",
+    "tools/dryrun-engineering-contract-issuance.mjs",
+    "tools/dryrun-engineering-contract-security-gates.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The staged PDF is produced only from the project-local frozen bundle and contract-bound signature evidence after hash and relationship verification."
+  },
+  "definitionOfDone": [
+    "Party B sees the completed individual Party A signature in the protected PDF",
+    "The PDF clearly says Party B is still pending and is not the final completed version",
+    "The original issued document hash remains the hash acknowledged by both signers",
+    "Invalid or mismatched Party A signature evidence fails closed",
+    "The final completion PDF continues to contain both signatures"
+  ],
+  "files": [
+    "modules/construction/contract-artifacts.js",
+    "modules/construction/contract-draft-review.js",
+    "modules/construction/contract-pdf-renderer.js",
+    "modules/construction/contract-runtime.js",
+    "modules/construction/contract-signing-web.js",
+    "modules/construction/index.js",
+    "tools/dryrun-engineering-contract-pdf-renderer.mjs",
+    "tools/dryrun-engineering-contract-runtime.mjs",
+    "tools/dryrun-engineering-contract-signing-web.mjs"
+  ]
+}
+

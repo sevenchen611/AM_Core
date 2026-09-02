@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 
 const MAX_PDF_BYTES = 30 * 1024 * 1024;
 const MAX_SIGNING_IMAGE_BYTES = 2 * 1024 * 1024;
-const RENDER_KINDS = new Set(['draft_review_pdf', 'issued_pdf', 'signed_pdf']);
+const RENDER_KINDS = new Set(['draft_review_pdf', 'issued_pdf', 'party_a_signed_preview_pdf', 'signed_pdf']);
 
 function artifactError(message, statusCode = 500, code = 'CONTRACT_ARTIFACT_ERROR') {
   return Object.assign(new Error(message), { statusCode, code });

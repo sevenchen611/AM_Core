@@ -11,7 +11,7 @@ const MAX_SIGNATURE_BYTES = 2 * 1024 * 1024;
 const MAX_IDENTITY_DOCUMENT_BYTES = 8 * 1024 * 1024;
 const MAX_CACHE_ENTRIES = 200;
 const CACHE_TTL_MS = 15 * 60 * 1000;
-const KINDS = new Set(['draft_review_pdf', 'issued_pdf', 'signed_pdf']);
+const KINDS = new Set(['draft_review_pdf', 'issued_pdf', 'party_a_signed_preview_pdf', 'signed_pdf']);
 const PAGE = Object.freeze({ size: 'A4', margin: 48, width: 595.28, height: 841.89 });
 const FONT_CSS = fileURLToPath(new URL('../../node_modules/@fontsource-variable/noto-sans-tc/index.css', import.meta.url));
 // PDFKit/fontkit can read the Fontsource variable WOFF2 files, but its PDF
@@ -117,7 +117,7 @@ function money(value, currency = 'TWD') {
 
 function packageFrom(payload) {
   const version = payload.version || {};
-  const snapshot = first(version, ['snapshot', 'contract_snapshot'], {}) || {};
+  const snapshot = first(version, ['snapshot', 'contractSnapshot', 'contract_snapshot'], {}) || {};
   return first(version, ['documentPackage', 'contractPackage', 'package'],
     first(snapshot, ['documentPackage', 'contractPackage', 'package'], {})) || {};
 }
@@ -146,7 +146,7 @@ function validatePayload(payload) {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
     throw rendererError('INVALID_RENDER_PAYLOAD', 'PDF render body must be a JSON object.');
   }
-  if (!KINDS.has(payload.kind)) throw rendererError('INVALID_RENDER_KIND', 'kind must be draft_review_pdf, issued_pdf, or signed_pdf.');
+  if (!KINDS.has(payload.kind)) throw rendererError('INVALID_RENDER_KIND', 'kind must be draft_review_pdf, issued_pdf, party_a_signed_preview_pdf, or signed_pdf.');
   if (!payload.contract || typeof payload.contract !== 'object' || !payload.version || typeof payload.version !== 'object') {
     throw rendererError('CONTRACT_RENDER_DATA_REQUIRED', 'contract and version are required.');
   }
@@ -179,6 +179,17 @@ function validatePayload(payload) {
       if (!image.length || image.length > MAX_IDENTITY_DOCUMENT_BYTES) {
         throw rendererError('IDENTITY_DOCUMENT_IMAGE_SIZE', 'Identity document image size is invalid.', 413, { side });
       }
+    }
+  }
+  if (payload.kind === 'party_a_signed_preview_pdf') {
+    const partyAAssets = payload.partyASigningAssets || {};
+    const signature = partyAAssets.signature || {};
+    const bytes = Buffer.from(clean(signature.base64), 'base64');
+    if (partyAAssets.profileType !== 'individual' || !bytes.length || bytes.length > MAX_SIGNATURE_BYTES
+        || !/^[a-f0-9]{64}$/i.test(clean(signature.sha256))
+        || !/^[a-f0-9]{64}$/i.test(clean(payload.documentHash))
+        || !clean(payload.times?.partyASignedAt)) {
+      throw rendererError('PARTY_A_PREVIEW_EVIDENCE_REQUIRED', 'Party A signed preview requires the individual signature, original document hash, and signed time.', 422);
     }
   }
   return payload;
@@ -757,7 +768,7 @@ function signatureImage(doc, writer, signature, label) {
 }
 
 function renderPartyASigningAssets(doc, writer, payload) {
-  if (payload.kind !== 'signed_pdf') return;
+  if (!['signed_pdf', 'party_a_signed_preview_pdf'].includes(payload.kind)) return;
   const assets = payload.partyASigningAssets || {};
   if (assets.profileType === 'company') {
     signatureImage(doc, writer, assets.large_seal, '甲方公司大章');
@@ -767,17 +778,24 @@ function renderPartyASigningAssets(doc, writer, payload) {
 }
 
 function renderSigningSection(doc, writer, payload, parties, fields) {
+  const partyAPreview = payload.kind === 'party_a_signed_preview_pdf';
   writer.heading('立約及簽署');
   writer.gridRows([
     ['資料項目', '甲方', '乙方'],
     ['主體／姓名', parties.partyA.organization || parties.partyA.representative || '未提供', parties.partyB.organization || parties.partyB.representative || '未提供'],
     ['代表人／簽約人', parties.partyA.representative || '未提供', parties.partyB.representative || '未提供'],
     ['立約日期', clean(fields.signingDate) || '未提供', clean(fields.signingDate) || '未提供'],
-    ['簽署方式', payload.kind === 'signed_pdf' ? (payload.partyASigningAssets?.profileType === 'company' ? '公司大章' : '個人簽名') : '待正式確認', payload.kind === 'signed_pdf' ? '電子簽名' : '待正式簽署'],
+    ['簽署方式', payload.kind === 'signed_pdf' || partyAPreview ? (payload.partyASigningAssets?.profileType === 'company' ? '公司大章' : '個人簽名（已完成）') : '待正式確認', payload.kind === 'signed_pdf' ? '電子簽名' : '待乙方簽署'],
   ], [100, 199.5, 199.5], { headerRows: 1, size: 8.5, after: 8 });
   if (payload.kind === 'signed_pdf') {
     writer.labelValue('甲方確認人', clean(payload.confirmedBy) || parties.partyA.representative || '未提供');
     writer.labelValue('甲方確認時間', formatTime(payload.times?.confirmedAt));
+  } else if (partyAPreview) {
+    writer.labelValue('甲方簽署人', clean(payload.partyASignerName) || parties.partyA.representative || '未提供');
+    writer.labelValue('甲方簽署時間', formatTime(payload.times?.partyASignedAt));
+    writer.paragraph('目前僅甲方完成簽署；乙方簽名完成後，系統才會產生雙方電子簽署完成版。', {
+      size: 9.5, color: '#9a6700', lineHeight: 16, after: 6,
+    });
   } else {
     writer.paragraph('甲方簽章／電子確認：＿＿＿＿＿＿＿＿＿＿', { size: 9.5, lineHeight: 16, after: 4 });
   }
@@ -847,7 +865,8 @@ function renderContractPdf(payload) {
   const times = payload.times || {};
   const createdAt = payload.kind === 'signed_pdf'
     ? first(times, ['confirmedAt', 'signedAt', 'issuedAt'])
-    : first(version, ['issuedAt', 'issued_at', 'frozenAt', 'frozen_at', 'createdAt', 'created_at']);
+    : (payload.kind === 'party_a_signed_preview_pdf' ? first(times, ['partyASignedAt', 'issuedAt'])
+    : first(version, ['issuedAt', 'issued_at', 'frozenAt', 'frozen_at', 'createdAt', 'created_at']));
   const doc = new PDFDocument({
     size: PAGE.size,
     margins: { top: PAGE.margin, right: PAGE.margin, bottom: 60, left: PAGE.margin },
@@ -857,7 +876,8 @@ function renderContractPdf(payload) {
       Title: clean(first(contract, ['title', 'contractTitle', 'contract_title'])) || '工程合約',
       Author: '工程 AM',
       Subject: payload.kind === 'signed_pdf' ? '工程合約簽署完成文件'
-        : (payload.kind === 'draft_review_pdf' ? '工程合約草約審閱文件' : '工程合約簽發文件'),
+        : (payload.kind === 'party_a_signed_preview_pdf' ? '工程合約甲方已簽署、乙方待簽文件'
+          : (payload.kind === 'draft_review_pdf' ? '工程合約草約審閱文件' : '工程合約簽發文件')),
       CreationDate: safeDate(createdAt),
       ModDate: safeDate(createdAt),
     },
@@ -868,8 +888,10 @@ function renderContractPdf(payload) {
   const fields = documentPackage.contractFields || {};
 
   const isDraftReview = payload.kind === 'draft_review_pdf';
+  const isPartyAPreview = payload.kind === 'party_a_signed_preview_pdf';
   writer.paragraph(payload.kind === 'signed_pdf' ? '工程合約 - 電子簽署完成版'
-    : (isDraftReview ? '工程合約草約 - 僅供討論' : '工程合約 - 正式簽發版'), {
+    : (isPartyAPreview ? '工程合約 - 甲方已簽署／乙方待簽'
+      : (isDraftReview ? '工程合約草約 - 僅供討論' : '工程合約 - 正式簽發版')), {
     size: 20, color: '#0f2742', lineHeight: 30, after: 2,
   });
   writer.paragraph(`文件版本 v${first(version, ['versionNo', 'version_no'], '1')} ｜ 由工程 AM 產製`, { size: 9, color: '#64748b', after: 10 });
@@ -880,6 +902,11 @@ function renderContractPdf(payload) {
     const missing = Array.isArray(payload.missingSections) ? payload.missingSections.filter(Boolean) : [];
     writer.paragraph(missing.length ? `尚待雙方確認：${missing.join('、')}` : '目前資料已具備；仍以最後正式簽署版本為準。', {
       size: 10, color: '#991b1b', lineHeight: 17, after: 8,
+    });
+  }
+  if (isPartyAPreview) {
+    writer.paragraph('本文件已套入本次合約的甲方線上簽名，但乙方尚未完成簽署；本頁不是雙方電子簽署完成版。', {
+      size: 11, color: '#9a6700', lineHeight: 19, after: 8,
     });
   }
   writer.rule();
@@ -966,6 +993,14 @@ function renderContractPdf(payload) {
       ? `${formatTime(payload.verification.identityDocumentsReceivedAt?.back)}／SHA-256 ${clean(payload.verification.identityDocumentHashes?.back)}`
       : '未驗證');
   }
+  if (isPartyAPreview) {
+    writer.heading('甲方階段簽署證據');
+    writer.labelValue('甲方簽署人', clean(payload.partyASignerName) || parties.partyA.representative || '未提供');
+    writer.labelValue('甲方簽署時間', formatTime(times.partyASignedAt));
+    writer.labelValue('原始簽發文件 SHA-256', payload.documentHash);
+    writer.labelValue('甲方簽名 SHA-256', payload.partyASigningAssets?.signature?.sha256);
+    writer.labelValue('乙方簽署狀態', '待乙方完成');
+  }
   renderIdentityDocuments(doc, writer, payload);
 
   const range = doc.bufferedPageRange();
@@ -981,7 +1016,7 @@ function renderContractPdf(payload) {
       doc.restore();
       doc.opacity(1);
     }
-    writer.fixedText(`${isDraftReview ? '草約｜僅供討論｜不得簽署  |  ' : ''}Engineering AM  |  ${index + 1} / ${range.count}`, {
+    writer.fixedText(`${isDraftReview ? '草約｜僅供討論｜不得簽署  |  ' : ''}${isPartyAPreview ? '甲方已簽署｜乙方待簽｜非雙方完成版  |  ' : ''}Engineering AM  |  ${index + 1} / ${range.count}`, {
       x: PAGE.margin, y: PAGE.height - 90, width: PAGE.width - (PAGE.margin * 2), align: 'center', size: 8,
     });
   }

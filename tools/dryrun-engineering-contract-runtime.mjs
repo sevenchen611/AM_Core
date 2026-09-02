@@ -117,4 +117,67 @@ const loaded = await loadContractPdf({
 });
 assert.deepEqual(loaded.buffer, pdf);
 
+const originalHash = createHash('sha256').update(pdf).digest('hex');
+const partyASignature = Buffer.concat([
+  Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+  Buffer.from('contract-bound-party-a-signature'),
+]);
+const partyASignatureHash = createHash('sha256').update(partyASignature).digest('hex');
+const previewPdf = Buffer.from('%PDF-1.7\nparty-a-signed-preview\n%%EOF');
+const previewCalls = [];
+const preview = await loadContractPdf({
+  tenant: { key: 'engineering' },
+  downloadFromDrive: async (fileId) => {
+    if (fileId === 'drive-file-123456') return { buffer: pdf, contentType: 'application/pdf' };
+    if (fileId === 'drive-party-a-signature') return { buffer: partyASignature, contentType: 'image/png' };
+    throw new Error(`unexpected Drive file ${fileId}`);
+  },
+  contractStore: {
+    getSigningBundle: async () => ({
+      contract: { id: 'contract-001', projectId: 'project-001', contractNumber: 'HZ-CT-001' },
+      version: {
+        id: 'version-013', versionNo: 13, issuedPdfSha256: originalHash,
+        bundleSha256: 'b'.repeat(64), issuedAt: '2026-09-02T01:00:00.000Z',
+        contractSnapshot: { documentPackage: { contractFields: {
+          partyAProfileType: 'individual', partyAProfileId: 'party-a-001',
+          partyAOrganization: '陳聖文', partyARepresentative: '陳聖文',
+        } } },
+      },
+      session: { externalSessionId: 'signing-session-013', versionId: 'version-013', issuedAt: '2026-09-02T01:00:00.000Z' },
+    }),
+  },
+}, {
+  documentRef: 'https://drive.google.com/file/d/drive-file-123456/view',
+  documentHash: originalHash,
+  sessionId: 'signing-session-013',
+  partyASigned: true,
+}, {
+  signingState: {
+    id: 'signing-session-013',
+    partyASubmission: {
+      documentHash: originalHash,
+      signatureHash: partyASignatureHash,
+      submissionRef: 'drive-party-a-signature',
+      signatureByteSize: partyASignature.length,
+      signatureContentType: 'image/png',
+      receivedAt: '2026-09-02T02:03:04.000Z',
+    },
+  },
+  bodyExtractor: async () => ({ text: '合約本文', html: '<p>合約本文</p>' }),
+  artifactService: {
+    renderPdf: async (kind, payload, key) => {
+      previewCalls.push({ kind, payload, key });
+      return { buffer: previewPdf, sha256: createHash('sha256').update(previewPdf).digest('hex'), byteSize: previewPdf.length };
+    },
+  },
+});
+assert.equal(preview.viewKind, 'party_a_signed_preview_pdf');
+assert.deepEqual(preview.buffer, previewPdf);
+assert.equal(preview.originalSha256, originalHash);
+assert.equal(previewCalls[0].kind, 'party_a_signed_preview_pdf');
+assert.equal(previewCalls[0].payload.partyASigningAssets.signature.sha256, partyASignatureHash);
+assert.equal(previewCalls[0].payload.partyASignerName, '陳聖文');
+assert.equal(previewCalls[0].payload.documentHash, originalHash);
+assert.match(previewCalls[0].key, /signing-session-013/);
+
 console.log('Engineering contract runtime dry-run passed: LINE group adapter, LIFF membership, config gates, and Drive signature evidence verified.');

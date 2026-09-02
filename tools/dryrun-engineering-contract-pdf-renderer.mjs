@@ -65,6 +65,17 @@ function payload(kind = 'issued_pdf') {
       confirmedAt: '2026-08-28T01:07:00.000Z',
     },
   });
+  if (kind === 'party_a_signed_preview_pdf') Object.assign(value, {
+    immutable: true,
+    bundleHash: 'd'.repeat(64),
+    documentHash: 'e'.repeat(64),
+    partyASignerName: '甲方代表',
+    partyASigningAssets: {
+      profileType: 'individual',
+      signature: { mimeType: 'image/png', base64: ONE_PIXEL_PNG, sha256: '9'.repeat(64) },
+    },
+    times: { issuedAt: '2026-08-28T01:00:00.000Z', partyASignedAt: '2026-08-28T01:04:00.000Z' },
+  });
   return value;
 }
 
@@ -163,6 +174,15 @@ let signed;
   assert.equal(result.res.headers['X-Content-Sha256'], crypto.createHash('sha256').update(signed).digest('hex'));
 }
 
+let partyAPreview;
+{
+  const result = await invoke(handler, payload('party_a_signed_preview_pdf'), TOKEN, 'engineering-contract-render:party-a-preview:1');
+  partyAPreview = result.res.buffer;
+  assert.equal(result.res.statusCode, 200);
+  assert.equal(partyAPreview.subarray(0, 5).toString(), '%PDF-');
+  assert.equal(result.res.headers['X-Content-Sha256'], crypto.createHash('sha256').update(partyAPreview).digest('hex'));
+}
+
 const issuedText = (await extractText(issued)).replace(/\s+/g, '');
 assert.match(issuedText, /泥作工程承攬合約/);
 assert.match(issuedText, /付款條件/);
@@ -189,5 +209,13 @@ assert.match(signedText, /驗證收件時間/);
 assert.match(signedText, /簽署時間/);
 assert.match(signedText, /我方確認時間/);
 assert.match(signedText, new RegExp('d{64}'.replace('d', 'd')));
+
+const partyAPreviewText = (await extractText(partyAPreview)).replace(/\s+/g, '');
+assert.match(partyAPreviewText, /甲方已簽署／乙方待簽/);
+assert.match(partyAPreviewText, /甲方個人簽名/);
+assert.match(partyAPreviewText, /甲方階段簽署證據/);
+assert.match(partyAPreviewText, /甲方簽名SHA-2569{64}/);
+assert.match(partyAPreviewText, /乙方簽署狀態待乙方完成/);
+assert.match(partyAPreviewText, /非雙方完成版/);
 
 console.log('Engineering contract PDF renderer dry-run passed: Bearer auth, idempotency, PDF/hash headers, complete TC subsets, Chinese extraction, and signed evidence.');
