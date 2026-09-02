@@ -3,7 +3,7 @@
   "name": "Party A signed PDF handoff",
   "type": "AM Platform / contracts / staged dual-party PDF signing",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-09-02",
   "dependsOn": ["AM-IMP-2026.0902.14", "AM-IMP-2026.0902.16"],
   "installTargets": ["AM_PLATFORM:engineering"],
@@ -51,4 +51,3 @@
     "tools/dryrun-engineering-contract-signing-web.mjs"
   ]
 }
-
