@@ -3,7 +3,7 @@
   "name": "Structured contract fields, signatures, and identity appendix",
   "type": "AM Platform / contracts / authoring and evidence PDF",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-09-02",
   "dependsOn": ["AM-IMP-2026.0902.02", "AM-IMP-2026.0901.03", "AM-IMP-2026.0901.07"],
   "installTargets": ["AM_PLATFORM:engineering"],
