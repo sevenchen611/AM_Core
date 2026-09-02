@@ -118,14 +118,6 @@ await db.exec(`
     event_type text not null check (event_type in ('issued','sent','delivery_ack','first_opened','signed','submission_received','confirmed','completed','revoked','expired'))
   );
 `);
-const v7Url = new URL('../versions/AM-IMP-2026.0902.12/schemas/engineering-contract-party-a-dual-signing-v7.sql', import.meta.url);
-const rawV7 = await fs.readFile(v7Url, 'utf8');
-const migrationV7 = rawV7.split(/\r?\n/)
-  .filter((line) => !/^\\/.test(line.trim()) && !/^\s*GRANT\b/i.test(line))
-  .join('\n');
-await db.exec(migrationV7);
-const version = await db.query('SELECT version FROM engineering_contracts.schema_meta WHERE singleton=true');
-assert.equal(version.rows[0].version, '2026-09-02.engineering-contract-evidence.v7');
 const columns = await db.query("SELECT column_name FROM information_schema.columns WHERE table_schema='engineering_contracts' AND table_name='party_a_profiles'");
 assert.ok(columns.rows.some((row) => row.column_name === 'assets'));
 const v8Url = new URL('../versions/AM-IMP-2026.0902.14/schemas/engineering-contract-party-a-online-signing-v8.sql', import.meta.url);
@@ -136,9 +128,55 @@ const migrationV8 = rawV8.split(/\r?\n/)
 await db.exec(migrationV8);
 const versionV8 = await db.query('SELECT version FROM engineering_contracts.schema_meta WHERE singleton=true');
 assert.equal(versionV8.rows[0].version, '2026-09-02.engineering-contract-evidence.v8');
+await assert.rejects(db.query(`
+  INSERT INTO engineering_contracts.party_a_profiles
+    (profile_type, display_name, legal_name, representative, identity_number, address, assets, created_by, updated_by)
+  VALUES ('individual', '遷移前個人', '遷移前個人', '遷移前個人', 'A123456789', '臺中市', '{}'::jsonb, 'test', 'test')
+`), /party_a_profiles_check|check constraint/i, 'schema v8 without v7 still has the stale reusable-signature check');
+
+const v9Url = new URL('../versions/AM-IMP-2026.0902.15/schemas/engineering-contract-party-a-profile-constraint-v9.sql', import.meta.url);
+const rawV9 = await fs.readFile(v9Url, 'utf8');
+const migrationV9 = rawV9.split(/\r?\n/)
+  .filter((line) => !/^\\/.test(line.trim()) && !/^\s*GRANT\b/i.test(line))
+  .join('\n');
+await db.exec(migrationV9);
+const versionV9 = await db.query('SELECT version FROM engineering_contracts.schema_meta WHERE singleton=true');
+assert.equal(versionV9.rows[0].version, '2026-09-02.engineering-contract-evidence.v9');
+
+await db.query(`
+  INSERT INTO engineering_contracts.party_a_profiles
+    (profile_type, display_name, legal_name, representative, identity_number, address, assets, created_by, updated_by)
+  VALUES ('individual', '個人免簽名', '個人免簽名', '個人免簽名', 'A123456789', '臺中市', '{}'::jsonb, 'test', 'test')
+`);
+await assert.rejects(db.query(`
+  INSERT INTO engineering_contracts.party_a_profiles
+    (profile_type, display_name, legal_name, representative, identity_number, address, assets, created_by, updated_by)
+  VALUES ('individual', '個人含簽名', '個人含簽名', '個人含簽名', 'B123456789', '臺中市',
+          '{"signature":{"fileId":"legacy"}}'::jsonb, 'test', 'test')
+`), /engineering_contract_party_a_profile_requirements_check|check constraint/i);
+await assert.rejects(db.query(`
+  INSERT INTO engineering_contracts.party_a_profiles
+    (profile_type, display_name, legal_name, tax_id, responsible_person, representative, address, assets, created_by, updated_by)
+  VALUES ('company', '公司無大章', '公司無大章', '12345678', '負責人', '負責人', '臺中市', '{}'::jsonb, 'test', 'test')
+`), /engineering_contract_party_a_profile_requirements_check|check constraint/i);
+
 for (const eventType of ['party_a_signer_assigned', 'party_a_first_opened', 'party_a_signed', 'party_a_submission_received']) {
   await db.query('INSERT INTO engineering_contracts.signing_events(event_type) VALUES($1)', [eventType]);
 }
+
+const versionId = '11111111-1111-4111-8111-111111111111';
+const sessionId = '22222222-2222-4222-8222-222222222222';
+await db.query(`INSERT INTO engineering_contracts.contract_versions(id, contract_snapshot)
+  VALUES ($1, '{"documentPackage":{"contractFields":{"partyAProfileType":"individual"}}}'::jsonb)`, [versionId]);
+await db.query('INSERT INTO engineering_contracts.signing_sessions(id, version_id, status) VALUES($1,$2,$3)',
+  [sessionId, versionId, 'signed']);
+await assert.rejects(db.query("UPDATE engineering_contracts.signing_sessions SET status='confirmed' WHERE id=$1", [sessionId]),
+  /requires one immutable contract-specific signature artifact/i);
+await db.query(`INSERT INTO engineering_contracts.artifacts(version_id, signing_session_id, artifact_kind)
+  VALUES($1,$2,'party_a_signature_image')`, [versionId, sessionId]);
+await db.query("UPDATE engineering_contracts.signing_sessions SET status='confirmed' WHERE id=$1", [sessionId]);
+const confirmed = await db.query('SELECT status FROM engineering_contracts.signing_sessions WHERE id=$1', [sessionId]);
+assert.equal(confirmed.rows[0].status, 'confirmed');
 await db.close();
 
-console.log('Engineering Party A profile dry-run passed: reusable signatures are rejected, LINE signing UI renders, and schema v8 Party A events are verified.');
+console.log('Engineering Party A profile dry-run passed: schema v9 repairs the v6-to-v8 constraint gap, rejects reusable signatures, and preserves contract-bound dual signing.');
