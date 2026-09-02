@@ -453,6 +453,28 @@ function articleNumber(value) {
   return match ? names.indexOf(match[1]) + 1 : 0;
 }
 
+function structuredClauseBlock(block, article, fields, contract) {
+  if (block?.type === 'table') return block;
+  let value = clean(block?.text);
+  if (article === 11) {
+    if (fields.warrantyMonths !== undefined && fields.warrantyMonths !== null && clean(fields.warrantyMonths)) {
+      value = value.replace(/保固\s*(?:\d+(?:\.\d+)?|[一二三四五六七八九十]+)\s*(?:年|個月|月)/g, `保固 ${fields.warrantyMonths} 個月`);
+    }
+    if (fields.performanceBondPercent !== undefined && fields.performanceBondPercent !== null && clean(fields.performanceBondPercent)) {
+      value = value.replace(/(工程總價(?:款)?)\s*\d+(?:\.\d+)?\s*%/g, `$1 ${fields.performanceBondPercent}%`);
+    }
+    const amount = Number(fields.performanceBondAmount);
+    if (Number.isFinite(amount) && amount >= 0 && /履約保證|本票/.test(value)) {
+      value = value.replace(/新臺幣\s*[\d,]+\s*元整/g, `新臺幣 ${new Intl.NumberFormat('zh-TW').format(amount)} 元整`);
+    }
+  }
+  if (article === 12 && fields.delayPenaltyPercent !== undefined
+    && fields.delayPenaltyPercent !== null && clean(fields.delayPenaltyPercent)) {
+    value = value.replace(/(工程總價(?:款)?)\s*\d+(?:\.\d+)?\s*%/g, `$1 ${fields.delayPenaltyPercent}%`);
+  }
+  return { ...block, text: value };
+}
+
 function renderStructuredContractBody(writer, blocks, payments, acceptance, contract, fields = {}) {
   let paymentRendered = false;
   let acceptanceRendered = false;
@@ -539,34 +561,14 @@ function renderStructuredContractBody(writer, blocks, payments, acceptance, cont
       acceptanceRendered = true;
       insideAcceptance = false;
     }
-    if (structured && nextArticle === 11) {
-      writer.documentBlocks([block]);
-      const months = fields.warrantyMonths ?? 12;
-      const percent = fields.performanceBondPercent ?? 10;
-      const amount = fields.performanceBondAmount ?? (Number(fields.contractAmount ?? contract.amount) * Number(percent) / 100);
-      writer.paragraph(`本工程自驗收合格之日起由乙方保固 ${clean(months) || '未提供'} 個月。保固期內如因施工、材料或工藝瑕疵而有損壞，乙方應依約免費修護或更換。`, {
-        size: 9.5, lineHeight: 16, after: 4,
-      });
-      writer.paragraph(`乙方應提供工程總價 ${clean(percent) || '未提供'}%（${money(amount, contract.currency)}）之履約保證本票；保固期滿且無未解決瑕疵爭議後，由甲方依約返還。`, {
-        size: 9.5, lineHeight: 16, after: 4,
-      });
-      skipArticle = 11;
-      continue;
-    }
-    if (structured && nextArticle === 12) {
-      writer.documentBlocks([block]);
-      writer.paragraph(`工程未於約定期限完成時，每逾一日，乙方應按工程總價 ${clean(fields.delayPenaltyPercent) || '未提供'}% 計付違約金；甲方得依合約約定自應付工程款中扣除。`, {
-        size: 9.5, lineHeight: 16, after: 4,
-      });
-      skipArticle = 12;
-      continue;
-    }
     if (/\{\{ACCEPTANCE_(?:CRITERIA|STANDARDS)_TABLE\}\}/i.test(value) && acceptance.length) {
       acceptanceTable(writer, acceptance);
       acceptanceRendered = true;
       continue;
     }
-    writer.documentBlocks([block]);
+    writer.documentBlocks([structured && (currentArticle === 11 || currentArticle === 12)
+      ? structuredClauseBlock(block, currentArticle, fields, contract)
+      : block]);
   }
   if (insideAcceptance && acceptance.length && !acceptanceRendered) {
     writer.paragraph('本工程具體驗收項目、驗證方式及合格條件，以本條下列專案驗收標準表為準。', {

@@ -9,7 +9,7 @@
   "installTargets": ["AM_PLATFORM:engineering"],
   "scope": [
     "Versioned project, party, schedule, warranty, bond, note, and penalty fields",
-    "Duplicate Word-field suppression with Article 3 structured body start",
+    "Duplicate Word-field suppression with Article 3 structured body start and standard-clause preservation",
     "Formal issue-readiness gate for required legal fields",
     "Party A confirmation and Party B signature positions",
     "Contractor signature reuse on a single-page promissory note",
