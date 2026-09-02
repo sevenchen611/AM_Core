@@ -1,6 +1,6 @@
 # AM-IMP-2026.0902.07 - LINE group contract read-only access
 
-Status: Installed
+Status: Deployed
 
 ## Engineering installation
 
@@ -16,7 +16,10 @@ Status: Installed
 
 ## Verification boundary
 
-Local signing, web, runtime, and security-gate dry-runs pass. Production
-deployment and live-link verification are pending. No new LINE invitation is
-required because an existing unexpired protected link uses the updated runtime
-authorization after deployment.
+Local signing, web, runtime, and security-gate dry-runs pass. PR #99 was merged
+at commit `314930b`; Render deployment `dep-dabvaruq1p3s739pt40g` reached Live.
+The public health and signing pages returned HTTP 200 and served both the
+group-member read-only marker and designated-signer gate. The authenticated
+Engineering AM remained ready and HZ-CT-001 remained in the sent state. No new
+LINE invitation or signing action was triggered during verification; the
+existing unexpired V12 link uses the new authorization rules immediately.
