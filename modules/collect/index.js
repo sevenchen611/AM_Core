@@ -25,6 +25,13 @@ function init(injected) { platform = injected; }
 function mapMessageType(type) {
   return { text: '文字', image: '照片', file: '檔案', sticker: '貼圖' }[type] || '其他';
 }
+function storedMessageContent(message = {}) {
+  if (message.type === 'text') return String(message.text || '');
+  if (message.type === 'sticker') {
+    return `[sticker] package:${String(message.packageId || '')} sticker:${String(message.stickerId || '')}`;
+  }
+  return '';
+}
 
 // 會議錄音判定(與 meetings.isAudio 同準則):音檔訊息或音檔副檔名的檔案。
 // collect 據此把「會議錄音」排除在附件流程外——大音檔由 meetings 自己存 Drive,避免重複下載+上傳。
@@ -79,7 +86,7 @@ async function onMessage(ctx) {
   const messageId = String(message.id || '');
   const eventTime = new Date(event?.timestamp || Date.now()).toISOString();
   const messageType = mapMessageType(message.type);
-  const text = message.type === 'text' ? String(message.text || '') : '';
+  const text = storedMessageContent(message);
 
   // 成員對照:名字→userId(新對照寫回綁定頁);已記過零成本
   syncMemberMap(ctx);
@@ -202,4 +209,4 @@ export default {
 };
 
 // 測試用內部匯出(不影響正式流程)
-export const __test = { mapMessageType, isMeetingAudio, storeAttachment, syncMemberMap };
+export const __test = { mapMessageType, storedMessageContent, isMeetingAudio, storeAttachment, syncMemberMap };

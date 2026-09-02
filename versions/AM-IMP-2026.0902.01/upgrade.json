@@ -1,0 +1,47 @@
+{
+  "id": "AM-IMP-2026.0902.01",
+  "name": "Historical LINE evidence and media-complete archives",
+  "type": "AM Platform / contracts / evidence",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-02",
+  "dependsOn": ["AM-IMP-2026.0901.10"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Private historical LINE evidence supplements",
+    "Sticker visual preservation",
+    "Photo attachment fallback",
+    "Current and future merged-contract inclusion"
+  ],
+  "requiresDatabases": ["Engineering contract PostgreSQL schema v5"],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-line-archive-schema.mjs",
+    "tools/dryrun-engineering-contract-line-archive.mjs",
+    "tools/dryrun-engineering-contract-line-media.mjs",
+    "tools/dryrun-engineering-contract-draft-review.mjs",
+    "tools/dryrun-engineering-contract-workspace.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Historical chat PDFs remain in the selected Engineering contract's private Drive and tenant-scoped evidence rows."
+  },
+  "definitionOfDone": [
+    "Authorized managers can add an immutable historical LINE evidence PDF",
+    "The supplement opens separately and appears in current and future merged PDFs",
+    "New sticker messages retain identifiers and render their visual evidence",
+    "Photo evidence can be recovered from private Drive or Notion attachment storage",
+    "Schema, workflow, archive and workspace dry-runs pass"
+  ],
+  "files": [
+    "modules/collect/index.js",
+    "modules/construction/contract-line-archive.js",
+    "modules/construction/contract-draft-review.js",
+    "modules/construction/contract-workflow-api.js",
+    "modules/construction/contracts.js",
+    "versions/AM-IMP-2026.0902.01/schemas/engineering-contract-line-archive-v5.sql"
+  ]
+}

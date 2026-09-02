@@ -209,6 +209,37 @@ function contractGroupId(contract) {
   return text(contract.groupBindingId || contract.group_binding_id || contract.group_binding_notion_page_id);
 }
 
+function historicalSupplementFile(input) {
+  const file = input?.file;
+  if (!file || typeof file !== 'object' || Array.isArray(file)) {
+    throw reviewError('LINE_ARCHIVE_SUPPLEMENT_FILE_REQUIRED', '請先上傳歷史 LINE 對話 PDF。', 422);
+  }
+  const name = text(file.name).slice(0, 300);
+  const mimeType = text(file.mimeType).toLowerCase();
+  const hash = text(file.sha256).toLowerCase();
+  const id = text(file.fileId);
+  if (!name || mimeType !== 'application/pdf' || !id || !/^[a-f0-9]{64}$/.test(hash)) {
+    throw reviewError('LINE_ARCHIVE_SUPPLEMENT_FILE_INVALID', '歷史補充檔必須是已驗證的 PDF。', 422);
+  }
+  return { name, mimeType, sha256: hash, fileId: id, sizeBytes: Number(file.sizeBytes || 0) };
+}
+
+function historicalSupplementRange(input) {
+  const startedAt = new Date(text(input.startedAt));
+  const endedAt = new Date(text(input.endedAt));
+  if (!Number.isFinite(startedAt.getTime()) || !Number.isFinite(endedAt.getTime())
+      || endedAt.getTime() <= startedAt.getTime()) {
+    throw reviewError('LINE_ARCHIVE_SUPPLEMENT_RANGE_INVALID', '請填寫正確的歷史對話起訖時間。', 422);
+  }
+  const messageCount = Number(input.messageCount);
+  if (!Number.isInteger(messageCount) || messageCount < 0 || messageCount > 100000) {
+    throw reviewError('LINE_ARCHIVE_SUPPLEMENT_COUNT_INVALID', '歷史對話則數不正確。', 422);
+  }
+  const sourceNote = text(input.sourceNote).slice(0, 2000);
+  if (sourceNote.length < 4) throw reviewError('LINE_ARCHIVE_SUPPLEMENT_SOURCE_REQUIRED', '請註明歷史紀錄來源。', 422);
+  return { startedAt: startedAt.toISOString(), endedAt: endedAt.toISOString(), messageCount, sourceNote };
+}
+
 function requestEvidence(req) {
   const headers = req?.headers || {};
   const remote = text(req?.socket?.remoteAddress).replace(/^::ffff:/, '');
@@ -484,6 +515,45 @@ export function createContractDraftReviewService(deps, options = {}) {
     return { createdOrExisting: output.length, archives: output };
   }
 
+  async function createLineArchiveSupplement(context, input = {}) {
+    const detail = await management.getContractDetail(context, { contractId: input.contractId });
+    const requestedVersion = detail.versions.find((item) => item.id === text(input.versionId));
+    if (!requestedVersion) throw reviewError('DRAFT_REVIEW_VERSION_NOT_FOUND', '找不到這個合約版本。', 404);
+    const version = [...detail.versions].sort((left, right) => Number(left.versionNo) - Number(right.versionNo))[0];
+    if (!version) throw reviewError('DRAFT_REVIEW_VERSION_NOT_FOUND', '找不到可掛載歷史證據的合約版本。', 404);
+    const file = historicalSupplementFile(input);
+    const range = historicalSupplementRange(input);
+    const privacy = await deps.auditDrivePrivate?.(file.fileId);
+    if (privacy?.private !== true) throw reviewError('LINE_ARCHIVE_SUPPLEMENT_NOT_PRIVATE', '歷史對話 PDF 必須保持私有。', 409);
+    const downloaded = await deps.downloadFromDrive(file.fileId, MAX_SOURCE_BYTES);
+    if (!Buffer.isBuffer(downloaded?.buffer) || !downloaded.buffer.length) {
+      throw reviewError('LINE_ARCHIVE_SUPPLEMENT_UNAVAILABLE', '無法重新讀取歷史對話 PDF。', 502);
+    }
+    const actualHash = crypto.createHash('sha256').update(downloaded.buffer).digest('hex');
+    if (actualHash !== file.sha256) throw reviewError('LINE_ARCHIVE_SUPPLEMENT_CHANGED', '歷史對話 PDF 雜湊驗證失敗。', 409);
+    const group = await authorityResolver(deps, {
+      groupBindingId: contractGroupId(detail.contract), projectId: detail.contract.projectId,
+    });
+    const manifest = [{
+      sourceType: 'line_desktop_historical_export', fileName: file.name,
+      fileSha256: actualHash, startedAt: range.startedAt, endedAt: range.endedAt,
+      messageCount: range.messageCount, sourceNote: range.sourceNote,
+    }];
+    const row = await deps.contractStore.createLineConversationArchive(context.tenant, {
+      archiveKey: `historical-line-archive:${context.tenant.key}:${version.id}:${actualHash}`,
+      versionId: version.id, externalReviewId: null, stage: 'historical_supplement',
+      groupBindingId: group.groupBindingId, lineGroupId: group.lineGroupId,
+      startedAfter: range.startedAt, endedAt: range.endedAt,
+      firstMessageId: null, lastMessageId: null, messageCount: range.messageCount,
+      sourceManifest: manifest,
+      sourceManifestSha256: crypto.createHash('sha256').update(JSON.stringify(manifest)).digest('hex'),
+      pdfDriveFileId: file.fileId, pdfSha256: actualHash,
+      pdfByteSize: downloaded.buffer.length, actor: context.actor,
+    });
+    if (!row) throw reviewError('LINE_ARCHIVE_SUPPLEMENT_RECORD_FAILED', '歷史對話補充封存無法建立。', 503);
+    return publicLineArchive({ ...row, version_no: version.versionNo, file_name: file.name });
+  }
+
   async function loadInternalLineArchive(context, input = {}) {
     const { contract } = await loadInternalVersion(context, input);
     const row = await deps.contractStore.getLineConversationArchive(context.tenant, text(input.archiveId));
@@ -562,10 +632,11 @@ export function createContractDraftReviewService(deps, options = {}) {
 
   return Object.freeze({
     issueDraftReview, listForContract, previewInternal, loadInternalAttachment,
-    listLineArchives, backfillLineArchives, loadInternalLineArchive,
+    listLineArchives, backfillLineArchives, createLineArchiveSupplement, loadInternalLineArchive,
     openReview, respond, loadDocument,
   });
 }
 
 export const __test = { digestToken, missingSections, requestEvidence, publicReview, reviewAttachments,
-  lineArchiveAttachments, publicLineArchiveAttachments, reviewHistory, composeDraftBundle };
+  lineArchiveAttachments, publicLineArchiveAttachments, reviewHistory, composeDraftBundle,
+  historicalSupplementFile, historicalSupplementRange };
