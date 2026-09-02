@@ -202,6 +202,8 @@ function publicOpenPayload(result, documentUrl) {
     status: String(result?.status || ''),
     expiresAt: String(result?.expiresAt || ''),
     idempotent: result?.idempotent === true,
+    canSign: result?.canSign === true,
+    accessMode: result?.canSign === true ? 'signer' : 'group_member_read_only',
   };
 }
 
@@ -283,14 +285,19 @@ async function initialize() {
   const opened=await api('${CONTRACT_SIGNING_OPEN_PATH}',{token:state.token,liffCredential:state.credential});
   state.signing=opened.signing;
   const documentLink=byId('document-link'); documentLink.href=state.signing.documentUrl; documentLink.hidden=false;
-  byId('contract-state').textContent='合約已完成身分與版本驗證。請先開啟文件詳閱，再進行簽名。';
-  byId('sign-panel').hidden=false;
-  show('請先開啟合約文件詳閱。','ok');
-  initCanvas();
+  if(state.signing.canSign){
+    byId('contract-state').textContent='你是本合約指定簽署人。請先開啟文件詳閱，再進行簽名。';
+    byId('sign-panel').hidden=false;
+    show('已驗證指定簽署人身分，請先開啟合約文件詳閱。','ok');
+    initCanvas();
+  }else{
+    byId('contract-state').textContent='你是此工程 LINE 群組成員，可以檢視完整合約；只有指定簽署人可以填寫資料與簽署。';
+    show('已驗證群組成員身分，目前為唯讀檢視。','ok');
+  }
 }
 byId('document-link').addEventListener('click',async(event)=>{
   event.preventDefault(); const target=window.open('about:blank','_blank'); if(target)target.opener=null;
-  try{const response=await fetch(state.signing.documentUrl,{method:'POST',credentials:'same-origin',cache:'no-store',referrerPolicy:'no-referrer',headers:{'content-type':'application/json'},body:JSON.stringify({token:state.token,liffCredential:state.credential})});if(!response.ok){const failure=await response.json().catch(()=>({}));throw new Error(failure.error||'無法讀取合約文件');}const blob=await response.blob();const blobUrl=URL.createObjectURL(blob);if(target)target.location.replace(blobUrl);else location.href=blobUrl;state.reviewAcknowledged=true;byId('consent').disabled=false;byId('submit-signature').disabled=false;byId('review-state').textContent='已開啟合約文件；請詳閱後勾選同意簽署。';}catch(failure){if(target)target.close();show(failure.message||'無法讀取合約文件','error');}
+  try{const response=await fetch(state.signing.documentUrl,{method:'POST',credentials:'same-origin',cache:'no-store',referrerPolicy:'no-referrer',headers:{'content-type':'application/json'},body:JSON.stringify({token:state.token,liffCredential:state.credential})});if(!response.ok){const failure=await response.json().catch(()=>({}));throw new Error(failure.error||'無法讀取合約文件');}const blob=await response.blob();const blobUrl=URL.createObjectURL(blob);if(target)target.location.replace(blobUrl);else location.href=blobUrl;state.reviewAcknowledged=true;if(state.signing.canSign){byId('consent').disabled=false;byId('submit-signature').disabled=false;byId('review-state').textContent='已開啟合約文件；請詳閱後勾選同意簽署。';}else{byId('review-state').textContent='已開啟完整合約；你目前是群組成員唯讀檢視，無法簽署。';}}catch(failure){if(target)target.close();show(failure.message||'無法讀取合約文件','error');}
 });
 byId('clear-signature').addEventListener('click',clearSignature);
 byId('identity-front').addEventListener('change',()=>identitySelected('identity-front','identity-front-state','正面'));
@@ -458,6 +465,9 @@ export function createContractSigningWebHandler(options = {}) {
       // Authenticate and bind the upload to the exact signing session and
       // document version before persisting signature evidence.
       const opened = await service.openSigningRequest({ token, liffCredential, requestMeta });
+      if (opened?.canSign !== true) {
+        throw error('SIGNER_MISMATCH', '目前 LINE 帳號不是指定簽署人，只能檢視合約。', 403);
+      }
       if (String(opened.documentHash || '').toLowerCase() !== documentHash) {
         throw error('DOCUMENT_VERSION_MISMATCH', '合約版本已改變，請重新開啟簽署連結。', 409);
       }

@@ -395,14 +395,11 @@ export function createContractSigningService(options = {}) {
     return session;
   }
 
-  async function authenticateSigner(session, liffCredential) {
+  async function authenticateGroupMember(session, liffCredential) {
     const credential = requiredText(liffCredential, 'LIFF credential', 5000);
     const identity = await line.verifyLiffIdentity({ credential, sessionId: session.id });
     if (!identity || identity.verified !== true || !identity.userId) {
       throw signingError('LIFF_IDENTITY_INVALID', 'LINE 身分驗證失敗。', 401);
-    }
-    if (String(identity.userId) !== session.signerLineUserId) {
-      throw signingError('SIGNER_MISMATCH', '目前 LINE 帳號不是指定簽署人。', 403);
     }
     const membership = await line.isGroupMember({
       groupId: session.lineGroupId,
@@ -410,11 +407,23 @@ export function createContractSigningService(options = {}) {
       sessionId: session.id,
     });
     const isMember = membership === true || membership?.member === true;
-    if (!isMember) throw signingError('GROUP_MEMBERSHIP_REQUIRED', '指定簽署人目前不在此工程 LINE 群組。', 403);
-    return { userId: String(identity.userId) };
+    if (!isMember) throw signingError('GROUP_MEMBERSHIP_REQUIRED', '目前 LINE 帳號不在此工程 LINE 群組。', 403);
+    return {
+      userId: String(identity.userId),
+      canSign: String(identity.userId) === session.signerLineUserId,
+    };
   }
 
-  function publicSigningView(session, idempotent = false) {
+  async function authenticateSigner(session, liffCredential) {
+    const identity = await authenticateGroupMember(session, liffCredential);
+    if (!identity.canSign) {
+      throw signingError('SIGNER_MISMATCH', '目前 LINE 帳號不是指定簽署人，只能檢視合約。', 403);
+    }
+    return identity;
+  }
+
+  function publicSigningView(session, idempotent = false, authorization = {}) {
+    const canSign = authorization.canSign === true;
     return {
       sessionId: session.id,
       contractId: session.contractId,
@@ -424,12 +433,14 @@ export function createContractSigningService(options = {}) {
       status: session.status,
       expiresAt: session.expiresAt,
       idempotent,
+      canSign,
+      accessMode: canSign ? 'signer' : 'group_member_read_only',
     };
   }
 
   function fixedGroupMessage(kind, protectedLink = '') {
     if (kind === 'invite') {
-      return `工程合約簽署邀請已建立。指定簽署人請先完成 LINE 身分驗證，再開啟受保護連結：\n${protectedLink}\n本訊息僅表示系統已提出簽署邀請，不代表對方已讀或平台已送達。`;
+      return `工程合約簽署邀請已建立。此工程 LINE 群組的成員完成 LINE 身分驗證後皆可檢視；只有指定簽署人可以簽署：\n${protectedLink}\n本訊息僅表示系統已提出簽署邀請，不代表對方已讀或平台已送達。`;
     }
     if (kind === 'signed') return '工程合約簽署狀態：指定簽署人已提交資料，待工程 AM 內部確認。';
     if (kind === 'confirmed') return '工程合約簽署狀態：內部已確認，待完成歸檔。請至工程 AM 權限頁查看詳細資料。';
@@ -627,11 +638,14 @@ export function createContractSigningService(options = {}) {
 
   async function openSigningRequest({ token, liffCredential, requestMeta } = {}) {
     let session = await loadByToken(token);
-    const identity = await authenticateSigner(session, liffCredential);
+    const identity = await authenticateGroupMember(session, liffCredential);
     if (!ACTIVE_TOKEN_STATUSES.has(session.status)) throw signingError('TOKEN_ALREADY_USED', '簽署權杖已使用。', 409);
     if (!(session.events || []).some((event) => event.type === 'sent')) {
       throw signingError('INVITATION_NOT_SENT', '簽署邀請尚未由 LINE 群組發出。', 409);
     }
+    // A verified member of the bound LINE group may inspect the exact frozen
+    // PDF, but must not advance signer state or create signer-open evidence.
+    if (!identity.canSign) return publicSigningView(session, true, identity);
     const evidence = requestEvidence(requestMeta);
     const opened = await mutate(session.id, (draft) => {
       const existing = (draft.events || []).find((event) => event.type === 'first_opened');
@@ -648,7 +662,7 @@ export function createContractSigningService(options = {}) {
       return { result: { idempotent: false } };
     });
     session = opened.session;
-    return publicSigningView(session, opened.result?.idempotent === true);
+    return publicSigningView(session, opened.result?.idempotent === true, identity);
   }
 
   async function submitSignature(input = {}) {

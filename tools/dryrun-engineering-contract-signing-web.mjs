@@ -66,7 +66,7 @@ async function invoke(handler, requestOptions = {}) {
 
 function createFixture(options = {}) {
   const calls = { open: [], submit: [], save: [], saveIdentity: [], resolve: [], document: [], logs: [] };
-  const openResult = options.openResult || {
+  const defaultOpenResult = {
     sessionId: 'signing-session-001',
     contractId: 'contract-001',
     projectId: 'project-001',
@@ -75,10 +75,15 @@ function createFixture(options = {}) {
     status: 'opened',
     expiresAt: '2026-09-04T01:00:00.000Z',
     idempotent: false,
+    canSign: true,
+    accessMode: 'signer',
     signerLineUserId: 'U-sensitive-signer',
     events: [{ type: 'first_opened', ip: '203.0.113.10' }],
     ip: '203.0.113.10',
   };
+  const openResult = typeof options.openResult === 'function'
+    ? options.openResult
+    : { ...defaultOpenResult, ...(options.openResult || {}) };
   const submitResult = options.submitResult || {
     sessionId: 'signing-session-001',
     status: 'signed',
@@ -175,6 +180,9 @@ const jsonHeaders = { 'content-type': 'application/json' };
   assert.match(html, /id="consent" type="checkbox" disabled/);
   assert.match(html, /id="submit-signature" type="button" disabled/);
   assert.match(html, /id="document-link"[^>]*target="_blank"[^>]*hidden/);
+  assert.match(html, /state\.signing\.canSign/);
+  assert.match(html, /群組成員，可以檢視完整合約/);
+  assert.match(html, /群組成員唯讀檢視，無法簽署/);
   assert.match(html, /\[hidden\]\{display:none!important\}/);
   assert.match(html, /location\.hash/);
   assert.match(html, /history\.replaceState\(null, '', location\.pathname\)/);
@@ -261,6 +269,8 @@ const jsonHeaders = { 'content-type': 'application/json' };
     status: 'opened',
     expiresAt: '2026-09-04T01:00:00.000Z',
     idempotent: false,
+    canSign: true,
+    accessMode: 'signer',
   });
   assert.equal(fixture.calls.open.length, 1);
   assert.equal(fixture.calls.open[0].token, validOpenBody.token);
@@ -283,6 +293,34 @@ const jsonHeaders = { 'content-type': 'application/json' };
   assert.match(document.response.body, /^%PDF-/);
   assert.equal(fixture.calls.document.length, 1);
   assert.equal(fixture.calls.open.length, 2);
+}
+
+// A verified member of the bound LINE group receives the same protected PDF
+// in read-only mode, but a submit attempt is rejected before any signature or
+// identity object is stored.
+{
+  const fixture = createFixture({ openResult: { canSign: false, accessMode: 'group_member_read_only', status: 'sent', idempotent: true } });
+  const opened = await invoke(fixture.handler, {
+    method: 'POST', url: CONTRACT_SIGNING_OPEN_PATH, headers: jsonHeaders, body: validOpenBody,
+  });
+  assert.equal(opened.response.statusCode, 200);
+  assert.equal(opened.json.signing.canSign, false);
+  assert.equal(opened.json.signing.accessMode, 'group_member_read_only');
+
+  const document = await invoke(fixture.handler, {
+    method: 'POST', url: CONTRACT_SIGNING_DOCUMENT_PATH, headers: jsonHeaders, body: validOpenBody,
+  });
+  assert.equal(document.response.statusCode, 200);
+  assert.match(document.response.body, /^%PDF-/);
+
+  const rejected = await invoke(fixture.handler, {
+    method: 'POST', url: CONTRACT_SIGNING_SUBMIT_PATH, headers: jsonHeaders, body: validSubmitBody,
+  });
+  assert.equal(rejected.response.statusCode, 403);
+  assert.equal(rejected.json.code, 'SIGNER_MISMATCH');
+  assert.equal(fixture.calls.save.length, 0);
+  assert.equal(fixture.calls.saveIdentity.length, 0);
+  assert.equal(fixture.calls.submit.length, 0);
 }
 
 // A direct HTTPS document reference is allowed. Unsafe or executable schemes
@@ -335,14 +373,14 @@ const jsonHeaders = { 'content-type': 'application/json' };
 // ContractSigningError.status is the public status mapping; methods, media
 // types, malformed JSON, and declared oversize bodies fail before service use.
 {
-  const signerMismatch = createFixture({
-    openError: new ContractSigningError('SIGNER_MISMATCH', '此連結不屬於目前 LINE 使用者。', 403),
+  const groupMembershipRequired = createFixture({
+    openError: new ContractSigningError('GROUP_MEMBERSHIP_REQUIRED', '目前 LINE 帳號不在此工程 LINE 群組。', 403),
   });
-  const rejected = await invoke(signerMismatch.handler, {
+  const rejected = await invoke(groupMembershipRequired.handler, {
     method: 'POST', url: CONTRACT_SIGNING_OPEN_PATH, headers: jsonHeaders, body: validOpenBody,
   });
   assert.equal(rejected.response.statusCode, 403);
-  assert.equal(rejected.json.code, 'SIGNER_MISMATCH');
+  assert.equal(rejected.json.code, 'GROUP_MEMBERSHIP_REQUIRED');
 
   const method = await invoke(createFixture().handler, { method: 'GET', url: CONTRACT_SIGNING_OPEN_PATH });
   assert.equal(method.response.statusCode, 405);
