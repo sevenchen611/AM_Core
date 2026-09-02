@@ -1,0 +1,40 @@
+{
+  "id": "AM-IMP-2026.0902.11",
+  "name": "Contract LINE provider alignment",
+  "type": "AM Platform / contracts / LINE identity configuration",
+  "portable": true,
+  "status": "Deployed",
+  "createdAt": "2026-09-02",
+  "dependsOn": ["AM-IMP-2026.0902.10"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Require the contract LIFF and Messaging API channel to share one LINE Developers provider",
+    "Correct the Engineering production LIFF binding without changing the issued contract session",
+    "Preserve current-group read access and designated-signer-only submission"
+  ],
+  "requiresDatabases": [],
+  "requiresEnv": ["<TENANT>_CONTRACTS_LIFF_ID", "LINE_CHANNEL_ACCESS_TOKEN"],
+  "requiresScripts": ["tools/check-upgrade-package.js"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Provider alignment is portable, but every tenant must use its own LINE channels and uncommitted LIFF ID; display-name matching is forbidden."
+  },
+  "definitionOfDone": [
+    "The LIFF and Messaging API channel are under the same LINE Developers provider",
+    "The project-local LIFF value is deployed without committing the identifier",
+    "A known non-signer current group member reaches read-only contract access",
+    "The designated signer remains the only identity allowed to submit",
+    "No new LINE invitation or contract state change is needed"
+  ],
+  "files": [
+    "versions/AM-IMP-2026.0902.11/README.md",
+    "versions/AM-IMP-2026.0902.11/INSTALL.md",
+    "versions/AM-IMP-2026.0902.11/VERIFY.md",
+    "versions/AM-IMP-2026.0902.11/ROLLBACK.md",
+    "versions/AM-IMP-2026.0902.11/config/line-provider-alignment.json",
+    "versions/AM-IMP-2026.0902.11/upgrade.json"
+  ]
+}
