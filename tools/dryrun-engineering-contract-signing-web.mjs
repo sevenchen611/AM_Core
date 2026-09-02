@@ -196,6 +196,8 @@ const jsonHeaders = { 'content-type': 'application/json' };
   assert.match(html, /PDF 僅供閱讀/);
   assert.match(html, /在本頁開啟完整合約 PDF/);
   assert.match(html, /在外部瀏覽器開啟簽署頁/);
+  assert.match(html, /甲方已完成簽署。你是本合約指定的乙方簽署人/);
+  assert.match(html, /已載入甲方簽名版合約/);
   assert.match(html, /不必對準 PDF 裡的小框/);
   assert.match(html, /aria-label="大尺寸正式簽名區"/);
   assert.match(html, /height:clamp\(320px,48vh,480px\)/);

@@ -1,5 +1,8 @@
 import crypto from 'node:crypto';
 import { BlockList, isIP } from 'node:net';
+import { createContractArtifactService } from './contract-artifacts.js';
+import { composeDraftBundle, extractContractBodyForVersion } from './contract-draft-review.js';
+import { hydratePartyASigningAssets, partyAProfileContext } from './contract-party-a-profiles.js';
 import { createContractSigningService } from './contract-signing.js';
 
 const RENDER_PROXY_SENTINEL = 'render';
@@ -213,7 +216,114 @@ export async function saveContractIdentityDocuments(deps, { sessionId, front, ba
   return stored;
 }
 
-export async function loadContractPdf(deps, { documentRef, documentHash }) {
+function runtimeFailure(message, statusCode = 500, code = 'CONTRACT_DOCUMENT_FAILED') {
+  return Object.assign(new Error(message), { statusCode, code });
+}
+
+function unwrap(value) {
+  return value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, 'value')
+    ? value.value : value;
+}
+
+function requiredSha256(value, label) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(normalized)) throw runtimeFailure(`${label}雜湊不完整`, 500, 'CONTRACT_DOCUMENT_HASH_INVALID');
+  return normalized;
+}
+
+function signingImage(buffer, expectedContentType) {
+  const png = buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+  const jpeg = buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  const contentType = png ? 'image/png' : (jpeg ? 'image/jpeg' : '');
+  if (!contentType || contentType !== String(expectedContentType || '').trim().toLowerCase()) {
+    throw runtimeFailure('甲方簽名檔案格式不一致', 409, 'PARTY_A_SIGNATURE_CONTENT_MISMATCH');
+  }
+  return contentType;
+}
+
+async function renderPartyASignedPreview(deps, opened, original, options) {
+  const state = options.signingState;
+  const submission = state?.partyASubmission;
+  if (!state || String(state.id || '') !== String(opened.sessionId || '') || !submission) {
+    throw runtimeFailure('甲方簽署狀態不完整，暫時無法顯示已簽版本', 409, 'PARTY_A_SIGNING_STATE_MISMATCH');
+  }
+  const originalHash = requiredSha256(opened.documentHash, '原始簽發文件');
+  if (requiredSha256(submission.documentHash, '甲方簽署文件') !== originalHash || original.sha256 !== originalHash) {
+    throw runtimeFailure('甲方簽署的合約版本與原始文件不一致', 409, 'PARTY_A_DOCUMENT_VERSION_MISMATCH');
+  }
+  const signatureHash = requiredSha256(submission.signatureHash, '甲方簽名');
+  const signatureRef = String(submission.submissionRef || '').trim();
+  const signatureByteSize = Number(submission.signatureByteSize);
+  if (!signatureRef || !Number.isSafeInteger(signatureByteSize) || signatureByteSize < 1 || signatureByteSize > 2 * 1024 * 1024) {
+    throw runtimeFailure('甲方簽名證據不完整', 409, 'PARTY_A_SIGNATURE_EVIDENCE_INVALID');
+  }
+  const downloaded = await deps.downloadFromDrive(signatureRef, 2 * 1024 * 1024);
+  const signatureBuffer = Buffer.isBuffer(downloaded) ? downloaded : downloaded?.buffer;
+  if (!Buffer.isBuffer(signatureBuffer) || signatureBuffer.length !== signatureByteSize
+      || crypto.createHash('sha256').update(signatureBuffer).digest('hex') !== signatureHash) {
+    throw runtimeFailure('甲方簽名檔案與不可變證據不一致', 409, 'PARTY_A_SIGNATURE_HASH_MISMATCH');
+  }
+  const signatureContentType = signingImage(signatureBuffer, submission.signatureContentType);
+  if (typeof deps.contractStore?.getSigningBundle !== 'function') {
+    throw runtimeFailure('工程合約資料庫缺少簽署版本讀取功能', 503, 'CONTRACT_STORE_UNAVAILABLE');
+  }
+  const bundle = unwrap(await deps.contractStore.getSigningBundle(deps.tenant, opened.sessionId));
+  if (!bundle?.contract || !bundle?.version || String(bundle.session?.externalSessionId || '') !== String(opened.sessionId || '')
+      || String(bundle.version.id || '') !== String(bundle.session?.versionId || '')
+      || requiredSha256(bundle.version.issuedPdfSha256, '資料庫簽發文件') !== originalHash) {
+    throw runtimeFailure('甲方簽署流程與合約版本關聯不一致', 409, 'PARTY_A_SIGNING_BUNDLE_MISMATCH');
+  }
+  const partyA = partyAProfileContext(bundle.version);
+  if (partyA.profileType !== 'individual') {
+    throw runtimeFailure('只有個人甲方合約可產生甲方階段簽署版', 409, 'PARTY_A_PREVIEW_NOT_APPLICABLE');
+  }
+  const bodyExtractor = options.bodyExtractor || extractContractBodyForVersion;
+  const artifactService = options.artifactService || createContractArtifactService(deps);
+  const pdfComposer = options.pdfComposer || composeDraftBundle;
+  const contractBody = await bodyExtractor(deps, bundle.version);
+  const partyASigningAssets = await hydratePartyASigningAssets(deps, bundle.version);
+  partyASigningAssets.signature = {
+    mimeType: signatureContentType,
+    base64: signatureBuffer.toString('base64'),
+    sha256: signatureHash,
+  };
+  const bundleHash = requiredSha256(bundle.version.bundleSha256, '凍結合約');
+  const partyASignedAt = String(submission.receivedAt || '').trim();
+  if (!partyASignedAt || !Number.isFinite(Date.parse(partyASignedAt))) {
+    throw runtimeFailure('甲方簽署時間不完整', 409, 'PARTY_A_SIGNED_TIME_INVALID');
+  }
+  const rendered = await artifactService.renderPdf('party_a_signed_preview_pdf', {
+    contract: bundle.contract,
+    version: bundle.version,
+    contractBodyText: contractBody.text,
+    contractBodyHtml: contractBody.html,
+    immutable: true,
+    bundleHash,
+    documentHash: originalHash,
+    partyASignerName: partyA.signerName,
+    partyASigningAssets,
+    times: { issuedAt: bundle.session?.issuedAt || bundle.version.issuedAt, partyASignedAt },
+  }, `engineering-contract-party-a-preview:${deps.tenant?.key || 'engineering'}:${opened.sessionId}:${originalHash}:${signatureHash}`);
+  const archives = typeof deps.contractStore.listLineConversationArchives === 'function'
+    ? await deps.contractStore.listLineConversationArchives(deps.tenant, bundle.contract.id, Number(bundle.version.versionNo)) : [];
+  const archiveAttachments = archives.map((row) => ({
+    fileId: String(row.pdf_drive_file_id || ''), sha256: String(row.pdf_sha256 || ''),
+    name: `V${row.version_no}-${row.stage === 'final_issue' ? '正式送簽前' : '草約送出前'}-LINE對話封存.pdf`,
+    category: 'line_conversation_archive', mimeType: 'application/pdf',
+  }));
+  const buffer = archiveAttachments.length
+    ? await pdfComposer(rendered.buffer, archiveAttachments, deps, [], bundle.contract, bundle.version.versionNo, { watermark: false })
+    : rendered.buffer;
+  return {
+    buffer,
+    contentType: 'application/pdf',
+    sha256: crypto.createHash('sha256').update(buffer).digest('hex'),
+    originalSha256: originalHash,
+    viewKind: 'party_a_signed_preview_pdf',
+  };
+}
+
+export async function loadContractPdf(deps, { documentRef, documentHash, sessionId, partyASigned }, options = {}) {
   if (typeof deps.downloadFromDrive !== 'function') throw Object.assign(new Error('工程合約 Drive 讀取功能尚未設定'), { statusCode: 503 });
   let fileId = String(documentRef || '').trim();
   const driveUrl = /^https:\/\/drive\.google\.com\/file\/d\/([A-Za-z0-9_-]{10,200})\/view(?:[?#].*)?$/i.exec(fileId);
@@ -228,7 +338,11 @@ export async function loadContractPdf(deps, { documentRef, documentHash }) {
   if (digest !== String(documentHash || '').trim().toLowerCase()) {
     throw Object.assign(new Error('工程合約文件雜湊驗證失敗'), { statusCode: 409 });
   }
-  return { buffer, contentType: 'application/pdf', sha256: digest };
+  const original = { buffer, contentType: 'application/pdf', sha256: digest, viewKind: 'issued_pdf' };
+  if (partyASigned === true) return renderPartyASignedPreview(deps, {
+    documentRef, documentHash, sessionId, partyASigned,
+  }, original, options);
+  return original;
 }
 
 export const __test = { safeSegment, contractConfig, renderProxyMode, trustedProxyOptions };

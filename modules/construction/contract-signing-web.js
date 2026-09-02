@@ -422,7 +422,7 @@ async function initialize() {
   byId('document-link').hidden=false;
   byId('external-browser').hidden=!liff.isInClient();
   if(state.signing.canSignPartyB){
-    byId('contract-state').textContent='你是本合約指定的乙方簽署人。請先開啟文件詳閱，再進行簽名。';
+    byId('contract-state').textContent=state.signing.partyASigned?'甲方已完成簽署。你是本合約指定的乙方簽署人；開啟 PDF 後會看到甲方簽名，再完成乙方簽署。':'你是本合約指定的乙方簽署人。請先開啟文件詳閱，再進行簽名。';
     byId('sign-panel').hidden=false;
     show('已驗證乙方指定簽署人身分，請先開啟合約文件詳閱。','ok');
     initCanvas();
@@ -450,7 +450,7 @@ async function initialize() {
 byId('external-browser').addEventListener('click',openInExternalBrowser);
 byId('document-link').addEventListener('click',async()=>{
   if(state.documentLoading)return;state.documentLoading=true;const button=byId('document-link');button.disabled=true;show('正在安全載入完整合約 PDF…');
-  try{const response=await fetch(state.signing.documentUrl,{method:'POST',credentials:'same-origin',cache:'no-store',referrerPolicy:'no-referrer',headers:{'content-type':'application/json'},body:JSON.stringify({token:state.token,liffCredential:state.credential})});if(!response.ok){const failure=await response.json().catch(()=>({}));throw new Error(failure.error||'無法讀取合約文件');}const bytes=await response.arrayBuffer();await renderPdfInPage(bytes);setReviewAcknowledged(true);byId('review-state').textContent=state.signing.canSignPartyB?'完整合約已在本頁載入。詳閱後請填寫資料、上傳證件並簽名。':state.signing.canSignPartyA?'完整合約已在本頁載入。詳閱後請在甲方大簽名格完成本次簽名。':'完整合約已在本頁載入，可向下逐頁檢視。';button.textContent='重新載入完整合約 PDF';show('完整合約 PDF 已成功載入，請詳閱後完成簽署。','ok');}catch(failure){show(failure.message||'無法讀取合約文件','error');}finally{state.documentLoading=false;button.disabled=false;}
+  try{const response=await fetch(state.signing.documentUrl,{method:'POST',credentials:'same-origin',cache:'no-store',referrerPolicy:'no-referrer',headers:{'content-type':'application/json'},body:JSON.stringify({token:state.token,liffCredential:state.credential})});if(!response.ok){const failure=await response.json().catch(()=>({}));throw new Error(failure.error||'無法讀取合約文件');}const bytes=await response.arrayBuffer();await renderPdfInPage(bytes);setReviewAcknowledged(true);byId('review-state').textContent=state.signing.canSignPartyB?(state.signing.partyASigned?'已載入甲方簽名版合約。請確認甲方簽名後，填寫乙方資料、上傳證件並完成乙方簽署。':'完整合約已在本頁載入。詳閱後請填寫資料、上傳證件並簽名。'):state.signing.canSignPartyA?'完整合約已在本頁載入。詳閱後請在甲方大簽名格完成本次簽名。':'完整合約已在本頁載入，可向下逐頁檢視。';button.textContent='重新載入完整合約 PDF';show(state.signing.partyASigned&&state.signing.canSignPartyB?'甲方簽名版合約已成功載入，請確認後完成乙方簽署。':'完整合約 PDF 已成功載入，請詳閱後完成簽署。','ok');}catch(failure){show(failure.message||'無法讀取合約文件','error');}finally{state.documentLoading=false;button.disabled=false;}
 });
 byId('clear-signature').addEventListener('click',clearSignature);
 byId('party-a-clear-signature').addEventListener('click',clearPartyASignature);

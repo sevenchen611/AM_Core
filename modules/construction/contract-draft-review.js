@@ -41,7 +41,8 @@ function fileId(value) {
 }
 
 function packageFrom(version) {
-  return version?.documentPackage || version?.snapshot?.documentPackage || version?.contract_snapshot?.documentPackage || {};
+  return version?.documentPackage || version?.snapshot?.documentPackage
+    || version?.contractSnapshot?.documentPackage || version?.contract_snapshot?.documentPackage || {};
 }
 
 function mimeTypeFor(item) {

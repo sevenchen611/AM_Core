@@ -254,7 +254,9 @@ async function publicContractSigningRoute(req, res, ctx) {
       liffId: tenant.config?.contracts?.liffId,
       getRequestMeta: signingRequestMeta,
       resolveDocumentUrl: async () => '/contract-sign/api/document',
-      loadDocument: async (opened) => loadContractPdf(deps, opened),
+      loadDocument: async (opened) => loadContractPdf(deps, opened, {
+        signingState: opened.partyASigned ? await service.getSession(opened.sessionId) : null,
+      }),
       saveSignature: async ({ sessionId, bytes, contentType }) => {
         const saved = await saveContractSignature(deps, { sessionId, buffer: bytes, contentType });
         return { hash: saved.signatureHash, ref: saved.submissionRef };
