@@ -9,6 +9,7 @@ import { isIP } from 'node:net';
 export const CONTRACT_SIGNING_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 const ACTIVE_TOKEN_STATUSES = new Set(['issued', 'sent', 'opened']);
+const PARTY_A_SIGNABLE_STATUSES = new Set(['issued', 'sent', 'opened', 'signed']);
 const HASH_PATTERN = /^[a-f0-9]{64}$/i;
 const MAX_CAS_ATTEMPTS = 8;
 
@@ -411,20 +412,36 @@ export function createContractSigningService(options = {}) {
     return {
       userId: String(identity.userId),
       canSign: String(identity.userId) === session.signerLineUserId,
+      canSignPartyB: String(identity.userId) === session.signerLineUserId,
+      canSignPartyA: Boolean(session.partyASignerLineUserId)
+        && String(identity.userId) === session.partyASignerLineUserId,
       canInspectSigning: true,
     };
   }
 
   async function authenticateSigner(session, liffCredential) {
     const identity = await authenticateGroupMember(session, liffCredential);
-    if (!identity.canSign) {
+    if (!identity.canSignPartyB) {
       throw signingError('SIGNER_MISMATCH', '目前 LINE 帳號不是指定簽署人，只能檢視合約。', 403);
+    }
+    return identity;
+  }
+
+  async function authenticatePartyASigner(session, liffCredential) {
+    const identity = await authenticateGroupMember(session, liffCredential);
+    if (!session.partyASignerLineUserId) {
+      throw signingError('PARTY_A_SIGNER_NOT_ASSIGNED', '本合約尚未指定個人甲方 LINE 簽署人。', 409);
+    }
+    if (!identity.canSignPartyA) {
+      throw signingError('PARTY_A_SIGNER_MISMATCH', '目前 LINE 帳號不是本合約指定的個人甲方簽署人。', 403);
     }
     return identity;
   }
 
   function publicSigningView(session, idempotent = false, authorization = {}) {
     const canSign = authorization.canSign === true;
+    const canSignPartyB = authorization.canSignPartyB === true || canSign;
+    const canSignPartyA = authorization.canSignPartyA === true;
     const canInspectSigning = authorization.canInspectSigning === true;
     return {
       sessionId: session.id,
@@ -436,16 +453,27 @@ export function createContractSigningService(options = {}) {
       expiresAt: session.expiresAt,
       idempotent,
       canSign,
+      canSignPartyB,
+      canSignPartyA,
+      partyARequired: Boolean(session.partyASignerLineUserId),
+      partyASigned: Boolean(session.partyASubmission),
       canInspectSigning,
-      accessMode: canSign ? 'signer' : canInspectSigning ? 'signer_inspection_read_only' : 'group_member_read_only',
+      signingRole: canSignPartyB ? 'party_b' : canSignPartyA ? 'party_a' : 'group_member',
+      accessMode: canSignPartyB ? 'signer' : canSignPartyA ? 'party_a_signer'
+        : canInspectSigning ? 'signer_inspection_read_only' : 'group_member_read_only',
     };
   }
 
-  function fixedGroupMessage(kind, protectedLink = '') {
+  function fixedGroupMessage(kind, protectedLink = '', session = null) {
     if (kind === 'invite') {
-      return `工程合約簽署邀請已建立。此工程 LINE 群組的成員完成 LINE 身分驗證後皆可檢視；只有指定簽署人可以簽署：\n${protectedLink}\n本訊息僅表示系統已提出簽署邀請，不代表對方已讀或平台已送達。`;
+      return `工程合約簽署邀請已建立。此工程 LINE 群組的成員完成 LINE 身分驗證後皆可檢視；只有甲、乙各方被指定的 LINE 簽署人可以操作各自簽名區：\n${protectedLink}\n本訊息僅表示系統已提出簽署邀請，不代表對方已讀或平台已送達。`;
     }
-    if (kind === 'signed') return '工程合約簽署狀態：指定簽署人已提交資料，待工程 AM 內部確認。';
+    if (kind === 'signed') return session?.partyASubmission
+      ? '工程合約簽署狀態：甲方與乙方均已完成本次線上簽署，待工程 AM 內部確認。'
+      : '工程合約簽署狀態：乙方指定簽署人已提交資料，待個人甲方簽署（如適用）及工程 AM 內部確認。';
+    if (kind === 'party_a_signed') return session?.status === 'signed'
+      ? '工程合約簽署狀態：甲方與乙方均已完成本次線上簽署，待工程 AM 內部確認。'
+      : '工程合約簽署狀態：個人甲方已完成本次合約線上簽名；仍須乙方完成簽署及工程 AM 內部確認。';
     if (kind === 'confirmed') return '工程合約簽署狀態：內部已確認，待完成歸檔。請至工程 AM 權限頁查看詳細資料。';
     if (kind === 'completed') return '工程合約簽署狀態：流程已完成。請至工程 AM 權限頁查看已歸檔合約。';
     if (kind === 'revoked') return '工程合約簽署狀態：原簽署連結已撤銷；如仍需簽署，請由工程 AM 重新簽發。';
@@ -453,7 +481,7 @@ export function createContractSigningService(options = {}) {
   }
 
   async function pushStatus(session, kind) {
-    const message = fixedGroupMessage(kind);
+    const message = fixedGroupMessage(kind, '', session);
     try {
       const result = await line.pushGroup({
         groupId: session.lineGroupId,
@@ -491,16 +519,21 @@ export function createContractSigningService(options = {}) {
       documentHash: normalizeHash(input.documentHash, 'documentHash'),
       lineGroupId: requiredText(input.lineGroupId, 'lineGroupId'),
       signerLineUserId: requiredText(input.signerLineUserId, 'signerLineUserId'),
+      partyASignerLineUserId: optionalText(input.partyASignerLineUserId, 180),
       tokenHash,
       issuedAt,
       expiresAt: new Date(new Date(issuedAt).getTime() + tokenTtlMs).toISOString(),
       updatedAt: issuedAt,
       events: [],
       submission: null,
+      partyASubmission: null,
       confirmation: null,
       completion: null,
       revocation: null,
     };
+    if (session.partyASignerLineUserId && session.partyASignerLineUserId === session.signerLineUserId) {
+      throw signingError('PARTY_SIGNER_CONFLICT', '甲方與乙方不可指定同一個 LINE 簽署帳號。', 409);
+    }
     appendEvent(session, {
       type: 'issued', at: issuedAt, actorType: 'admin', actorId: input.actorId,
       idempotencyKey: `issued:${id}`, metadata: { channel: 'line_group' }, randomBytes,
@@ -515,7 +548,8 @@ export function createContractSigningService(options = {}) {
           || existing.documentRef !== session.documentRef
           || !safeHashEqual(existing.documentHash, session.documentHash)
           || existing.lineGroupId !== session.lineGroupId
-          || existing.signerLineUserId !== session.signerLineUserId) {
+          || existing.signerLineUserId !== session.signerLineUserId
+          || optionalText(existing.partyASignerLineUserId, 180) !== session.partyASignerLineUserId) {
         throw signingError('SIGNING_COLLISION', '簽署識別碼發生衝突，請重試。', 409);
       }
       return {
@@ -642,13 +676,33 @@ export function createContractSigningService(options = {}) {
   async function openSigningRequest({ token, liffCredential, requestMeta } = {}) {
     let session = await loadByToken(token);
     const identity = await authenticateGroupMember(session, liffCredential);
-    if (!ACTIVE_TOKEN_STATUSES.has(session.status)) throw signingError('TOKEN_ALREADY_USED', '簽署權杖已使用。', 409);
+    const partyAAccess = identity.canSignPartyA && PARTY_A_SIGNABLE_STATUSES.has(session.status);
+    if (!ACTIVE_TOKEN_STATUSES.has(session.status) && !partyAAccess) {
+      throw signingError('TOKEN_ALREADY_USED', '簽署權杖已使用。', 409);
+    }
     if (!(session.events || []).some((event) => event.type === 'sent')) {
       throw signingError('INVITATION_NOT_SENT', '簽署邀請尚未由 LINE 群組發出。', 409);
     }
     // A verified member of the bound LINE group may inspect the exact frozen
     // PDF, but must not advance signer state or create signer-open evidence.
-    if (!identity.canSign) return publicSigningView(session, true, identity);
+    if (identity.canSignPartyA) {
+      const evidence = requestEvidence(requestMeta);
+      const opened = await mutate(session.id, (draft) => {
+        const existing = (draft.events || []).find((event) => event.type === 'party_a_first_opened');
+        if (existing) return { noWrite: true, result: { idempotent: true } };
+        if (!PARTY_A_SIGNABLE_STATUSES.has(draft.status)) throw signingError('TOKEN_ALREADY_USED', '簽署權杖已使用。', 409);
+        const at = nowIso();
+        draft.partyAFirstOpenedAt = at;
+        appendEvent(draft, {
+          type: 'party_a_first_opened', at, actorType: 'signer', actorId: identity.userId,
+          idempotencyKey: `party-a-first-opened:${draft.id}`, ip: evidence.ip, userAgent: evidence.userAgent,
+          metadata: { role: 'party_a', identitySource: 'verified_liff', membershipVerified: true }, randomBytes,
+        });
+        return { result: { idempotent: false } };
+      });
+      return publicSigningView(opened.session, opened.result?.idempotent === true, identity);
+    }
+    if (!identity.canSignPartyB) return publicSigningView(session, true, identity);
     const evidence = requestEvidence(requestMeta);
     const opened = await mutate(session.id, (draft) => {
       const existing = (draft.events || []).find((event) => event.type === 'first_opened');
@@ -746,6 +800,103 @@ export function createContractSigningService(options = {}) {
     };
   }
 
+  async function submitPartyASignature(input = {}) {
+    let session = await loadByToken(input.token);
+    const identity = await authenticatePartyASigner(session, input.liffCredential);
+    const idempotencyKey = requiredText(input.idempotencyKey, 'idempotencyKey', 500);
+    const idempotencyHash = eventKeyHash('party_a_submission_received', idempotencyKey);
+    if (session.partyASubmission) {
+      if (session.partyASubmission.idempotencyKeyHash === idempotencyHash) {
+        return { ok: true, sessionId: session.id, status: session.status, partyASigned: true, idempotent: true };
+      }
+      throw signingError('PARTY_A_SIGNATURE_REPLAYED', '個人甲方已完成本次合約簽名，不可重複提交。', 409);
+    }
+    if (!PARTY_A_SIGNABLE_STATUSES.has(session.status)) throw signingError('TOKEN_ALREADY_USED', '簽署權杖已使用。', 409);
+    if (!(session.events || []).some((event) => event.type === 'party_a_first_opened')) {
+      throw signingError('PARTY_A_SIGNING_NOT_OPENED', '請先完成 LINE 身分驗證並開啟合約。', 409);
+    }
+    const documentHash = normalizeHash(input.documentHash, 'documentHash');
+    if (!safeHashEqual(documentHash, session.documentHash)) {
+      throw signingError('DOCUMENT_VERSION_MISMATCH', '合約版本已改變，請重新開啟簽署連結。', 409);
+    }
+    if (input.reviewAcknowledged !== true || input.consent !== true) {
+      throw signingError('PARTY_A_CONSENT_REQUIRED', '請先詳閱合約並確認個人甲方本次簽署。', 400);
+    }
+    const signatureHash = normalizeHash(input.signatureHash, 'signatureHash');
+    const submissionRef = requiredText(input.submissionRef, 'submissionRef', 1000);
+    const signatureByteSize = Number(input.signatureByteSize);
+    const signatureContentType = optionalText(input.signatureContentType, 100);
+    if (!Number.isSafeInteger(signatureByteSize) || signatureByteSize < 1 || signatureByteSize > 2 * 1024 * 1024) {
+      throw signingError('PARTY_A_SIGNATURE_SIZE_INVALID', '個人甲方簽名大小不合法。', 400);
+    }
+    if (!['image/png', 'image/jpeg'].includes(signatureContentType)) {
+      throw signingError('PARTY_A_SIGNATURE_TYPE_INVALID', '個人甲方簽名必須是 PNG 或 JPEG。', 400);
+    }
+    const evidence = requestEvidence(input.requestMeta);
+    const submitted = await mutate(session.id, (draft) => {
+      if (draft.partyASubmission) {
+        if (draft.partyASubmission.idempotencyKeyHash === idempotencyHash) {
+          return { noWrite: true, result: { idempotent: true } };
+        }
+        throw signingError('PARTY_A_SIGNATURE_REPLAYED', '個人甲方已完成本次合約簽名，不可重複提交。', 409);
+      }
+      if (!PARTY_A_SIGNABLE_STATUSES.has(draft.status)) throw signingError('TOKEN_ALREADY_USED', '簽署權杖已使用。', 409);
+      const at = nowIso();
+      draft.partyASubmission = {
+        documentHash, signatureHash, submissionRef, signatureByteSize, signatureContentType,
+        consentVersion: 'engineering-contract-party-a-signature-v1',
+        reviewAcknowledged: true, idempotencyKeyHash: idempotencyHash, receivedAt: at,
+        signerLineUserId: identity.userId,
+      };
+      appendEvent(draft, {
+        type: 'party_a_signed', at, actorType: 'signer', actorId: identity.userId,
+        idempotencyKey: `party-a-signed:${idempotencyKey}`, ip: evidence.ip, userAgent: evidence.userAgent,
+        metadata: { role: 'party_a', identitySource: 'verified_liff', membershipVerified: true,
+          specifiedUserMatched: true, reviewAcknowledged: true, documentHash, signatureHash,
+          consentVersion: draft.partyASubmission.consentVersion }, randomBytes,
+      });
+      appendEvent(draft, {
+        type: 'party_a_submission_received', at, actorType: 'system', actorId: 'engineering-am',
+        idempotencyKey, ip: evidence.ip, userAgent: evidence.userAgent,
+        metadata: { documentHash, signatureHash, submissionRef, signatureByteSize, signatureContentType,
+          consentVersion: draft.partyASubmission.consentVersion, reviewAcknowledged: true }, randomBytes,
+      });
+      return { result: { idempotent: false } };
+    });
+    const notification = submitted.changed ? await pushStatus(submitted.session, 'party_a_signed') : { accepted: true, error: '' };
+    return { ok: true, sessionId: submitted.session.id, status: submitted.session.status,
+      partyASigned: true, idempotent: submitted.result?.idempotent === true,
+      groupNotificationAccepted: notification.accepted, groupNotificationError: notification.error };
+  }
+
+  async function assignPartyASigner(input = {}) {
+    const id = requiredText(input.sessionId, 'sessionId');
+    const partyASignerLineUserId = requiredText(input.partyASignerLineUserId, 'partyASignerLineUserId', 180);
+    const actorId = requiredText(input.actorId, 'actorId');
+    const idempotencyKey = requiredText(input.idempotencyKey, 'idempotencyKey', 500);
+    const assigned = await mutate(id, (draft) => {
+      if (!PARTY_A_SIGNABLE_STATUSES.has(draft.status)) {
+        throw signingError('PARTY_A_SIGNER_ASSIGNMENT_CLOSED', '目前簽署狀態不可再指定個人甲方。', 409);
+      }
+      if (draft.signerLineUserId === partyASignerLineUserId) {
+        throw signingError('PARTY_SIGNER_CONFLICT', '甲方與乙方不可指定同一個 LINE 簽署帳號。', 409);
+      }
+      if (draft.partyASignerLineUserId) {
+        if (draft.partyASignerLineUserId === partyASignerLineUserId) {
+          return { noWrite: true, result: { idempotent: true } };
+        }
+        throw signingError('PARTY_A_SIGNER_IMMUTABLE', '個人甲方 LINE 簽署人已綁定，不可改成其他帳號。', 409);
+      }
+      const at = nowIso();
+      draft.partyASignerLineUserId = partyASignerLineUserId;
+      appendEvent(draft, { type: 'party_a_signer_assigned', at, actorType: 'admin', actorId,
+        idempotencyKey, metadata: { role: 'party_a' }, randomBytes });
+      return { result: { idempotent: false } };
+    });
+    return { ok: true, sessionId: id, partyASignerAssigned: true,
+      idempotent: assigned.result?.idempotent === true };
+  }
+
   async function confirmSubmission(input = {}) {
     const id = requiredText(input.sessionId, 'sessionId');
     const idempotencyKey = requiredText(input.idempotencyKey, 'idempotencyKey', 500);
@@ -756,6 +907,9 @@ export function createContractSigningService(options = {}) {
       if (existing) return { noWrite: true, result: { idempotent: true } };
       if (draft.status !== 'signed' || !(draft.events || []).some((event) => event.type === 'submission_received')) {
         throw signingError('SUBMISSION_NOT_READY', '簽署資料尚未完整提交，無法確認。', 409);
+      }
+      if (draft.partyASignerLineUserId && !draft.partyASubmission) {
+        throw signingError('PARTY_A_SIGNATURE_REQUIRED', '個人甲方尚未完成本次合約線上簽名，無法確認。', 409);
       }
       const at = nowIso();
       draft.status = 'confirmed';
@@ -857,6 +1011,8 @@ export function createContractSigningService(options = {}) {
     recordProviderDeliveryAck,
     openSigningRequest,
     submitSignature,
+    submitPartyASignature,
+    assignPartyASigner,
     confirmSubmission,
     completeSigning,
     revokeSigningToken,

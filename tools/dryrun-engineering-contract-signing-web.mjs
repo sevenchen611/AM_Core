@@ -5,6 +5,7 @@ import { ContractSigningError } from '../modules/construction/contract-signing.j
 import {
   CONTRACT_SIGNING_OPEN_PATH,
   CONTRACT_SIGNING_DOCUMENT_PATH,
+  CONTRACT_SIGNING_PARTY_A_SUBMIT_PATH,
   CONTRACT_SIGNING_SUBMIT_PATH,
   CONTRACT_SIGNING_WEB_PATH,
   createContractSigningWebHandler,
@@ -65,7 +66,7 @@ async function invoke(handler, requestOptions = {}) {
 }
 
 function createFixture(options = {}) {
-  const calls = { open: [], submit: [], save: [], saveIdentity: [], resolve: [], document: [], logs: [] };
+  const calls = { open: [], submit: [], submitPartyA: [], save: [], saveIdentity: [], resolve: [], document: [], logs: [] };
   const defaultOpenResult = {
     sessionId: 'signing-session-001',
     contractId: 'contract-001',
@@ -76,6 +77,10 @@ function createFixture(options = {}) {
     expiresAt: '2026-09-04T01:00:00.000Z',
     idempotent: false,
     canSign: true,
+    canSignPartyB: true,
+    canSignPartyA: false,
+    partyARequired: true,
+    partyASigned: false,
     canInspectSigning: true,
     accessMode: 'signer',
     signerLineUserId: 'U-sensitive-signer',
@@ -105,6 +110,11 @@ function createFixture(options = {}) {
       calls.submit.push(input);
       if (options.submitError) throw options.submitError;
       return typeof submitResult === 'function' ? submitResult(input) : structuredClone(submitResult);
+    },
+    async submitPartyASignature(input) {
+      calls.submitPartyA.push(input);
+      if (options.submitPartyAError) throw options.submitPartyAError;
+      return { sessionId: 'signing-session-001', status: 'signed', partyASigned: true, idempotent: false, groupNotificationAccepted: true };
     },
   };
   const saveSignature = async (input) => {
@@ -161,6 +171,14 @@ const validSubmitBody = {
   reviewAcknowledged: true,
   consent: true,
 };
+const validPartyASubmitBody = {
+  ...validOpenBody,
+  idempotencyKey: 'browser-party-a-submit-001',
+  documentHash,
+  signatureDataUrl,
+  reviewAcknowledged: true,
+  consent: true,
+};
 const jsonHeaders = { 'content-type': 'application/json' };
 
 // The public renderer is mobile-first and bootstraps LIFF, fragment-only token
@@ -170,6 +188,9 @@ const jsonHeaders = { 'content-type': 'application/json' };
   assert.match(html, /<meta name="viewport"[^>]*width=device-width/);
   assert.match(html, /static\.line-scdn\.net\/liff\/edge\/2\/sdk\.js/);
   assert.match(html, /<canvas id="signature"/);
+  assert.match(html, /<canvas id="party-a-signature"/);
+  assert.match(html, /個人甲方正式簽名/);
+  assert.match(html, /不會存成日後可重複使用的簽名檔/);
   assert.match(html, /PDF 僅供閱讀/);
   assert.match(html, /開啟合約 PDF 閱讀（不在 PDF 上簽名）/);
   assert.match(html, /不必對準 PDF 裡的小框/);
@@ -206,6 +227,7 @@ const jsonHeaders = { 'content-type': 'application/json' };
   assert.ok(liffInitIndex >= 0 && liffInitIndex < cleanupCallbackIndex);
   assert.match(html, new RegExp(CONTRACT_SIGNING_OPEN_PATH.replaceAll('/', '\\/')));
   assert.match(html, new RegExp(CONTRACT_SIGNING_SUBMIT_PATH.replaceAll('/', '\\/')));
+  assert.match(html, new RegExp(CONTRACT_SIGNING_PARTY_A_SUBMIT_PATH.replaceAll('/', '\\/')));
   assert.doesNotMatch(html, /[?&]token=/);
   assert.match(html, /liff\.getAccessToken\(\)/);
   assert.doesNotMatch(html, /liff\.getIDToken\(\)/);
@@ -288,7 +310,12 @@ const jsonHeaders = { 'content-type': 'application/json' };
     expiresAt: '2026-09-04T01:00:00.000Z',
     idempotent: false,
     canSign: true,
+    canSignPartyB: true,
+    canSignPartyA: false,
+    partyARequired: true,
+    partyASigned: false,
     canInspectSigning: true,
+    signingRole: 'party_b',
     accessMode: 'signer',
   });
   assert.equal(fixture.calls.open.length, 1);
@@ -314,11 +341,41 @@ const jsonHeaders = { 'content-type': 'application/json' };
   assert.equal(fixture.calls.open.length, 2);
 }
 
+// An individual Party A sees only the Party A signature role. Submission stores
+// one contract-specific signature and never requests Party B identity fields.
+{
+  const fixture = createFixture({ openResult: {
+    canSign: false, canSignPartyB: false, canSignPartyA: true,
+    partyARequired: true, partyASigned: false, accessMode: 'party_a_signer', status: 'signed',
+  } });
+  const opened = await invoke(fixture.handler, {
+    method: 'POST', url: CONTRACT_SIGNING_OPEN_PATH, headers: jsonHeaders, body: validOpenBody,
+  });
+  assert.equal(opened.response.statusCode, 200);
+  assert.equal(opened.json.signing.signingRole, 'party_a');
+  assert.equal(opened.json.signing.accessMode, 'party_a_signer');
+
+  const submitted = await invoke(fixture.handler, {
+    method: 'POST', url: CONTRACT_SIGNING_PARTY_A_SUBMIT_PATH, headers: jsonHeaders, body: validPartyASubmitBody,
+  });
+  assert.equal(submitted.response.statusCode, 200);
+  assert.equal(fixture.calls.save.length, 1);
+  assert.equal(fixture.calls.save[0].role, 'party_a');
+  assert.match(fixture.calls.save[0].idempotencyKey, /^party-a:/);
+  assert.equal(fixture.calls.saveIdentity.length, 0);
+  assert.equal(fixture.calls.submit.length, 0);
+  assert.equal(fixture.calls.submitPartyA.length, 1);
+  assert.equal(fixture.calls.submitPartyA[0].signatureByteSize, signatureBytes.length);
+  assert.equal(fixture.calls.submitPartyA[0].signatureContentType, 'image/png');
+  assert.equal(Object.hasOwn(fixture.calls.submitPartyA[0], 'counterpartyDetails'), false);
+  assert.equal(Object.hasOwn(fixture.calls.submitPartyA[0], 'identityDocuments'), false);
+}
+
 // A verified member of the bound LINE group receives the same protected PDF
 // in read-only mode, but a submit attempt is rejected before any signature or
 // identity object is stored.
 {
-  const fixture = createFixture({ openResult: { canSign: false, canInspectSigning: true, accessMode: 'signer_inspection_read_only', status: 'sent', idempotent: true } });
+  const fixture = createFixture({ openResult: { canSign: false, canSignPartyB: false, canSignPartyA: false, canInspectSigning: true, accessMode: 'signer_inspection_read_only', status: 'sent', idempotent: true } });
   const opened = await invoke(fixture.handler, {
     method: 'POST', url: CONTRACT_SIGNING_OPEN_PATH, headers: jsonHeaders, body: validOpenBody,
   });

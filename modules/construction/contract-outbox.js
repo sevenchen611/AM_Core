@@ -87,6 +87,19 @@ export function createContractOutboxWorker(deps, options = {}) {
       projectId: project.id,
       signerLineUserId: text(payload.signerLineUserId),
     });
+    const partyASignerLineUserId = text(payload.partyASignerLineUserId);
+    const partyAGroup = partyASignerLineUserId ? await authorityResolver(deps, {
+      groupBindingId: text(first(contract, ['groupBindingId', 'group_binding_notion_page_id'])),
+      projectId: project.id,
+      signerLineUserId: partyASignerLineUserId,
+    }) : null;
+    if (partyAGroup && (text(partyAGroup.lineGroupId) !== text(group.lineGroupId)
+        || text(partyAGroup.groupBindingId) !== text(group.groupBindingId))) {
+      throw outboxError('PARTY_A_SIGNING_GROUP_MISMATCH', 'Party A signer is outside the authoritative contract LINE group.', 409);
+    }
+    if (partyASignerLineUserId && partyASignerLineUserId === text(group.signerLineUserId)) {
+      throw outboxError('PARTY_SIGNER_CONFLICT', 'Party A and Party B cannot use the same LINE signer.', 409);
+    }
     const signing = signingFactory(deps, {
       versionId: text(version.id), groupBindingId: text(group.groupBindingId), actor: text(payload.requestedBy || context.actor),
       expectedSignerName: text(group.signerName), expectedSignerCompany: text(first(contract, ['counterpartyCompany', 'counterparty_company'])),
@@ -99,6 +112,7 @@ export function createContractOutboxWorker(deps, options = {}) {
       documentHash,
       lineGroupId: text(group.lineGroupId),
       signerLineUserId: text(group.signerLineUserId),
+      partyASignerLineUserId: text(partyAGroup?.signerLineUserId),
       actorId: text(payload.requestedBy || context.actor),
       idempotencyKey: job.idempotency_key,
     };

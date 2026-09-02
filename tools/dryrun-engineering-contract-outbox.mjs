@@ -102,6 +102,7 @@ const worker = createContractOutboxWorker({
 
 const line = addJob('line-1', 'line_signing_invitation', {
   contractId: 'contract-1', versionId: 'version-1', signerLineUserId: 'U-signer',
+  partyASignerLineUserId: 'U-party-a',
   documentRef: 'https://drive.google.com/file/d/driveFile_1234567890/view', documentHash: HASH,
   requestedBy: 'server-admin',
 });
@@ -114,7 +115,9 @@ assert.equal(signingInputs.length, 2);
 assert.equal(signingInputs[0].idempotencyKey, line.idempotency_key);
 assert.equal(signingInputs[1].idempotencyKey, line.idempotency_key);
 assert.equal(signingInputs[1].lineGroupId, 'C-real');
+assert.equal(signingInputs[1].partyASignerLineUserId, 'U-party-a');
 assert.equal(signingInputs[1].documentHash, HASH);
+assert.equal(calls.filter((item) => item[0] === 'authority').length, 4, 'both signers are revalidated on every outbox attempt');
 
 const projection = addJob('projection-1', 'notion_contract_projection', {
   contractId: 'contract-1', versionId: 'version-1', status: 'issued',

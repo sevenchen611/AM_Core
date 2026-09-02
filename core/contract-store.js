@@ -4,12 +4,13 @@
 import crypto from 'node:crypto';
 
 const SCHEMA = 'engineering_contracts';
-const SCHEMA_VERSION = '2026-09-02.engineering-contract-evidence.v7';
+const SCHEMA_VERSION = '2026-09-02.engineering-contract-evidence.v8';
 const COMPATIBLE_SCHEMA_VERSIONS = new Set([
   '2026-08-28.engineering-contract-evidence.v3',
   '2026-08-31.engineering-contract-evidence.v4',
   '2026-09-02.engineering-contract-evidence.v5',
   '2026-09-02.engineering-contract-evidence.v6',
+  '2026-09-02.engineering-contract-evidence.v7',
   SCHEMA_VERSION,
 ]);
 

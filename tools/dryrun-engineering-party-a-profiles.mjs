@@ -90,7 +90,9 @@ const page = contractsPageTest.renderContractsPage('engineering', 'test-key', tr
 assert.match(page, /甲方主檔/);
 assert.match(page, /party-a-profiles/);
 assert.match(page, /簽名不存主檔/);
-assert.match(page, /送出甲方簽名並完成雙方歸檔/);
+assert.match(page, /每份合約以指定 LINE 帳號簽名/);
+assert.match(page, /assign-party-a/);
+assert.doesNotMatch(page, /id="party-a-contract-signature"/);
 const pageScript = page.match(/<script>([\s\S]*)<\/script>/)?.[1];
 assert.ok(pageScript);
 new vm.Script(pageScript, { filename: 'engineering-contracts-page.js' });
@@ -111,6 +113,10 @@ await db.exec(`
     signing_session_id uuid references engineering_contracts.signing_sessions(id),
     artifact_kind text not null check (artifact_kind in ('issued_pdf','signed_pdf','evidence_receipt'))
   );
+  CREATE TABLE engineering_contracts.signing_events(
+    id uuid primary key default gen_random_uuid(),
+    event_type text not null check (event_type in ('issued','sent','delivery_ack','first_opened','signed','submission_received','confirmed','completed','revoked','expired'))
+  );
 `);
 const v7Url = new URL('../versions/AM-IMP-2026.0902.12/schemas/engineering-contract-party-a-dual-signing-v7.sql', import.meta.url);
 const rawV7 = await fs.readFile(v7Url, 'utf8');
@@ -122,6 +128,17 @@ const version = await db.query('SELECT version FROM engineering_contracts.schema
 assert.equal(version.rows[0].version, '2026-09-02.engineering-contract-evidence.v7');
 const columns = await db.query("SELECT column_name FROM information_schema.columns WHERE table_schema='engineering_contracts' AND table_name='party_a_profiles'");
 assert.ok(columns.rows.some((row) => row.column_name === 'assets'));
+const v8Url = new URL('../versions/AM-IMP-2026.0902.14/schemas/engineering-contract-party-a-online-signing-v8.sql', import.meta.url);
+const rawV8 = await fs.readFile(v8Url, 'utf8');
+const migrationV8 = rawV8.split(/\r?\n/)
+  .filter((line) => !/^\\/.test(line.trim()) && !/^\s*GRANT\b/i.test(line))
+  .join('\n');
+await db.exec(migrationV8);
+const versionV8 = await db.query('SELECT version FROM engineering_contracts.schema_meta WHERE singleton=true');
+assert.equal(versionV8.rows[0].version, '2026-09-02.engineering-contract-evidence.v8');
+for (const eventType of ['party_a_signer_assigned', 'party_a_first_opened', 'party_a_signed', 'party_a_submission_received']) {
+  await db.query('INSERT INTO engineering_contracts.signing_events(event_type) VALUES($1)', [eventType]);
+}
 await db.close();
 
-console.log('Engineering Party A profile dry-run passed: individual profiles reject reusable signatures, contract-specific signing renders, and schema v7 migration is verified.');
+console.log('Engineering Party A profile dry-run passed: reusable signatures are rejected, LINE signing UI renders, and schema v8 Party A events are verified.');

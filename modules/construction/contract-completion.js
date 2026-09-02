@@ -339,28 +339,69 @@ export function createContractCompletionService(deps, options = {}) {
     }
     let partyASignatureArtifact = findArtifact(bundle, 'party_a_signature_image');
     if (partyA.profileType === 'individual' && !partyASignatureArtifact) {
-      if (input.partyASignatureConsent !== true) {
-        throw completionError('PARTY_A_SIGNATURE_CONSENT_REQUIRED', '請由個人甲方確認本次合約簽署。', 422);
+      const online = runtime.state.partyASubmission;
+      if (online) {
+        if (input.partyASignatureDataUrl || input.partyASignatureConsent) {
+          throw completionError('PARTY_A_SIGNATURE_SOURCE_CONFLICT', '甲方已在線上完成簽名，不可再由內部頁面替換。', 409);
+        }
+        const assignedSigner = text(runtime.state.partyASignerLineUserId);
+        const actualSigner = text(online.signerLineUserId);
+        if (!assignedSigner || actualSigner !== assignedSigner) {
+          throw completionError('PARTY_A_SIGNER_EVIDENCE_MISMATCH', '甲方簽名的 LINE 身分與指定簽署人不一致。', 409);
+        }
+        if (sha256(online.documentHash, 'partyA.documentHash') !== originalDocumentHash
+            || online.reviewAcknowledged !== true
+            || text(online.consentVersion) !== PARTY_A_CONSENT_VERSION
+            || !text(online.receivedAt) || !Number.isFinite(Date.parse(online.receivedAt))) {
+          throw completionError('PARTY_A_SIGNATURE_EVIDENCE_INVALID', '甲方線上簽署證據不完整或合約版本不一致。', 409);
+        }
+        const onlineHash = sha256(online.signatureHash, 'partyA.signatureHash');
+        const onlineRef = text(online.submissionRef);
+        const onlineByteSize = Number(online.signatureByteSize);
+        const onlineContentType = text(online.signatureContentType);
+        if (!onlineRef || !Number.isSafeInteger(onlineByteSize) || onlineByteSize < 1
+            || !['image/png', 'image/jpeg'].includes(onlineContentType)) {
+          throw completionError('PARTY_A_SIGNATURE_EVIDENCE_INVALID', '甲方線上簽名的檔案證據不完整。', 409);
+        }
+        const downloaded = bufferResult(await deps.downloadFromDrive(onlineRef));
+        if (downloaded.buffer.length !== onlineByteSize || hash(downloaded.buffer) !== onlineHash
+            || downloaded.mimeType !== onlineContentType) {
+          throw completionError('PARTY_A_SIGNATURE_HASH_MISMATCH', '甲方線上簽名與不可變證據不一致。', 409);
+        }
+        partyASignatureArtifact = await record(authority, bundle, 'party_a_signature_image', {
+          driveFileId: onlineRef, sha256: onlineHash, byteSize: onlineByteSize,
+        }, {
+          role: 'party_a', profileType: partyA.profileType, profileId: partyA.profileId,
+          signerName: partyA.signerName, signerLineUserId: actualSigner,
+          capturedAt: text(online.receivedAt), consentVersion: PARTY_A_CONSENT_VERSION,
+          source: 'line_online', documentHash: originalDocumentHash,
+        });
+      } else {
+        // Compatibility path for a contract already in progress before online
+        // Party A signing was deployed. New sessions require the LINE flow.
+        if (input.partyASignatureConsent !== true) {
+          throw completionError('PARTY_A_SIGNATURE_REQUIRED', '個人甲方尚未使用指定 LINE 帳號完成本次合約線上簽名。', 409);
+        }
+        const captured = decodePartyASignature(input.partyASignatureDataUrl);
+        const capturedAt = new Date(clock()).toISOString();
+        const stored = await artifacts.storeSigningImage({
+          projectLabel: bundle.projectCode || bundle.projectId,
+          contractLabel: text(first(bundle.contract, ['contractNumber', 'contract_number', 'title'], bundle.contractId)),
+          filename: `${text(first(bundle.contract, ['contractNumber', 'contract_number'], bundle.contractId))}-party-a-signature.${captured.mimeType === 'image/png' ? 'png' : 'jpg'}`,
+          buffer: captured.buffer,
+          mimeType: captured.mimeType,
+        });
+        if (sha256(stored.sha256, 'party_a_signature_image.sha256') !== captured.sha256) {
+          throw completionError('PARTY_A_SIGNATURE_STORE_HASH_MISMATCH', '甲方簽名儲存後雜湊不一致。', 502);
+        }
+        const requestHeaders = options.requestMeta?.headers || {};
+        const userAgent = text(requestHeaders['user-agent'] || requestHeaders['User-Agent']).slice(0, 400);
+        partyASignatureArtifact = await record(authority, bundle, 'party_a_signature_image', stored, {
+          role: 'party_a', profileType: partyA.profileType, profileId: partyA.profileId,
+          signerName: partyA.signerName, capturedBy: authority.actor, capturedAt,
+          consentVersion: PARTY_A_CONSENT_VERSION, userAgent, source: 'legacy_internal_capture',
+        });
       }
-      const captured = decodePartyASignature(input.partyASignatureDataUrl);
-      const capturedAt = new Date(clock()).toISOString();
-      const stored = await artifacts.storeSigningImage({
-        projectLabel: bundle.projectCode || bundle.projectId,
-        contractLabel: text(first(bundle.contract, ['contractNumber', 'contract_number', 'title'], bundle.contractId)),
-        filename: `${text(first(bundle.contract, ['contractNumber', 'contract_number'], bundle.contractId))}-party-a-signature.${captured.mimeType === 'image/png' ? 'png' : 'jpg'}`,
-        buffer: captured.buffer,
-        mimeType: captured.mimeType,
-      });
-      if (sha256(stored.sha256, 'party_a_signature_image.sha256') !== captured.sha256) {
-        throw completionError('PARTY_A_SIGNATURE_STORE_HASH_MISMATCH', '甲方簽名儲存後雜湊不一致。', 502);
-      }
-      const requestHeaders = options.requestMeta?.headers || {};
-      const userAgent = text(requestHeaders['user-agent'] || requestHeaders['User-Agent']).slice(0, 400);
-      partyASignatureArtifact = await record(authority, bundle, 'party_a_signature_image', stored, {
-        role: 'party_a', profileType: partyA.profileType, profileId: partyA.profileId,
-        signerName: partyA.signerName, capturedBy: authority.actor, capturedAt,
-        consentVersion: PARTY_A_CONSENT_VERSION, userAgent,
-      });
       bundle = await load(authority, sessionId);
       partyASignatureArtifact = findArtifact(bundle, 'party_a_signature_image') || partyASignatureArtifact;
     }
