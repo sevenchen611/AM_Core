@@ -71,6 +71,7 @@ function fixture() {
   const state = {
     id: 'session-1', status: 'signed', contractId: 'contract-1', projectId: 'project-1',
     documentHash, lineGroupId: 'C-group-1', signerLineUserId: 'U-signer-1',
+    partyASignerLineUserId: 'U-party-a-1',
     submission: {
       signatureHash, submissionRef: 'drive-signature-1',
       counterpartyDetails,
@@ -191,25 +192,36 @@ const context = {
   scope: { projectIds: ['project-1'] },
 };
 
-// Individual Party A confirmation fails closed until a fresh contract-specific
-// signature and explicit consent are supplied.
+// Individual Party A confirmation fails closed until the designated LINE
+// account has submitted a contract-specific signature.
 await assert.rejects(
   service.completeContract(context, { sessionId: 'session-1' }),
-  (error) => error.code === 'PARTY_A_SIGNATURE_CONSENT_REQUIRED',
+  (error) => error.code === 'PARTY_A_SIGNATURE_REQUIRED',
 );
 assert.equal(calls.filter((item) => item === 'confirm').length, 0);
+
+state.partyASubmission = {
+  documentHash, signatureHash: partyASignatureHash,
+  submissionRef: 'drive-party-a-signature-1',
+  signatureByteSize: partyASignatureBytes.length, signatureContentType: 'image/png',
+  consentVersion: 'engineering-contract-party-a-signature-v1', reviewAcknowledged: true,
+  receivedAt: '2026-08-28T01:07:00.000Z', signerLineUserId: 'U-party-a-1',
+};
 
 // Confirmation is durable before rendering. A transient PDF failure leaves the
 // session confirmed, and a retry does not confirm or sign again.
 await assert.rejects(
-  service.completeContract(context, {
-    sessionId: 'session-1', partyASignatureDataUrl, partyASignatureConsent: true,
-  }),
+  service.completeContract(context, { sessionId: 'session-1' }),
   (error) => error.code === 'PDF_RENDER_FAILED',
 );
 assert.equal(state.status, 'confirmed');
 assert.equal(calls.filter((item) => item === 'confirm').length, 1);
 assert.equal(calls.filter((item) => item === 'complete').length, 0);
+assert.equal(calls.filter((item) => item === 'storePartyASignature').length, 0);
+const partyAArtifact = bundle.artifacts.find((item) => item.artifactKind === 'party_a_signature_image');
+assert.equal(partyAArtifact.driveFileId, 'drive-party-a-signature-1');
+assert.equal(partyAArtifact.metadata.source, 'line_online');
+assert.equal(partyAArtifact.metadata.signerLineUserId, 'U-party-a-1');
 
 const result = await service.completeContract(context, { sessionId: 'session-1' });
 assert.equal(result.status, 'completed');

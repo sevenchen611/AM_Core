@@ -112,7 +112,7 @@ export function normalizePartyAProfileInput(input = {}) {
   }
   if (profileType === 'company' && !assets.large_seal) throw fail('公司甲方必須上傳公司大章');
   if (profileType === 'individual' && Object.keys(assets).length) {
-    throw fail('個人甲方主檔不保存簽名；簽名請在每份合約確認時現場完成');
+    throw fail('個人甲方主檔不保存簽名；請在每份合約以指定 LINE 帳號完成線上簽署');
   }
   const id = text(input.id, 80) || null;
   if (id && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {

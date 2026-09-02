@@ -16,6 +16,7 @@ function fixture(overrides = {}) {
   const frozen = {
     id: 'version-1', contractId: contract.id, versionNo: 3, status: 'frozen',
     attachmentManifestHash: HASH,
+    documentPackage: { contractFields: { partyAProfileType: overrides.partyAProfileType || 'company' } },
   };
   const issued = {
     ...frozen, status: 'issued', issuedPdfDriveFileId: FILE_ID, issuedPdfSha256: PDF_HASH,
@@ -113,7 +114,7 @@ function fixture(overrides = {}) {
     },
   };
   if (overrides.baseJobStatus) {
-    outboxJobs.set('line-signing-invitation:engineering:version-1:U-signer', {
+    outboxJobs.set('line-signing-invitation:engineering:version-1:U-signer:company-party-a', {
       status: overrides.baseJobStatus,
       externalSessionId: 'session-terminal',
       payload: {
@@ -255,6 +256,39 @@ function fixture(overrides = {}) {
   assert.equal(retryKeys[0], retryKeys[1], 'ordinary LINE retry must reuse the canonical outbox job');
   assert.equal(retried.retried, true);
   assert.equal(retried.documentHash, PDF_HASH);
+}
+
+// Individual Party A requires a second, distinct signer from the same
+// authoritative group and forwards both identities into the durable session.
+{
+  calls.length = 0;
+  const { service, sessions } = fixture({ partyAProfileType: 'individual' });
+  await assert.rejects(
+    service.issueFrozenVersion(context, {
+      contractId: 'contract-1', versionId: 'version-1', signerLineUserId: 'U-signer',
+    }),
+    (error) => error.code === 'PARTY_A_SIGNER_REQUIRED',
+  );
+  await assert.rejects(
+    service.issueFrozenVersion(context, {
+      contractId: 'contract-1', versionId: 'version-1', signerLineUserId: 'U-signer',
+      partyASignerLineUserId: 'U-signer',
+    }),
+    (error) => error.code === 'PARTY_SIGNER_CONFLICT',
+  );
+  calls.length = 0;
+  const result = await service.issueFrozenVersion(context, {
+    contractId: 'contract-1', versionId: 'version-1', signerLineUserId: 'U-signer',
+    partyASignerLineUserId: 'U-party-a',
+  });
+  assert.equal(result.sent, true);
+  assert.equal(calls.filter((item) => item[0] === 'authority').length, 2);
+  assert.equal(sessions[0].signerLineUserId, 'U-signer');
+  assert.equal(sessions[0].partyASignerLineUserId, 'U-party-a');
+  const issueCall = calls.find((item) => item[0] === 'issueVersion')[2];
+  const invitation = issueCall.outbox.find((job) => job.eventKind === 'line_signing_invitation');
+  assert.equal(invitation.payload.partyASignerLineUserId, 'U-party-a');
+  assert.match(invitation.idempotencyKey, /:U-signer:U-party-a$/);
 }
 
 console.log('engineering contract issuance dry-run passed');

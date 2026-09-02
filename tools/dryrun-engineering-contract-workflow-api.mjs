@@ -312,4 +312,17 @@ let versionId;
   assert.equal(denied.payload.error.details.capability, 'confirm');
 }
 
+{
+  const denied = await call(handler, 'POST', '/contracts/api/v2/signing-sessions/cs_example1234567890/assign-party-a', {
+    authority: view, body: { partyASignerLineUserId: 'U-party-a' },
+  });
+  assert.equal(denied.res.statusCode, 403);
+  assert.equal(denied.payload.error.details.capability, 'issue');
+  const method = await call(handler, 'GET', '/contracts/api/v2/signing-sessions/cs_example1234567890/assign-party-a', {
+    authority: issue,
+  });
+  assert.equal(method.res.statusCode, 405);
+  assert.equal(method.res.headers.Allow, 'POST');
+}
+
 console.log('Engineering contract workflow API dry-run passed: v2 routes, server actor/scope, and view/manage/issue/confirm gates are enforced.');

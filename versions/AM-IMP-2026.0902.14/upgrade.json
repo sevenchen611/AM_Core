@@ -1,0 +1,67 @@
+{
+  "id": "AM-IMP-2026.0902.14",
+  "name": "Individual Party A online signing",
+  "type": "AM Platform / contracts / dual-party online signing",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-02",
+  "dependsOn": ["AM-IMP-2026.0902.12", "AM-IMP-2026.0902.13"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Require a designated Party A LINE signer when the frozen Party A profile is individual",
+    "Expose a role-specific Party A signature field on the protected online signing page",
+    "Keep Party A and Party B signer identities distinct and bound to the authoritative contract group",
+    "Require both online signatures before individual Party A contract confirmation and final archival",
+    "Allow an active legacy signing session to bind its Party A signer without reissuing the frozen PDF"
+  ],
+  "requiresDatabases": ["engineering_contracts schema v8"],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-signing.mjs",
+    "tools/dryrun-engineering-contract-signing-web.mjs",
+    "tools/dryrun-engineering-contract-issuance.mjs",
+    "tools/dryrun-engineering-contract-outbox.mjs",
+    "tools/dryrun-engineering-contract-outbox.mjs",
+    "tools/dryrun-engineering-contract-completion.mjs",
+    "tools/dryrun-engineering-contract-workflow-api.mjs",
+    "tools/dryrun-engineering-contract-workspace.mjs",
+    "tools/dryrun-engineering-contract-runtime.mjs",
+    "tools/dryrun-engineering-contract-security-gates.mjs",
+    "tools/dryrun-engineering-contract-store.mjs",
+    "tools/dryrun-engineering-party-a-profiles.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Each Party A signature is bound to one frozen document hash, signing session, designated LINE identity, and append-only evidence chain; no signature is written to a reusable profile."
+  },
+  "definitionOfDone": [
+    "Individual Party A issuance requires two different authorized LINE signers",
+    "Party A can sign the frozen contract through a dedicated role-specific online field",
+    "Party A cannot submit Party B data and non-signers cannot submit either role",
+    "Both signatures are required before confirmation and final archival",
+    "Company Party A behavior remains based on the frozen large company seal",
+    "Schema v8 accepts the new append-only Party A signing events"
+  ],
+  "files": [
+    "schemas/engineering-contract-party-a-online-signing-v8.sql",
+    "core/contract-store.js",
+    "modules/construction/contract-signing.js",
+    "modules/construction/contract-signing-web.js",
+    "modules/construction/contract-issuance.js",
+    "modules/construction/contract-outbox.js",
+    "modules/construction/contract-completion.js",
+    "modules/construction/contract-workflow-api.js",
+    "modules/construction/contract-party-a-profiles.js",
+    "modules/construction/contracts.js",
+    "tools/dryrun-engineering-contract-signing.mjs",
+    "tools/dryrun-engineering-contract-signing-web.mjs",
+    "tools/dryrun-engineering-contract-issuance.mjs",
+    "tools/dryrun-engineering-contract-completion.mjs",
+    "tools/dryrun-engineering-contract-workflow-api.mjs",
+    "tools/dryrun-engineering-contract-store.mjs",
+    "tools/dryrun-engineering-party-a-profiles.mjs"
+  ]
+}

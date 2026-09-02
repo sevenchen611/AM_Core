@@ -173,6 +173,11 @@ function routeFor(method, pathname) {
     if (method !== 'POST') return { methodNotAllowed: true, allow: 'POST' };
     return { operation: 'completeContract', capability: 'confirm', body: true, completion: true, sessionId: decodeSegment(match[1]) };
   }
+  match = pathname.match(/^\/contracts\/api\/v2\/signing-sessions\/([^/]+)\/assign-party-a$/);
+  if (match) {
+    if (method !== 'POST') return { methodNotAllowed: true, allow: 'POST' };
+    return { operation: 'assignPartyASigner', capability: 'issue', body: true, issuance: true, sessionId: decodeSegment(match[1]) };
+  }
   match = pathname.match(/^\/contracts\/api\/v2\/signing-sessions\/([^/]+)\/revoke$/);
   if (match) {
     if (method !== 'POST') return { methodNotAllowed: true, allow: 'POST' };

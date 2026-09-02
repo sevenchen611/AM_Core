@@ -7,6 +7,7 @@ import {
 export const CONTRACT_SIGNING_WEB_PATH = '/contract-sign';
 export const CONTRACT_SIGNING_OPEN_PATH = '/contract-sign/api/open';
 export const CONTRACT_SIGNING_SUBMIT_PATH = '/contract-sign/api/submit';
+export const CONTRACT_SIGNING_PARTY_A_SUBMIT_PATH = '/contract-sign/api/submit-party-a';
 export const CONTRACT_SIGNING_DOCUMENT_PATH = '/contract-sign/api/document';
 export const DEFAULT_CONTRACT_SIGNING_BODY_LIMIT = 9 * 1024 * 1024;
 export const DEFAULT_SIGNATURE_DATA_LIMIT = 320_000;
@@ -193,7 +194,9 @@ async function resolvePublicDocumentUrl(result, resolver) {
 }
 
 function publicOpenPayload(result, documentUrl) {
-  const canSign = result?.canSign === true;
+  const canSignPartyB = result?.canSignPartyB === true || result?.canSign === true;
+  const canSignPartyA = result?.canSignPartyA === true;
+  const canSign = canSignPartyB;
   const canInspectSigning = result?.canInspectSigning === true;
   return {
     sessionId: String(result?.sessionId || ''),
@@ -205,8 +208,14 @@ function publicOpenPayload(result, documentUrl) {
     expiresAt: String(result?.expiresAt || ''),
     idempotent: result?.idempotent === true,
     canSign,
+    canSignPartyB,
+    canSignPartyA,
+    partyARequired: result?.partyARequired === true,
+    partyASigned: result?.partyASigned === true,
     canInspectSigning,
-    accessMode: canSign ? 'signer' : canInspectSigning ? 'signer_inspection_read_only' : 'group_member_read_only',
+    signingRole: canSignPartyB ? 'party_b' : canSignPartyA ? 'party_a' : 'group_member',
+    accessMode: canSignPartyB ? 'signer' : canSignPartyA ? 'party_a_signer'
+      : canInspectSigning ? 'signer_inspection_read_only' : 'group_member_read_only',
   };
 }
 
@@ -224,7 +233,7 @@ function signingPageScript(liffId) {
 const LIFF_ID = ${escapeScriptJson(liffId)};
 const TOKEN_STORAGE_KEY = 'engineering-contract-sign-token';
 const LOGIN_ATTEMPT_KEY = 'engineering-contract-sign-login-attempted';
-const state = { token:'', credential:'', signing:null, reviewAcknowledged:false, canvas:null, context:null, width:0, height:0, strokes:[], drawing:false };
+const state = { token:'', credential:'', signing:null, reviewAcknowledged:false, canvas:null, context:null, width:0, height:0, strokes:[], drawing:false, partyACanvas:null, partyAContext:null, partyAWidth:0, partyAHeight:0, partyAStrokes:[], partyADrawing:false };
 const byId = (id) => document.getElementById(id);
 function show(message, kind='') { const node=byId('message'); node.textContent=message; node.className='message '+kind; }
 async function api(path, payload) {
@@ -262,6 +271,20 @@ function initCanvas() {
   canvas.addEventListener('pointerup',finish); canvas.addEventListener('pointercancel',finish);
 }
 function clearSignature() { state.strokes=[]; if(state.context)state.context.clearRect(0,0,state.width,state.height); }
+function initPartyACanvas() {
+  const canvas=byId('party-a-signature'); const ratio=Math.min(devicePixelRatio || 1,2);
+  const width=canvas.clientWidth || 320; const height=canvas.clientHeight || 180;
+  canvas.width=Math.round(width*ratio); canvas.height=Math.round(height*ratio);
+  const context=canvas.getContext('2d'); context.scale(ratio,ratio);
+  context.strokeStyle='#1e2923'; context.lineWidth=2.5; context.lineCap='round'; context.lineJoin='round';
+  state.partyACanvas=canvas; state.partyAContext=context; state.partyAWidth=width; state.partyAHeight=height;
+  const point=(event)=>{ const rect=canvas.getBoundingClientRect(); return {x:event.clientX-rect.left,y:event.clientY-rect.top}; };
+  canvas.addEventListener('pointerdown',(event)=>{ event.preventDefault(); canvas.setPointerCapture(event.pointerId); state.partyADrawing=true; state.partyAStrokes.push([point(event)]); });
+  canvas.addEventListener('pointermove',(event)=>{ if(!state.partyADrawing)return; event.preventDefault(); const stroke=state.partyAStrokes.at(-1); const next=point(event); const previous=stroke.at(-1); stroke.push(next); context.beginPath(); context.moveTo(previous.x,previous.y); context.lineTo(next.x,next.y); context.stroke(); });
+  const finish=()=>{ if(!state.partyADrawing)return; const stroke=state.partyAStrokes.at(-1); if(stroke?.length===1){ context.beginPath(); context.arc(stroke[0].x,stroke[0].y,1.25,0,Math.PI*2); context.fillStyle='#1e2923'; context.fill(); } state.partyADrawing=false; };
+  canvas.addEventListener('pointerup',finish); canvas.addEventListener('pointercancel',finish);
+}
+function clearPartyASignature() { state.partyAStrokes=[]; if(state.partyAContext)state.partyAContext.clearRect(0,0,state.partyAWidth,state.partyAHeight); }
 function enableSigningInspection() {
   const panel=byId('sign-panel'); panel.hidden=false; panel.classList.add('inspection-mode');
   byId('inspection-banner').hidden=false;
@@ -272,6 +295,12 @@ function enableSigningInspection() {
   });
   byId('signature').setAttribute('aria-disabled','true');
   byId('submit-signature').textContent='檢查模式不可送出';
+  if(state.signing.partyARequired){
+    const partyAPanel=byId('party-a-sign-panel'); partyAPanel.hidden=false; partyAPanel.classList.add('inspection-mode');
+    byId('party-a-inspection-banner').hidden=false; byId('party-a-signature-inspection-label').hidden=false;
+    ['party-a-clear-signature','party-a-consent','party-a-submit-signature'].forEach((id)=>{const node=byId(id);node.disabled=true;node.setAttribute('aria-disabled','true');});
+    byId('party-a-signature').setAttribute('aria-disabled','true'); byId('party-a-submit-signature').textContent='檢查模式不可送出';
+  }
 }
 async function identityPhotoDataUrl(inputId,label) {
   const file=byId(inputId).files?.[0];
@@ -287,8 +316,8 @@ async function identityPhotoDataUrl(inputId,label) {
   return dataUrl;
 }
 function identitySelected(inputId,stateId,label){const file=byId(inputId).files?.[0];byId(stateId).textContent=file?'✓ 已選擇'+label+'：'+file.name:'尚未選擇';}
-function idempotencyKey() {
-  const key='engineering-contract-submit-'+state.signing.sessionId;
+function idempotencyKey(role='party-b') {
+  const key='engineering-contract-submit-'+role+'-'+state.signing.sessionId;
   let value=sessionStorage.getItem(key);
   if(!value){ value=crypto.randomUUID ? crypto.randomUUID() : String(Date.now())+'-'+Math.random().toString(36).slice(2); sessionStorage.setItem(key,value); }
   return { key, value };
@@ -318,13 +347,24 @@ async function initialize() {
   const opened=await api('${CONTRACT_SIGNING_OPEN_PATH}',{token:state.token,liffCredential:state.credential});
   state.signing=opened.signing;
   const documentLink=byId('document-link'); documentLink.href=state.signing.documentUrl; documentLink.hidden=false;
-  if(state.signing.canSign){
-    byId('contract-state').textContent='你是本合約指定簽署人。請先開啟文件詳閱，再進行簽名。';
+  if(state.signing.canSignPartyB){
+    byId('contract-state').textContent='你是本合約指定的乙方簽署人。請先開啟文件詳閱，再進行簽名。';
     byId('sign-panel').hidden=false;
-    show('已驗證指定簽署人身分，請先開啟合約文件詳閱。','ok');
+    show('已驗證乙方指定簽署人身分，請先開啟合約文件詳閱。','ok');
     initCanvas();
+  }else if(state.signing.canSignPartyA){
+    byId('contract-state').textContent=state.signing.partyASigned?'你是本合約指定的個人甲方簽署人，甲方簽名已完成。':'你是本合約指定的個人甲方簽署人。請先開啟文件詳閱，再於甲方簽名區簽名。';
+    byId('party-a-sign-panel').hidden=false;
+    if(state.signing.partyASigned){
+      ['party-a-clear-signature','party-a-consent','party-a-submit-signature'].forEach((id)=>byId(id).disabled=true);
+      byId('party-a-submit-signature').textContent='甲方已完成簽名';
+      show('甲方簽名先前已安全送達，無需重複提交。','ok');
+    }else{
+      show('已驗證個人甲方指定簽署人身分，請先開啟合約文件詳閱。','ok');
+      initPartyACanvas();
+    }
   }else if(state.signing.canInspectSigning){
-    byId('contract-state').textContent='你已進入簽署檢查模式，可查看指定簽署人會看到的完整簽署版面；只有指定簽署人可以操作與送出。';
+    byId('contract-state').textContent='你已進入簽署檢查模式，可查看甲乙雙方指定簽署人會看到的完整簽署版面；只有各方指定簽署人可以操作與送出。';
     enableSigningInspection();
     show('已驗證群組成員身分，目前為簽署檢查模式（唯讀）。','ok');
   }else{
@@ -334,15 +374,16 @@ async function initialize() {
 }
 byId('document-link').addEventListener('click',async(event)=>{
   event.preventDefault(); const target=window.open('about:blank','_blank'); if(target)target.opener=null;
-  try{const response=await fetch(state.signing.documentUrl,{method:'POST',credentials:'same-origin',cache:'no-store',referrerPolicy:'no-referrer',headers:{'content-type':'application/json'},body:JSON.stringify({token:state.token,liffCredential:state.credential})});if(!response.ok){const failure=await response.json().catch(()=>({}));throw new Error(failure.error||'無法讀取合約文件');}const blob=await response.blob();const blobUrl=URL.createObjectURL(blob);if(target)target.location.replace(blobUrl);else location.href=blobUrl;state.reviewAcknowledged=true;if(state.signing.canSign){byId('consent').disabled=false;byId('submit-signature').disabled=false;byId('review-state').textContent='已開啟合約 PDF。詳閱後請返回本頁，填寫資料、上傳證件，並在下方大簽名格完成簽名。';}else if(state.signing.canInspectSigning){byId('review-state').textContent='已開啟完整合約；返回本頁即可用檢查模式確認對方的填寫、證件上傳與簽名位置。';}else{byId('review-state').textContent='已開啟完整合約；你目前是群組成員唯讀檢視，無法簽署。';}}catch(failure){if(target)target.close();show(failure.message||'無法讀取合約文件','error');}
+  try{const response=await fetch(state.signing.documentUrl,{method:'POST',credentials:'same-origin',cache:'no-store',referrerPolicy:'no-referrer',headers:{'content-type':'application/json'},body:JSON.stringify({token:state.token,liffCredential:state.credential})});if(!response.ok){const failure=await response.json().catch(()=>({}));throw new Error(failure.error||'無法讀取合約文件');}const blob=await response.blob();const blobUrl=URL.createObjectURL(blob);if(target)target.location.replace(blobUrl);else location.href=blobUrl;state.reviewAcknowledged=true;if(state.signing.canSignPartyB){byId('consent').disabled=false;byId('submit-signature').disabled=false;byId('review-state').textContent='已開啟合約 PDF。詳閱後請返回本頁，填寫資料、上傳證件，並在下方大簽名格完成簽名。';}else if(state.signing.canSignPartyA&&!state.signing.partyASigned){byId('party-a-consent').disabled=false;byId('party-a-submit-signature').disabled=false;byId('review-state').textContent='已開啟合約 PDF。詳閱後請返回本頁，在甲方大簽名格完成本次合約簽名。';}else if(state.signing.canInspectSigning){byId('review-state').textContent='已開啟完整合約；返回本頁即可用檢查模式確認甲乙雙方的簽署位置。';}else{byId('review-state').textContent='已開啟完整合約；你目前是群組成員唯讀檢視，無法簽署。';}}catch(failure){if(target)target.close();show(failure.message||'無法讀取合約文件','error');}
 });
 byId('clear-signature').addEventListener('click',clearSignature);
+byId('party-a-clear-signature').addEventListener('click',clearPartyASignature);
 byId('identity-front').addEventListener('change',()=>identitySelected('identity-front','identity-front-state','正面'));
 byId('identity-back').addEventListener('change',()=>identitySelected('identity-back','identity-back-state','反面'));
 byId('submit-signature').addEventListener('click',async()=>{
   const button=byId('submit-signature');
   if(!state.signing){ show('合約尚未完成驗證。','error'); return; }
-  if(!state.signing.canSign){ show('檢查模式只能查看簽署位置，不能代替指定簽署人送出。','error'); return; }
+  if(!state.signing.canSignPartyB){ show('目前帳號不是乙方指定簽署人，不能代替乙方送出。','error'); return; }
   if(!state.reviewAcknowledged){ show('請先開啟合約文件詳閱。','error'); return; }
   const counterpartyName=byId('counterparty-name').value.trim();
   const counterpartyIdentityNumber=byId('counterparty-identity-number').value.trim().toUpperCase().replace(/\s+/g,'');
@@ -351,7 +392,7 @@ byId('submit-signature').addEventListener('click',async()=>{
   if(!state.strokes.length){ show('請先在簽名框內簽名。','error'); return; }
   if(!byId('identity-front').files?.[0]||!byId('identity-back').files?.[0]){ show('請先提供身分證正面與反面照片。','error'); return; }
   if(!byId('consent').checked){ show('請先勾選同意簽署。','error'); return; }
-  const idem=idempotencyKey(); button.disabled=true; show('正在處理身分證照片並安全送出…');
+  const idem=idempotencyKey('party-b'); button.disabled=true; show('正在處理身分證照片並安全送出…');
   try {
     const frontDataUrl=await identityPhotoDataUrl('identity-front','身分證正面');
     const backDataUrl=await identityPhotoDataUrl('identity-back','身分證反面');
@@ -364,6 +405,25 @@ byId('submit-signature').addEventListener('click',async()=>{
     });
     sessionStorage.removeItem(TOKEN_STORAGE_KEY); sessionStorage.removeItem(idem.key);
     byId('sign-panel').hidden=true; show(result.idempotent ? '簽名先前已安全送達，無需重複提交。' : '簽名已安全提交，請等待工程 AM 內部確認。','ok');
+  } catch(failure) { button.disabled=false; show(failure.message || '送出失敗，請稍後再試。','error'); }
+});
+byId('party-a-submit-signature').addEventListener('click',async()=>{
+  const button=byId('party-a-submit-signature');
+  if(!state.signing){ show('合約尚未完成驗證。','error'); return; }
+  if(!state.signing.canSignPartyA){ show('目前帳號不是個人甲方指定簽署人，不能代替甲方送出。','error'); return; }
+  if(state.signing.partyASigned){ show('甲方簽名先前已安全送達，無需重複提交。','ok'); return; }
+  if(!state.reviewAcknowledged){ show('請先開啟合約文件詳閱。','error'); return; }
+  if(!state.partyAStrokes.length){ show('請先在甲方簽名框內簽名。','error'); return; }
+  if(!byId('party-a-consent').checked){ show('請先勾選個人甲方本次簽署確認。','error'); return; }
+  const idem=idempotencyKey('party-a'); button.disabled=true; show('正在安全送出個人甲方簽名…');
+  try {
+    const result=await api('${CONTRACT_SIGNING_PARTY_A_SUBMIT_PATH}',{
+      token:state.token,liffCredential:state.credential,idempotencyKey:idem.value,
+      documentHash:state.signing.documentHash,signatureDataUrl:state.partyACanvas.toDataURL('image/png'),
+      reviewAcknowledged:true,consent:true
+    });
+    sessionStorage.removeItem(TOKEN_STORAGE_KEY); sessionStorage.removeItem(idem.key);
+    byId('party-a-sign-panel').hidden=true; show(result.idempotent ? '甲方簽名先前已安全送達，無需重複提交。' : '個人甲方簽名已安全提交，請等待乙方簽署及工程 AM 內部確認。','ok');
   } catch(failure) { button.disabled=false; show(failure.message || '送出失敗，請稍後再試。','error'); }
 });
 initialize().catch((failure)=>show(failure.message || '頁面初始化失敗，請稍後再試。','error'));
@@ -419,6 +479,16 @@ h2{font-size:15px;margin:0 0 8px}.hint{font-size:13px;color:var(--dim);margin:0}
     <label class="consent"><input id="consent" type="checkbox" disabled><span>我已詳閱本工程合約及其附件，確認內容與版本無誤；我確認上述乙方資料正確，同意將其寫入簽署完成版合約，也同意依上述用途提供身分證正反面影像，並同意以本簽名完成簽署。</span></label>
     <button class="button primary" id="submit-signature" type="button" disabled>送出簽名</button>
   </section>
+  <section class="card" id="party-a-sign-panel" hidden>
+    <div class="inspection-banner" id="party-a-inspection-banner" hidden>簽署檢查模式（唯讀）：這是個人甲方指定簽署人會看到的甲方簽名區，只有指定的甲方 LINE 帳號可以簽名與送出。</div>
+    <h2>個人甲方正式簽名</h2>
+    <div class="signature-instruction">甲方請在下面整個大格內簽名。此簽名只適用於這一份凍結合約，不會存成日後可重複使用的簽名檔。</div>
+    <p class="hint">甲方不需填寫乙方資料或上傳乙方證件；系統會以 LINE 身分、群組資格、合約版本雜湊及本次同意紀錄綁定簽署證據。</p>
+    <div class="signature-wrap"><div class="signature-inspection-label" id="party-a-signature-inspection-label" hidden>個人甲方要在這個大框內直接簽名</div><canvas id="party-a-signature" aria-label="個人甲方大尺寸正式簽名區"></canvas></div>
+    <div class="actions"><button class="button" id="party-a-clear-signature" type="button">清除並重新簽名</button></div>
+    <label class="consent"><input id="party-a-consent" type="checkbox" disabled><span>我是本合約指定的個人甲方，已詳閱本工程合約及其附件，確認內容與版本無誤，並同意以本次簽名完成甲方簽署。</span></label>
+    <button class="button primary" id="party-a-submit-signature" type="button" disabled>送出甲方簽名</button>
+  </section>
 </main>
 <script nonce="${nonce}">${script}</script>
 </body></html>`;
@@ -427,8 +497,9 @@ h2{font-size:15px;margin:0 0 8px}.hint{font-size:13px;color:var(--dim);margin:0}
 export function createContractSigningWebHandler(options = {}) {
   const service = options.service;
   const saveSignature = options.saveSignature;
-  if (!service || typeof service.openSigningRequest !== 'function' || typeof service.submitSignature !== 'function') {
-    throw new Error('contract signing web service with openSigningRequest/submitSignature is required');
+  if (!service || typeof service.openSigningRequest !== 'function' || typeof service.submitSignature !== 'function'
+      || typeof service.submitPartyASignature !== 'function') {
+    throw new Error('contract signing web service with openSigningRequest/submitSignature/submitPartyASignature is required');
   }
   if (typeof saveSignature !== 'function') throw new Error('contract signing web saveSignature is required');
   const liffId = requireText(options.liffId, 'liffId', 300);
@@ -451,8 +522,9 @@ export function createContractSigningWebHandler(options = {}) {
     const isPage = route === CONTRACT_SIGNING_WEB_PATH;
     const isOpen = route === CONTRACT_SIGNING_OPEN_PATH;
     const isSubmit = route === CONTRACT_SIGNING_SUBMIT_PATH;
+    const isPartyASubmit = route === CONTRACT_SIGNING_PARTY_A_SUBMIT_PATH;
     const isDocument = route === CONTRACT_SIGNING_DOCUMENT_PATH;
-    if (!isPage && !isOpen && !isSubmit && !isDocument) return false;
+    if (!isPage && !isOpen && !isSubmit && !isPartyASubmit && !isDocument) return false;
     const nonce = randomBytes(16).toString('base64url');
     try {
       if (isPage) {
@@ -497,6 +569,40 @@ export function createContractSigningWebHandler(options = {}) {
       const documentHash = requireText(body.documentHash, 'documentHash', 64).toLowerCase();
       if (!SHA256_PATTERN.test(documentHash)) throw error('INVALID_DOCUMENT_HASH', '合約版本雜湊格式不正確。', 400);
       const signature = decodeSignatureDataUrl(body.signatureDataUrl, signatureLimit);
+      if (isPartyASubmit) {
+        const opened = await service.openSigningRequest({ token, liffCredential, requestMeta });
+        if (opened?.canSignPartyA !== true) {
+          throw error('PARTY_A_SIGNER_MISMATCH', '目前 LINE 帳號不是本合約指定的個人甲方簽署人。', 403);
+        }
+        if (String(opened.documentHash || '').toLowerCase() !== documentHash) {
+          throw error('DOCUMENT_VERSION_MISMATCH', '合約版本已改變，請重新開啟簽署連結。', 409);
+        }
+        const sessionId = String(opened.sessionId || '').trim();
+        if (!sessionId || sessionId.length > 500) {
+          throw error('SIGNING_SESSION_INVALID', '簽署工作階段無效。', 500);
+        }
+        const saved = await saveSignature({
+          sessionId,
+          idempotencyKey: `party-a:${idempotencyKey}`,
+          documentHash,
+          reviewAcknowledged: true,
+          contentType: signature.contentType,
+          bytes: signature.bytes,
+          role: 'party_a',
+        });
+        const signatureHash = String(saved?.hash || '').trim().toLowerCase();
+        const submissionRef = String(saved?.ref || '').trim();
+        if (!SHA256_PATTERN.test(signatureHash) || !submissionRef) {
+          throw error('SIGNATURE_STORAGE_FAILED', '甲方簽名儲存結果不完整。', 500);
+        }
+        const result = await service.submitPartyASignature({
+          token, liffCredential, idempotencyKey, documentHash, signatureHash, submissionRef,
+          signatureByteSize: signature.bytes.length, signatureContentType: signature.contentType,
+          reviewAcknowledged: true, consent: true, requestMeta,
+        });
+        sendJson(res, 200, { ok: true, signing: publicSubmitPayload(result) }, nonce);
+        return true;
+      }
       const counterpartyDetails = normalizeCounterpartyDetails(body.counterpartyDetails);
       const identityFront = decodeIdentityPhotoDataUrl(body.identityDocuments?.frontDataUrl, 'front', identityPhotoLimit);
       const identityBack = decodeIdentityPhotoDataUrl(body.identityDocuments?.backDataUrl, 'back', identityPhotoLimit);

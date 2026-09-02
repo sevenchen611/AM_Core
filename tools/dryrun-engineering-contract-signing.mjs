@@ -55,6 +55,7 @@ function createFakeLine() {
   const pushes = [];
   const identities = new Map([
     ['credential-signer', { verified: true, userId: 'U-signer' }],
+    ['credential-party-a', { verified: true, userId: 'U-party-a' }],
     ['credential-other', { verified: true, userId: 'U-other' }],
     ['credential-invalid', { verified: false, userId: '' }],
   ]);
@@ -84,6 +85,7 @@ const storage = createMemoryContractSigningStorage();
 const line = createFakeLine();
 line.memberships.add('C-engineering:U-signer');
 line.memberships.add('C-engineering:U-other');
+line.memberships.add('C-engineering:U-party-a');
 
 const service = createContractSigningService({
   storage,
@@ -99,6 +101,80 @@ const service = createContractSigningService({
 const documentHash = digest('immutable engineering contract v1');
 const signatureHash = digest('signature-object-v1');
 const finalArtifactHash = digest('final-evidence-bundle-v1');
+
+// Individual Party A is independently bound to the same group and document.
+// Party A may sign before Party B, but cannot fill or submit Party B evidence.
+{
+  await expectSigningError(
+    () => service.issueSigningRequest({
+      projectId: 'project-001', contractId: 'contract-conflicting-parties',
+      documentRef: 'object://contracts/conflicting/v1', documentHash,
+      lineGroupId: 'C-engineering', signerLineUserId: 'U-signer',
+      partyASignerLineUserId: 'U-signer', actorId: 'admin-seven',
+    }),
+    'PARTY_SIGNER_CONFLICT', 409,
+  );
+  const twoParty = await service.issueAndSend({
+    projectId: 'project-001', contractId: 'contract-two-party',
+    documentRef: 'object://contracts/two-party/v1', documentHash,
+    lineGroupId: 'C-engineering', signerLineUserId: 'U-signer',
+    partyASignerLineUserId: 'U-party-a', actorId: 'admin-seven',
+  });
+  const partyAOpen = await service.openSigningRequest({
+    token: twoParty.token, liffCredential: 'credential-party-a', requestMeta: {},
+  });
+  assert.equal(partyAOpen.canSign, false);
+  assert.equal(partyAOpen.canSignPartyA, true);
+  assert.equal(partyAOpen.signingRole, 'party_a');
+  assert.equal(partyAOpen.partyARequired, true);
+  await expectSigningError(
+    () => service.submitPartyASignature({ token: twoParty.token, liffCredential: 'credential-other' }),
+    'PARTY_A_SIGNER_MISMATCH', 403,
+  );
+  const partyASubmitted = await service.submitPartyASignature({
+    token: twoParty.token, liffCredential: 'credential-party-a',
+    idempotencyKey: 'party-a-submission-1', documentHash,
+    signatureHash: digest('party-a-signature'), submissionRef: 'object://submissions/party-a-1',
+    signatureByteSize: 1024, signatureContentType: 'image/png',
+    reviewAcknowledged: true, consent: true, requestMeta: {},
+  });
+  assert.equal(partyASubmitted.partyASigned, true);
+  assert.equal(partyASubmitted.status, 'sent');
+  const partyAReplay = await service.submitPartyASignature({
+    token: twoParty.token, liffCredential: 'credential-party-a',
+    idempotencyKey: 'party-a-submission-1', documentHash,
+    signatureHash: digest('party-a-signature'), submissionRef: 'object://submissions/party-a-1',
+    signatureByteSize: 1024, signatureContentType: 'image/png',
+    reviewAcknowledged: true, consent: true, requestMeta: {},
+  });
+  assert.equal(partyAReplay.idempotent, true);
+  const afterPartyA = await service.getSession(twoParty.sessionId);
+  assert.equal(afterPartyA.status, 'sent');
+  assert.equal(afterPartyA.partyASubmission.signerLineUserId, 'U-party-a');
+  assert.equal(afterPartyA.events.filter((event) => event.type === 'party_a_signed').length, 1);
+  const partyBOpen = await service.openSigningRequest({
+    token: twoParty.token, liffCredential: 'credential-signer', requestMeta: {},
+  });
+  assert.equal(partyBOpen.canSignPartyB, true);
+
+  const legacy = await service.issueAndSend({
+    projectId: 'project-001', contractId: 'contract-legacy-assign',
+    documentRef: 'object://contracts/legacy/v1', documentHash,
+    lineGroupId: 'C-engineering', signerLineUserId: 'U-signer', actorId: 'admin-seven',
+  });
+  assert.equal((await service.assignPartyASigner({
+    sessionId: legacy.sessionId, partyASignerLineUserId: 'U-party-a', actorId: 'admin-seven',
+    idempotencyKey: 'assign-party-a-legacy',
+  })).idempotent, false);
+  assert.equal((await service.assignPartyASigner({
+    sessionId: legacy.sessionId, partyASignerLineUserId: 'U-party-a', actorId: 'admin-seven',
+    idempotencyKey: 'assign-party-a-legacy',
+  })).idempotent, true);
+  await expectSigningError(
+    () => service.assignPartyASigner({ sessionId: legacy.sessionId, partyASignerLineUserId: 'U-signer', actorId: 'admin-seven', idempotencyKey: 'conflict' }),
+    'PARTY_SIGNER_CONFLICT', 409,
+  );
+}
 
 // Durable outbox retries reconstruct the same opaque token/session from a
 // server-owned idempotency key without persisting raw token material.
@@ -148,14 +224,14 @@ const serializedStorage = JSON.stringify(await storage.dump());
 assert.equal(serializedStorage.includes(issued.token), false);
 assert.equal(serializedStorage.includes(issued.protectedLink), false);
 
-const invitePush = line.pushes[0];
+const invitePush = line.pushes.find((push) => push.message.includes(issued.protectedLink));
 assert.equal(invitePush.groupId, 'C-engineering');
 assert.equal(invitePush.contentClass, 'status_and_protected_link_only');
 assert.equal(invitePush.message.includes(issued.protectedLink), true);
 assert.equal(invitePush.message.includes('不代表對方已讀'), true);
 assert.equal(invitePush.message.includes('不代表對方已讀或平台已送達'), true);
 assert.equal(invitePush.message.includes('群組的成員'), true);
-assert.equal(invitePush.message.includes('只有指定簽署人可以簽署'), true);
+assert.equal(invitePush.message.includes('只有甲、乙各方被指定的 LINE 簽署人'), true);
 assert.equal(invitePush.message.includes('object://contracts'), false);
 assert.equal(invitePush.message.includes(documentHash), false);
 assert.equal(session.events.some((event) => event.type === 'read'), false);

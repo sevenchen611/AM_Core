@@ -5,6 +5,7 @@ import { createRuntimeSigningService } from './contract-runtime.js';
 import { createContractOutboxWorker } from './contract-outbox.js';
 import { captureContractLineArchive } from './contract-line-archive.js';
 import { composeDraftBundle, extractContractBodyForVersion } from './contract-draft-review.js';
+import { partyAProfileContext } from './contract-party-a-profiles.js';
 import crypto from 'node:crypto';
 
 function issuanceError(code, message, statusCode = 400, details = {}) {
@@ -47,6 +48,38 @@ function requireSigner(input) {
     throw issuanceError('SIGNER_REQUIRED', '必須指定 LINE 簽署人。', 400);
   }
   return signerLineUserId;
+}
+
+function partyASignerForVersion(version, input) {
+  const profile = partyAProfileContext(version);
+  const partyASignerLineUserId = text(first(input, ['partyASignerLineUserId', 'party_a_signer_line_user_id']));
+  if (profile.profileType === 'company') {
+    if (partyASignerLineUserId) {
+      throw issuanceError('PARTY_A_ONLINE_SIGNATURE_NOT_APPLICABLE', '公司甲方使用凍結版本內的公司章，不指定個人甲方 LINE 簽署人。', 409);
+    }
+    return { profile, partyASignerLineUserId: '' };
+  }
+  if (profile.profileType !== 'individual') {
+    throw issuanceError('PARTY_A_PROFILE_TYPE_REQUIRED', '合約凍結版本缺少有效的甲方類型。', 409);
+  }
+  if (!partyASignerLineUserId) {
+    throw issuanceError('PARTY_A_SIGNER_REQUIRED', '個人甲方必須指定目前仍在工程 LINE 群組內的甲方簽署人。', 400);
+  }
+  return { profile, partyASignerLineUserId };
+}
+
+function assertDistinctPartySigners(partyBSignerLineUserId, partyASignerLineUserId) {
+  if (partyASignerLineUserId && partyASignerLineUserId === partyBSignerLineUserId) {
+    throw issuanceError('PARTY_SIGNER_CONFLICT', '甲方與乙方不可指定同一個 LINE 簽署帳號。', 409);
+  }
+}
+
+function assertSameSigningGroup(partyBGroup, partyAGroup) {
+  if (!partyAGroup) return;
+  if (text(partyBGroup.lineGroupId) !== text(partyAGroup.lineGroupId)
+      || text(partyBGroup.groupBindingId) !== text(partyAGroup.groupBindingId)) {
+    throw issuanceError('PARTY_A_SIGNING_GROUP_MISMATCH', '甲方與乙方簽署人必須屬於同一個合約綁定 LINE 群組。', 409);
+  }
 }
 
 function requireGroupBinding(contract) {
@@ -174,7 +207,11 @@ export function createContractIssuanceService(deps, options = {}) {
     }
 
     const { contract, version } = readiness;
+    const { partyASignerLineUserId } = partyASignerForVersion(version, input);
+    assertDistinctPartySigners(signerLineUserId, partyASignerLineUserId);
     const group = await resolveGroup(contract, signerLineUserId);
+    const partyAGroup = partyASignerLineUserId ? await resolveGroup(contract, partyASignerLineUserId) : null;
+    assertSameSigningGroup(group, partyAGroup);
     // Fail closed on LIFF, token pepper, public URL, feature flag, and database
     // configuration before rendering or committing the frozen -> issued CAS.
     signingFactory(deps, {
@@ -219,7 +256,7 @@ export function createContractIssuanceService(deps, options = {}) {
       rendered,
     });
     const documentRef = driveDocumentRef(storedPdf.driveFileId);
-    const invitationKey = `line-signing-invitation:${authority.tenant.key}:${version.id}:${signerLineUserId}`;
+    const invitationKey = `line-signing-invitation:${authority.tenant.key}:${version.id}:${signerLineUserId}:${partyASignerLineUserId || 'company-party-a'}`;
     const projectionKey = `contract-projection:${authority.tenant.key}:${version.id}:issued`;
     const issued = unwrap(await deps.contractStore.issueVersion(authority.tenant, {
       contractId: contract.id,
@@ -238,6 +275,7 @@ export function createContractIssuanceService(deps, options = {}) {
           eventKind: 'line_signing_invitation', idempotencyKey: invitationKey,
           payload: {
             contractId: contract.id, versionId: version.id, signerLineUserId: group.signerLineUserId,
+            partyASignerLineUserId: partyAGroup?.signerLineUserId || '',
             documentRef, documentHash: normalizeHash(storedPdf.sha256), requestedBy: authority.actor,
           },
         },
@@ -278,8 +316,12 @@ export function createContractIssuanceService(deps, options = {}) {
     const fields = issuedFields(version);
     requireIssuedFileId(fields.fileId);
     normalizeHash(fields.sha256);
+    const { partyASignerLineUserId } = partyASignerForVersion(version, input);
+    assertDistinctPartySigners(signerLineUserId, partyASignerLineUserId);
     const group = await resolveGroup(detail.contract, signerLineUserId);
-    const baseKey = `line-signing-invitation:${authority.tenant.key}:${version.id}:${signerLineUserId}`;
+    const partyAGroup = partyASignerLineUserId ? await resolveGroup(detail.contract, partyASignerLineUserId) : null;
+    assertSameSigningGroup(group, partyAGroup);
+    const baseKey = `line-signing-invitation:${authority.tenant.key}:${version.id}:${signerLineUserId}:${partyASignerLineUserId || 'company-party-a'}`;
     const existing = unwrap(await deps.contractStore.getOutboxByKey(authority.tenant, baseKey));
     let invitationKey = baseKey;
 
@@ -292,6 +334,7 @@ export function createContractIssuanceService(deps, options = {}) {
         idempotencyKey: invitationKey,
         payload: {
           contractId: detail.contract.id, versionId: version.id, signerLineUserId: group.signerLineUserId,
+          partyASignerLineUserId: partyAGroup?.signerLineUserId || '',
           documentRef: driveDocumentRef(fields.fileId), documentHash: normalizeHash(fields.sha256), requestedBy: authority.actor,
         },
       });
@@ -351,6 +394,7 @@ export function createContractIssuanceService(deps, options = {}) {
         idempotencyKey: invitationKey,
         payload: {
           contractId: detail.contract.id, versionId: version.id, signerLineUserId: group.signerLineUserId,
+          partyASignerLineUserId: partyAGroup?.signerLineUserId || '',
           documentRef: driveDocumentRef(fields.fileId), documentHash: normalizeHash(fields.sha256), requestedBy: authority.actor,
           replacesExternalSessionId: externalSessionId || undefined,
         },
@@ -359,7 +403,44 @@ export function createContractIssuanceService(deps, options = {}) {
     return processInvitation(authority, invitationKey, fields, true);
   }
 
-  return Object.freeze({ issueFrozenVersion, retryIssuedVersionSigning });
+  async function assignPartyASigner(context, input = {}) {
+    const authority = serverContext(context);
+    rejectClientAuthority(input);
+    const sessionId = text(first(input, ['sessionId', 'externalSessionId']));
+    if (!sessionId) throw issuanceError('SIGNING_SESSION_REQUIRED', '缺少簽署流程識別碼。', 400);
+    const partyASignerLineUserId = text(first(input, ['partyASignerLineUserId', 'party_a_signer_line_user_id']));
+    if (!partyASignerLineUserId) throw issuanceError('PARTY_A_SIGNER_REQUIRED', '請指定個人甲方 LINE 簽署人。', 400);
+    if (typeof deps.contractStore.getSigningBundle !== 'function') {
+      throw issuanceError('SIGNING_BUNDLE_STORE_REQUIRED', '合約資料庫不支援甲方簽署人綁定。', 500);
+    }
+    const bundle = unwrap(await deps.contractStore.getSigningBundle(authority.tenant, sessionId));
+    if (!bundle?.contract || !bundle?.version || !bundle?.session) {
+      throw issuanceError('SIGNING_SESSION_NOT_FOUND', '找不到指定的合約簽署流程。', 404);
+    }
+    const scoped = await management.getContractDetail(authority, { contractId: bundle.contract.id });
+    const version = (scoped.versions || []).find((item) => text(item.id) === text(bundle.version.id));
+    if (!version) throw issuanceError('CONTRACT_VERSION_NOT_FOUND', '找不到簽署流程所屬合約版本。', 404);
+    const profile = partyAProfileContext(version);
+    if (profile.profileType !== 'individual') {
+      throw issuanceError('PARTY_A_ONLINE_SIGNATURE_NOT_APPLICABLE', '只有個人甲方需要指定甲方 LINE 簽署人。', 409);
+    }
+    assertDistinctPartySigners(text(bundle.session.signerLineUserId), partyASignerLineUserId);
+    const group = await resolveGroup(scoped.contract, partyASignerLineUserId);
+    if (text(group.lineGroupId) !== text(bundle.session.lineGroupId)) {
+      throw issuanceError('PARTY_A_SIGNING_GROUP_MISMATCH', '甲方簽署人不在此合約綁定的 LINE 群組。', 409);
+    }
+    const signing = signingFactory(deps, {
+      versionId: text(version.id), groupBindingId: text(group.groupBindingId), actor: text(authority.actor),
+    });
+    return signing.assignPartyASigner({
+      sessionId,
+      partyASignerLineUserId: text(group.signerLineUserId),
+      actorId: authority.actor,
+      idempotencyKey: `party-a-signer-assignment:${authority.tenant.key}:${sessionId}:${partyASignerLineUserId}`,
+    });
+  }
+
+  return Object.freeze({ issueFrozenVersion, retryIssuedVersionSigning, assignPartyASigner });
 }
 
 export const __test = Object.freeze({ driveDocumentRef, rejectClientAuthority });
