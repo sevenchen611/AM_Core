@@ -430,8 +430,8 @@ export function createContractStore({ env = process.env, logger = console, poolF
       const result = await client.query(
         `UPDATE ${SCHEMA}.contract_versions v
             SET status = $4, updated_at = now(),
-                reviewed_at = CASE WHEN $4 = 'internal_review' THEN COALESCE(reviewed_at, $5::timestamptz) ELSE reviewed_at END,
-                reviewed_by = CASE WHEN $4 = 'internal_review' THEN COALESCE(reviewed_by, $6) ELSE reviewed_by END,
+                reviewed_at = CASE WHEN $4 = 'internal_review' THEN $5::timestamptz ELSE reviewed_at END,
+                reviewed_by = CASE WHEN $4 = 'internal_review' THEN $6 ELSE reviewed_by END,
                 approved_at = CASE WHEN $4 = 'approved' THEN COALESCE(approved_at, $5::timestamptz) ELSE approved_at END,
                 approved_by = CASE WHEN $4 = 'approved' THEN COALESCE(approved_by, $6) ELSE approved_by END
            FROM ${SCHEMA}.contracts c
