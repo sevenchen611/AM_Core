@@ -70,6 +70,21 @@ assert.match(
 );
 assert.match(
   storeSource,
+  /reviewed_at = CASE WHEN \$4 = 'internal_review' THEN \$5::timestamptz ELSE reviewed_at END/,
+  'resubmitting a returned draft must replace stale review-submission time evidence',
+);
+assert.match(
+  storeSource,
+  /reviewed_by = CASE WHEN \$4 = 'internal_review' THEN \$6 ELSE reviewed_by END/,
+  'resubmitting a returned draft must replace stale review-submission actor evidence',
+);
+assert.doesNotMatch(
+  storeSource,
+  /internal_review' THEN COALESCE\(reviewed_(?:at|by)/,
+  'review resubmission must not preserve the previous submission evidence',
+);
+assert.match(
+  storeSource,
   /CASE WHEN r\.status = 'created' THEN 'sent' ELSE r\.status END/,
   'draft-review send update must qualify status against the target table alias',
 );

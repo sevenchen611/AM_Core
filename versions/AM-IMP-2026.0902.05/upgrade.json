@@ -1,0 +1,42 @@
+{
+  "id": "AM-IMP-2026.0902.05",
+  "name": "Returned-draft review resubmission recovery",
+  "type": "AM Platform / contracts / workflow reliability",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-02",
+  "dependsOn": ["AM-IMP-2026.0902.04"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Replace stale review submission evidence when a returned draft is resubmitted",
+    "Reload authoritative contract state after workflow response failures",
+    "Restore approval controls when a transition committed before an error response"
+  ],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-store.mjs",
+    "tools/dryrun-engineering-contract-workspace.mjs",
+    "tools/dryrun-engineering-contract-management.mjs",
+    "tools/dryrun-engineering-contract-workflow-api.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The package contains generic transition logic only; tenant-local contract evidence is not copied."
+  },
+  "definitionOfDone": [
+    "A returned draft can be resubmitted without stale timestamp mismatch",
+    "The newest review timestamp and actor are authoritative",
+    "The workspace recovers its visible state after a committed transition response error",
+    "Approval controls are visible for the authoritative internal-review state"
+  ],
+  "files": [
+    "core/contract-store.js",
+    "modules/construction/contracts.js",
+    "tools/dryrun-engineering-contract-store.mjs",
+    "tools/dryrun-engineering-contract-workspace.mjs"
+  ]
+}
