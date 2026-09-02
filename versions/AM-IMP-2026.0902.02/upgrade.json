@@ -3,7 +3,7 @@
   "name": "Contract next-version editor and single-source clauses",
   "type": "AM Platform / contracts / authoring",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-09-02",
   "dependsOn": [
     "AM-IMP-2026.0901.07",
