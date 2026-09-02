@@ -25,6 +25,7 @@ operator; no group, signer, contract, or member data was rewritten.
   value and rebuilt the existing `am-platform` service.
 - Render deployment `dep-dac03dbtqb8s73dorh6g` reached Live at commit
   `ecba349`.
+- Configuration, verification, and rollback evidence is recorded in PR #107.
 
 No production LINE, LIFF, group, or user identifier is committed in this
 record.
