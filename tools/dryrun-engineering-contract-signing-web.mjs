@@ -5,6 +5,8 @@ import { ContractSigningError } from '../modules/construction/contract-signing.j
 import {
   CONTRACT_SIGNING_OPEN_PATH,
   CONTRACT_SIGNING_DOCUMENT_PATH,
+  CONTRACT_SIGNING_PDF_JS_PATH,
+  CONTRACT_SIGNING_PDF_WORKER_PATH,
   CONTRACT_SIGNING_PARTY_A_SUBMIT_PATH,
   CONTRACT_SIGNING_SUBMIT_PATH,
   CONTRACT_SIGNING_WEB_PATH,
@@ -192,7 +194,8 @@ const jsonHeaders = { 'content-type': 'application/json' };
   assert.match(html, /個人甲方正式簽名/);
   assert.match(html, /不會存成日後可重複使用的簽名檔/);
   assert.match(html, /PDF 僅供閱讀/);
-  assert.match(html, /開啟合約 PDF 閱讀（不在 PDF 上簽名）/);
+  assert.match(html, /在本頁開啟完整合約 PDF/);
+  assert.match(html, /在外部瀏覽器開啟簽署頁/);
   assert.match(html, /不必對準 PDF 裡的小框/);
   assert.match(html, /aria-label="大尺寸正式簽名區"/);
   assert.match(html, /height:clamp\(320px,48vh,480px\)/);
@@ -206,14 +209,21 @@ const jsonHeaders = { 'content-type': 'application/json' };
   assert.match(html, /id="consent" type="checkbox"/);
   assert.match(html, /id="consent" type="checkbox" disabled/);
   assert.match(html, /id="submit-signature" type="button" disabled/);
-  assert.match(html, /id="document-link"[^>]*target="_blank"[^>]*hidden/);
+  assert.match(html, /<button id="document-link"[^>]*type="button"[^>]*hidden/);
+  assert.match(html, /id="document-reader-panel"[^>]*hidden/);
+  assert.match(html, /id="document-pages"/);
+  assert.match(html, /REVIEW_STORAGE_PREFIX/);
+  assert.match(html, /getDocument\(\{data:new Uint8Array\(bytes\)\}\)/);
+  assert.match(html, /liff\.openWindow\(\{url:protectedExternalUrl\(\),external:true\}\)/);
+  assert.match(html, /location\.origin\+location\.pathname\+'#token='/);
+  assert.doesNotMatch(html, /about:blank|window\.open\(/);
   assert.match(html, /state\.signing\.canSign/);
   assert.match(html, /簽署檢查模式（唯讀）/);
   assert.match(html, /對方要在這個大框內直接簽名/);
   assert.match(html, /enableSigningInspection/);
   assert.match(html, /檢查模式不可送出/);
   assert.match(html, /群組成員，可以檢視完整合約/);
-  assert.match(html, /群組成員唯讀檢視，無法簽署/);
+  assert.match(html, /只有指定簽署人可以填寫資料與簽署/);
   assert.match(html, /\[hidden\]\{display:none!important\}/);
   assert.match(html, /location\.hash/);
   assert.match(html, /LOGIN_ATTEMPT_KEY/);
@@ -232,6 +242,10 @@ const jsonHeaders = { 'content-type': 'application/json' };
   assert.match(html, /liff\.getAccessToken\(\)/);
   assert.doesNotMatch(html, /liff\.getIDToken\(\)/);
   assert.doesNotMatch(html, /203\.0\.113\.10|protected:\/\/|\bIP(?: 位址| address)?\b/i);
+  const inlineStart = html.lastIndexOf('<script nonce="fixed-nonce">') + '<script nonce="fixed-nonce">'.length;
+  const inlineEnd = html.indexOf('</script>', inlineStart);
+  assert.ok(inlineStart > 0 && inlineEnd > inlineStart);
+  assert.doesNotThrow(() => new Function(html.slice(inlineStart, inlineEnd)));
 }
 
 // GET serves a no-store, nonce-protected page. HEAD exposes the same headers
@@ -252,6 +266,7 @@ const jsonHeaders = { 'content-type': 'application/json' };
   assert.ok(nonce);
   assert.match(csp, /frame-ancestors 'none'/);
   assert.match(csp, /https:\/\/static\.line-scdn\.net/);
+  assert.match(csp, /worker-src 'self' blob:/);
   assert.match(page.response.body, new RegExp(`nonce="${nonce}"`));
   assert.doesNotMatch(page.response.body, /raw-fragment-token/);
 
@@ -259,6 +274,26 @@ const jsonHeaders = { 'content-type': 'application/json' };
   assert.equal(head.response.statusCode, 200);
   assert.equal(head.response.body, '');
   assert.match(getHeader(head.response.headers, 'content-security-policy'), /'nonce-/);
+}
+
+// The PDF.js reader and its worker are bundled on the same origin so LINE's
+// Android WebView never has to open a Blob URL or an about:blank child page.
+{
+  const fixture = createFixture();
+  for (const route of [CONTRACT_SIGNING_PDF_JS_PATH, CONTRACT_SIGNING_PDF_WORKER_PATH]) {
+    const asset = await invoke(fixture.handler, { method: 'GET', url: route });
+    assert.equal(asset.handled, true);
+    assert.equal(asset.response.statusCode, 200);
+    assert.match(getHeader(asset.response.headers, 'content-type'), /^text\/javascript/);
+    assert.match(getHeader(asset.response.headers, 'cache-control'), /immutable/);
+    assert.equal(getHeader(asset.response.headers, 'cross-origin-resource-policy'), 'same-origin');
+    assert.ok(asset.response.body.length > 100_000);
+
+    const head = await invoke(fixture.handler, { method: 'HEAD', url: route });
+    assert.equal(head.response.statusCode, 200);
+    assert.equal(head.response.body, '');
+    assert.ok(Number(getHeader(head.response.headers, 'content-length')) > 100_000);
+  }
 }
 
 // Raw signing tokens are not accepted in query strings and are not echoed in
