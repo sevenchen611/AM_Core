@@ -33,6 +33,45 @@ const acceptanceTable = events.findIndex((event) => event[0] === 'table' && even
 const articleEleven = events.findIndex((event) => String(event[1]).includes('第十一條'));
 assert.ok(acceptanceTable >= 0 && acceptanceTable < articleEleven, 'acceptance table must be embedded before article eleven');
 
+const structuredBlocks = pdfTest.contractBodyBlocks(`
+  <p>工程合約書</p><p>立合約書人：甲方舊資料；乙方舊資料</p>
+  <p>第一條：工程名稱</p><p>舊工程名稱</p>
+  <p>第二條：工程地點</p><p>舊工程地址</p>
+  <p>第三條：工程範圍</p><p>舊工程範圍</p>
+  <p>第四條：工程總價</p><p>舊總價 999 元</p>
+  <p>第五條：付款辦法</p><p>舊付款內容</p>
+  <p>第六條：工程期限</p><p>舊進場與完工日期</p>
+  <p>第七條：機具自備</p><p>第七條標準內容</p>
+  <p>第十條：工程驗收</p><p>第十條驗收程序</p>
+  <p>第十一條：保固期限與履約保證</p><p>舊保固與本票金額</p>
+  <p>第十二條：逾期責任</p><p>舊逾期比例</p>
+  <p>第十三條：工作安全</p><p>第十三條標準內容</p>
+  <p>第十七條：其他</p><p>第十七條標準內容</p>
+  <p>立合約書人：</p><p>舊版結尾甲乙方資料</p><p>附件一：履約保證本票</p>
+`);
+const structuredEvents = [];
+const structuredWriter = {
+  documentBlocks(value) { structuredEvents.push(['blocks', value.map((item) => item.text || '').join('|')]); },
+  paragraph(value) { structuredEvents.push(['paragraph', value]); },
+  gridTable(title, rows) { structuredEvents.push(['table', title, rows.length]); },
+  gridRows(rows) { structuredEvents.push(['grid', rows]); },
+};
+pdfTest.renderStructuredContractBody(structuredWriter, structuredBlocks, payments, acceptance,
+  { currency: 'TWD', amount: 175_000 }, {
+    contractAmount: 175_000, workScope: '依施工圖及核准報價單施工', startDate: '2026-09-10',
+    completionDate: '2026-10-20', acceptanceDate: '2026-10-22', warrantyMonths: 12,
+    performanceBondPercent: 10, performanceBondAmount: 17_500, delayPenaltyPercent: 5,
+  });
+const structuredText = structuredEvents.flat(3).join('|');
+assert.doesNotMatch(structuredText, /舊工程名稱|舊工程地址|舊總價|舊進場|舊保固|舊逾期|舊版結尾|附件一/);
+assert.match(structuredText, /依施工圖及核准報價單施工/);
+assert.match(structuredText, /TWD 175,000/);
+assert.match(structuredText, /2026-09-10/);
+assert.match(structuredText, /第七條標準內容/);
+assert.match(structuredText, /第十條驗收程序/);
+assert.match(structuredText, /第十三條標準內容/);
+assert.match(structuredText, /工程總價 5%/);
+
 assert.deepEqual(pdfTest.historicalAttachmentRows({ attachments: [
   { name: 'V1 舊報價.pdf', inherited: true, sourceVersionNo: 1, sha256: 'a'.repeat(64) },
   { name: '本版一般附件.pdf', inherited: false },

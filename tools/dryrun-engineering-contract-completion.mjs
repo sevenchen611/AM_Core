@@ -208,6 +208,11 @@ assert.equal(signedPdfPayload.verification.designatedUserMatched, true);
 assert.equal(signedPdfPayload.verification.identityDocumentsVerified, true);
 assert.equal(signedPdfPayload.verification.identityDocumentHashes.front, identityFrontHash);
 assert.equal(signedPdfPayload.verification.identityDocumentHashes.back, identityBackHash);
+assert.equal(signedPdfPayload.identityDocuments.front.base64, identityFrontBytes.toString('base64'));
+assert.equal(signedPdfPayload.identityDocuments.back.base64, identityBackBytes.toString('base64'));
+assert.equal(signedPdfPayload.identityDocuments.front.sha256, identityFrontHash);
+assert.equal(signedPdfPayload.identityDocuments.back.sha256, identityBackHash);
+assert.equal(signedPdfPayload.confirmedBy, 'admin@example.com');
 
 // Receipt has dual timezone timestamps, the confirmed hash-chain head,
 // verification evidence, and the issued/signed/signature artifact hashes.
