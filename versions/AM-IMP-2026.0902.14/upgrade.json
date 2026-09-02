@@ -3,7 +3,7 @@
   "name": "Individual Party A online signing",
   "type": "AM Platform / contracts / dual-party online signing",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-09-02",
   "dependsOn": ["AM-IMP-2026.0902.12", "AM-IMP-2026.0902.13"],
   "installTargets": ["AM_PLATFORM:engineering"],
