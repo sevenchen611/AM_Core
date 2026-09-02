@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { assertProjectScope, requireServerActor } from './contract-domain.js';
 import { composeDraftBundle, extractContractBodyForVersion } from './contract-draft-review.js';
+import { hydratePartyASigningAssets } from './contract-party-a-profiles.js';
 
 const HASH_RE = /^[a-f0-9]{64}$/;
 const COMPLETABLE = new Set(['signed', 'confirmed', 'completed']);
@@ -430,6 +431,7 @@ export function createContractCompletionService(deps, options = {}) {
     let signedPdf = findArtifact(bundle, 'signed_pdf');
     if (!signedPdf) {
       const contractBody = await bodyExtractor(deps, bundle.version);
+      const partyASigningAssets = await hydratePartyASigningAssets(deps, bundle.version);
       const baseRendered = await artifacts.renderPdf('signed_pdf', {
         contract: bundle.contract,
         version: bundle.version,
@@ -447,6 +449,7 @@ export function createContractCompletionService(deps, options = {}) {
         times,
         verification,
         counterpartyDetails,
+        partyASigningAssets,
         identityDocuments: verifiedIdentityDocuments,
         confirmedBy: authority.actor,
       }, `engineering-contract-signed-pdf:${authority.tenant.key}:${sessionId}:${bundleHash}:${signatureHash}`);

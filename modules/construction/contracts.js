@@ -6,11 +6,25 @@ import crypto from 'node:crypto';
 import { plain, sameId, textFrag, queryAll, readJsonBody, sendJson, parseScope, assertProjectInScope } from './common.js';
 import { createContractWorkflowApiHandler } from './contract-workflow-api.js';
 import { contractFileUploadMetadata, readContractFileBody, uploadContractSourceFile } from './contract-files.js';
+import {
+  hydratePartyASigningAssets,
+  normalizePartyAProfileInput,
+  partyAAssetUploadMetadata,
+  readPartyAAssetBody,
+  uploadPartyAAsset,
+} from './contract-party-a-profiles.js';
 import { contractSigningRuntimeReadiness } from './contract-runtime.js';
 
 const STATUSES = ['洽談中', '報價中', '已簽約', '施工中', '已完工', '結案', '作廢'];
 // 這些狀態的合約金額計入「已發包」
 const COMMITTED_STATUSES = new Set(['已簽約', '施工中', '已完工', '結案']);
+
+async function assertPartyAProfileStore(deps) {
+  const status = await deps.contractStore?.status(deps.tenant);
+  if (status?.partyAProfileSchemaReady !== true) {
+    throw Object.assign(new Error('甲方主檔資料庫尚未升級，請先套用工程合約 schema v6'), { statusCode: 503 });
+  }
+}
 
 function requiredTemplateText(value, label, max) {
   const text = String(value || '').trim();
@@ -127,6 +141,43 @@ export async function handleContractsRequest(req, res, pathname, url, deps) {
         ...metadata, buffer, projectId: 'template-library', projectLabel: '合約範本庫', actor: deps.actor,
       });
       return sendJson(res, 200, { ok: true, data: file });
+    }
+    if (req.method === 'GET' && pathname === '/contracts/api/v2/party-a-profiles') {
+      if (!canManage) return sendJson(res, 403, { error: '只有合約管理者可以讀取甲方主檔' });
+      await assertPartyAProfileStore(deps);
+      const stored = await deps.contractStore.listPartyAProfiles(deps.tenant, {
+        includeArchived: url.searchParams.get('includeArchived') === '1',
+      });
+      return sendJson(res, 200, { ok: true, data: stored?.value || stored || [] });
+    }
+    if (req.method === 'POST' && pathname === '/contracts/api/v2/party-a-assets') {
+      if (!canManage) return sendJson(res, 403, { error: '只有合約管理者可以上傳甲方簽章' });
+      await assertPartyAProfileStore(deps);
+      const metadata = partyAAssetUploadMetadata(req);
+      const buffer = await readPartyAAssetBody(req);
+      const asset = await uploadPartyAAsset(deps, { ...metadata, buffer, actor: deps.actor });
+      return sendJson(res, 200, { ok: true, data: asset });
+    }
+    if (req.method === 'POST' && pathname === '/contracts/api/v2/party-a-profiles') {
+      if (!canManage) return sendJson(res, 403, { error: '只有合約管理者可以維護甲方主檔' });
+      await assertPartyAProfileStore(deps);
+      const input = normalizePartyAProfileInput(await readJsonBody(req));
+      await hydratePartyASigningAssets(deps, {
+        documentPackage: { partyAProfileSnapshot: { profileType: input.profileType, assets: input.assets } },
+      });
+      const stored = await deps.contractStore.upsertPartyAProfile(deps.tenant, { ...input, actor: deps.actor });
+      return sendJson(res, 200, { ok: true, data: stored?.value || stored });
+    }
+    if (req.method === 'POST' && pathname === '/contracts/api/v2/party-a-profiles/archive') {
+      if (!canManage) return sendJson(res, 403, { error: '只有合約管理者可以封存甲方主檔' });
+      await assertPartyAProfileStore(deps);
+      const body = await readJsonBody(req);
+      const id = String(body.id || '').trim();
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+        return sendJson(res, 400, { error: '甲方主檔 ID 不合法' });
+      }
+      const stored = await deps.contractStore.archivePartyAProfile(deps.tenant, { id, actor: deps.actor });
+      return sendJson(res, 200, { ok: true, data: stored?.value || stored });
     }
     if (req.method === 'GET' && pathname === '/contracts/api/v2/templates') {
       if (!canContract) return sendJson(res, 403, { error: '無合約範本檢視權限' });
@@ -479,11 +530,12 @@ function renderContractsPage(tenantKey, key, canBudget, canManage, canIssue, can
   .workflow-actions { display:flex;flex-wrap:wrap;gap:8px;margin-top:14px }.workflow-state{padding:9px 11px;border-radius:9px;background:#eef6f1;font-size:13px;margin-bottom:12px}.file-state{font-size:11px;color:var(--dim);margin-top:5px;word-break:break-all}
   .attachment-chip{display:inline-flex;align-items:center;position:relative;background:#eef2f0;border:1px solid #dbe5df;border-radius:7px}.attachment-chip .rowbtn{margin-left:0}.attachment-remove{border:0;background:#b8322a;color:#fff;border-radius:50%;width:24px;height:24px;line-height:22px;padding:0;margin:0 6px 0 1px;cursor:pointer;opacity:1;transform:scale(1);font-size:16px;font-weight:800;box-shadow:0 1px 3px rgba(92,20,14,.28)}.attachment-remove:hover,.attachment-remove:focus{background:#8f211b;outline:3px solid #f4c9c5;outline-offset:1px}.archive-callout{margin-top:10px;padding:11px 12px;border-radius:9px;background:#fff8df;border:1px solid #ead99a;line-height:1.65}.archive-callout.ready{background:#eaf6ef;border-color:#b9dfc8;color:#1f6542}
   .carried-files{display:grid;gap:7px;margin-top:8px}.carried-file{display:flex;align-items:center;gap:7px;padding:8px;border:1px solid #cfe0d6;border-radius:8px;background:#f4faf6}.carried-file.excluded{opacity:.62;background:#fff0ee;border-color:#e5b8b3}.carried-file a{flex:1;min-width:0;overflow-wrap:anywhere;color:#1d6b41;font-size:12px}.carried-file .file-origin{font-size:10px;color:var(--dim)}.history-files{margin-top:8px;font-size:11px;color:var(--dim)}.editor-table{width:100%;border-collapse:collapse;min-width:900px}.editor-table th,.editor-table td{padding:6px;border:1px solid var(--line);vertical-align:top;white-space:normal}.editor-table input,.editor-table textarea{width:100%;margin:0;min-width:76px}.editor-table textarea{min-height:52px}.editor-wrap{overflow:auto;margin-top:8px}.editor-summary{margin-top:8px;padding:8px 10px;border-radius:8px;background:#eef6f1;color:#245d42;font-size:11px}.workflow-box.wide{grid-column:1/-1}
+  .profile-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:12px;margin-top:12px}.profile-card{border:1px solid var(--line);border-radius:12px;padding:13px;background:#fff}.profile-card h4{margin-bottom:7px}.asset-badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}.asset-badge{padding:4px 7px;border-radius:999px;background:#eaf6ef;color:#1f6542;font-size:11px}.profile-form{margin-top:14px}.profile-form label{display:block;font-size:12px;color:var(--dim)}.profile-form input,.profile-form select{width:100%;margin-top:5px}.profile-form .company-only,.profile-form .individual-only{display:none}.profile-form[data-type="company"] .company-only{display:block}.profile-form[data-type="individual"] .individual-only{display:block}
 </style>
 </head>
 <body>
 <header><h1>📑 工程合約管理</h1>${canBudget ? `<a href="/budget${qs()}">→ 💰 預算控制</a>` : ''}<a href="/dashboard${qs()}" style="${canBudget ? 'margin-left:14px' : ''}">→ 儀表板</a></header>
-<div class="workspace-nav"><button id="nav-overview" class="active" onclick="showOverview()">合約總覽</button><button id="nav-library" onclick="showVersionLibrary()">合約範本版本庫</button><button disabled>待簽署</button><button disabled>待我方確認</button><button disabled>付款管理</button><button disabled>驗收管理</button></div>
+<div class="workspace-nav"><button id="nav-overview" class="active" onclick="showOverview()">合約總覽</button><button id="nav-library" onclick="showVersionLibrary()">合約範本版本庫</button>${canManage ? '<button id="nav-party-a" onclick="showPartyAProfiles()">甲方主檔</button>' : ''}<button disabled>待簽署</button><button disabled>待我方確認</button><button disabled>付款管理</button><button disabled>驗收管理</button></div>
 <div id="page-message" hidden></div>
 <div id="readiness"></div>
 <div class="tabs" id="tabs"></div>
@@ -501,6 +553,9 @@ let WORKFLOW = { row:null, contract:null, detail:null, reviews:[], archives:[], 
 let TEMPLATES = [];
 let TEMPLATE_UPLOAD = null;
 let TEMPLATE_FORM_ID = null;
+let PARTY_A_PROFILES = [];
+let PARTY_A_FORM_ID = null;
+let PARTY_A_UPLOADS = {};
 function esc(s) { return String(s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function money(n) { return '$' + Math.round(n || 0).toLocaleString('en-US'); }
 function fmtNum(v) { const d = String(v ?? '').replace(/[^0-9]/g, ''); return d ? Number(d).toLocaleString('en-US') : ''; }
@@ -525,6 +580,7 @@ async function apiV2(path, options={}) {
 }
 async function load(keepCurrent) {
   DATA = await api('overview');
+  if(CAN_MANAGE){try{PARTY_A_PROFILES=await apiV2('party-a-profiles');}catch{PARTY_A_PROFILES=[];}}
   if (!keepCurrent || !DATA.projects.find(p => p.id === CURRENT)) {
     CURRENT = DATA.projects.length ? DATA.projects[0].id : null;
   }
@@ -533,6 +589,7 @@ async function load(keepCurrent) {
 function setWorkspaceNav(view) {
   document.getElementById('nav-overview').classList.toggle('active', view === 'overview');
   document.getElementById('nav-library').classList.toggle('active', view === 'library');
+  document.getElementById('nav-party-a')?.classList.toggle('active', view === 'party-a');
 }
 function showPageMessage(message, error=false) {
   const box=document.getElementById('page-message');
@@ -701,15 +758,19 @@ function versionComposerHtml(nextVersion){
   const source=WORKFLOW.revisionReview;const sourceHtml=source?'<div class="workflow-box revision-source"><h4>V'+esc(source.versionNo)+' 草約的修訂依據</h4><div class="hint">回覆人：'+esc(source.reviewerName||'未提供')+' ／ 回覆時間：'+esc((source.respondedAt||'').replace('T',' ').slice(0,16)||'未記錄')+'</div><div class="review-note">'+esc(source.responseNotes||'未提供其他說明')+'</div></div>':'';
   const latest=WORKFLOW.detail?.latestVersion;const pkg=latest?.documentPackage||latest?.snapshot?.documentPackage||{};
   const bodyFiles=effectiveVersionFiles(pkg,'contract_body');const drawingFiles=effectiveVersionFiles(pkg,'construction_drawing');const quotationFiles=effectiveVersionFiles(pkg,'quotation');
-  return '<div class="workflow-state">建立 V'+nextVersion+'：目前有效文件與付款／驗收資料已從 V'+(latest?.versionNo||'1')+' 帶入，合約基本資料也會一併沿用；沒有調整的項目不必重新上傳或重填。替換與停用只影響 V'+nextVersion+' 起的有效內容，舊版與雜湊證據仍完整保留。</div>'+sourceHtml+contractFieldsEditorHtml(pkg)+'<div class="workflow-grid">'
+  return '<div class="workflow-state">建立 V'+nextVersion+'：目前有效文件與付款／驗收資料已從 V'+(latest?.versionNo||'1')+' 帶入，合約基本資料也會一併沿用；沒有調整的項目不必重新上傳或重填。替換與停用只影響 V'+nextVersion+' 起的有效內容，舊版與雜湊證據仍完整保留。</div>'+sourceHtml+contractFieldsEditorWithPartyAHtml(pkg)+'<div class="workflow-grid">'
     +(nextVersion===1?templatePickerBox():'')+existingDocumentBox('contract_body','合約本文',bodyFiles,nextVersion,'replace')+existingDocumentBox('construction_drawing','施工圖',drawingFiles,nextVersion,'add')+existingDocumentBox('quotation','報價單',quotationFiles,nextVersion,'replace')
     +paymentEditorHtml(pkg.paymentMilestones||[])+acceptanceEditorHtml(pkg.acceptanceCriteria||pkg.acceptanceStandards||[])+'</div>'
     +'<div class="workflow-actions"><button class="btn" onclick="createWorkflowDraft()">儲存 V'+nextVersion+'</button>'+(latest?'<button class="btn ghost" onclick="cancelNewVersion()">取消新增版本</button>':'')+'</div>';
 }
 
 function contractFieldValue(fields,key,fallback=''){const value=fields?.[key];return value===undefined||value===null||String(value).trim()===''?fallback:value;}
+function partyASelectorHtml(pkg,fields){const snapshot=pkg.partyAProfileSnapshot||{};const selected=fields.partyAProfileId||snapshot.profileId||'';const known=PARTY_A_PROFILES.some(profile=>profile.id===selected);const options=PARTY_A_PROFILES.map(profile=>'<option value="'+esc(profile.id)+'" '+(profile.id===selected?'selected':'')+'>'+esc(profile.displayName)+'（'+(profile.profileType==='company'?'公司':'個人')+'）</option>').join('');const historical=selected&&!known?'<option value="'+esc(selected)+'" selected>'+esc(snapshot.displayName||'已封存甲方')+'（版本快照）</option>':'';return '<label>從甲方主檔選擇<select id="cf-partyAProfileId" onchange="applyPartyAProfile()"><option value="">請選擇甲方</option>'+historical+options+'</select></label><div id="cf-partyAProfileState" class="file-state">'+(selected?'本版本將保存此甲方資料與簽章快照':'尚未選擇甲方主檔')+'</div>';}
+function applyPartyAProfile(){const id=document.getElementById('cf-partyAProfileId')?.value;const profile=PARTY_A_PROFILES.find(item=>item.id===id);if(!profile)return;const values={partyAOrganization:profile.legalName,partyATaxId:profile.taxId||'',partyAResponsiblePerson:profile.responsiblePerson||'',partyARepresentative:profile.representative||profile.legalName,partyAIdentityNumber:profile.identityNumber||'',partyAAddress:profile.address};for(const [key,value] of Object.entries(values)){const input=document.getElementById('cf-'+key);if(input)input.value=value;}const state=document.getElementById('cf-partyAProfileState');if(state)state.textContent='✓ 已帶入 '+profile.displayName+'；儲存版本時會固定資料與簽章快照。';}
+function contractFieldsEditorWithPartyAHtml(pkg){const fields=pkg.contractFields||{};return contractFieldsEditorHtml(pkg).replace('<div><b>甲方</b>','<div><b>甲方</b>'+partyASelectorHtml(pkg,fields));}
 function contractFieldsEditorHtml(pkg){const fields=pkg.contractFields||{};const value=(key,fallback='')=>esc(contractFieldValue(fields,key,fallback));const projectName=value('projectName',WORKFLOW.project?.name||'');const trade=value('trade',WORKFLOW.row.budgetItemName||'');const counterparty=value('counterpartyName',WORKFLOW.row.vendor||'');const amount=Number(WORKFLOW.row.amount||fields.contractAmount||0);const bondPercent=Number(contractFieldValue(fields,'performanceBondPercent',10));const bondAmount=contractFieldValue(fields,'performanceBondAmount',amount>0?Math.round(amount*bondPercent/100):'');return '<div class="workflow-box wide structured-fields"><h4>合約基本資料與可變條款</h4><div class="hint">這些欄位會保存於本版本並自動帶入 PDF；合約本文不再重複填寫立約人、工程名稱、地址、總價、付款與工期。草約可先留白討論，但正式送簽前應補齊。甲方為個人時不必填統一編號；乙方姓名、身分證字號與住址在正式簽署頁仍會強制填寫，並以簽署資料為準。</div><h4>工程資料</h4><div class="workflow-grid"><label>工種<input id="cf-trade" value="'+trade+'" placeholder="例：拆除、泥作、水電"></label><label>承攬對象<input id="cf-counterpartyName" value="'+counterparty+'" placeholder="公司或承包人名稱"></label><label>工程名稱<input id="cf-projectName" value="'+projectName+'" placeholder="實際工程名稱"></label><label>工程地址<input id="cf-projectAddress" value="'+value('projectAddress')+'" placeholder="施工地址"></label><label>合約總價（由合約總覽帶入）<input id="cf-contractAmount" type="number" value="'+esc(amount||'')+'" readonly></label><label class="wide">工程範圍<textarea id="cf-workScope" placeholder="請說明承攬工作、圖說與報價單涵蓋範圍">'+value('workScope')+'</textarea></label></div><h4>立約雙方</h4><div class="hint">甲方資料原則上在送內部審查前補齊；乙方公司資料可先填，乙方個人識別資料會在正式簽署時再次強制確認。</div><div class="party-editor"><div><b>甲方</b><label>主體／公司<input id="cf-partyAOrganization" value="'+value('partyAOrganization')+'"></label><label>統一編號（公司時填寫）<input id="cf-partyATaxId" value="'+value('partyATaxId')+'"></label><label>負責人<input id="cf-partyAResponsiblePerson" value="'+value('partyAResponsiblePerson')+'"></label><label>代表人／簽約人<input id="cf-partyARepresentative" value="'+value('partyARepresentative')+'"></label><label>身分證字號（需要時）<input id="cf-partyAIdentityNumber" value="'+value('partyAIdentityNumber')+'"></label><label>地址<input id="cf-partyAAddress" value="'+value('partyAAddress')+'"></label></div><div><b>乙方</b><label>主體／公司<input id="cf-partyBOrganization" value="'+value('partyBOrganization',counterparty)+'"></label><label>統一編號<input id="cf-partyBTaxId" value="'+value('partyBTaxId')+'"></label><label>負責人<input id="cf-partyBResponsiblePerson" value="'+value('partyBResponsiblePerson')+'"></label><label>代表人／簽約人<input id="cf-partyBRepresentative" value="'+value('partyBRepresentative',counterparty)+'"></label><label>身分證字號（簽署時強制確認）<input id="cf-partyBIdentityNumber" value="'+value('partyBIdentityNumber')+'"></label><label>地址（簽署時強制確認）<input id="cf-partyBAddress" value="'+value('partyBAddress')+'"></label></div></div><h4>工期、驗收與重要數字</h4><div class="workflow-grid"><label>進場日<input id="cf-startDate" type="date" value="'+value('startDate')+'"></label><label>完工日<input id="cf-completionDate" type="date" value="'+value('completionDate')+'"></label><label>預定驗收日<input id="cf-acceptanceDate" type="date" value="'+value('acceptanceDate')+'"></label><label>保固月數<input id="cf-warrantyMonths" type="number" min="0" step="1" value="'+value('warrantyMonths',12)+'"></label><label>履約保證比例 %<input id="cf-performanceBondPercent" type="number" min="0" max="100" step="0.01" value="'+esc(bondPercent)+'" oninput="updateBondAmount()"></label><label>履約保證／本票金額<input id="cf-performanceBondAmount" type="number" min="0" step="1" value="'+esc(bondAmount)+'"></label><label>本票到期日<input id="cf-promissoryNoteDueDate" type="date" value="'+value('promissoryNoteDueDate')+'"></label><label>逾期違約金（每日，占總價 %）<input id="cf-delayPenaltyPercent" type="number" min="0" max="100" step="0.01" value="'+value('delayPenaltyPercent',1)+'"></label><label>立約日期<input id="cf-signingDate" type="date" value="'+value('signingDate')+'"></label></div></div>';}
 function readContractFields(){const keys=['trade','counterpartyName','projectName','projectAddress','workScope','partyAOrganization','partyATaxId','partyAResponsiblePerson','partyARepresentative','partyAIdentityNumber','partyAAddress','partyBOrganization','partyBTaxId','partyBResponsiblePerson','partyBRepresentative','partyBIdentityNumber','partyBAddress','startDate','completionDate','acceptanceDate','warrantyMonths','performanceBondPercent','performanceBondAmount','promissoryNoteDueDate','delayPenaltyPercent','signingDate'];const fields=Object.fromEntries(keys.map(key=>[key,document.getElementById('cf-'+key)?.value.trim()||'']));fields.contractAmount=Number(document.getElementById('cf-contractAmount')?.value||WORKFLOW.row.amount||0);for(const key of ['warrantyMonths','performanceBondPercent','performanceBondAmount','delayPenaltyPercent'])fields[key]=fields[key]===''?null:Number(fields[key]);return fields;}
+function readContractFieldsWithPartyA(){const fields=readContractFields();const id=document.getElementById('cf-partyAProfileId')?.value||'';const profile=PARTY_A_PROFILES.find(item=>item.id===id);if(profile){fields.partyAProfileId=profile.id;fields.partyAProfileType=profile.profileType;fields.partyAProfileSnapshot={profileId:profile.id,profileType:profile.profileType,displayName:profile.displayName,assets:JSON.parse(JSON.stringify(profile.assets||{}))};}else{const previous=WORKFLOW.detail?.latestVersion?.documentPackage?.contractFields||WORKFLOW.detail?.latestVersion?.snapshot?.documentPackage?.contractFields||{};if(id&&previous.partyAProfileId===id){fields.partyAProfileId=previous.partyAProfileId;fields.partyAProfileType=previous.partyAProfileType;fields.partyAProfileSnapshot=previous.partyAProfileSnapshot;}}return fields;}
 function updateBondAmount(){const percent=Number(document.getElementById('cf-performanceBondPercent')?.value||0);const amount=Number(document.getElementById('cf-contractAmount')?.value||WORKFLOW.row.amount||0);const target=document.getElementById('cf-performanceBondAmount');if(target&&amount>=0&&percent>=0)target.value=String(Math.round(amount*percent/100));}
 
 function fileIdentity(file){return String(file?.fileId||file?.file_id||'');}
@@ -767,7 +828,7 @@ async function uploadWorkflowFile(kind){
   try{const response=await fetch('/contracts/api/v2/files?tenant='+encodeURIComponent(TENANT)+'&key='+encodeURIComponent(KEY)+'&projectId='+encodeURIComponent(WORKFLOW.project.id),{method:'POST',headers:{'content-type':file.type||'application/octet-stream','x-contract-file-name':encodeURIComponent(file.name),'x-contract-document-kind':kind},body:file});const result=await response.json();if(!response.ok)throw new Error(result.error||response.status);WORKFLOW.files[kind]=result.data;state.textContent='✓ 本版將使用 '+result.data.name+' ／ '+result.data.sha256.slice(0,12)+'…';}catch(error){state.textContent='上傳失敗：'+error.message;}
 }
 async function createWorkflowDraft(){
-  try{const templateVersionId=document.getElementById('wf-template-version')?.value||'';const contractFields=readContractFields();const payments=readEditorRows('.payment-row',['label','trigger','percentage','amount','dueDate','dueTime','evidenceRequired']).map((item,index)=>({id:'payment-'+String(index+1).padStart(3,'0'),label:item.label,trigger:item.trigger,percentage:item.percentage?Number(item.percentage):null,amount:item.amount?Number(item.amount):null,dueDate:item.dueDate,dueTime:item.dueTime,evidenceRequired:item.evidenceRequired}));const criteria=readEditorRows('.acceptance-row',['criterion','reference','verificationMethod','passCondition','evidenceRequired']).map((item,index)=>({id:'acceptance-'+String(index+1).padStart(3,'0'),...item}));
+  try{const templateVersionId=document.getElementById('wf-template-version')?.value||'';const contractFields=readContractFieldsWithPartyA();const payments=readEditorRows('.payment-row',['label','trigger','percentage','amount','dueDate','dueTime','evidenceRequired']).map((item,index)=>({id:'payment-'+String(index+1).padStart(3,'0'),label:item.label,trigger:item.trigger,percentage:item.percentage?Number(item.percentage):null,amount:item.amount?Number(item.amount):null,dueDate:item.dueDate,dueTime:item.dueTime,evidenceRequired:item.evidenceRequired}));const criteria=readEditorRows('.acceptance-row',['criterion','reference','verificationMethod','passCondition','evidenceRequired']).map((item,index)=>({id:'acceptance-'+String(index+1).padStart(3,'0'),...item}));
     for(const key of ['warrantyMonths','performanceBondPercent','performanceBondAmount','delayPenaltyPercent'])if(contractFields[key]!=null&&(!Number.isFinite(contractFields[key])||contractFields[key]<0))throw new Error('合約重要數字不可為負數或無效數值');if(contractFields.performanceBondPercent>100||contractFields.delayPenaltyPercent>100)throw new Error('履約保證與逾期違約金比例不可超過 100%');if(contractFields.startDate&&contractFields.completionDate&&contractFields.startDate>contractFields.completionDate)throw new Error('完工日不可早於進場日');
     for(const [index,item] of payments.entries()){if(!item.label)throw new Error('付款第 '+(index+1)+' 期缺少期別名稱');if(item.percentage==null&&item.amount==null)throw new Error('付款第 '+(index+1)+' 期至少要填比例或金額');if(!item.trigger&&!item.dueDate)throw new Error('付款第 '+(index+1)+' 期需要施工里程碑或付款日期');if(item.dueTime&&!item.dueDate)throw new Error('付款第 '+(index+1)+' 期填寫時間時也要填日期');}
     if(payments.some(x=>x.percentage!=null)){if(payments.some(x=>x.percentage==null))throw new Error('使用付款比例時，每一期都必須填寫比例');const total=payments.reduce((sum,x)=>sum+x.percentage,0);if(Math.abs(total-100)>0.01)throw new Error('各期付款比例合計必須為 100%，目前是 '+total.toFixed(2)+'%');}
@@ -779,6 +840,25 @@ async function createWorkflowDraft(){
     await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id)+'/versions',{method:'POST',body:{documentPackage:pkg,attachmentExclusions:WORKFLOW.pendingExclusions||[],...(revisionSource?{snapshot:{revisionSource}}:{}),...(templateVersionId?{templateVersionId}:{})}});WORKFLOW.detail=await apiV2('contracts/'+encodeURIComponent(WORKFLOW.contract.id));WORKFLOW.row.workflowState='draft';WORKFLOW.row.latestVersion=WORKFLOW.detail.latestVersion?.versionNo||WORKFLOW.row.latestVersion;WORKFLOW.files={};WORKFLOW.pendingExclusions=[];WORKFLOW.revisionReview=null;WORKFLOW.creatingVersion=false;renderWorkflow();showPageMessage('新合約版本已保存；未調整的文件直接沿用，替換或停用的舊檔仍保留在版本證據中。');
   }catch(error){alert(error.message);}
 }
+async function showPartyAProfiles(){
+  if(!CAN_MANAGE)return;
+  setWorkspaceNav('party-a');document.getElementById('tabs').innerHTML='';document.getElementById('readiness').innerHTML='';
+  const main=document.getElementById('main');main.innerHTML='<div class="panel"><h3>甲方主檔</h3><div class="empty">正在讀取甲方資料…</div></div>';
+  try{PARTY_A_PROFILES=await apiV2('party-a-profiles');PARTY_A_FORM_ID=null;PARTY_A_UPLOADS={};renderPartyAProfiles();}catch(error){main.innerHTML='<div class="panel"><h3>甲方主檔</h3><div class="readiness">'+esc(error.message)+'</div></div>';}
+}
+function partyAAssetBadges(profile){const assets=profile.assets||{};const labels={large_seal:'公司大章',small_seal:'負責人小章',signature:'個人簽名'};return Object.keys(labels).filter(key=>assets[key]).map(key=>'<span class="asset-badge">✓ '+labels[key]+'</span>').join('');}
+function renderPartyAProfiles(){
+  const main=document.getElementById('main');const form=PARTY_A_FORM_ID===null?'':partyAProfileFormHtml(PARTY_A_FORM_ID);const cards=PARTY_A_PROFILES.map(profile=>'<div class="profile-card"><h4>'+esc(profile.displayName)+'</h4><div class="hint">'+(profile.profileType==='company'?'公司甲方':'個人甲方')+' ／ '+esc(profile.legalName)+'</div><div class="hint">'+esc(profile.profileType==='company'?(profile.taxId+' ／ 負責人 '+profile.responsiblePerson):('簽約人 '+(profile.representative||profile.legalName)))+'</div><div class="hint">'+esc(profile.address)+'</div><div class="asset-badges">'+partyAAssetBadges(profile)+'</div><div class="workflow-actions"><button class="rowbtn" onclick="showPartyAProfileForm(&quot;'+profile.id+'&quot;)">編輯</button><button class="rowbtn" onclick="archivePartyAProfile(&quot;'+profile.id+'&quot;)">封存</button></div></div>').join('');
+  main.innerHTML='<div class="panel"><h3>甲方主檔</h3><div class="hint">公司甲方保存公司名稱、統編、負責人、地址及大小章；個人甲方保存姓名、地址及簽名。選入合約時會複製成該版本快照，日後修改主檔不會改寫已建立或已簽署的合約。</div><div class="workflow-actions"><button class="btn" onclick="showPartyAProfileForm()">＋ 新增甲方</button></div>'+form+'<div class="profile-grid">'+cards+'</div>'+(cards?'':'<div class="empty">尚未建立甲方主檔。</div>')+'</div>';
+}
+function partyAProfileFormHtml(id){const profile=PARTY_A_PROFILES.find(item=>item.id===id)||{profileType:'company',assets:{}};PARTY_A_UPLOADS=JSON.parse(JSON.stringify(profile.assets||{}));const type=profile.profileType||'company';const assetState=(kind,label)=>'<label class="'+(kind==='signature'?'individual-only':'company-only')+'">'+label+'<input type="file" accept="image/png,image/jpeg" onchange="uploadPartyAAsset(&quot;'+kind+'&quot;,this)"><div id="pa-state-'+kind+'" class="file-state">'+(PARTY_A_UPLOADS[kind]?'✓ 已保存 '+esc(PARTY_A_UPLOADS[kind].name||label):'尚未上傳')+'</div></label>';return '<div id="party-a-form" class="workflow-box profile-form" data-type="'+type+'"><h4>'+(id?'編輯甲方主檔':'新增甲方主檔')+'</h4><div class="workflow-grid"><label>甲方類型<select id="pa-type" onchange="partyATypeChanged()"><option value="company" '+(type==='company'?'selected':'')+'>公司（大小章）</option><option value="individual" '+(type==='individual'?'selected':'')+'>個人（簽名）</option></select></label><label>顯示名稱<input id="pa-display" value="'+esc(profile.displayName||'')+'" placeholder="選單中看到的名稱"></label><label>法定名稱／姓名<input id="pa-legal" value="'+esc(profile.legalName||'')+'"></label><label class="company-only">統一編號<input id="pa-tax" value="'+esc(profile.taxId||'')+'" inputmode="numeric" maxlength="8"></label><label class="company-only">負責人<input id="pa-responsible" value="'+esc(profile.responsiblePerson||'')+'"></label><label>代表人／簽約人<input id="pa-representative" value="'+esc(profile.representative||'')+'"></label><label class="individual-only">身分證字號（需要時）<input id="pa-identity" value="'+esc(profile.identityNumber||'')+'"></label><label class="wide">地址<input id="pa-address" value="'+esc(profile.address||'')+'"></label>'+assetState('large_seal','公司大章（必填）')+assetState('small_seal','負責人小章（必填）')+assetState('signature','個人簽名（必填）')+'</div><div class="workflow-actions"><button id="pa-save" class="btn" onclick="savePartyAProfile(&quot;'+esc(id)+'&quot;)">儲存甲方</button><button class="btn ghost" onclick="cancelPartyAProfileForm()">取消</button></div></div>';}
+function showPartyAProfileForm(id=''){PARTY_A_FORM_ID=id;renderPartyAProfiles();document.getElementById('pa-display')?.focus();}
+function cancelPartyAProfileForm(){PARTY_A_FORM_ID=null;PARTY_A_UPLOADS={};renderPartyAProfiles();}
+function partyATypeChanged(){const form=document.getElementById('party-a-form');if(form)form.dataset.type=document.getElementById('pa-type').value;}
+async function uploadPartyAAsset(kind,input){const file=input.files?.[0];if(!file)return;const state=document.getElementById('pa-state-'+kind);state.textContent='上傳與私密驗證中…';try{const response=await fetch('/contracts/api/v2/party-a-assets?tenant='+encodeURIComponent(TENANT)+'&key='+encodeURIComponent(KEY),{method:'POST',headers:{'content-type':file.type||'application/octet-stream','x-party-a-file-name':encodeURIComponent(file.name),'x-party-a-asset-kind':kind},body:file});const result=await response.json().catch(()=>({}));if(!response.ok)throw new Error(result.error?.message||result.error||String(response.status));PARTY_A_UPLOADS[kind]=result.data;state.textContent='✓ 已保存 '+result.data.name+' ／ '+result.data.sha256.slice(0,12)+'…';}catch(error){state.textContent='上傳失敗：'+error.message;}}
+async function savePartyAProfile(id){const save=document.getElementById('pa-save');try{const type=document.getElementById('pa-type').value;const assets={};for(const key of (type==='company'?['large_seal','small_seal']:['signature']))if(PARTY_A_UPLOADS[key])assets[key]=PARTY_A_UPLOADS[key];const body={id:id||undefined,profileType:type,displayName:document.getElementById('pa-display').value,legalName:document.getElementById('pa-legal').value,taxId:document.getElementById('pa-tax')?.value||'',responsiblePerson:document.getElementById('pa-responsible')?.value||'',representative:document.getElementById('pa-representative').value,identityNumber:document.getElementById('pa-identity')?.value||'',address:document.getElementById('pa-address').value,assets};save.disabled=true;save.textContent='儲存中…';await apiV2('party-a-profiles',{method:'POST',body});PARTY_A_PROFILES=await apiV2('party-a-profiles');PARTY_A_FORM_ID=null;PARTY_A_UPLOADS={};renderPartyAProfiles();showPageMessage('甲方主檔已保存；建立下一個合約版本時即可選取帶入。');}catch(error){showPageMessage(error.message,true);if(save){save.disabled=false;save.textContent='儲存甲方';}}}
+async function archivePartyAProfile(id){const name=PARTY_A_PROFILES.find(item=>item.id===id)?.displayName||'這筆甲方';if(!confirm('確定封存甲方「'+name+'」？既有合約版本的甲方快照與簽章證據不受影響。'))return;try{await apiV2('party-a-profiles/archive',{method:'POST',body:{id}});PARTY_A_PROFILES=await apiV2('party-a-profiles');renderPartyAProfiles();}catch(error){showPageMessage(error.message,true);}}
+
 async function showVersionLibrary(){
   setWorkspaceNav('library');document.getElementById('tabs').innerHTML='';const main=document.getElementById('main');main.innerHTML='<div class="panel"><h3>合約範本版本庫</h3><div class="empty">正在讀取公版合約範本…</div></div>';
   try{TEMPLATES=await apiV2('templates');TEMPLATE_FORM_ID=null;renderTemplateLibrary();}catch(error){main.innerHTML='<div class="panel"><h3>合約範本版本庫</h3><div class="readiness">'+esc(error.message)+'</div></div>';}
@@ -809,3 +889,5 @@ load();
 </body>
 </html>`;
 }
+
+export const __test = { renderContractsPage };
