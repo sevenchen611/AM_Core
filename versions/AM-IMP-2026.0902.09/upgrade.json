@@ -1,0 +1,40 @@
+{
+  "id": "AM-IMP-2026.0902.09",
+  "name": "Mobile large signature pad",
+  "type": "AM Platform / contracts / signing UX",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-02",
+  "dependsOn": ["AM-IMP-2026.0902.07"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Explain that the protected contract PDF is for review and not the signature input surface",
+    "Provide a phone-friendly large signature canvas for the designated signer",
+    "Clarify that one submitted signature is inserted into the contract and promissory-note positions"
+  ],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-signing-web.mjs",
+    "tools/dryrun-engineering-contract-signing.mjs",
+    "tools/dryrun-engineering-contract-runtime.mjs",
+    "tools/dryrun-engineering-contract-security-gates.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The package changes only the signing-page presentation and retains the existing protected signature submission boundary."
+  },
+  "definitionOfDone": [
+    "The PDF review section clearly warns signers not to use a PDF-viewer drawing tool",
+    "The designated signer receives a signature canvas at least 320 pixels high on phone viewports",
+    "The signature canvas remains touch enabled and submits through the existing protected endpoint",
+    "The existing signer-only authorization and group-member read-only behavior remain unchanged"
+  ],
+  "files": [
+    "modules/construction/contract-signing-web.js",
+    "tools/dryrun-engineering-contract-signing-web.mjs"
+  ]
+}
