@@ -682,7 +682,7 @@ function readinessBlockers(version, validation) {
     const required = {
       trade: '工種', counterpartyName: '承攬對象', projectName: '工程名稱', projectAddress: '工程地址',
       workScope: '工程範圍', partyAOrganization: '甲方主體／公司',
-      partyAResponsiblePerson: '甲方負責人', partyARepresentative: '甲方代表人／簽約人', partyAAddress: '甲方地址',
+      partyARepresentative: '甲方代表人／簽約人', partyAAddress: '甲方地址',
       startDate: '進場日', completionDate: '完工日', warrantyMonths: '保固月數',
       performanceBondPercent: '履約保證比例', performanceBondAmount: '履約保證／本票金額',
       promissoryNoteDueDate: '本票到期日', delayPenaltyPercent: '逾期違約金比例', signingDate: '立約日期',
@@ -700,16 +700,19 @@ function readinessBlockers(version, validation) {
       const profileSnapshot = contractFields.partyAProfileSnapshot;
       const assets = profileSnapshot?.assets && typeof profileSnapshot.assets === 'object'
         ? profileSnapshot.assets : {};
-      const requiredAssets = profileType === 'company' ? ['large_seal']
-        : (profileType === 'individual' ? ['signature'] : []);
-      if (!requiredAssets.length) blockers.push({
+      const requiredAssets = profileType === 'company' ? ['large_seal'] : [];
+      if (!['company', 'individual'].includes(profileType)) blockers.push({
         code: 'PARTY_A_PROFILE_TYPE_INVALID', path: 'documentPackage.contractFields.partyAProfileType',
         message: '甲方主檔類型不完整，請重新選擇甲方。', field: 'partyAProfileType',
       });
       for (const kind of requiredAssets) if (!assets[kind]?.fileId || !assets[kind]?.sha256) blockers.push({
         code: 'PARTY_A_SIGNING_ASSET_MISSING', path: `documentPackage.contractFields.partyAProfileSnapshot.assets.${kind}`,
-        message: profileType === 'company' ? '公司甲方必須保存公司大章快照。' : '個人甲方必須保存簽名快照。',
+        message: '公司甲方必須保存公司大章快照。',
         field: kind,
+      });
+      if (profileType === 'company' && !clean(contractFields.partyAResponsiblePerson)) blockers.push({
+        code: 'REQUIRED_LEGAL_FIELD_MISSING', path: 'documentPackage.contractFields.partyAResponsiblePerson',
+        message: '正式送簽前請補齊：甲方負責人。', field: 'partyAResponsiblePerson', label: '甲方負責人',
       });
     }
   }

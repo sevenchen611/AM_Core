@@ -38,6 +38,14 @@ const receipt = await service.storeEvidenceReceipt({
 });
 assert.equal(receipt.driveFileId, 'pdf-drive-id');
 assert.match(receipt.sha256, /^[a-f0-9]{64}$/);
+const signingImage = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), Buffer.from('party-a')]);
+const storedSigningImage = await service.storeSigningImage({
+  projectLabel: 'P01', contractLabel: '泥作合約', filename: 'party-a-signature.png',
+  buffer: signingImage, mimeType: 'image/png',
+});
+assert.equal(storedSigningImage.driveFileId, 'pdf-drive-id');
+assert.equal(storedSigningImage.sha256, createHash('sha256').update(signingImage).digest('hex'));
+assert.equal(folders.at(-1).name, '正式簽署文件');
 
 await assert.rejects(() => createContractArtifactService({ tenant: { config: { contracts: {} } } })
   .renderPdf('issued_pdf', {}, 'x'), (error) => error.code === 'PDF_RENDERER_NOT_CONFIGURED');

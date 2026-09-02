@@ -111,7 +111,9 @@ export function normalizePartyAProfileInput(input = {}) {
     }
   }
   if (profileType === 'company' && !assets.large_seal) throw fail('公司甲方必須上傳公司大章');
-  if (profileType === 'individual' && !assets.signature) throw fail('個人甲方必須上傳簽名');
+  if (profileType === 'individual' && Object.keys(assets).length) {
+    throw fail('個人甲方主檔不保存簽名；簽名請在每份合約確認時現場完成');
+  }
   const id = text(input.id, 80) || null;
   if (id && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
     throw fail('甲方主檔 ID 不合法');
@@ -149,12 +151,27 @@ export function partyAContractSnapshot(profile) {
   });
 }
 
+export function partyAProfileContext(version) {
+  const pkg = version?.documentPackage || version?.snapshot?.documentPackage
+    || version?.contractSnapshot?.documentPackage || version?.contract_snapshot?.documentPackage || {};
+  const fields = pkg.contractFields && typeof pkg.contractFields === 'object' ? pkg.contractFields : {};
+  const snapshot = pkg.partyAProfileSnapshot || fields.partyAProfileSnapshot || {};
+  return Object.freeze({
+    profileType: text(snapshot.profileType || fields.partyAProfileType, 20),
+    profileId: text(snapshot.profileId || fields.partyAProfileId, 80),
+    displayName: text(snapshot.displayName || fields.partyAOrganization, 240),
+    signerName: text(fields.partyARepresentative || snapshot.legalName || snapshot.displayName || fields.partyAOrganization, 240),
+    snapshot,
+  });
+}
+
 export async function hydratePartyASigningAssets(deps, version) {
-  const pkg = version?.documentPackage || version?.snapshot?.documentPackage || version?.contract_snapshot?.documentPackage || {};
-  const snapshot = pkg.partyAProfileSnapshot || pkg.contractFields?.partyAProfileSnapshot || {};
+  const profile = partyAProfileContext(version);
+  const snapshot = profile.snapshot;
   const assets = snapshot.assets && typeof snapshot.assets === 'object' ? snapshot.assets : {};
-  const hydrated = { profileType: snapshot.profileType || '', displayName: snapshot.displayName || '' };
+  const hydrated = { profileType: profile.profileType, displayName: profile.displayName };
   for (const [kind, asset] of Object.entries(assets)) {
+    if (hydrated.profileType === 'individual') continue;
     if (!ASSET_KINDS.has(kind) || !asset?.fileId) continue;
     const privacy = await deps.auditDrivePrivate?.(asset.fileId);
     if (privacy?.private !== true) throw fail('甲方簽章檔案不是私有狀態', 503, 'PARTY_A_ASSET_PRIVACY_FAILED');
