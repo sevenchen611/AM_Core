@@ -1,6 +1,6 @@
 # AM-IMP-2026.0902.10 - Contract LIFF login-loop recovery
 
-Status: Installed
+Status: Deployed
 
 ## Engineering installation
 
@@ -15,6 +15,11 @@ Status: Installed
 
 ## Verification boundary
 
-Local verification is pending. Production deployment and a controlled
-designated-signer/non-signer mobile check remain required. No invitation,
-signature, contract state, or LINE message was changed during implementation.
+The signing-page, signing-service, runtime, security-gate, package, syntax, and
+whitespace checks passed. PR #103 merged at commit `7771d23`; Render deployment
+`dep-dabvq5fqj5pc73dld740` reached Live. Production health and signing pages
+returned HTTP 200 and served the callback-preservation, one-attempt guard, and
+stopped-retry markers. A fresh designated-signer/non-signer phone check from the
+original LINE group message remains the final device confirmation. No
+invitation, signature, contract state, or LINE message was changed during
+deployment verification.

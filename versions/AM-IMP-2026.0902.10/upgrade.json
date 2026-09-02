@@ -3,7 +3,7 @@
   "name": "Contract LIFF login-loop recovery",
   "type": "AM Platform / contracts / signing authentication",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-09-02",
   "dependsOn": ["AM-IMP-2026.0902.09"],
   "installTargets": ["AM_PLATFORM:engineering"],
