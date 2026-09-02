@@ -824,6 +824,8 @@ function normalizeAcceptanceCriteria(input) {
       id: clean(value?.id) || 'acceptance-' + String(index + 1).padStart(3, '0'),
       criterion,
       reference: clean(value?.reference || value?.drawingReference),
+      verificationMethod: clean(value?.verificationMethod || value?.method),
+      passCondition: clean(value?.passCondition || value?.condition),
       evidenceRequired: clean(value?.evidenceRequired || value?.evidence),
       verifier: clean(value?.verifier),
     }));
