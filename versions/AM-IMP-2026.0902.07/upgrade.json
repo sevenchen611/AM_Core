@@ -3,7 +3,7 @@
   "name": "LINE group contract read-only access",
   "type": "AM Platform / contracts / signing authorization",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-09-02",
   "dependsOn": ["AM-IMP-2026.0902.06"],
   "installTargets": ["AM_PLATFORM:engineering"],
