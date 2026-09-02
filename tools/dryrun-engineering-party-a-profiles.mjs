@@ -24,9 +24,14 @@ assert.throws(() => normalizePartyAProfileInput({
   responsiblePerson: '負責人', address: '臺中市', assets: {},
 }), /必須上傳公司大章/);
 
-assert.throws(() => normalizePartyAProfileInput({
+const individual = normalizePartyAProfileInput({
   profileType: 'individual', displayName: '個人甲方', legalName: '王小明', address: '臺中市', assets: {},
-}), /必須上傳簽名/);
+});
+assert.deepEqual(individual.assets, {});
+assert.throws(() => normalizePartyAProfileInput({
+  profileType: 'individual', displayName: '個人甲方', legalName: '王小明', address: '臺中市',
+  assets: { signature: asset('signature') },
+}), /不保存簽名/);
 
 const company = normalizePartyAProfileInput({
   id: '11111111-1111-4111-8111-111111111111', profileType: 'company', displayName: '公司甲方', legalName: '範例股份有限公司',
@@ -64,7 +69,8 @@ const hydrated = await hydratePartyASigningAssets(deps, {
   } } },
 });
 assert.equal(hydrated.profileType, 'individual');
-assert.equal(hydrated.signature.base64, PNG_BASE64);
+assert.equal(hydrated.signature, undefined, 'legacy reusable signatures are never hydrated for an individual profile');
+hydrated.signature = { mimeType: 'image/png', base64: PNG_BASE64, sha256: HASH };
 
 const signedPayload = {
   kind: 'signed_pdf',
@@ -83,6 +89,8 @@ assert.equal(pdf.subarray(0, 5).toString(), '%PDF-');
 const page = contractsPageTest.renderContractsPage('engineering', 'test-key', true, true, true, true);
 assert.match(page, /甲方主檔/);
 assert.match(page, /party-a-profiles/);
+assert.match(page, /簽名不存主檔/);
+assert.match(page, /送出甲方簽名並完成雙方歸檔/);
 const pageScript = page.match(/<script>([\s\S]*)<\/script>/)?.[1];
 assert.ok(pageScript);
 new vm.Script(pageScript, { filename: 'engineering-contracts-page.js' });
@@ -95,10 +103,25 @@ const migration = rawMigration.split(/\r?\n/)
 const db = new PGlite({ extensions: { pgcrypto } });
 await db.exec('CREATE EXTENSION IF NOT EXISTS pgcrypto; CREATE SCHEMA engineering_contracts; CREATE TABLE engineering_contracts.schema_meta(singleton boolean primary key, version text, installed_at timestamptz); INSERT INTO engineering_contracts.schema_meta VALUES(true,\'v5\',now());');
 await db.exec(migration);
+await db.exec(`
+  CREATE TABLE engineering_contracts.contract_versions(id uuid primary key, contract_snapshot jsonb not null default '{}'::jsonb);
+  CREATE TABLE engineering_contracts.signing_sessions(id uuid primary key, version_id uuid not null references engineering_contracts.contract_versions(id), status text not null);
+  CREATE TABLE engineering_contracts.artifacts(
+    id uuid primary key default gen_random_uuid(), version_id uuid not null references engineering_contracts.contract_versions(id),
+    signing_session_id uuid references engineering_contracts.signing_sessions(id),
+    artifact_kind text not null check (artifact_kind in ('issued_pdf','signed_pdf','evidence_receipt'))
+  );
+`);
+const v7Url = new URL('../versions/AM-IMP-2026.0902.12/schemas/engineering-contract-party-a-dual-signing-v7.sql', import.meta.url);
+const rawV7 = await fs.readFile(v7Url, 'utf8');
+const migrationV7 = rawV7.split(/\r?\n/)
+  .filter((line) => !/^\\/.test(line.trim()) && !/^\s*GRANT\b/i.test(line))
+  .join('\n');
+await db.exec(migrationV7);
 const version = await db.query('SELECT version FROM engineering_contracts.schema_meta WHERE singleton=true');
-assert.equal(version.rows[0].version, '2026-09-02.engineering-contract-evidence.v6');
+assert.equal(version.rows[0].version, '2026-09-02.engineering-contract-evidence.v7');
 const columns = await db.query("SELECT column_name FROM information_schema.columns WHERE table_schema='engineering_contracts' AND table_name='party_a_profiles'");
 assert.ok(columns.rows.some((row) => row.column_name === 'assets'));
 await db.close();
 
-console.log('Engineering Party A profile dry-run passed: company/individual validation, private asset upload, immutable snapshot hydration, final PDF rendering, and schema v6 migration are verified.');
+console.log('Engineering Party A profile dry-run passed: individual profiles reject reusable signatures, contract-specific signing renders, and schema v7 migration is verified.');

@@ -58,12 +58,13 @@ assert.throws(() => __test.configFor({
 assert.equal(__test.canonical({ z: 1, a: { y: 2, x: 3 } }), '{"a":{"x":3,"y":2},"z":1}');
 assert.equal(__test.sha256('same'), __test.sha256('same'));
 assert.notEqual(__test.sha256('same'), __test.sha256('different'));
-assert.equal(__test.SCHEMA_VERSION, '2026-09-02.engineering-contract-evidence.v6');
+assert.equal(__test.SCHEMA_VERSION, '2026-09-02.engineering-contract-evidence.v7');
 const storeSource = fs.readFileSync(new URL('../core/contract-store.js', import.meta.url), 'utf8');
 assert.match(storeSource, /ON CONFLICT \(tenant_key, notion_contract_page_id\)/);
 assert.match(storeSource, /c\.tenant_key = \$3 AND v\.status = 'frozen'/);
 assert.doesNotMatch(storeSource, /expires_at, created_by\)/, 'legacy unsafe signing-session insert must not remain');
 assert.match(storeSource, /async function getSigningBundle/);
+assert.match(storeSource, /party_a_signature_image/);
 assert.match(
   storeSource,
   /input\.status === 'draft' \? 'draft' : 'ready_to_issue'/,

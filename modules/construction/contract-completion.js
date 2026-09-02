@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto';
 import { assertProjectScope, requireServerActor } from './contract-domain.js';
 import { composeDraftBundle, extractContractBodyForVersion } from './contract-draft-review.js';
-import { hydratePartyASigningAssets } from './contract-party-a-profiles.js';
+import { hydratePartyASigningAssets, partyAProfileContext } from './contract-party-a-profiles.js';
 
 const HASH_RE = /^[a-f0-9]{64}$/;
 const COMPLETABLE = new Set(['signed', 'confirmed', 'completed']);
+const PARTY_A_SIGNATURE_MAX_BYTES = 2 * 1024 * 1024;
+const PARTY_A_CONSENT_VERSION = 'engineering-contract-party-a-signature-v1';
 
 function completionError(code, message, statusCode = 400, details = {}) {
   return Object.assign(new Error(message), { code, statusCode, details });
@@ -169,6 +171,18 @@ function bufferResult(value) {
   return { buffer, mimeType: png ? 'image/png' : 'image/jpeg', declaredMime };
 }
 
+function decodePartyASignature(dataUrl) {
+  const source = text(dataUrl);
+  const match = /^data:(image\/(?:png|jpeg));base64,([A-Za-z0-9+/]+={0,2})$/.exec(source);
+  if (!match) throw completionError('PARTY_A_SIGNATURE_INVALID', '甲方簽名格式必須是 PNG 或 JPEG。', 422);
+  const buffer = Buffer.from(match[2], 'base64');
+  if (!buffer.length || buffer.length > PARTY_A_SIGNATURE_MAX_BYTES) {
+    throw completionError('PARTY_A_SIGNATURE_SIZE_INVALID', '甲方簽名圖檔大小不合法。', buffer.length > PARTY_A_SIGNATURE_MAX_BYTES ? 413 : 422);
+  }
+  const verified = bufferResult({ buffer, mimeType: match[1] });
+  return { ...verified, sha256: hash(buffer) };
+}
+
 function taipeiTime(iso) {
   const parts = new Intl.DateTimeFormat('sv-SE', {
     timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit',
@@ -189,7 +203,7 @@ function publicResult(bundle, signedPdf, receipt, options = {}) {
     retried: options.retried === true,
     idempotent: options.idempotent === true,
     // Deliberately excludes the raw token, signature bytes/reference and full IP.
-    evidence: { ipRecorded: true, signatureRecorded: true },
+    evidence: { ipRecorded: true, partyBSignatureRecorded: true, partyASigningEvidenceRecorded: true },
   });
 }
 
@@ -200,7 +214,7 @@ function validateService(deps, options) {
     }
   }
   const artifacts = options.artifactService || deps.artifactService;
-  for (const method of ['renderPdf', 'storePdf', 'storeEvidenceReceipt']) {
+  for (const method of ['renderPdf', 'storePdf', 'storeEvidenceReceipt', 'storeSigningImage']) {
     if (typeof artifacts?.[method] !== 'function') {
       throw completionError('CONTRACT_ARTIFACT_SERVICE_INVALID', `合約產物服務缺少 ${method}。`, 500);
     }
@@ -316,6 +330,53 @@ export function createContractCompletionService(deps, options = {}) {
       'signature.sha256',
     );
 
+    const partyA = partyAProfileContext(bundle.version);
+    if (!['company', 'individual'].includes(partyA.profileType)) {
+      throw completionError('PARTY_A_PROFILE_TYPE_INVALID', '甲方主檔類型不完整，無法判斷簽署方式。', 409);
+    }
+    if (partyA.profileType !== 'individual' && input.partyASignatureDataUrl) {
+      throw completionError('PARTY_A_SIGNATURE_NOT_APPLICABLE', '公司甲方使用已凍結的公司大章，不接受個人簽名。', 409);
+    }
+    let partyASignatureArtifact = findArtifact(bundle, 'party_a_signature_image');
+    if (partyA.profileType === 'individual' && !partyASignatureArtifact) {
+      if (input.partyASignatureConsent !== true) {
+        throw completionError('PARTY_A_SIGNATURE_CONSENT_REQUIRED', '請由個人甲方確認本次合約簽署。', 422);
+      }
+      const captured = decodePartyASignature(input.partyASignatureDataUrl);
+      const capturedAt = new Date(clock()).toISOString();
+      const stored = await artifacts.storeSigningImage({
+        projectLabel: bundle.projectCode || bundle.projectId,
+        contractLabel: text(first(bundle.contract, ['contractNumber', 'contract_number', 'title'], bundle.contractId)),
+        filename: `${text(first(bundle.contract, ['contractNumber', 'contract_number'], bundle.contractId))}-party-a-signature.${captured.mimeType === 'image/png' ? 'png' : 'jpg'}`,
+        buffer: captured.buffer,
+        mimeType: captured.mimeType,
+      });
+      if (sha256(stored.sha256, 'party_a_signature_image.sha256') !== captured.sha256) {
+        throw completionError('PARTY_A_SIGNATURE_STORE_HASH_MISMATCH', '甲方簽名儲存後雜湊不一致。', 502);
+      }
+      const requestHeaders = options.requestMeta?.headers || {};
+      const userAgent = text(requestHeaders['user-agent'] || requestHeaders['User-Agent']).slice(0, 400);
+      partyASignatureArtifact = await record(authority, bundle, 'party_a_signature_image', stored, {
+        role: 'party_a', profileType: partyA.profileType, profileId: partyA.profileId,
+        signerName: partyA.signerName, capturedBy: authority.actor, capturedAt,
+        consentVersion: PARTY_A_CONSENT_VERSION, userAgent,
+      });
+      bundle = await load(authority, sessionId);
+      partyASignatureArtifact = findArtifact(bundle, 'party_a_signature_image') || partyASignatureArtifact;
+    }
+    let partyASignatureHash = '';
+    let partyASignatureDownload = null;
+    if (partyA.profileType === 'individual') {
+      if (!partyASignatureArtifact) {
+        throw completionError('PARTY_A_SIGNATURE_REQUIRED', '個人甲方尚未完成本次合約簽名。', 409);
+      }
+      partyASignatureHash = sha256(artifactHash(partyASignatureArtifact), 'party_a_signature_image.sha256');
+      partyASignatureDownload = bufferResult(await deps.downloadFromDrive(artifactRef(partyASignatureArtifact)));
+      if (hash(partyASignatureDownload.buffer) !== partyASignatureHash) {
+        throw completionError('PARTY_A_SIGNATURE_HASH_MISMATCH', '甲方簽名圖檔與不可變雜湊不一致。', 409);
+      }
+    }
+
     let retried = bundle.status === 'confirmed' || text(runtime.state.status) === 'confirmed';
     if (text(runtime.state.status) === 'signed') {
       await signing.confirmSubmission({
@@ -421,6 +482,8 @@ export function createContractCompletionService(deps, options = {}) {
         back: verifiedIdentityDocuments.back.receivedAt,
       },
       counterpartyDetailsHash,
+      partyASignatureRequired: partyA.profileType === 'individual',
+      partyASignatureRecorded: partyA.profileType === 'individual' ? Boolean(partyASignatureHash) : false,
     };
     if (!verification.liffIdentityVerified || !verification.groupMembershipVerified
       || !verification.designatedUserMatched || !verification.lineGroupId
@@ -432,6 +495,13 @@ export function createContractCompletionService(deps, options = {}) {
     if (!signedPdf) {
       const contractBody = await bodyExtractor(deps, bundle.version);
       const partyASigningAssets = await hydratePartyASigningAssets(deps, bundle.version);
+      if (partyA.profileType === 'individual') {
+        partyASigningAssets.signature = {
+          mimeType: partyASignatureDownload.mimeType,
+          base64: partyASignatureDownload.buffer.toString('base64'),
+          sha256: partyASignatureHash,
+        };
+      }
       const baseRendered = await artifacts.renderPdf('signed_pdf', {
         contract: bundle.contract,
         version: bundle.version,
@@ -452,7 +522,7 @@ export function createContractCompletionService(deps, options = {}) {
         partyASigningAssets,
         identityDocuments: verifiedIdentityDocuments,
         confirmedBy: authority.actor,
-      }, `engineering-contract-signed-pdf:${authority.tenant.key}:${sessionId}:${bundleHash}:${signatureHash}`);
+      }, `engineering-contract-signed-pdf:${authority.tenant.key}:${sessionId}:${bundleHash}:${signatureHash}:${partyASignatureHash || 'company-seal'}`);
       const lineArchives = typeof deps.contractStore.listLineConversationArchives === 'function'
         ? await deps.contractStore.listLineConversationArchives(
           authority.tenant, bundle.contractId, Number(first(bundle.version, ['versionNo', 'version_no'])),
@@ -477,7 +547,8 @@ export function createContractCompletionService(deps, options = {}) {
         throw completionError('SIGNED_PDF_STORE_HASH_MISMATCH', '儲存的最終 PDF 與產出檔案雜湊不一致。', 502);
       }
       signedPdf = await record(authority, bundle, 'signed_pdf', stored, {
-        bundleHash, documentHash: originalDocumentHash, signatureHash, rendererKind: 'signed_pdf',
+        bundleHash, documentHash: originalDocumentHash, partyBSignatureHash: signatureHash,
+        ...(partyASignatureHash ? { partyASignatureHash } : {}), rendererKind: 'signed_pdf',
       });
       bundle = await load(authority, sessionId);
     }
@@ -486,7 +557,7 @@ export function createContractCompletionService(deps, options = {}) {
     if (!receiptArtifact) {
       const generatedUtc = new Date(clock()).toISOString();
       const receipt = {
-        schemaVersion: 'engineering-contract-evidence-receipt-v2-party-details',
+        schemaVersion: 'engineering-contract-evidence-receipt-v3-dual-party-signatures',
         generatedAt: { utc: generatedUtc, asiaTaipei: taipeiTime(generatedUtc) },
         tenantKey: authority.tenant.key,
         project: { id: bundle.projectId, code: bundle.projectCode },
@@ -496,14 +567,23 @@ export function createContractCompletionService(deps, options = {}) {
           title: text(first(bundle.contract, ['title'])),
         },
         version: { id: bundle.versionId, bundleHash, documentHash: originalDocumentHash },
-        signing: { sessionId, times, ipAddress },
+        signing: {
+          sessionId, times, ipAddress,
+          partyA: {
+            profileType: partyA.profileType,
+            signerName: partyA.signerName,
+            method: partyA.profileType === 'individual' ? 'contract_specific_signature' : 'frozen_company_seal',
+            ...(partyASignatureHash ? { signatureSha256: partyASignatureHash } : {}),
+          },
+          partyB: { method: 'electronic_signature', signatureSha256: signatureHash },
+        },
         verification,
         eventChain: { headHash: chainHead(bundle), eventCount: bundle.events.length },
         artifacts: [
           ...bundle.artifacts.filter((item) => artifactKind(item) !== 'evidence_receipt').map((item) => ({
             kind: artifactKind(item), sha256: sha256(artifactHash(item), `artifact.${artifactKind(item)}`),
           })),
-          { kind: 'signature_image', sha256: signatureHash },
+          { kind: 'party_b_signature_image', sha256: signatureHash },
           { kind: 'identity_document_front', sha256: verifiedIdentityDocuments.front.sha256 },
           { kind: 'identity_document_back', sha256: verifiedIdentityDocuments.back.sha256 },
         ].filter((item, index, all) => all.findIndex((candidate) => candidate.kind === item.kind && candidate.sha256 === item.sha256) === index),
@@ -529,6 +609,12 @@ export function createContractCompletionService(deps, options = {}) {
       || sha256(first(bundle.signatureEvidence, ['signatureSha256', 'signature_sha256', 'signatureHash'], runtime.state.submission?.signatureHash), 'signature.sha256') !== signatureHash) {
       throw completionError('SIGNING_EVIDENCE_CHANGED', '歸檔前的簽署證據已改變。', 409);
     }
+    if (partyA.profileType === 'individual') {
+      const persistedPartyASignature = findArtifact(bundle, 'party_a_signature_image');
+      if (!persistedPartyASignature || sha256(artifactHash(persistedPartyASignature), 'party_a_signature_image.sha256') !== partyASignatureHash) {
+        throw completionError('PARTY_A_SIGNING_EVIDENCE_CHANGED', '歸檔前的甲方簽名證據已改變。', 409);
+      }
+    }
     signedPdf = findArtifact(bundle, 'signed_pdf') || signedPdf;
     receiptArtifact = findArtifact(bundle, 'evidence_receipt') || receiptArtifact;
     if (!signedPdf || !receiptArtifact) {
@@ -552,4 +638,4 @@ export function createContractCompletionService(deps, options = {}) {
   return Object.freeze({ completeContract, confirmAndArchive: completeContract });
 }
 
-export const __test = Object.freeze({ normalizeBundle, taipeiTime, rejectClientAuthority, bufferResult });
+export const __test = Object.freeze({ normalizeBundle, taipeiTime, rejectClientAuthority, bufferResult, decodePartyASignature });

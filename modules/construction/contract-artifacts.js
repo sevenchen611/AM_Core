@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 
 const MAX_PDF_BYTES = 30 * 1024 * 1024;
+const MAX_SIGNING_IMAGE_BYTES = 2 * 1024 * 1024;
 const RENDER_KINDS = new Set(['draft_review_pdf', 'issued_pdf', 'signed_pdf']);
 
 function artifactError(message, statusCode = 500, code = 'CONTRACT_ARTIFACT_ERROR') {
@@ -120,7 +121,37 @@ export function createContractArtifactService(deps, options = {}) {
     return { driveFileId: uploaded.id, driveUrl: uploaded.webViewLink || '', sha256, byteSize: buffer.length };
   }
 
-  return Object.freeze({ configured: config.configured, renderPdf, storePdf, storeEvidenceReceipt });
+  async function storeSigningImage({ projectLabel, contractLabel, filename, buffer, mimeType }) {
+    if (!deps.driveConfigured || !deps.driveRootFolderId) throw artifactError('工程合約 Drive 尚未設定', 503);
+    if (!Buffer.isBuffer(buffer) || !buffer.length || buffer.length > MAX_SIGNING_IMAGE_BYTES) {
+      throw artifactError('簽名圖檔大小不合法', buffer?.length > MAX_SIGNING_IMAGE_BYTES ? 413 : 400, 'SIGNING_IMAGE_SIZE_INVALID');
+    }
+    if (!['image/png', 'image/jpeg'].includes(String(mimeType || '').toLowerCase())) {
+      throw artifactError('簽名圖檔必須是 PNG 或 JPEG', 415, 'SIGNING_IMAGE_TYPE_INVALID');
+    }
+    const normalizedMime = String(mimeType).toLowerCase();
+    const isPng = buffer.length >= 8 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    const isJpeg = buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+    if ((normalizedMime === 'image/png' && !isPng) || (normalizedMime === 'image/jpeg' && !isJpeg)) {
+      throw artifactError('簽名圖檔內容與格式不一致', 422, 'SIGNING_IMAGE_CONTENT_INVALID');
+    }
+    const root = await deps.ensureDriveFolder('工程合約管理', deps.driveRootFolderId);
+    const project = await deps.ensureDriveFolder(safeSegment(projectLabel, '工程專案'), root);
+    const contract = await deps.ensureDriveFolder(safeSegment(contractLabel, '工程合約'), project);
+    const archive = await deps.ensureDriveFolder('正式簽署文件', contract);
+    await requirePrivateDrive(archive);
+    const uploaded = await deps.uploadToDrive(buffer, safeSegment(filename, 'party-a-signature.png'), normalizedMime, archive);
+    if (!uploaded?.id) throw artifactError('Drive 未回傳簽名圖檔 ID', 502);
+    await requirePrivateDrive(uploaded.id);
+    return {
+      driveFileId: uploaded.id,
+      driveUrl: uploaded.webViewLink || '',
+      sha256: crypto.createHash('sha256').update(buffer).digest('hex'),
+      byteSize: buffer.length,
+    };
+  }
+
+  return Object.freeze({ configured: config.configured, renderPdf, storePdf, storeEvidenceReceipt, storeSigningImage });
 }
 
 export const __test = { rendererConfig, safeSegment, responseBuffer, canonical };

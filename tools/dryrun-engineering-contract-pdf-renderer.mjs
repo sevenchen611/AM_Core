@@ -53,6 +53,10 @@ function payload(kind = 'issued_pdf') {
     bundleHash: 'd'.repeat(64),
     documentHash: 'e'.repeat(64),
     signature: { mimeType: 'image/png', base64: ONE_PIXEL_PNG, sha256: 'f'.repeat(64) },
+    partyASigningAssets: {
+      profileType: 'individual',
+      signature: { mimeType: 'image/png', base64: ONE_PIXEL_PNG, sha256: '9'.repeat(64) },
+    },
     ipAddress: '203.0.113.42',
     counterpartyDetails: { name: '王大明', identityNumber: 'A123456789', address: '臺中市西屯區工程路 1 號' },
     times: {
@@ -172,7 +176,9 @@ assert.match(issuedText, /施工圖A1/);
 assert.match(issuedText, /BundleSHA-256/);
 
 const signedText = (await extractText(signed)).replace(/\s+/g, '');
-assert.match(signedText, /電子簽署證據/);
+assert.match(signedText, /雙方簽署證據/);
+assert.match(signedText, /甲方簽名SHA-2569{64}/);
+assert.match(signedText, /乙方簽名SHA-256f{64}/);
 assert.match(signedText, /A123456789/);
 assert.match(signedText, /臺中市西屯區工程路1號/);
 assert.match(signedText, /IP位址/);

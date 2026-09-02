@@ -5,6 +5,9 @@ import { createContractCompletionService } from '../modules/construction/contrac
 const digest = (value) => createHash('sha256').update(value).digest('hex');
 const signatureBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4, 5]);
 const signatureHash = digest(signatureBytes);
+const partyASignatureBytes = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), Buffer.from('party-a-contract-signature')]);
+const partyASignatureHash = digest(partyASignatureBytes);
+const partyASignatureDataUrl = `data:image/png;base64,${partyASignatureBytes.toString('base64')}`;
 const identityFrontBytes = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), Buffer.from('identity-front-photo')]);
 const identityBackBytes = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), Buffer.from('identity-back-photo')]);
 const identityFrontHash = digest(identityFrontBytes);
@@ -28,9 +31,14 @@ function fixture() {
     version: {
       id: 'version-1', contractId: 'contract-1', versionNo: 1,
       bundleSha256: bundleHash,
-      snapshot: { documentPackage: { contractBody: {
-        fileId: 'drive-body-1', name: 'contract-body.pdf', mimeType: 'application/pdf', sha256: contractBodyHash,
-      } } },
+      snapshot: { documentPackage: {
+        contractBody: { fileId: 'drive-body-1', name: 'contract-body.pdf', mimeType: 'application/pdf', sha256: contractBodyHash },
+        contractFields: {
+          partyAProfileId: '11111111-1111-4111-8111-111111111111', partyAProfileType: 'individual',
+          partyAOrganization: '陳聖文', partyARepresentative: '陳聖文',
+          partyAProfileSnapshot: { profileId: '11111111-1111-4111-8111-111111111111', profileType: 'individual', displayName: '陳聖文', assets: {} },
+        },
+      } },
     },
     session: {
       externalSessionId: 'session-1', versionId: 'version-1', status: 'signed',
@@ -130,6 +138,12 @@ const signingService = {
 };
 
 const artifactService = {
+  async storeSigningImage({ buffer, mimeType }) {
+    calls.push('storePartyASignature');
+    assert.equal(mimeType, 'image/png');
+    assert.deepEqual(buffer, partyASignatureBytes);
+    return { driveFileId: 'drive-party-a-signature-1', sha256: digest(buffer), byteSize: buffer.length };
+  },
   async renderPdf(kind, payload, idempotencyKey) {
     calls.push(`render:${kind}`);
     assert.equal(kind, 'signed_pdf');
@@ -163,6 +177,7 @@ const deps = {
     if (ref === 'drive-body-1') return { buffer: contractBodyBytes, mimeType: 'application/pdf' };
     if (ref === 'drive-id-front') return { buffer: identityFrontBytes, mimeType: 'image/jpeg' };
     if (ref === 'drive-id-back') return { buffer: identityBackBytes, mimeType: 'image/jpeg' };
+    if (ref === 'drive-party-a-signature-1') return { buffer: partyASignatureBytes, mimeType: 'image/png' };
     return { buffer: signatureBytes, mimeType: 'image/png' };
   },
 };
@@ -176,10 +191,20 @@ const context = {
   scope: { projectIds: ['project-1'] },
 };
 
+// Individual Party A confirmation fails closed until a fresh contract-specific
+// signature and explicit consent are supplied.
+await assert.rejects(
+  service.completeContract(context, { sessionId: 'session-1' }),
+  (error) => error.code === 'PARTY_A_SIGNATURE_CONSENT_REQUIRED',
+);
+assert.equal(calls.filter((item) => item === 'confirm').length, 0);
+
 // Confirmation is durable before rendering. A transient PDF failure leaves the
 // session confirmed, and a retry does not confirm or sign again.
 await assert.rejects(
-  service.completeContract(context, { sessionId: 'session-1' }),
+  service.completeContract(context, {
+    sessionId: 'session-1', partyASignatureDataUrl, partyASignatureConsent: true,
+  }),
   (error) => error.code === 'PDF_RENDER_FAILED',
 );
 assert.equal(state.status, 'confirmed');
@@ -196,6 +221,8 @@ assert.ok(calls.indexOf('record:evidence_receipt') < calls.indexOf('complete'));
 // Renderer receives the signature bytes and every contract evidence time.
 assert.equal(signedPdfPayload.signature.base64, signatureBytes.toString('base64'));
 assert.equal(signedPdfPayload.signature.sha256, signatureHash);
+assert.equal(signedPdfPayload.partyASigningAssets.signature.base64, partyASignatureBytes.toString('base64'));
+assert.equal(signedPdfPayload.partyASigningAssets.signature.sha256, partyASignatureHash);
 assert.equal(signedPdfPayload.ipAddress, '203.0.113.45');
 assert.equal(signedPdfPayload.bundleHash, bundleHash);
 assert.deepEqual(signedPdfPayload.counterpartyDetails, counterpartyDetails);
@@ -229,7 +256,12 @@ assert.equal(receiptPayload.verification.counterpartyDetailsHash, digest(JSON.st
 })));
 assert.ok(receiptPayload.artifacts.some((item) => item.kind === 'issued_pdf' && item.sha256 === issuedHash));
 assert.ok(receiptPayload.artifacts.some((item) => item.kind === 'signed_pdf'));
-assert.ok(receiptPayload.artifacts.some((item) => item.kind === 'signature_image' && item.sha256 === signatureHash));
+assert.equal(receiptPayload.schemaVersion, 'engineering-contract-evidence-receipt-v3-dual-party-signatures');
+assert.equal(receiptPayload.signing.partyA.method, 'contract_specific_signature');
+assert.equal(receiptPayload.signing.partyA.signatureSha256, partyASignatureHash);
+assert.equal(receiptPayload.signing.partyB.signatureSha256, signatureHash);
+assert.ok(receiptPayload.artifacts.some((item) => item.kind === 'party_a_signature_image' && item.sha256 === partyASignatureHash));
+assert.ok(receiptPayload.artifacts.some((item) => item.kind === 'party_b_signature_image' && item.sha256 === signatureHash));
 assert.ok(receiptPayload.artifacts.some((item) => item.kind === 'identity_document_front' && item.sha256 === identityFrontHash));
 assert.ok(receiptPayload.artifacts.some((item) => item.kind === 'identity_document_back' && item.sha256 === identityBackHash));
 

@@ -1,0 +1,55 @@
+{
+  "id": "AM-IMP-2026.0902.12",
+  "name": "Contract-specific Party A dual signing",
+  "type": "AM Platform / contracts / dual-party signing evidence",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-02",
+  "dependsOn": ["AM-IMP-2026.0902.11"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Remove reusable signatures from individual Party A profiles",
+    "Capture an individual Party A signature after Party B signs each contract",
+    "Block confirmation until the contract-specific Party A signature artifact exists",
+    "Render both parties' signing evidence in the final PDF and evidence receipt",
+    "Keep company Party A signing based on the frozen large company seal"
+  ],
+  "requiresDatabases": ["engineering_contracts schema v7"],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-party-a-profiles.mjs",
+    "tools/dryrun-engineering-contract-completion.mjs",
+    "tools/dryrun-engineering-contract-workflow-api.mjs",
+    "tools/dryrun-engineering-contract-pdf-renderer.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "A personal Party A signature belongs to one frozen contract version and signing session; it is never copied into a profile or another contract."
+  },
+  "definitionOfDone": [
+    "An individual Party A profile can be saved without a signature asset",
+    "An individual Party A profile rejects reusable signing assets",
+    "An individual Party A contract cannot transition to confirmed without one immutable Party A signature artifact",
+    "A company Party A contract continues to use only the frozen large company seal",
+    "The final PDF contains Party A and Party B signing evidence",
+    "The evidence receipt identifies both signature methods and hashes"
+  ],
+  "files": [
+    "schemas/engineering-contract-party-a-dual-signing-v7.sql",
+    "modules/construction/contracts.js",
+    "modules/construction/contract-party-a-profiles.js",
+    "modules/construction/contract-management.js",
+    "modules/construction/contract-completion.js",
+    "modules/construction/contract-artifacts.js",
+    "modules/construction/contract-pdf-renderer.js",
+    "tools/dryrun-engineering-contract-artifacts.mjs",
+    "tools/dryrun-engineering-contract-completion.mjs",
+    "tools/dryrun-engineering-contract-pdf-renderer.mjs",
+    "tools/dryrun-engineering-contract-store.mjs",
+    "tools/dryrun-engineering-party-a-profiles.mjs",
+    "core/contract-store.js"
+  ]
+}

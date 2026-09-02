@@ -944,8 +944,8 @@ function renderContractPdf(payload) {
   writer.labelValue('文件 SHA-256', first(payload, ['documentHash'], first(version, ['issuedPdfSha256', 'issued_pdf_sha256'], '產出後由服務回傳標頭確認')));
 
   if (payload.kind === 'signed_pdf') {
-    writer.heading('電子簽署證據');
-    writer.labelValue('簽署者', clean(payload.counterpartyDetails?.name)
+    writer.heading('雙方簽署證據');
+    writer.labelValue('乙方簽署者', clean(payload.counterpartyDetails?.name)
       || first(contract, ['counterpartyName', 'counterparty_name'], '指定簽署人'));
     writer.labelValue('IP 位址', payload.ipAddress);
     writer.labelValue('簽發時間', formatTime(times.issuedAt));
@@ -954,7 +954,11 @@ function renderContractPdf(payload) {
     writer.labelValue('簽署時間', formatTime(times.signedAt));
     writer.labelValue('我方確認時間', formatTime(times.confirmedAt));
     writer.labelValue('Bundle SHA-256', payload.bundleHash);
-    writer.labelValue('簽名 SHA-256', payload.signature?.sha256);
+    writer.labelValue('乙方簽名 SHA-256', payload.signature?.sha256);
+    writer.labelValue(payload.partyASigningAssets?.profileType === 'company' ? '甲方大章 SHA-256' : '甲方簽名 SHA-256',
+      payload.partyASigningAssets?.profileType === 'company'
+        ? payload.partyASigningAssets?.large_seal?.sha256
+        : payload.partyASigningAssets?.signature?.sha256);
     writer.labelValue('身分證正面收件', payload.verification?.identityDocumentsVerified
       ? `${formatTime(payload.verification.identityDocumentsReceivedAt?.front)}／SHA-256 ${clean(payload.verification.identityDocumentHashes?.front)}`
       : '未驗證');

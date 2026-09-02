@@ -4,11 +4,12 @@
 import crypto from 'node:crypto';
 
 const SCHEMA = 'engineering_contracts';
-const SCHEMA_VERSION = '2026-09-02.engineering-contract-evidence.v6';
+const SCHEMA_VERSION = '2026-09-02.engineering-contract-evidence.v7';
 const COMPATIBLE_SCHEMA_VERSIONS = new Set([
   '2026-08-28.engineering-contract-evidence.v3',
   '2026-08-31.engineering-contract-evidence.v4',
   '2026-09-02.engineering-contract-evidence.v5',
+  '2026-09-02.engineering-contract-evidence.v6',
   SCHEMA_VERSION,
 ]);
 
@@ -722,7 +723,7 @@ export function createContractStore({ env = process.env, logger = console, poolF
   }
 
   async function recordArtifact(tenant, input) {
-    if (!['signed_pdf', 'evidence_receipt'].includes(input.artifactKind)) throw new Error('Unsupported signing artifact kind.');
+    if (!['party_a_signature_image', 'signed_pdf', 'evidence_receipt'].includes(input.artifactKind)) throw new Error('Unsupported signing artifact kind.');
     if (!/^[a-f0-9]{64}$/.test(String(input.sha256 || ''))) throw new Error('Artifact SHA-256 is required.');
     if (!Number.isSafeInteger(Number(input.byteSize)) || Number(input.byteSize) <= 0) throw new Error('Artifact byte size is required.');
     return withTenant(tenant, async (client) => {
