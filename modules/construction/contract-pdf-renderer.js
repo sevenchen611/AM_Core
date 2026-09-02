@@ -165,7 +165,7 @@ function validatePayload(payload) {
     }
     const partyAAssets = payload.partyASigningAssets || {};
     const requiredPartyAAssets = partyAAssets.profileType === 'company'
-      ? ['large_seal', 'small_seal'] : (partyAAssets.profileType === 'individual' ? ['signature'] : []);
+      ? ['large_seal'] : (partyAAssets.profileType === 'individual' ? ['signature'] : []);
     for (const kind of requiredPartyAAssets) {
       const image = Buffer.from(clean(partyAAssets[kind]?.base64), 'base64');
       if (!image.length || image.length > MAX_SIGNATURE_BYTES) {
@@ -761,7 +761,6 @@ function renderPartyASigningAssets(doc, writer, payload) {
   const assets = payload.partyASigningAssets || {};
   if (assets.profileType === 'company') {
     signatureImage(doc, writer, assets.large_seal, '甲方公司大章');
-    signatureImage(doc, writer, assets.small_seal, '甲方負責人小章');
   } else if (assets.profileType === 'individual') {
     signatureImage(doc, writer, assets.signature, '甲方個人簽名');
   }
@@ -774,7 +773,7 @@ function renderSigningSection(doc, writer, payload, parties, fields) {
     ['主體／姓名', parties.partyA.organization || parties.partyA.representative || '未提供', parties.partyB.organization || parties.partyB.representative || '未提供'],
     ['代表人／簽約人', parties.partyA.representative || '未提供', parties.partyB.representative || '未提供'],
     ['立約日期', clean(fields.signingDate) || '未提供', clean(fields.signingDate) || '未提供'],
-    ['簽署方式', payload.kind === 'signed_pdf' ? (payload.partyASigningAssets?.profileType === 'company' ? '公司大小章' : '個人簽名') : '待正式確認', payload.kind === 'signed_pdf' ? '電子簽名' : '待正式簽署'],
+    ['簽署方式', payload.kind === 'signed_pdf' ? (payload.partyASigningAssets?.profileType === 'company' ? '公司大章' : '個人簽名') : '待正式確認', payload.kind === 'signed_pdf' ? '電子簽名' : '待正式簽署'],
   ], [100, 199.5, 199.5], { headerRows: 1, size: 8.5, after: 8 });
   if (payload.kind === 'signed_pdf') {
     writer.labelValue('甲方確認人', clean(payload.confirmedBy) || parties.partyA.representative || '未提供');

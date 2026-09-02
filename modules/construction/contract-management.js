@@ -700,7 +700,7 @@ function readinessBlockers(version, validation) {
       const profileSnapshot = contractFields.partyAProfileSnapshot;
       const assets = profileSnapshot?.assets && typeof profileSnapshot.assets === 'object'
         ? profileSnapshot.assets : {};
-      const requiredAssets = profileType === 'company' ? ['large_seal', 'small_seal']
+      const requiredAssets = profileType === 'company' ? ['large_seal']
         : (profileType === 'individual' ? ['signature'] : []);
       if (!requiredAssets.length) blockers.push({
         code: 'PARTY_A_PROFILE_TYPE_INVALID', path: 'documentPackage.contractFields.partyAProfileType',
@@ -708,7 +708,7 @@ function readinessBlockers(version, validation) {
       });
       for (const kind of requiredAssets) if (!assets[kind]?.fileId || !assets[kind]?.sha256) blockers.push({
         code: 'PARTY_A_SIGNING_ASSET_MISSING', path: `documentPackage.contractFields.partyAProfileSnapshot.assets.${kind}`,
-        message: profileType === 'company' ? '公司甲方必須保存大章與小章快照。' : '個人甲方必須保存簽名快照。',
+        message: profileType === 'company' ? '公司甲方必須保存公司大章快照。' : '個人甲方必須保存簽名快照。',
         field: kind,
       });
     }

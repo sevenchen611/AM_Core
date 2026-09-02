@@ -14,5 +14,5 @@ Production remains unchanged. Before marking this package Deployed:
 - import the real company and personal records from the project owner's source
   folder without copying them into AMCore;
 - create a controlled test version and verify its immutable snapshot;
-- verify the final signed PDF with the selected company's two seals or the
+- verify the final signed PDF with the selected company's large seal or the
   selected individual's signature.

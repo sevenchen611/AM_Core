@@ -9,7 +9,7 @@
   "installTargets": ["AM_PLATFORM:engineering"],
   "scope": [
     "Add a Party A master page for company and individual profiles",
-    "Keep company large/small seals and individual signatures in private Drive storage",
+    "Keep company large seals and individual signatures in private Drive storage",
     "Copy the selected Party A into each immutable contract version",
     "Render the selected Party A signing assets only in the final confirmed PDF"
   ],
@@ -30,7 +30,7 @@
   },
   "definitionOfDone": [
     "Contract managers can create, edit, and archive company or individual Party A profiles",
-    "Company profiles require both seals and individual profiles require a signature",
+    "Company profiles require a large seal and individual profiles require a signature",
     "Selecting a profile fills Party A legal fields and stores a version snapshot",
     "Profile edits do not change prior version snapshots",
     "Final PDF rendering verifies private asset hashes before applying Party A signing images"

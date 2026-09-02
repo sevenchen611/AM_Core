@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 
 export const PARTY_A_ASSET_MAX_BYTES = 2 * 1024 * 1024;
 
-const ASSET_KINDS = new Set(['large_seal', 'small_seal', 'signature']);
+const ASSET_KINDS = new Set(['large_seal', 'signature']);
 const MIME_TYPES = new Set(['image/png', 'image/jpeg']);
 
 function fail(message, statusCode = 400, code = 'PARTY_A_PROFILE_ERROR') {
@@ -110,7 +110,7 @@ export function normalizePartyAProfileInput(input = {}) {
       throw fail('甲方簽章檔案資料不完整');
     }
   }
-  if (profileType === 'company' && (!assets.large_seal || !assets.small_seal)) throw fail('公司甲方必須上傳大章與小章');
+  if (profileType === 'company' && !assets.large_seal) throw fail('公司甲方必須上傳公司大章');
   if (profileType === 'individual' && !assets.signature) throw fail('個人甲方必須上傳簽名');
   const id = text(input.id, 80) || null;
   if (id && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {

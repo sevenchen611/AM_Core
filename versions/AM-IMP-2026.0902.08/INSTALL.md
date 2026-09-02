@@ -8,7 +8,7 @@
    `2026-09-02.engineering-contract-evidence.v6`.
 4. Open `/contracts?tenant=engineering` with contract-management permission and
    create the required Party A profiles from the user's source folder.
-5. Upload company seals as PNG/JPEG under `公司大章` and `負責人小章`; upload
+5. Upload the company seal as PNG/JPEG under `公司大章`; upload
    personal signatures under `個人簽名`.
 6. Do not place the source files or real profile values in this repository.
 

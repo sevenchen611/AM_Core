@@ -21,8 +21,8 @@ const asset = (kind) => ({ kind, fileId: `private-${kind}`, name: `${kind}.png`,
 
 assert.throws(() => normalizePartyAProfileInput({
   profileType: 'company', displayName: '公司甲方', legalName: '範例公司', taxId: '12345678',
-  responsiblePerson: '負責人', address: '臺中市', assets: { large_seal: asset('large_seal') },
-}), /大章與小章/);
+  responsiblePerson: '負責人', address: '臺中市', assets: {},
+}), /必須上傳公司大章/);
 
 assert.throws(() => normalizePartyAProfileInput({
   profileType: 'individual', displayName: '個人甲方', legalName: '王小明', address: '臺中市', assets: {},
@@ -31,7 +31,7 @@ assert.throws(() => normalizePartyAProfileInput({
 const company = normalizePartyAProfileInput({
   id: '11111111-1111-4111-8111-111111111111', profileType: 'company', displayName: '公司甲方', legalName: '範例股份有限公司',
   taxId: '12345678', responsiblePerson: '王小明', representative: '王小明', address: '臺中市測試路 1 號',
-  assets: { large_seal: asset('large_seal'), small_seal: asset('small_seal') },
+  assets: { large_seal: asset('large_seal') },
 });
 const snapshot = partyAContractSnapshot(company);
 assert.equal(snapshot.contractFields.partyAOrganization, '範例股份有限公司');

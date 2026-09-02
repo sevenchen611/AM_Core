@@ -4,7 +4,7 @@
   "profileTypes": {
     "company": {
       "requiredFields": ["displayName", "legalName", "taxId", "responsiblePerson", "address"],
-      "requiredAssets": ["large_seal", "small_seal"]
+      "requiredAssets": ["large_seal"]
     },
     "individual": {
       "requiredFields": ["displayName", "legalName", "address"],

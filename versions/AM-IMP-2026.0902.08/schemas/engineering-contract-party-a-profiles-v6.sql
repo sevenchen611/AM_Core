@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS engineering_contracts.party_a_profiles (
     (profile_type = 'company'
       AND tax_id ~ '^[0-9]{8}$'
       AND length(btrim(COALESCE(responsible_person,''))) > 0
-      AND assets ? 'large_seal' AND assets ? 'small_seal')
+      AND assets ? 'large_seal')
     OR
     (profile_type = 'individual'
       AND tax_id IS NULL AND responsible_person IS NULL

@@ -13,7 +13,7 @@ typing the same contracting-party information into every contract version.
 - Selecting a profile in the contract-version editor copies the profile and its
   signing assets into that version's immutable snapshot. Later profile edits do
   not rewrite old contracts.
-- The final signed PDF applies the selected company's two seals or the selected
+- The final signed PDF applies the selected company's large seal or the selected
   individual's signature only after Party B signs and Party A confirms.
 
 No real company, individual, seal, signature, token, or production database id
