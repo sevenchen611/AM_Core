@@ -3,7 +3,7 @@
   "name": "Mobile inline contract PDF signing",
   "type": "AM Platform / contracts / mobile protected-document reader",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-09-02",
   "dependsOn": ["AM-IMP-2026.0902.14", "AM-IMP-2026.0902.15"],
   "installTargets": ["AM_PLATFORM:engineering"],
@@ -45,4 +45,3 @@
     "package-lock.json"
   ]
 }
-

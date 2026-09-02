@@ -1,6 +1,6 @@
 # AM-IMP-2026.0902.16 - Mobile inline contract PDF signing
 
-Status: Installed
+Status: Deployed
 
 ## Engineering installation
 
@@ -16,7 +16,17 @@ Status: Installed
 ## Verification boundary
 
 Signing web, signing service, LIFF, runtime, security gate, issuance, syntax,
-package, and whitespace checks pass locally. Production deployment and a
-read-only production page/asset check remain pending. No LINE message, signing
-submission, or contract state change is part of this installation record.
+package, and whitespace checks passed locally.
 
+Production verification completed on 2026-09-02:
+
+- PR #115 merged as `ecf31b5aa48c40ead573a02eafbe79d781f7b073`.
+- The production signing page returned HTTP 200 with the inline reader and
+  external-browser controls and no `about:blank` flow.
+- The production PDF.js module and worker returned HTTP 200 from the same
+  origin (424,135 and 1,078,612 bytes) with immutable cache and same-origin
+  resource-policy headers.
+- The production health endpoint returned HTTP 200.
+- No LINE message, signing submission, signer assignment, or contract state
+  change was performed during verification. A real Android LINE signing pass
+  remains the final device-level confirmation.
