@@ -3,7 +3,7 @@
   "name": "Personal Party A signing readiness",
   "type": "AM Platform / contracts / signing readiness",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-09-02",
   "dependsOn": ["AM-IMP-2026.0902.05", "AM-IMP-2026.0902.01"],
   "installTargets": ["AM_PLATFORM:engineering"],
