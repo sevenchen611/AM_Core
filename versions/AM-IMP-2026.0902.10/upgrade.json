@@ -1,0 +1,43 @@
+{
+  "id": "AM-IMP-2026.0902.10",
+  "name": "Contract LIFF login-loop recovery",
+  "type": "AM Platform / contracts / signing authentication",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-02",
+  "dependsOn": ["AM-IMP-2026.0902.09"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Preserve LINE OAuth callback query parameters until LIFF initialization completes",
+    "Remove the fragment-only signing token without removing the OAuth callback",
+    "Stop automatic LINE Login after one unsuccessful redirect per fresh link open",
+    "Keep verified non-signing group members in read-only mode without repeated login"
+  ],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-signing-web.mjs",
+    "tools/dryrun-engineering-contract-signing.mjs",
+    "tools/dryrun-engineering-contract-runtime.mjs",
+    "tools/dryrun-engineering-contract-security-gates.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The signing token remains fragment-only and is never added to a query string, log, page body, or external redirect."
+  },
+  "definitionOfDone": [
+    "The page does not delete LINE OAuth callback query parameters before liff.init()",
+    "OAuth callback parameters are removed after LIFF restores authentication",
+    "An unsuccessful login callback cannot trigger an unbounded LINE Login loop",
+    "A fresh group-link open resets the one-attempt guard",
+    "Verified non-signing group members retain read-only access",
+    "The signing token is never placed in a query string"
+  ],
+  "files": [
+    "modules/construction/contract-signing-web.js",
+    "tools/dryrun-engineering-contract-signing-web.mjs"
+  ]
+}
