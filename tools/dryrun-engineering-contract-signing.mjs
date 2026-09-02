@@ -83,6 +83,7 @@ const clock = createFakeClock();
 const storage = createMemoryContractSigningStorage();
 const line = createFakeLine();
 line.memberships.add('C-engineering:U-signer');
+line.memberships.add('C-engineering:U-other');
 
 const service = createContractSigningService({
   storage,
@@ -153,6 +154,8 @@ assert.equal(invitePush.contentClass, 'status_and_protected_link_only');
 assert.equal(invitePush.message.includes(issued.protectedLink), true);
 assert.equal(invitePush.message.includes('不代表對方已讀'), true);
 assert.equal(invitePush.message.includes('不代表對方已讀或平台已送達'), true);
+assert.equal(invitePush.message.includes('群組的成員'), true);
+assert.equal(invitePush.message.includes('只有指定簽署人可以簽署'), true);
 assert.equal(invitePush.message.includes('object://contracts'), false);
 assert.equal(invitePush.message.includes(documentHash), false);
 assert.equal(session.events.some((event) => event.type === 'read'), false);
@@ -211,11 +214,25 @@ await expectSigningError(
   'LIFF_IDENTITY_INVALID',
   401,
 );
+const groupMemberView = await service.openSigningRequest({
+  token: issued.token,
+  liffCredential: 'credential-other',
+  requestMeta: trustedRequest,
+});
+assert.equal(groupMemberView.canSign, false);
+assert.equal(groupMemberView.accessMode, 'group_member_read_only');
+assert.equal(groupMemberView.status, 'sent');
+assert.equal(groupMemberView.idempotent, true);
+session = await service.getSession(issued.sessionId);
+assert.equal(session.status, 'sent');
+assert.equal(session.events.some((event) => event.type === 'first_opened'), false);
+line.memberships.delete('C-engineering:U-other');
 await expectSigningError(
   () => service.openSigningRequest({ token: issued.token, liffCredential: 'credential-other', requestMeta: trustedRequest }),
-  'SIGNER_MISMATCH',
+  'GROUP_MEMBERSHIP_REQUIRED',
   403,
 );
+line.memberships.add('C-engineering:U-other');
 line.memberships.delete('C-engineering:U-signer');
 await expectSigningError(
   () => service.openSigningRequest({ token: issued.token, liffCredential: 'credential-signer', requestMeta: trustedRequest }),
@@ -232,6 +249,8 @@ const opened = await service.openSigningRequest({
 assert.equal(opened.status, 'opened');
 assert.equal(opened.idempotent, false);
 assert.equal(opened.documentHash, documentHash);
+assert.equal(opened.canSign, true);
+assert.equal(opened.accessMode, 'signer');
 assert.equal((await service.openSigningRequest({
   token: issued.token,
   liffCredential: 'credential-signer',
@@ -243,6 +262,14 @@ const firstOpened = session.events.find((event) => event.type === 'first_opened'
 assert.equal(firstOpened.ip, '203.0.113.45');
 assert.equal(firstOpened.actorId, 'U-signer');
 assert.equal(firstOpened.metadata.membershipVerified, true);
+
+// A verified group member may inspect the PDF but still cannot submit any
+// signature or identity evidence for the designated signer.
+await expectSigningError(
+  () => service.submitSignature({ token: issued.token, liffCredential: 'credential-other' }),
+  'SIGNER_MISMATCH',
+  403,
+);
 
 // Membership is checked again on submission, not trusted from an earlier open.
 line.memberships.delete('C-engineering:U-signer');

@@ -1,0 +1,43 @@
+{
+  "id": "AM-IMP-2026.0902.07",
+  "name": "LINE group contract read-only access",
+  "type": "AM Platform / contracts / signing authorization",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-02",
+  "dependsOn": ["AM-IMP-2026.0902.06"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Allow verified current members of the bound LINE group to inspect the frozen contract PDF",
+    "Keep all counterparty details, identity upload, signature, and submission controls signer-only",
+    "Prevent read-only viewers from creating designated-signer first-open evidence"
+  ],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-signing.mjs",
+    "tools/dryrun-engineering-contract-signing-web.mjs",
+    "tools/dryrun-engineering-contract-runtime.mjs",
+    "tools/dryrun-engineering-contract-security-gates.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Authorization is evaluated against the contract's own bound LINE group and designated signer; no tenant data is copied."
+  },
+  "definitionOfDone": [
+    "A verified current group member can inspect the protected frozen PDF in read-only mode",
+    "A group member who is not the designated signer cannot expose or execute signing controls",
+    "Server-side submission rejects a non-signer before signature or identity evidence storage",
+    "Users outside the bound group remain denied",
+    "Only the designated signer advances first-open and signing evidence"
+  ],
+  "files": [
+    "modules/construction/contract-signing.js",
+    "modules/construction/contract-signing-web.js",
+    "tools/dryrun-engineering-contract-signing.mjs",
+    "tools/dryrun-engineering-contract-signing-web.mjs"
+  ]
+}
