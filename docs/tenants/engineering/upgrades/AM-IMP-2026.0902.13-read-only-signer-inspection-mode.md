@@ -1,6 +1,6 @@
 # AM-IMP-2026.0902.13 - Read-only signer inspection mode
 
-Status: Installed
+Status: Deployed
 
 ## Engineering installation
 
@@ -16,7 +16,10 @@ Status: Installed
 
 ## Verification boundary
 
-Local signing and signing-web tests cover the inspection access mode, visible
-guidance markers, and server-side non-signer rejection. Production deployment
-and authenticated inspection using the existing contract link are pending.
-
+PR #109 was merged as `6c90569`; Render deployment
+`dep-dac1g2p5efls73a4nf4g` reached Live. Authenticated production verification
+with the existing HZ-CT-001 link showed the complete signer layout, all fields
+and uploads disabled, the signature canvas inert, and the submit control locked
+as `檢查模式不可送出`. The contract remained `洽談中` / `已發送`; no PDF was
+opened and no LINE message, signature evidence, or workflow transition was
+created.
