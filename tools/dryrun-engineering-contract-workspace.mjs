@@ -44,6 +44,8 @@ assert.match(pageRes.body, /合約基本資料與可變條款/);
 assert.match(pageRes.body, /cf-trade/);
 assert.match(pageRes.body, /cf-counterpartyName/);
 assert.match(pageRes.body, /cf-partyAOrganization/);
+assert.match(pageRes.body, /甲方為個人時不必填統一編號/);
+assert.match(pageRes.body, /統一編號（公司時填寫）/);
 assert.match(pageRes.body, /cf-partyBIdentityNumber/);
 assert.match(pageRes.body, /cf-performanceBondAmount/);
 assert.match(pageRes.body, /cf-delayPenaltyPercent/);

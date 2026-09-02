@@ -871,6 +871,32 @@ test('reports a frozen complete exact-hash version as ready for issue without is
   assert.equal(store.calls.some((item) => item.method === 'issueVersion'), false);
 });
 
+test('allows a personal Party A to issue without a business tax id', async () => {
+  const { service, store, context } = createFixture();
+  seedDefaultContract(store);
+  const documentPackage = {
+    ...completePackage(),
+    contractFields: {
+      trade: '拆除', counterpartyName: '承包人', projectName: '個人工程', projectAddress: '工程地址',
+      workScope: '依圖說施工', partyAOrganization: '個人甲方', partyATaxId: '',
+      partyAResponsiblePerson: '個人甲方', partyARepresentative: '個人甲方', partyAAddress: '甲方地址',
+      startDate: '2026-09-03', completionDate: '2026-09-30', warrantyMonths: 12,
+      performanceBondPercent: 10, performanceBondAmount: 10_000,
+      promissoryNoteDueDate: '2026-09-30', delayPenaltyPercent: 1, signingDate: '2026-09-02',
+    },
+  };
+  const validation = validateContractPackage(documentPackage, { contractAmount: 100_000 });
+  store.seedVersion({
+    id: 'version-personal-party-a', contractId: 'contract-1', status: 'frozen', documentPackage,
+    attachmentManifestHash: validation.manifestHash, frozenAt: EXPECTED_NOW, frozenBy: context.actor,
+  });
+  const result = await service.issueReadiness(context, {
+    contractId: 'contract-1', versionId: 'version-personal-party-a',
+  });
+  assert.equal(result.ready, true);
+  assert.equal(result.blockers.some((item) => item.field === 'partyATaxId'), false);
+});
+
 test('issue readiness rejects frozen status without authoritative freeze evidence', async () => {
   const { service, store, context } = createFixture();
   seedDefaultContract(store);
