@@ -43,6 +43,9 @@ assert.match(pageRes.body, /驗收標準（以此處為唯一的專案標準）/
 assert.match(pageRes.body, /payment-row/);
 assert.match(pageRes.body, /acceptance-row/);
 assert.match(pageRes.body, /pendingExclusions/);
+assert.match(pageRes.body, /effectiveVersionFiles/);
+assert.match(pageRes.body, /carriedQuotation/);
+assert.match(pageRes.body, /if\(!pkg\.quotation&&carriedQuotation\[0\]\)pkg\.quotation/);
 assert.match(pageRes.body, /每個附件右側都會直接顯示紅色 ×/);
 assert.match(pageRes.body, /pkg\.constructionDrawings=\[\.\.\.\(pkg\.constructionDrawings\|\|\[\]\),WORKFLOW\.files\.construction_drawing\]/);
 assert.match(pageRes.body, /attachment-remove/);
