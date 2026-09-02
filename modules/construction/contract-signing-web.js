@@ -220,6 +220,7 @@ function signingPageScript(liffId) {
   return `
 const LIFF_ID = ${escapeScriptJson(liffId)};
 const TOKEN_STORAGE_KEY = 'engineering-contract-sign-token';
+const LOGIN_ATTEMPT_KEY = 'engineering-contract-sign-login-attempted';
 const state = { token:'', credential:'', signing:null, reviewAcknowledged:false, canvas:null, context:null, width:0, height:0, strokes:[], drawing:false };
 const byId = (id) => document.getElementById(id);
 function show(message, kind='') { const node=byId('message'); node.textContent=message; node.className='message '+kind; }
@@ -235,8 +236,13 @@ async function api(path, payload) {
 function readFragmentToken() {
   const fragment = new URLSearchParams(location.hash.replace(/^#/,''));
   const fromFragment = fragment.get('token') || '';
-  if (fromFragment) sessionStorage.setItem(TOKEN_STORAGE_KEY, fromFragment);
-  history.replaceState(null, '', location.pathname);
+  if (fromFragment) {
+    sessionStorage.setItem(TOKEN_STORAGE_KEY, fromFragment);
+    sessionStorage.removeItem(LOGIN_ATTEMPT_KEY);
+    // Remove only the secret fragment. LINE OAuth callback parameters in the
+    // query string must remain available until liff.init() consumes them.
+    history.replaceState(null, '', location.pathname+location.search);
+  }
   return fromFragment || sessionStorage.getItem(TOKEN_STORAGE_KEY) || '';
 }
 function initCanvas() {
@@ -279,7 +285,20 @@ async function initialize() {
   if(!LIFF_ID){ show('LIFF 尚未設定，請聯繫工程 AM 管理員。','error'); return; }
   show('正在驗證 LINE 身分…');
   await liff.init({liffId:LIFF_ID});
-  if(!liff.isLoggedIn()) { liff.login({redirectUri:location.origin+location.pathname}); return; }
+  if(!liff.isLoggedIn()) {
+    if(sessionStorage.getItem(LOGIN_ATTEMPT_KEY)==='1') {
+      byId('contract-state').textContent='LINE 登入沒有完成，系統已停止自動重新登入。請關閉此頁，再從原工程 LINE 群組的合約訊息重新開啟。';
+      show('LINE 登入未完成，已停止自動重試，避免重複跳轉。','error');
+      return;
+    }
+    sessionStorage.setItem(LOGIN_ATTEMPT_KEY,'1');
+    liff.login({redirectUri:location.origin+location.pathname});
+    return;
+  }
+  sessionStorage.removeItem(LOGIN_ATTEMPT_KEY);
+  // liff.init() has now consumed the OAuth callback. Remove its transient
+  // query parameters only after authentication has been restored.
+  if(location.search) history.replaceState(null, '', location.pathname);
   state.credential=liff.getAccessToken() || '';
   if(!state.credential) throw new Error('無法取得 LINE 身分憑證，請重新登入。');
   const opened=await api('${CONTRACT_SIGNING_OPEN_PATH}',{token:state.token,liffCredential:state.credential});
