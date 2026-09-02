@@ -3,7 +3,7 @@
   "name": "Party A profile constraint forward repair",
   "type": "AM Platform / contracts / PostgreSQL constraint repair",
   "portable": true,
-  "status": "Ready",
+  "status": "Deployed",
   "createdAt": "2026-09-02",
   "dependsOn": ["AM-IMP-2026.0902.14"],
   "installTargets": ["AM_PLATFORM:engineering"],
