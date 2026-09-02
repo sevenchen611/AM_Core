@@ -220,7 +220,8 @@ const groupMemberView = await service.openSigningRequest({
   requestMeta: trustedRequest,
 });
 assert.equal(groupMemberView.canSign, false);
-assert.equal(groupMemberView.accessMode, 'group_member_read_only');
+assert.equal(groupMemberView.canInspectSigning, true);
+assert.equal(groupMemberView.accessMode, 'signer_inspection_read_only');
 assert.equal(groupMemberView.status, 'sent');
 assert.equal(groupMemberView.idempotent, true);
 session = await service.getSession(issued.sessionId);

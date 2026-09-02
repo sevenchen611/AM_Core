@@ -411,6 +411,7 @@ export function createContractSigningService(options = {}) {
     return {
       userId: String(identity.userId),
       canSign: String(identity.userId) === session.signerLineUserId,
+      canInspectSigning: true,
     };
   }
 
@@ -424,6 +425,7 @@ export function createContractSigningService(options = {}) {
 
   function publicSigningView(session, idempotent = false, authorization = {}) {
     const canSign = authorization.canSign === true;
+    const canInspectSigning = authorization.canInspectSigning === true;
     return {
       sessionId: session.id,
       contractId: session.contractId,
@@ -434,7 +436,8 @@ export function createContractSigningService(options = {}) {
       expiresAt: session.expiresAt,
       idempotent,
       canSign,
-      accessMode: canSign ? 'signer' : 'group_member_read_only',
+      canInspectSigning,
+      accessMode: canSign ? 'signer' : canInspectSigning ? 'signer_inspection_read_only' : 'group_member_read_only',
     };
   }
 
