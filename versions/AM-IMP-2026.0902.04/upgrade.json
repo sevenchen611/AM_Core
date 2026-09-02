@@ -3,7 +3,7 @@
   "name": "Contract workflow timestamp normalization",
   "type": "AM Platform / contracts / workflow reliability",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-09-02",
   "dependsOn": ["AM-IMP-2026.0902.03"],
   "installTargets": ["AM_PLATFORM:engineering"],
