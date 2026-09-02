@@ -1,0 +1,37 @@
+{
+  "id": "AM-IMP-2026.0902.15",
+  "name": "Party A profile constraint forward repair",
+  "type": "AM Platform / contracts / PostgreSQL constraint repair",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-09-02",
+  "dependsOn": ["AM-IMP-2026.0902.14"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Remove the stale schema-v6 individual Party A reusable-signature requirement",
+    "Allow an identity-only individual Party A profile with empty assets",
+    "Keep company Party A profiles dependent on a large company seal",
+    "Restore the contract-specific Party A signature artifact and confirmation gate"
+  ],
+  "requiresDatabases": ["engineering_contracts schema v9"],
+  "requiresEnv": [],
+  "requiresScripts": ["tools/dryrun-engineering-party-a-profiles.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Individual profile assets are emptied; contract-specific immutable signature evidence remains bound to one signing session."
+  },
+  "definitionOfDone": [
+    "An individual Party A profile saves with an empty assets object",
+    "A reusable individual signature asset is rejected",
+    "A company Party A still requires a large seal",
+    "Contract-specific Party A signature artifacts remain accepted and required before confirmation",
+    "Production reports engineering contract schema v9"
+  ],
+  "files": [
+    "schemas/engineering-contract-party-a-profile-constraint-v9.sql",
+    "tools/dryrun-engineering-party-a-profiles.mjs"
+  ]
+}
