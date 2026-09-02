@@ -43,8 +43,8 @@ const structuredBlocks = pdfTest.contractBodyBlocks(`
   <p>第六條：工程期限</p><p>舊進場與完工日期</p>
   <p>第七條：機具自備</p><p>第七條標準內容</p>
   <p>第十條：工程驗收</p><p>第十條驗收程序</p>
-  <p>第十一條：保固期限與履約保證</p><p>舊保固與本票金額</p>
-  <p>第十二條：逾期責任</p><p>舊逾期比例</p>
+  <p>第十一條：保固期限與履約保證</p><p>本工程自驗收合格之日起由乙方保固 1 年，因不可抗力或甲方使用不當者不在此限。</p><p>乙方應簽立工程總價 10%（新臺幣 36,000 元整）之履約保證本票，保固期滿且無爭議後返還。</p>
+  <p>第十二條：逾期責任</p><p>每逾一日，乙方應按工程總價款 1% 計算違約金，甲方得自工程款中扣除。</p>
   <p>第十三條：工作安全</p><p>第十三條標準內容</p>
   <p>第十七條：其他</p><p>第十七條標準內容</p>
   <p>立合約書人：</p><p>舊版結尾甲乙方資料</p><p>附件一：履約保證本票</p>
@@ -63,14 +63,19 @@ pdfTest.renderStructuredContractBody(structuredWriter, structuredBlocks, payment
     performanceBondPercent: 10, performanceBondAmount: 17_500, delayPenaltyPercent: 5,
   });
 const structuredText = structuredEvents.flat(3).join('|');
-assert.doesNotMatch(structuredText, /舊工程名稱|舊工程地址|舊總價|舊進場|舊保固|舊逾期|舊版結尾|附件一/);
+assert.doesNotMatch(structuredText, /舊工程名稱|舊工程地址|舊總價|舊進場|舊版結尾|附件一|36,000|總價款 1%/);
 assert.match(structuredText, /依施工圖及核准報價單施工/);
 assert.match(structuredText, /TWD 175,000/);
 assert.match(structuredText, /2026-09-10/);
 assert.match(structuredText, /第七條標準內容/);
 assert.match(structuredText, /第十條驗收程序/);
 assert.match(structuredText, /第十三條標準內容/);
-assert.match(structuredText, /工程總價 5%/);
+assert.match(structuredText, /保固 12 個月/);
+assert.match(structuredText, /因不可抗力或甲方使用不當者不在此限/);
+assert.match(structuredText, /工程總價 10%/);
+assert.match(structuredText, /新臺幣 17,500 元整/);
+assert.match(structuredText, /工程總價款 5%/);
+assert.match(structuredText, /甲方得自工程款中扣除/);
 
 assert.deepEqual(pdfTest.historicalAttachmentRows({ attachments: [
   { name: 'V1 舊報價.pdf', inherited: true, sourceVersionNo: 1, sha256: 'a'.repeat(64) },
