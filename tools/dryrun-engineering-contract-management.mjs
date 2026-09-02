@@ -1029,6 +1029,34 @@ test('rejects a stale status CAS and detects transition adapters that alter cont
   }), 'CONTRACT_STORE_ADAPTER_VIOLATION');
 });
 
+test('accepts PostgreSQL timestamptz values returned as Date objects during workflow transitions', async () => {
+  const store = createMemoryStore();
+  seedDefaultContract(store);
+  store.seedVersion({
+    id: 'version-postgres-date',
+    contractId: 'contract-1',
+    status: 'draft',
+    documentPackage: completePackage(),
+  });
+  store.transitionVersion = async (tenant, input) => {
+    const row = copy(store.versions.get(input.versionId));
+    row.status = input.status;
+    delete row.review_submitted_at;
+    delete row.review_submitted_by;
+    row.reviewed_at = new Date(input.transitionedAt);
+    row.reviewed_by = input.actor;
+    return { value: row };
+  };
+  const fixture = createFixture({ store });
+  const submitted = await fixture.service.submitVersionForReview(fixture.context, {
+    contractId: 'contract-1',
+    versionId: 'version-postgres-date',
+  });
+  assert.equal(submitted.version.status, 'internal_review');
+  assert.equal(submitted.version.reviewSubmittedAt, EXPECTED_NOW);
+  assert.equal(submitted.version.reviewSubmittedBy, fixture.context.actor);
+});
+
 test('rejects a stale atomic freeze conflict and a dishonest adapter result', async () => {
   const store = createMemoryStore();
   seedDefaultContract(store);

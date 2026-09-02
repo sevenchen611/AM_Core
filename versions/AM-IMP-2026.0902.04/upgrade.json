@@ -1,0 +1,39 @@
+{
+  "id": "AM-IMP-2026.0902.04",
+  "name": "Contract workflow timestamp normalization",
+  "type": "AM Platform / contracts / workflow reliability",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-02",
+  "dependsOn": ["AM-IMP-2026.0902.03"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Normalize PostgreSQL timestamptz Date objects before transition evidence comparison",
+    "Prevent false workflow failure alerts after successful database commits",
+    "Retain exact immutable-content and actor/time verification"
+  ],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-management.mjs",
+    "tools/dryrun-engineering-contract-workflow-api.mjs",
+    "tools/dryrun-engineering-contract-draft-review.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Only generic timestamp normalization and regression coverage are shared; contract rows remain tenant-local."
+  },
+  "definitionOfDone": [
+    "PostgreSQL Date return values compare equal to their requested ISO transition instant",
+    "Successful workflow transitions no longer surface a false adapter failure",
+    "Immutable content tampering remains rejected",
+    "Production reload shows the authoritative committed state"
+  ],
+  "files": [
+    "modules/construction/contract-management.js",
+    "tools/dryrun-engineering-contract-management.mjs"
+  ]
+}

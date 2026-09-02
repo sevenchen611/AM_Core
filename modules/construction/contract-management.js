@@ -142,6 +142,13 @@ function clean(value) {
   return String(value ?? '').trim();
 }
 
+function timestampText(value) {
+  if (value instanceof Date) {
+    return Number.isFinite(value.getTime()) ? value.toISOString() : '';
+  }
+  return clean(value);
+}
+
 function own(source, field) {
   return Boolean(source && Object.prototype.hasOwnProperty.call(source, field));
 }
@@ -308,11 +315,11 @@ function normalizeVersion(raw, fallback = {}) {
       'bundleSha256',
       'bundle_sha256',
     ], fallback.attachmentManifestHash || '')),
-    frozenAt,
+    frozenAt: timestampText(first(raw, ['frozenAt', 'frozen_at'], fallback.frozenAt || '')),
     frozenBy: clean(first(raw, ['frozenBy', 'frozen_by'], fallback.frozenBy || '')),
-    issuedAt: clean(first(raw, ['issuedAt', 'issued_at'], fallback.issuedAt || '')),
+    issuedAt: timestampText(first(raw, ['issuedAt', 'issued_at'], fallback.issuedAt || '')),
     issuedBy: clean(first(raw, ['issuedBy', 'issued_by'], fallback.issuedBy || '')),
-    reviewSubmittedAt: clean(first(raw, [
+    reviewSubmittedAt: timestampText(first(raw, [
       'reviewSubmittedAt',
       'review_submitted_at',
       'reviewedAt',
@@ -324,9 +331,9 @@ function normalizeVersion(raw, fallback = {}) {
       'reviewedBy',
       'reviewed_by',
     ], fallback.reviewSubmittedBy || '')),
-    approvedAt: clean(first(raw, ['approvedAt', 'approved_at'], fallback.approvedAt || '')),
+    approvedAt: timestampText(first(raw, ['approvedAt', 'approved_at'], fallback.approvedAt || '')),
     approvedBy: clean(first(raw, ['approvedBy', 'approved_by'], fallback.approvedBy || '')),
-    createdAt: clean(first(raw, ['createdAt', 'created_at'], fallback.createdAt || '')),
+    createdAt: timestampText(first(raw, ['createdAt', 'created_at'], fallback.createdAt || '')),
     createdBy: clean(first(raw, ['createdBy', 'created_by'], fallback.createdBy || '')),
   });
 }
