@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import {
   ContractSigningError,
   contractSigningSecurityHeaders,
@@ -9,11 +10,18 @@ export const CONTRACT_SIGNING_OPEN_PATH = '/contract-sign/api/open';
 export const CONTRACT_SIGNING_SUBMIT_PATH = '/contract-sign/api/submit';
 export const CONTRACT_SIGNING_PARTY_A_SUBMIT_PATH = '/contract-sign/api/submit-party-a';
 export const CONTRACT_SIGNING_DOCUMENT_PATH = '/contract-sign/api/document';
+export const CONTRACT_SIGNING_PDF_JS_PATH = '/contract-sign/assets/pdf-5.4.624.min.mjs';
+export const CONTRACT_SIGNING_PDF_WORKER_PATH = '/contract-sign/assets/pdf-worker-5.4.624.min.mjs';
 export const DEFAULT_CONTRACT_SIGNING_BODY_LIMIT = 9 * 1024 * 1024;
 export const DEFAULT_SIGNATURE_DATA_LIMIT = 320_000;
 export const DEFAULT_IDENTITY_PHOTO_LIMIT = 3 * 1024 * 1024;
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/i;
+const PDF_VIEWER_ASSETS = new Map([
+  [CONTRACT_SIGNING_PDF_JS_PATH, new URL('../../node_modules/pdfjs-dist/build/pdf.min.mjs', import.meta.url)],
+  [CONTRACT_SIGNING_PDF_WORKER_PATH, new URL('../../node_modules/pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url)],
+]);
+const pdfViewerAssetCache = new Map();
 
 function escapeScriptJson(value) {
   return JSON.stringify(String(value || '')).replace(/</g, '\\u003c');
@@ -48,9 +56,28 @@ function webSecurityHeaders(nonce, contentType) {
     `style-src 'self' 'nonce-${nonce}'`,
     "img-src 'self' data: blob:",
     "connect-src 'self' https://api.line.me https://access.line.me",
+    "worker-src 'self' blob:",
   ].join('; ');
   headers['Content-Type'] = contentType;
   return headers;
+}
+
+async function bundledPdfViewerAsset(route) {
+  if (!PDF_VIEWER_ASSETS.has(route)) return null;
+  if (!pdfViewerAssetCache.has(route)) {
+    pdfViewerAssetCache.set(route, readFile(PDF_VIEWER_ASSETS.get(route)));
+  }
+  return pdfViewerAssetCache.get(route);
+}
+
+function javascriptAssetHeaders(byteSize) {
+  return {
+    ...contractSigningSecurityHeaders(),
+    'Content-Type': 'text/javascript; charset=utf-8',
+    'Content-Length': String(byteSize),
+    'Cache-Control': 'public, max-age=86400, immutable',
+    'Cross-Origin-Resource-Policy': 'same-origin',
+  };
 }
 
 function writeResponse(res, status, headers, body, headOnly = false) {
@@ -231,9 +258,12 @@ function publicSubmitPayload(result) {
 function signingPageScript(liffId) {
   return `
 const LIFF_ID = ${escapeScriptJson(liffId)};
+const PDF_JS_URL = ${escapeScriptJson(CONTRACT_SIGNING_PDF_JS_PATH)};
+const PDF_WORKER_URL = ${escapeScriptJson(CONTRACT_SIGNING_PDF_WORKER_PATH)};
 const TOKEN_STORAGE_KEY = 'engineering-contract-sign-token';
 const LOGIN_ATTEMPT_KEY = 'engineering-contract-sign-login-attempted';
-const state = { token:'', credential:'', signing:null, reviewAcknowledged:false, canvas:null, context:null, width:0, height:0, strokes:[], drawing:false, partyACanvas:null, partyAContext:null, partyAWidth:0, partyAHeight:0, partyAStrokes:[], partyADrawing:false };
+const REVIEW_STORAGE_PREFIX = 'engineering-contract-document-reviewed:';
+const state = { token:'', credential:'', signing:null, reviewAcknowledged:false, documentLoading:false, canvas:null, context:null, width:0, height:0, strokes:[], drawing:false, partyACanvas:null, partyAContext:null, partyAWidth:0, partyAHeight:0, partyAStrokes:[], partyADrawing:false };
 const byId = (id) => document.getElementById(id);
 function show(message, kind='') { const node=byId('message'); node.textContent=message; node.className='message '+kind; }
 async function api(path, payload) {
@@ -257,6 +287,25 @@ function readFragmentToken() {
   }
   return fromFragment || sessionStorage.getItem(TOKEN_STORAGE_KEY) || '';
 }
+function reviewStorageKey() {
+  if(!state.signing?.sessionId||!state.signing?.documentHash)return '';
+  return REVIEW_STORAGE_PREFIX+state.signing.sessionId+':'+state.signing.documentHash;
+}
+function setReviewAcknowledged(value,persist=true) {
+  state.reviewAcknowledged=value===true;
+  const key=reviewStorageKey();
+  if(key&&persist){if(state.reviewAcknowledged)sessionStorage.setItem(key,'1');else sessionStorage.removeItem(key);}
+  const enablePartyB=state.reviewAcknowledged&&state.signing?.canSignPartyB;
+  const enablePartyA=state.reviewAcknowledged&&state.signing?.canSignPartyA&&!state.signing?.partyASigned;
+  byId('consent').disabled=!enablePartyB;byId('submit-signature').disabled=!enablePartyB;
+  byId('party-a-consent').disabled=!enablePartyA;byId('party-a-submit-signature').disabled=!enablePartyA;
+  byId('signature').setAttribute('aria-disabled',enablePartyB?'false':'true');
+  byId('party-a-signature').setAttribute('aria-disabled',enablePartyA?'false':'true');
+  const note=byId('review-lock-note');
+  note.textContent=state.reviewAcknowledged?'✓ 合約 PDF 已成功載入，可勾選確認並完成簽署。':'請先按上方「在本頁開啟完整合約 PDF」，成功載入後才會開放確認與送出。';
+  note.className='review-lock-note '+(state.reviewAcknowledged?'ready':'');
+}
+function restoreReviewAcknowledgement(){const key=reviewStorageKey();setReviewAcknowledged(Boolean(key&&sessionStorage.getItem(key)==='1'),false);}
 function initCanvas() {
   const canvas=byId('signature'); const ratio=Math.min(devicePixelRatio || 1,2);
   const width=canvas.clientWidth || 320; const height=canvas.clientHeight || 180;
@@ -265,7 +314,7 @@ function initCanvas() {
   context.strokeStyle='#1e2923'; context.lineWidth=2.5; context.lineCap='round'; context.lineJoin='round';
   state.canvas=canvas; state.context=context; state.width=width; state.height=height;
   const point=(event)=>{ const rect=canvas.getBoundingClientRect(); return {x:event.clientX-rect.left,y:event.clientY-rect.top}; };
-  canvas.addEventListener('pointerdown',(event)=>{ event.preventDefault(); canvas.setPointerCapture(event.pointerId); state.drawing=true; state.strokes.push([point(event)]); });
+  canvas.addEventListener('pointerdown',(event)=>{ event.preventDefault(); if(!state.reviewAcknowledged){show('請先在本頁開啟並詳閱合約 PDF。','error');return;} canvas.setPointerCapture(event.pointerId); state.drawing=true; state.strokes.push([point(event)]); });
   canvas.addEventListener('pointermove',(event)=>{ if(!state.drawing)return; event.preventDefault(); const stroke=state.strokes.at(-1); const next=point(event); const previous=stroke.at(-1); stroke.push(next); context.beginPath(); context.moveTo(previous.x,previous.y); context.lineTo(next.x,next.y); context.stroke(); });
   const finish=()=>{ if(!state.drawing)return; const stroke=state.strokes.at(-1); if(stroke?.length===1){ context.beginPath(); context.arc(stroke[0].x,stroke[0].y,1.25,0,Math.PI*2); context.fillStyle='#1e2923'; context.fill(); } state.drawing=false; };
   canvas.addEventListener('pointerup',finish); canvas.addEventListener('pointercancel',finish);
@@ -279,7 +328,7 @@ function initPartyACanvas() {
   context.strokeStyle='#1e2923'; context.lineWidth=2.5; context.lineCap='round'; context.lineJoin='round';
   state.partyACanvas=canvas; state.partyAContext=context; state.partyAWidth=width; state.partyAHeight=height;
   const point=(event)=>{ const rect=canvas.getBoundingClientRect(); return {x:event.clientX-rect.left,y:event.clientY-rect.top}; };
-  canvas.addEventListener('pointerdown',(event)=>{ event.preventDefault(); canvas.setPointerCapture(event.pointerId); state.partyADrawing=true; state.partyAStrokes.push([point(event)]); });
+  canvas.addEventListener('pointerdown',(event)=>{ event.preventDefault(); if(!state.reviewAcknowledged){show('請先在本頁開啟並詳閱合約 PDF。','error');return;} canvas.setPointerCapture(event.pointerId); state.partyADrawing=true; state.partyAStrokes.push([point(event)]); });
   canvas.addEventListener('pointermove',(event)=>{ if(!state.partyADrawing)return; event.preventDefault(); const stroke=state.partyAStrokes.at(-1); const next=point(event); const previous=stroke.at(-1); stroke.push(next); context.beginPath(); context.moveTo(previous.x,previous.y); context.lineTo(next.x,next.y); context.stroke(); });
   const finish=()=>{ if(!state.partyADrawing)return; const stroke=state.partyAStrokes.at(-1); if(stroke?.length===1){ context.beginPath(); context.arc(stroke[0].x,stroke[0].y,1.25,0,Math.PI*2); context.fillStyle='#1e2923'; context.fill(); } state.partyADrawing=false; };
   canvas.addEventListener('pointerup',finish); canvas.addEventListener('pointercancel',finish);
@@ -322,6 +371,30 @@ function idempotencyKey(role='party-b') {
   if(!value){ value=crypto.randomUUID ? crypto.randomUUID() : String(Date.now())+'-'+Math.random().toString(36).slice(2); sessionStorage.setItem(key,value); }
   return { key, value };
 }
+async function renderPdfInPage(bytes) {
+  const panel=byId('document-reader-panel');const pages=byId('document-pages');const status=byId('document-load-state');
+  panel.hidden=false;pages.textContent='';status.textContent='正在載入安全 PDF 閱讀器…';
+  const pdfjs=await import(PDF_JS_URL);pdfjs.GlobalWorkerOptions.workerSrc=PDF_WORKER_URL;
+  const pdf=await pdfjs.getDocument({data:new Uint8Array(bytes)}).promise;
+  for(let pageNo=1;pageNo<=pdf.numPages;pageNo+=1){
+    status.textContent='正在顯示合約 PDF：第 '+pageNo+'／'+pdf.numPages+' 頁';
+    const page=await pdf.getPage(pageNo);const base=page.getViewport({scale:1});
+    const available=Math.max(280,(pages.clientWidth||document.documentElement.clientWidth||320)-16);
+    const viewport=page.getViewport({scale:available/base.width});const ratio=Math.min(devicePixelRatio||1,2);
+    const wrapper=document.createElement('section');wrapper.className='pdf-page';wrapper.setAttribute('aria-label','合約 PDF 第 '+pageNo+' 頁');
+    const canvas=document.createElement('canvas');canvas.width=Math.max(1,Math.round(viewport.width*ratio));canvas.height=Math.max(1,Math.round(viewport.height*ratio));canvas.style.width=viewport.width+'px';canvas.style.height=viewport.height+'px';
+    wrapper.appendChild(canvas);pages.appendChild(wrapper);
+    const context=canvas.getContext('2d',{alpha:false});
+    await page.render({canvasContext:context,viewport,transform:ratio===1?null:[ratio,0,0,ratio,0,0]}).promise;
+  }
+  status.textContent='✓ 完整合約 PDF 已載入，共 '+pdf.numPages+' 頁。';
+}
+function protectedExternalUrl(){return location.origin+location.pathname+'#token='+encodeURIComponent(state.token);}
+function openInExternalBrowser(){
+  if(!state.token){show('簽署連結不完整，請回到工程 LINE 群組重新開啟。','error');return;}
+  if(globalThis.liff?.isInClient?.()){liff.openWindow({url:protectedExternalUrl(),external:true});return;}
+  show('目前已在外部瀏覽器中。','ok');
+}
 async function initialize() {
   state.token=readFragmentToken();
   if(!state.token){ show('簽署連結不完整，請回到工程 LINE 群組重新開啟。','error'); return; }
@@ -346,7 +419,8 @@ async function initialize() {
   if(!state.credential) throw new Error('無法取得 LINE 身分憑證，請重新登入。');
   const opened=await api('${CONTRACT_SIGNING_OPEN_PATH}',{token:state.token,liffCredential:state.credential});
   state.signing=opened.signing;
-  const documentLink=byId('document-link'); documentLink.href=state.signing.documentUrl; documentLink.hidden=false;
+  byId('document-link').hidden=false;
+  byId('external-browser').hidden=!liff.isInClient();
   if(state.signing.canSignPartyB){
     byId('contract-state').textContent='你是本合約指定的乙方簽署人。請先開啟文件詳閱，再進行簽名。';
     byId('sign-panel').hidden=false;
@@ -371,10 +445,12 @@ async function initialize() {
     byId('contract-state').textContent='你是此工程 LINE 群組成員，可以檢視完整合約；只有指定簽署人可以填寫資料與簽署。';
     show('已驗證群組成員身分，目前為唯讀檢視。','ok');
   }
+  restoreReviewAcknowledgement();
 }
-byId('document-link').addEventListener('click',async(event)=>{
-  event.preventDefault(); const target=window.open('about:blank','_blank'); if(target)target.opener=null;
-  try{const response=await fetch(state.signing.documentUrl,{method:'POST',credentials:'same-origin',cache:'no-store',referrerPolicy:'no-referrer',headers:{'content-type':'application/json'},body:JSON.stringify({token:state.token,liffCredential:state.credential})});if(!response.ok){const failure=await response.json().catch(()=>({}));throw new Error(failure.error||'無法讀取合約文件');}const blob=await response.blob();const blobUrl=URL.createObjectURL(blob);if(target)target.location.replace(blobUrl);else location.href=blobUrl;state.reviewAcknowledged=true;if(state.signing.canSignPartyB){byId('consent').disabled=false;byId('submit-signature').disabled=false;byId('review-state').textContent='已開啟合約 PDF。詳閱後請返回本頁，填寫資料、上傳證件，並在下方大簽名格完成簽名。';}else if(state.signing.canSignPartyA&&!state.signing.partyASigned){byId('party-a-consent').disabled=false;byId('party-a-submit-signature').disabled=false;byId('review-state').textContent='已開啟合約 PDF。詳閱後請返回本頁，在甲方大簽名格完成本次合約簽名。';}else if(state.signing.canInspectSigning){byId('review-state').textContent='已開啟完整合約；返回本頁即可用檢查模式確認甲乙雙方的簽署位置。';}else{byId('review-state').textContent='已開啟完整合約；你目前是群組成員唯讀檢視，無法簽署。';}}catch(failure){if(target)target.close();show(failure.message||'無法讀取合約文件','error');}
+byId('external-browser').addEventListener('click',openInExternalBrowser);
+byId('document-link').addEventListener('click',async()=>{
+  if(state.documentLoading)return;state.documentLoading=true;const button=byId('document-link');button.disabled=true;show('正在安全載入完整合約 PDF…');
+  try{const response=await fetch(state.signing.documentUrl,{method:'POST',credentials:'same-origin',cache:'no-store',referrerPolicy:'no-referrer',headers:{'content-type':'application/json'},body:JSON.stringify({token:state.token,liffCredential:state.credential})});if(!response.ok){const failure=await response.json().catch(()=>({}));throw new Error(failure.error||'無法讀取合約文件');}const bytes=await response.arrayBuffer();await renderPdfInPage(bytes);setReviewAcknowledged(true);byId('review-state').textContent=state.signing.canSignPartyB?'完整合約已在本頁載入。詳閱後請填寫資料、上傳證件並簽名。':state.signing.canSignPartyA?'完整合約已在本頁載入。詳閱後請在甲方大簽名格完成本次簽名。':'完整合約已在本頁載入，可向下逐頁檢視。';button.textContent='重新載入完整合約 PDF';show('完整合約 PDF 已成功載入，請詳閱後完成簽署。','ok');}catch(failure){show(failure.message||'無法讀取合約文件','error');}finally{state.documentLoading=false;button.disabled=false;}
 });
 byId('clear-signature').addEventListener('click',clearSignature);
 byId('party-a-clear-signature').addEventListener('click',clearPartyASignature);
@@ -403,7 +479,7 @@ byId('submit-signature').addEventListener('click',async()=>{
       identityDocuments:{frontDataUrl,backDataUrl},
       reviewAcknowledged:true,consent:true
     });
-    sessionStorage.removeItem(TOKEN_STORAGE_KEY); sessionStorage.removeItem(idem.key);
+    const reviewKey=reviewStorageKey();sessionStorage.removeItem(TOKEN_STORAGE_KEY);sessionStorage.removeItem(idem.key);if(reviewKey)sessionStorage.removeItem(reviewKey);
     byId('sign-panel').hidden=true; show(result.idempotent ? '簽名先前已安全送達，無需重複提交。' : '簽名已安全提交，請等待工程 AM 內部確認。','ok');
   } catch(failure) { button.disabled=false; show(failure.message || '送出失敗，請稍後再試。','error'); }
 });
@@ -422,7 +498,7 @@ byId('party-a-submit-signature').addEventListener('click',async()=>{
       documentHash:state.signing.documentHash,signatureDataUrl:state.partyACanvas.toDataURL('image/png'),
       reviewAcknowledged:true,consent:true
     });
-    sessionStorage.removeItem(TOKEN_STORAGE_KEY); sessionStorage.removeItem(idem.key);
+    const reviewKey=reviewStorageKey();sessionStorage.removeItem(TOKEN_STORAGE_KEY);sessionStorage.removeItem(idem.key);if(reviewKey)sessionStorage.removeItem(reviewKey);
     byId('party-a-sign-panel').hidden=true; show(result.idempotent ? '甲方簽名先前已安全送達，無需重複提交。' : '個人甲方簽名已安全提交，請等待乙方簽署及工程 AM 內部確認。','ok');
   } catch(failure) { button.disabled=false; show(failure.message || '送出失敗，請稍後再試。','error'); }
 });
@@ -445,8 +521,8 @@ export function renderContractSigningPage({ liffId, nonce = randomBytes(16).toSt
 header{background:var(--green);color:#fff;padding:16px max(16px,env(safe-area-inset-left));text-align:center}header small{display:block;opacity:.82;letter-spacing:.12em}header h1{font-size:19px;margin:3px 0 0}
 main{width:min(100%,680px);margin:auto;padding:14px}.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:12px;box-shadow:0 3px 14px rgba(34,48,42,.05)}
 h2{font-size:15px;margin:0 0 8px}.hint{font-size:13px;color:var(--dim);margin:0}.message{min-height:48px;border-radius:10px;padding:12px 14px;background:#eef2f0;font-size:14px}.message.ok{background:#eaf6ee;color:#1f683e}.message.error{background:#fff0ed;color:var(--danger)}
-.document-button{display:inline-flex;align-items:center;justify-content:center;min-height:48px;margin-top:12px;border-radius:9px;background:#eef6f1;color:#1f683e;padding:10px 14px;font-weight:700;text-align:center;text-decoration:none}.document-warning{margin-top:12px;border:1px solid #e8c779;border-radius:10px;background:#fff8e6;color:#6b5017;padding:11px 12px;font-size:13px;font-weight:650}.inspection-banner{margin-bottom:14px;border:1px solid #e0ad3f;border-radius:10px;background:#fff7df;color:#6b5017;padding:11px 12px;font-size:14px;font-weight:700}.signature-heading{margin-top:18px}.signature-instruction{border-radius:10px;background:#eaf6ee;color:#1f683e;padding:11px 12px;font-size:14px;font-weight:700}.signature-wrap{position:relative;height:clamp(320px,48vh,480px);border:2px solid var(--green);border-radius:12px;background:linear-gradient(#fff,#fbfdfc);overflow:hidden;touch-action:none;margin:12px 0;box-shadow:inset 0 0 0 1px rgba(46,125,82,.08)}.signature-wrap canvas{display:block;width:100%;height:100%;touch-action:none;cursor:crosshair}.signature-inspection-label{position:absolute;z-index:1;inset:50% auto auto 50%;transform:translate(-50%,-50%);width:82%;border:1px dashed #a97718;border-radius:10px;background:rgba(255,247,223,.94);color:#6b5017;padding:12px;text-align:center;font-size:14px;font-weight:800;pointer-events:none}.inspection-mode input:disabled,.inspection-mode textarea:disabled{opacity:1;background:#f2f4f3;color:#69766f}.inspection-mode .signature-wrap{border-style:dashed;border-color:#a97718;background:#f7f8f7}.inspection-mode .signature-wrap canvas{pointer-events:none;cursor:not-allowed}
-.actions{display:flex;gap:9px}.button{min-height:46px;border-radius:9px;border:1px solid var(--line);background:#fff;color:var(--ink);padding:10px 14px;font:inherit;font-weight:650}.button.primary{flex:1;background:var(--green);border-color:var(--green);color:#fff}.button:disabled{opacity:.55}.consent{display:flex;align-items:flex-start;gap:9px;font-size:13px;margin:14px 0}.consent input{width:20px;height:20px;flex:none;margin-top:2px}
+.document-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.document-button{display:inline-flex;align-items:center;justify-content:center;min-height:48px;border:1px solid #cfe1d6;border-radius:9px;background:#eef6f1;color:#1f683e;padding:10px 14px;font:inherit;font-weight:700;text-align:center}.document-button.secondary{background:#fff;color:var(--ink)}.document-button:disabled{opacity:.55}.document-warning{margin-top:12px;border:1px solid #e8c779;border-radius:10px;background:#fff8e6;color:#6b5017;padding:11px 12px;font-size:13px;font-weight:650}.review-lock-note{margin:12px 0 0;border-radius:9px;background:#fff0ed;color:var(--danger);padding:10px 12px;font-size:13px;font-weight:700}.review-lock-note.ready{background:#eaf6ee;color:#1f683e}.document-reader{padding:10px}.document-load-state{position:sticky;top:0;z-index:2;margin:0 0 10px;border-radius:8px;background:#1f683e;color:#fff;padding:9px 11px;font-size:13px;font-weight:700}.document-pages{display:grid;gap:12px}.pdf-page{overflow:hidden;border:1px solid #cad6cf;border-radius:7px;background:#fff;box-shadow:0 3px 10px rgba(34,48,42,.12)}.pdf-page canvas{display:block;max-width:100%;height:auto;margin:auto}.inspection-banner{margin-bottom:14px;border:1px solid #e0ad3f;border-radius:10px;background:#fff7df;color:#6b5017;padding:11px 12px;font-size:14px;font-weight:700}.signature-heading{margin-top:18px}.signature-instruction{border-radius:10px;background:#eaf6ee;color:#1f683e;padding:11px 12px;font-size:14px;font-weight:700}.signature-wrap{position:relative;height:clamp(320px,48vh,480px);border:2px solid var(--green);border-radius:12px;background:linear-gradient(#fff,#fbfdfc);overflow:hidden;touch-action:none;margin:12px 0;box-shadow:inset 0 0 0 1px rgba(46,125,82,.08)}.signature-wrap canvas{display:block;width:100%;height:100%;touch-action:none;cursor:crosshair}.signature-inspection-label{position:absolute;z-index:1;inset:50% auto auto 50%;transform:translate(-50%,-50%);width:82%;border:1px dashed #a97718;border-radius:10px;background:rgba(255,247,223,.94);color:#6b5017;padding:12px;text-align:center;font-size:14px;font-weight:800;pointer-events:none}.inspection-mode input:disabled,.inspection-mode textarea:disabled{opacity:1;background:#f2f4f3;color:#69766f}.inspection-mode .signature-wrap{border-style:dashed;border-color:#a97718;background:#f7f8f7}.inspection-mode .signature-wrap canvas{pointer-events:none;cursor:not-allowed}
+.actions{display:flex;gap:9px}.button{min-height:46px;border-radius:9px;border:1px solid var(--line);background:#fff;color:var(--ink);padding:10px 14px;font:inherit;font-weight:650}.button.primary{flex:1;background:var(--green);border-color:var(--green);color:#fff}.button:disabled{opacity:.55}.consent{display:flex;align-items:flex-start;gap:10px;font-size:13px;margin:14px 0;padding:8px 2px;cursor:pointer}.consent input{width:24px;height:24px;flex:none;margin-top:1px;accent-color:var(--green)}.consent input:disabled{cursor:not-allowed}
 .identity-grid{display:grid;grid-template-columns:1fr;gap:10px;margin:12px 0}.identity-upload{border:1px dashed #9aac9f;border-radius:10px;padding:12px;background:#fbfdfc}.identity-upload label{display:block;font-weight:700;font-size:14px}.identity-upload input{display:block;width:100%;margin-top:8px}.identity-state{font-size:12px;color:var(--dim);margin-top:6px}.privacy-note{border-radius:10px;background:#f5f1e8;color:#5c4b2c;padding:11px 12px;font-size:12px;margin-top:10px}
 .party-fields{display:grid;grid-template-columns:1fr;gap:10px;margin:12px 0}.party-fields label{display:block;font-weight:700;font-size:14px}.party-fields input,.party-fields textarea{display:block;width:100%;box-sizing:border-box;margin-top:6px;border:1px solid var(--line);border-radius:9px;padding:11px 12px;background:#fff;color:var(--ink);font:inherit}.party-fields textarea{min-height:76px;resize:vertical}.required-note{font-size:12px;color:#991b1b;margin-top:6px}
 @media(min-width:700px){main{padding:22px}.card{padding:20px}.signature-wrap{height:380px}}
@@ -457,7 +533,8 @@ h2{font-size:15px;margin:0 0 8px}.hint{font-size:13px;color:var(--dim);margin:0}
 <header><small>ENGINEERING AM</small><h1>工程合約線上簽署</h1></header>
 <main>
   <section class="card"><h2>安全驗證</h2><div id="message" class="message">頁面載入中…</div></section>
-  <section class="card"><h2>合約確認</h2><p id="contract-state" class="hint">完成 LINE 身分與群組資格驗證後，才會開放合約文件。</p><div class="document-warning" id="document-warning">PDF 僅供閱讀，請勿在 PDF 閱讀器內使用畫筆簽名。閱讀後請返回此頁，在下方的大簽名格完成正式簽署；系統會自動將簽名帶入合約與本票的簽名位置。</div><a id="document-link" class="document-button" href="#" target="_blank" rel="noopener noreferrer" hidden>開啟合約 PDF 閱讀（不在 PDF 上簽名）</a><p id="review-state" class="hint" aria-live="polite"></p></section>
+  <section class="card"><h2>合約確認</h2><p id="contract-state" class="hint">完成 LINE 身分與群組資格驗證後，才會開放合約文件。</p><div class="document-warning" id="document-warning">PDF 僅供閱讀，請勿在 PDF 閱讀器內使用畫筆簽名。請按下方按鈕，系統會直接在本頁顯示完整合約；詳閱後再於大簽名格完成正式簽署。</div><div class="document-actions"><button id="document-link" class="document-button" type="button" hidden>在本頁開啟完整合約 PDF</button><button id="external-browser" class="document-button secondary" type="button" hidden>在外部瀏覽器開啟簽署頁</button></div><p id="review-state" class="hint" aria-live="polite"></p><p id="review-lock-note" class="review-lock-note">請先完成安全驗證並在本頁開啟完整合約 PDF。</p></section>
+  <section class="card document-reader" id="document-reader-panel" hidden><p id="document-load-state" class="document-load-state" aria-live="polite">準備載入完整合約 PDF…</p><div id="document-pages" class="document-pages"></div></section>
   <section class="card" id="sign-panel" hidden>
     <div class="inspection-banner" id="inspection-banner" hidden>簽署檢查模式（唯讀）：這裡與指定簽署人的版面相同，但你不能填寫、上傳、簽名或送出，也不會產生任何簽署紀錄。</div>
     <h2>乙方簽約資料</h2><p class="hint">以下三項會直接寫入電子簽署完成版合約，請依本人證件完整填寫。</p>
@@ -524,7 +601,8 @@ export function createContractSigningWebHandler(options = {}) {
     const isSubmit = route === CONTRACT_SIGNING_SUBMIT_PATH;
     const isPartyASubmit = route === CONTRACT_SIGNING_PARTY_A_SUBMIT_PATH;
     const isDocument = route === CONTRACT_SIGNING_DOCUMENT_PATH;
-    if (!isPage && !isOpen && !isSubmit && !isPartyASubmit && !isDocument) return false;
+    const isPdfViewerAsset = PDF_VIEWER_ASSETS.has(route);
+    if (!isPage && !isOpen && !isSubmit && !isPartyASubmit && !isDocument && !isPdfViewerAsset) return false;
     const nonce = randomBytes(16).toString('base64url');
     try {
       if (isPage) {
@@ -534,6 +612,12 @@ export function createContractSigningWebHandler(options = {}) {
         }
         const html = renderContractSigningPage({ liffId, nonce });
         writeResponse(res, 200, webSecurityHeaders(nonce, 'text/html; charset=utf-8'), html, req.method === 'HEAD');
+        return true;
+      }
+      if (isPdfViewerAsset) {
+        if (!['GET', 'HEAD'].includes(req.method)) throw error('METHOD_NOT_ALLOWED', 'Method not allowed.', 405);
+        const asset = await bundledPdfViewerAsset(route);
+        writeResponse(res, 200, javascriptAssetHeaders(asset.length), asset, req.method === 'HEAD');
         return true;
       }
       if (req.method !== 'POST') throw error('METHOD_NOT_ALLOWED', 'Method not allowed.', 405);

@@ -1,0 +1,48 @@
+{
+  "id": "AM-IMP-2026.0902.16",
+  "name": "Mobile inline contract PDF signing",
+  "type": "AM Platform / contracts / mobile protected-document reader",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-02",
+  "dependsOn": ["AM-IMP-2026.0902.14", "AM-IMP-2026.0902.15"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Render the protected frozen PDF inside the signing page on Android LINE",
+    "Unlock Party A or Party B consent only after the exact document loads successfully",
+    "Persist the review marker for the same browser session and frozen document hash",
+    "Open the complete fragment-token signing URL through LIFF when an external browser is requested",
+    "Remove the about:blank and protected Blob navigation flow"
+  ],
+  "requiresDatabases": ["engineering_contracts schema v9"],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-signing-web.mjs",
+    "tools/dryrun-engineering-contract-signing.mjs",
+    "tools/dryrun-engineering-contract-liff.mjs",
+    "tools/dryrun-engineering-contract-runtime.mjs",
+    "tools/dryrun-engineering-contract-security-gates.mjs",
+    "tools/dryrun-engineering-contract-issuance.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The PDF stays behind the existing token, LIFF identity, group-membership, signer-role, and frozen-document checks; only a session-scoped reviewed flag is stored in the browser."
+  },
+  "definitionOfDone": [
+    "Android LINE displays every protected PDF page without opening about:blank",
+    "The applicable consent and submit controls unlock after successful inline document loading",
+    "External-browser handoff retains the fragment token without using a query string",
+    "Party A, Party B, and read-only group-member authorization remain unchanged",
+    "Production serves the bundled same-origin PDF.js assets"
+  ],
+  "files": [
+    "modules/construction/contract-signing-web.js",
+    "tools/dryrun-engineering-contract-signing-web.mjs",
+    "package.json",
+    "package-lock.json"
+  ]
+}
+
