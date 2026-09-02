@@ -1,0 +1,44 @@
+{
+  "id": "AM-IMP-2026.0902.06",
+  "name": "Personal Party A signing readiness",
+  "type": "AM Platform / contracts / signing readiness",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-02",
+  "dependsOn": ["AM-IMP-2026.0902.05", "AM-IMP-2026.0902.01"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Make Party A company registration number optional for individual contracts",
+    "Recognize the installed engineering contract evidence schema v5",
+    "Keep outbound LINE signing behind its explicit production activation gate"
+  ],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-store.mjs",
+    "tools/dryrun-engineering-contract-workspace.mjs",
+    "tools/dryrun-engineering-contract-management.mjs",
+    "tools/dryrun-engineering-contract-workflow-api.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The package contains generic readiness logic only; tenant contract data and signing secrets are not copied."
+  },
+  "definitionOfDone": [
+    "A complete individual Party A contract passes readiness without a company registration number",
+    "The deployed v5 evidence schema is recognized as ready",
+    "The UI explains that Party A registration number is company-only",
+    "No contract is sent and the signing activation flag is not changed by package installation"
+  ],
+  "files": [
+    "core/contract-store.js",
+    "modules/construction/contract-management.js",
+    "modules/construction/contracts.js",
+    "tools/dryrun-engineering-contract-store.mjs",
+    "tools/dryrun-engineering-contract-workspace.mjs",
+    "tools/dryrun-engineering-contract-management.mjs"
+  ]
+}

@@ -681,7 +681,7 @@ function readinessBlockers(version, validation) {
   if (contractFields && typeof contractFields === 'object') {
     const required = {
       trade: '工種', counterpartyName: '承攬對象', projectName: '工程名稱', projectAddress: '工程地址',
-      workScope: '工程範圍', partyAOrganization: '甲方主體／公司', partyATaxId: '甲方統一編號',
+      workScope: '工程範圍', partyAOrganization: '甲方主體／公司',
       partyAResponsiblePerson: '甲方負責人', partyARepresentative: '甲方代表人／簽約人', partyAAddress: '甲方地址',
       startDate: '進場日', completionDate: '完工日', warrantyMonths: '保固月數',
       performanceBondPercent: '履約保證比例', performanceBondAmount: '履約保證／本票金額',
