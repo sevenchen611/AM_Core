@@ -8,6 +8,7 @@ export const ENGINEERING_CONTRACT_PDF_RENDER_PATH = '/internal/v1/engineering-co
 
 const MAX_BODY_BYTES = 6 * 1024 * 1024;
 const MAX_SIGNATURE_BYTES = 2 * 1024 * 1024;
+const MAX_IDENTITY_DOCUMENT_BYTES = 8 * 1024 * 1024;
 const MAX_CACHE_ENTRIES = 200;
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const KINDS = new Set(['draft_review_pdf', 'issued_pdf', 'signed_pdf']);
@@ -162,6 +163,14 @@ function validatePayload(payload) {
     if (!bytes.length || bytes.length > MAX_SIGNATURE_BYTES) {
       throw rendererError('SIGNATURE_IMAGE_SIZE', 'Signature image size is invalid.', 413);
     }
+    for (const side of ['front', 'back']) {
+      const document = payload.identityDocuments?.[side];
+      if (!document) continue;
+      const image = Buffer.from(clean(document.base64), 'base64');
+      if (!image.length || image.length > MAX_IDENTITY_DOCUMENT_BYTES) {
+        throw rendererError('IDENTITY_DOCUMENT_IMAGE_SIZE', 'Identity document image size is invalid.', 413, { side });
+      }
+    }
   }
   return payload;
 }
@@ -302,6 +311,12 @@ function createWriter(doc) {
     doc.y += options.after ?? 8;
   }
 
+  function pageBreak() {
+    if (doc.y <= PAGE.margin + 2) return;
+    doc.addPage();
+    doc.y = PAGE.margin;
+  }
+
   function gridRowHeight(row, widths, options = {}) {
     const size = options.size || 8.5;
     const lineHeight = options.lineHeight || size * 1.55;
@@ -359,7 +374,7 @@ function createWriter(doc) {
     })));
   }
 
-  return { paragraph, fixedText, heading, labelValue, rule, table, gridRows, gridTable, documentBlocks, ensure };
+  return { paragraph, fixedText, heading, labelValue, rule, table, gridRows, gridTable, documentBlocks, ensure, pageBreak };
 }
 
 function decodeHtml(value) {
@@ -432,11 +447,20 @@ function isPaymentGeneralClause(block) {
     && !/期款|尾款|設備器具/.test(value);
 }
 
-function renderStructuredContractBody(writer, blocks, payments, acceptance, contract) {
+function articleNumber(value) {
+  const names = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '十一', '十二', '十三', '十四', '十五', '十六', '十七'];
+  const match = /^第([一二三四五六七八九十]+)條\s*[：:]?/.exec(clean(value));
+  return match ? names.indexOf(match[1]) + 1 : 0;
+}
+
+function renderStructuredContractBody(writer, blocks, payments, acceptance, contract, fields = {}) {
   let paymentRendered = false;
   let acceptanceRendered = false;
   let skipOldPayment = false;
   let insideAcceptance = false;
+  let currentArticle = 0;
+  let skipArticle = 0;
+  const structured = fields && typeof fields === 'object' && Object.keys(fields).length > 0;
   const paymentHeadingIndex = blocks.findIndex((block) => /^第五條\s*[：:]?/.test(clean(block.text)));
   const paymentEndIndex = paymentHeadingIndex < 0 ? -1
     : blocks.findIndex((block, index) => index > paymentHeadingIndex && /^第六條\s*[：:]?/.test(clean(block.text)));
@@ -446,6 +470,32 @@ function renderStructuredContractBody(writer, blocks, payments, acceptance, cont
 
   for (const block of blocks) {
     const value = clean(block.text);
+    const nextArticle = articleNumber(value);
+    if (nextArticle) {
+      currentArticle = nextArticle;
+      if (skipArticle && skipArticle !== nextArticle) skipArticle = 0;
+    }
+    if (structured && currentArticle >= 17 && /^(立合約書人|附件一\s*[：:]?\s*履約保證本票|本\s*票|憑票准)/.test(value)) break;
+    if (structured && currentArticle === 0) continue;
+    if (skipArticle && !nextArticle) continue;
+    if (structured && (nextArticle === 1 || nextArticle === 2)) {
+      skipArticle = nextArticle;
+      continue;
+    }
+    if (structured && nextArticle === 3 && clean(fields.workScope)) {
+      writer.documentBlocks([block]);
+      writer.paragraph(fields.workScope, { size: 9.5, lineHeight: 16, after: 4 });
+      skipArticle = 3;
+      continue;
+    }
+    if (structured && nextArticle === 4) {
+      writer.documentBlocks([block]);
+      writer.paragraph(`本工程總價為 ${money(fields.contractAmount ?? contract.amount, contract.currency)}。`, {
+        size: 9.5, lineHeight: 16, after: 4,
+      });
+      skipArticle = 4;
+      continue;
+    }
     if (/^第五條\s*[：:]?/.test(value) && payments.length) {
       writer.documentBlocks([block]);
       writer.paragraph('本工程各期付款節點、比例、金額、日期及付款條件，以本條下列付款條件表為準。', {
@@ -464,6 +514,17 @@ function renderStructuredContractBody(writer, blocks, payments, acceptance, cont
       if (!/^第六條\s*[：:]?/.test(value)) continue;
       skipOldPayment = false;
     }
+    if (structured && nextArticle === 6
+      && (clean(fields.startDate) || clean(fields.completionDate) || clean(fields.acceptanceDate))) {
+      writer.documentBlocks([block]);
+      writer.gridRows([
+        ['進場日', clean(fields.startDate) || '未提供'],
+        ['完工日', clean(fields.completionDate) || '未提供'],
+        ['預定驗收日', clean(fields.acceptanceDate) || '未提供'],
+      ], [130, 369], { size: 9, after: 8 });
+      skipArticle = 6;
+      continue;
+    }
     if (/\{\{PAYMENT_(?:TERMS|SCHEDULE)_TABLE\}\}/i.test(value) && payments.length) {
       paymentTable(writer, payments, contract);
       paymentRendered = true;
@@ -477,6 +538,28 @@ function renderStructuredContractBody(writer, blocks, payments, acceptance, cont
       acceptanceTable(writer, acceptance);
       acceptanceRendered = true;
       insideAcceptance = false;
+    }
+    if (structured && nextArticle === 11) {
+      writer.documentBlocks([block]);
+      const months = fields.warrantyMonths ?? 12;
+      const percent = fields.performanceBondPercent ?? 10;
+      const amount = fields.performanceBondAmount ?? (Number(fields.contractAmount ?? contract.amount) * Number(percent) / 100);
+      writer.paragraph(`本工程自驗收合格之日起由乙方保固 ${clean(months) || '未提供'} 個月。保固期內如因施工、材料或工藝瑕疵而有損壞，乙方應依約免費修護或更換。`, {
+        size: 9.5, lineHeight: 16, after: 4,
+      });
+      writer.paragraph(`乙方應提供工程總價 ${clean(percent) || '未提供'}%（${money(amount, contract.currency)}）之履約保證本票；保固期滿且無未解決瑕疵爭議後，由甲方依約返還。`, {
+        size: 9.5, lineHeight: 16, after: 4,
+      });
+      skipArticle = 11;
+      continue;
+    }
+    if (structured && nextArticle === 12) {
+      writer.documentBlocks([block]);
+      writer.paragraph(`工程未於約定期限完成時，每逾一日，乙方應按工程總價 ${clean(fields.delayPenaltyPercent) || '未提供'}% 計付違約金；甲方得依合約約定自應付工程款中扣除。`, {
+        size: 9.5, lineHeight: 16, after: 4,
+      });
+      skipArticle = 12;
+      continue;
     }
     if (/\{\{ACCEPTANCE_(?:CRITERIA|STANDARDS)_TABLE\}\}/i.test(value) && acceptance.length) {
       acceptanceTable(writer, acceptance);
@@ -495,22 +578,22 @@ function renderStructuredContractBody(writer, blocks, payments, acceptance, cont
   return { paymentRendered, acceptanceRendered };
 }
 
-function partyProfiles(contract, counterpartyDetails = {}) {
+function partyProfiles(contract, counterpartyDetails = {}, fields = {}) {
   const partyA = {
-    organization: first(contract, ['partyACompany', 'party_a_company', 'ownerCompany', 'owner_company', 'clientCompany', 'client_company']),
-    taxId: first(contract, ['partyATaxId', 'party_a_tax_id', 'ownerTaxId', 'owner_tax_id', 'clientTaxId', 'client_tax_id']),
-    responsiblePerson: first(contract, ['partyAResponsiblePerson', 'party_a_responsible_person', 'ownerResponsiblePerson', 'owner_responsible_person']),
-    representative: first(contract, ['partyARepresentative', 'party_a_representative', 'ownerRepresentative', 'owner_representative']),
-    identityNumber: first(contract, ['partyAIdentityNumber', 'party_a_identity_number', 'ownerIdentityNumber', 'owner_identity_number']),
-    address: first(contract, ['partyAAddress', 'party_a_address', 'ownerAddress', 'owner_address', 'clientAddress', 'client_address']),
+    organization: clean(fields.partyAOrganization) || first(contract, ['partyACompany', 'party_a_company', 'ownerCompany', 'owner_company', 'clientCompany', 'client_company']),
+    taxId: clean(fields.partyATaxId) || first(contract, ['partyATaxId', 'party_a_tax_id', 'ownerTaxId', 'owner_tax_id', 'clientTaxId', 'client_tax_id']),
+    responsiblePerson: clean(fields.partyAResponsiblePerson) || first(contract, ['partyAResponsiblePerson', 'party_a_responsible_person', 'ownerResponsiblePerson', 'owner_responsible_person']),
+    representative: clean(fields.partyARepresentative) || first(contract, ['partyARepresentative', 'party_a_representative', 'ownerRepresentative', 'owner_representative']),
+    identityNumber: clean(fields.partyAIdentityNumber) || first(contract, ['partyAIdentityNumber', 'party_a_identity_number', 'ownerIdentityNumber', 'owner_identity_number']),
+    address: clean(fields.partyAAddress) || first(contract, ['partyAAddress', 'party_a_address', 'ownerAddress', 'owner_address', 'clientAddress', 'client_address']),
   };
   const partyB = {
-    organization: first(contract, ['counterpartyCompany', 'counterparty_company']),
-    taxId: first(contract, ['counterpartyTaxId', 'counterparty_tax_id', 'counterpartyRegistrationNumber', 'counterparty_registration_number']),
-    responsiblePerson: first(contract, ['counterpartyResponsiblePerson', 'counterparty_responsible_person']),
-    representative: clean(counterpartyDetails.name) || first(contract, ['counterpartyRepresentative', 'counterparty_representative', 'counterpartyName', 'counterparty_name']),
-    identityNumber: clean(counterpartyDetails.identityNumber) || first(contract, ['counterpartyIdentityNumber', 'counterparty_identity_number']),
-    address: clean(counterpartyDetails.address) || first(contract, ['counterpartyAddress', 'counterparty_address']),
+    organization: clean(fields.partyBOrganization) || first(contract, ['counterpartyCompany', 'counterparty_company']),
+    taxId: clean(fields.partyBTaxId) || first(contract, ['counterpartyTaxId', 'counterparty_tax_id', 'counterpartyRegistrationNumber', 'counterparty_registration_number']),
+    responsiblePerson: clean(fields.partyBResponsiblePerson) || first(contract, ['counterpartyResponsiblePerson', 'counterparty_responsible_person']),
+    representative: clean(counterpartyDetails.name) || clean(fields.partyBRepresentative) || first(contract, ['counterpartyRepresentative', 'counterparty_representative', 'counterpartyName', 'counterparty_name']),
+    identityNumber: clean(counterpartyDetails.identityNumber) || clean(fields.partyBIdentityNumber) || first(contract, ['counterpartyIdentityNumber', 'counterparty_identity_number']),
+    address: clean(counterpartyDetails.address) || clean(fields.partyBAddress) || first(contract, ['counterpartyAddress', 'counterparty_address']),
   };
   return { partyA, partyB };
 }
@@ -644,6 +727,97 @@ export function renderLineConversationArchive(payload = {}) {
   });
 }
 
+function signatureImage(doc, writer, signature, label) {
+  writer.ensure(142);
+  writer.paragraph(label, { size: 10, color: '#1e3a5f', after: 4 });
+  const y = doc.y;
+  if (signature?.base64) {
+    try {
+      doc.image(Buffer.from(signature.base64, 'base64'), PAGE.margin + 8, y + 5, { fit: [250, 92], align: 'left', valign: 'center' });
+    } catch {
+      throw rendererError('SIGNATURE_IMAGE_INVALID', 'Signature must be a valid PNG or JPEG image.', 422);
+    }
+  } else {
+    writer.paragraph('（正式簽署時填入）', { x: PAGE.margin + 12, width: 240, size: 9, color: '#94a3b8', after: 0 });
+    doc.y = y;
+  }
+  doc.rect(PAGE.margin, y, 280, 110).lineWidth(0.7).strokeColor('#94a3b8').stroke();
+  doc.y = y + 122;
+}
+
+function renderSigningSection(doc, writer, payload, parties, fields) {
+  writer.heading('立約及簽署');
+  writer.gridRows([
+    ['資料項目', '甲方', '乙方'],
+    ['主體／姓名', parties.partyA.organization || parties.partyA.representative || '未提供', parties.partyB.organization || parties.partyB.representative || '未提供'],
+    ['代表人／簽約人', parties.partyA.representative || '未提供', parties.partyB.representative || '未提供'],
+    ['立約日期', clean(fields.signingDate) || '未提供', clean(fields.signingDate) || '未提供'],
+    ['簽署方式', payload.kind === 'signed_pdf' ? '工程 AM 內部電子確認' : '待正式確認', payload.kind === 'signed_pdf' ? '電子簽名' : '待正式簽署'],
+  ], [100, 199.5, 199.5], { headerRows: 1, size: 8.5, after: 8 });
+  if (payload.kind === 'signed_pdf') {
+    writer.labelValue('甲方確認人', clean(payload.confirmedBy) || parties.partyA.representative || '未提供');
+    writer.labelValue('甲方確認時間', formatTime(payload.times?.confirmedAt));
+  } else {
+    writer.paragraph('甲方簽章／電子確認：＿＿＿＿＿＿＿＿＿＿', { size: 9.5, lineHeight: 16, after: 4 });
+  }
+  signatureImage(doc, writer, payload.kind === 'signed_pdf' ? payload.signature : null, '乙方簽名');
+}
+
+function renderPromissoryNote(doc, writer, payload, parties, fields, contract) {
+  const percent = Number(fields.performanceBondPercent ?? 0);
+  const total = Number(fields.contractAmount ?? contract.amount ?? 0);
+  const amount = Number(fields.performanceBondAmount ?? (Number.isFinite(total) ? total * percent / 100 : 0));
+  if (!amount && !clean(fields.promissoryNoteDueDate) && !percent) return;
+  writer.pageBreak();
+  writer.paragraph('附件一：履約保證本票', { size: 18, color: '#0f2742', lineHeight: 28, after: 10 });
+  writer.paragraph('本　票', { size: 16, color: '#0f172a', lineHeight: 25, after: 8 });
+  writer.paragraph(`憑票准於 ${clean(fields.promissoryNoteDueDate) || '＿＿年＿＿月＿＿日'} 無條件支付 ${parties.partyA.organization || parties.partyA.representative || '甲方'} 或其指定人。`, {
+    size: 10, lineHeight: 18, after: 8,
+  });
+  writer.gridRows([
+    ['票面金額', money(amount || '', contract.currency)],
+    ['履約保證比例', percent ? `工程總價 ${percent}%` : '未提供'],
+    ['用途', '本票作為工程履約保證及品質保固使用；責任期滿且無爭議後依約返還。'],
+    ['付款地', parties.partyA.address || fields.projectAddress || '未提供'],
+    ['發票人', parties.partyB.representative || parties.partyB.organization || '未提供'],
+    ['身分證字號／統編', parties.partyB.identityNumber || parties.partyB.taxId || '未提供'],
+    ['地址', parties.partyB.address || '未提供'],
+    ['立票日期', clean(fields.signingDate) || '未提供'],
+  ], [135, 364], { size: 9, after: 8 });
+  signatureImage(doc, writer, payload.kind === 'signed_pdf' ? payload.signature : null, '發票人簽名／簽章');
+  writer.paragraph('本附件與工程合約具有同一效力。', { size: 8.5, color: '#64748b', after: 2 });
+  writer.pageBreak();
+}
+
+function renderIdentityDocuments(doc, writer, payload) {
+  if (payload.kind !== 'signed_pdf' || !payload.identityDocuments) return;
+  const items = [
+    ['乙方身分證正面影本', payload.identityDocuments.front],
+    ['乙方身分證反面影本', payload.identityDocuments.back],
+  ];
+  if (!items.every(([, item]) => clean(item?.base64))) return;
+  writer.pageBreak();
+  writer.paragraph('個資附件：乙方身分證正反面影本', { size: 18, color: '#0f2742', lineHeight: 28, after: 6 });
+  writer.paragraph('本頁僅供簽約身分核驗與契約證據保存，應依個人資料保護規範限制存取。', {
+    size: 9, color: '#991b1b', lineHeight: 16, after: 8,
+  });
+  for (const [label, item] of items) {
+    writer.ensure(248);
+    writer.paragraph(label, { size: 10, color: '#1e3a5f', after: 3 });
+    const y = doc.y;
+    try {
+      doc.image(Buffer.from(item.base64, 'base64'), PAGE.margin + 8, y + 7, { fit: [483, 180], align: 'center', valign: 'center' });
+    } catch {
+      throw rendererError('IDENTITY_DOCUMENT_IMAGE_INVALID', 'Identity document must be a valid PNG or JPEG image.', 422);
+    }
+    doc.rect(PAGE.margin, y, 499, 194).lineWidth(0.7).strokeColor('#94a3b8').stroke();
+    doc.y = y + 199;
+    writer.paragraph(`SHA-256 ${clean(item.sha256) || '未提供'} ／ 收件 ${formatTime(item.receivedAt)}`, {
+      size: 7.5, color: '#64748b', lineHeight: 12, after: 4,
+    });
+  }
+}
+
 function renderContractPdf(payload) {
   const contract = payload.contract;
   const version = payload.version;
@@ -669,6 +843,7 @@ function renderContractPdf(payload) {
   const chunks = [];
   doc.on('data', (chunk) => chunks.push(chunk));
   const writer = createWriter(doc);
+  const fields = documentPackage.contractFields || {};
 
   const isDraftReview = payload.kind === 'draft_review_pdf';
   writer.paragraph(payload.kind === 'signed_pdf' ? '工程合約 - 電子簽署完成版'
@@ -690,11 +865,13 @@ function renderContractPdf(payload) {
   writer.heading('合約基本資料');
   writer.labelValue('合約編號', first(contract, ['contractNumber', 'contract_number'], contract.id));
   writer.labelValue('合約名稱', first(contract, ['title', 'contractTitle', 'contract_title']));
-  writer.labelValue('工程專案', first(contract, ['projectCode', 'project_code', 'projectId', 'project_id']));
-  writer.labelValue('工種', first(contract, ['trade'], '未指定'));
-  writer.labelValue('承攬對象', first(contract, ['counterpartyCompany', 'counterparty_company', 'counterpartyName', 'counterparty_name']));
-  writer.labelValue('合約金額', money(contract.amount, contract.currency));
-  const parties = partyProfiles(contract, payload.kind === 'signed_pdf' ? payload.counterpartyDetails : {});
+  writer.labelValue('工程專案', clean(fields.projectName) || first(contract, ['projectCode', 'project_code', 'projectId', 'project_id']));
+  writer.labelValue('工程地址', clean(fields.projectAddress) || '未提供');
+  writer.labelValue('工種', clean(fields.trade) || first(contract, ['trade'], '未提供'));
+  writer.labelValue('承攬對象', clean(fields.counterpartyName) || first(contract, ['counterpartyCompany', 'counterparty_company', 'counterpartyName', 'counterparty_name']));
+  writer.labelValue('合約金額', money(fields.contractAmount ?? contract.amount, contract.currency));
+  writer.labelValue('進場／完工', `${clean(fields.startDate) || '未提供'} ／ ${clean(fields.completionDate) || '未提供'}`);
+  const parties = partyProfiles(contract, payload.kind === 'signed_pdf' ? payload.counterpartyDetails : {}, fields);
   writer.gridTable('立約雙方資料', [
     { field: '主體／公司', partyA: parties.partyA.organization, partyB: parties.partyB.organization },
     { field: '統一編號', partyA: parties.partyA.taxId, partyB: parties.partyB.taxId },
@@ -715,11 +892,13 @@ function renderContractPdf(payload) {
   const bodyBlocks = contractBodyBlocks(payload.contractBodyHtml);
   const embedded = bodyBlocks.length
     ? renderStructuredContractBody(writer, bodyBlocks, Array.isArray(payments) ? payments : [],
-      Array.isArray(acceptance) ? acceptance : [], contract)
+      Array.isArray(acceptance) ? acceptance : [], contract, fields)
     : { paymentRendered: false, acceptanceRendered: false };
   if (!bodyBlocks.length) writer.paragraph(bodySummary);
   if (!embedded.paymentRendered) paymentTable(writer, payments, contract, '付款條件');
   if (!embedded.acceptanceRendered) acceptanceTable(writer, acceptance, '驗收標準');
+  renderSigningSection(doc, writer, payload, parties, fields);
+  renderPromissoryNote(doc, writer, payload, parties, fields, contract);
 
   writer.gridTable('附件與文件雜湊', attachmentRows(payload, documentPackage), [
     { field: 'name', label: '附件', width: 152 },
@@ -760,17 +939,8 @@ function renderContractPdf(payload) {
     writer.labelValue('身分證反面收件', payload.verification?.identityDocumentsVerified
       ? `${formatTime(payload.verification.identityDocumentsReceivedAt?.back)}／SHA-256 ${clean(payload.verification.identityDocumentHashes?.back)}`
       : '未驗證');
-    writer.ensure(145);
-    writer.paragraph('簽名', { size: 11, color: '#1e3a5f', after: 4 });
-    const signature = Buffer.from(payload.signature.base64, 'base64');
-    try {
-      doc.image(signature, PAGE.margin, doc.y, { fit: [260, 105], align: 'left', valign: 'center' });
-    } catch {
-      throw rendererError('SIGNATURE_IMAGE_INVALID', 'Signature must be a valid PNG or JPEG image.', 422);
-    }
-    doc.rect(PAGE.margin, doc.y, 280, 115).lineWidth(0.7).strokeColor('#94a3b8').stroke();
-    doc.y += 126;
   }
+  renderIdentityDocuments(doc, writer, payload);
 
   const range = doc.bufferedPageRange();
   for (let index = 0; index < range.count; index += 1) {

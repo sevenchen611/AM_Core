@@ -1,0 +1,55 @@
+{
+  "id": "AM-IMP-2026.0902.03",
+  "name": "Structured contract fields, signatures, and identity appendix",
+  "type": "AM Platform / contracts / authoring and evidence PDF",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-02",
+  "dependsOn": ["AM-IMP-2026.0902.02", "AM-IMP-2026.0901.03", "AM-IMP-2026.0901.07"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Versioned project, party, schedule, warranty, bond, note, and penalty fields",
+    "Duplicate Word-field suppression with Article 3 structured body start",
+    "Formal issue-readiness gate for required legal fields",
+    "Party A confirmation and Party B signature positions",
+    "Contractor signature reuse on a single-page promissory note",
+    "Hash-verified ID-card front/back images in the signed PDF appendix"
+  ],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-workspace.mjs",
+    "tools/dryrun-engineering-contract-structured-body.mjs",
+    "tools/dryrun-engineering-contract-management.mjs",
+    "tools/dryrun-engineering-contract-draft-review.mjs",
+    "tools/dryrun-engineering-contract-signing-web.mjs",
+    "tools/dryrun-engineering-contract-completion.mjs",
+    "tools/render-engineering-contract-structured-pdf-qa.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Structured fields remain tenant-scoped inside the Engineering contract version; ID images remain private and are passed to the renderer only after hash verification."
+  },
+  "definitionOfDone": [
+    "Next versions carry structured contract fields without rewriting prior versions",
+    "Generated body removes duplicated opening and closing Word party blocks",
+    "Project amount, payment, dates, acceptance, warranty, bond, and delay percentage are rendered from one structured source",
+    "Formal issue readiness reports every missing legal field",
+    "Final signature and promissory-note signature positions use verified evidence",
+    "The promissory note stays on one page",
+    "Signed PDFs include verified contractor ID front/back images in a protected appendix",
+    "All dry-runs and visual PDF QA pass"
+  ],
+  "files": [
+    "modules/construction/contracts.js",
+    "modules/construction/contract-management.js",
+    "modules/construction/contract-pdf-renderer.js",
+    "modules/construction/contract-completion.js",
+    "tools/dryrun-engineering-contract-structured-body.mjs",
+    "tools/dryrun-engineering-contract-completion.mjs",
+    "tools/render-engineering-contract-structured-pdf-qa.mjs"
+  ]
+}

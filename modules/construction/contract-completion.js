@@ -369,8 +369,9 @@ export function createContractCompletionService(deps, options = {}) {
       verifiedIdentityDocuments[side] = {
         sha256: documentHash,
         receivedAt,
-        contentType: text(item.contentType),
+        contentType: text(item.contentType) || downloaded.mimeType,
         byteSize: Number(item.byteSize),
+        base64: downloaded.buffer.toString('base64'),
       };
     }
 
@@ -446,6 +447,8 @@ export function createContractCompletionService(deps, options = {}) {
         times,
         verification,
         counterpartyDetails,
+        identityDocuments: verifiedIdentityDocuments,
+        confirmedBy: authority.actor,
       }, `engineering-contract-signed-pdf:${authority.tenant.key}:${sessionId}:${bundleHash}:${signatureHash}`);
       const lineArchives = typeof deps.contractStore.listLineConversationArchives === 'function'
         ? await deps.contractStore.listLineConversationArchives(

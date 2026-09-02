@@ -670,6 +670,24 @@ function readinessBlockers(version, validation) {
   }
   for (const error of validation.errors) blockers.push(cloneValue(error));
   for (const error of requiredAttachmentEvidenceErrors(validation)) blockers.push(cloneValue(error));
+  const contractFields = packageFromVersion(version).contractFields;
+  if (contractFields && typeof contractFields === 'object') {
+    const required = {
+      trade: '工種', counterpartyName: '承攬對象', projectName: '工程名稱', projectAddress: '工程地址',
+      workScope: '工程範圍', partyAOrganization: '甲方主體／公司', partyATaxId: '甲方統一編號',
+      partyAResponsiblePerson: '甲方負責人', partyARepresentative: '甲方代表人／簽約人', partyAAddress: '甲方地址',
+      startDate: '進場日', completionDate: '完工日', warrantyMonths: '保固月數',
+      performanceBondPercent: '履約保證比例', performanceBondAmount: '履約保證／本票金額',
+      promissoryNoteDueDate: '本票到期日', delayPenaltyPercent: '逾期違約金比例', signingDate: '立約日期',
+    };
+    for (const [field, label] of Object.entries(required)) {
+      const value = contractFields[field];
+      if (value === undefined || value === null || String(value).trim() === '') blockers.push({
+        code: 'REQUIRED_LEGAL_FIELD_MISSING', path: `documentPackage.contractFields.${field}`,
+        message: `正式送簽前請補齊：${label}。`, field, label,
+      });
+    }
+  }
 
   if (!version.attachmentManifestHash) {
     blockers.push({

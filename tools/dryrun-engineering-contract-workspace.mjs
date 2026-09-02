@@ -40,6 +40,15 @@ assert.match(pageRes.body, /目前有效文件與付款／驗收資料已從 V/)
 assert.match(pageRes.body, /未調整時會直接沿用，不需要重複上傳/);
 assert.match(pageRes.body, /付款條件（以此處為唯一的分期資料）/);
 assert.match(pageRes.body, /驗收標準（以此處為唯一的專案標準）/);
+assert.match(pageRes.body, /合約基本資料與可變條款/);
+assert.match(pageRes.body, /cf-trade/);
+assert.match(pageRes.body, /cf-counterpartyName/);
+assert.match(pageRes.body, /cf-partyAOrganization/);
+assert.match(pageRes.body, /cf-partyBIdentityNumber/);
+assert.match(pageRes.body, /cf-performanceBondAmount/);
+assert.match(pageRes.body, /cf-delayPenaltyPercent/);
+assert.match(pageRes.body, /正式簽署頁仍會強制填寫/);
+assert.match(pageRes.body, /pkg\.contractFields=contractFields/);
 assert.match(pageRes.body, /payment-row/);
 assert.match(pageRes.body, /acceptance-row/);
 assert.match(pageRes.body, /pendingExclusions/);
