@@ -297,7 +297,7 @@ async function initialize() {
 }
 byId('document-link').addEventListener('click',async(event)=>{
   event.preventDefault(); const target=window.open('about:blank','_blank'); if(target)target.opener=null;
-  try{const response=await fetch(state.signing.documentUrl,{method:'POST',credentials:'same-origin',cache:'no-store',referrerPolicy:'no-referrer',headers:{'content-type':'application/json'},body:JSON.stringify({token:state.token,liffCredential:state.credential})});if(!response.ok){const failure=await response.json().catch(()=>({}));throw new Error(failure.error||'無法讀取合約文件');}const blob=await response.blob();const blobUrl=URL.createObjectURL(blob);if(target)target.location.replace(blobUrl);else location.href=blobUrl;state.reviewAcknowledged=true;if(state.signing.canSign){byId('consent').disabled=false;byId('submit-signature').disabled=false;byId('review-state').textContent='已開啟合約文件；請詳閱後勾選同意簽署。';}else{byId('review-state').textContent='已開啟完整合約；你目前是群組成員唯讀檢視，無法簽署。';}}catch(failure){if(target)target.close();show(failure.message||'無法讀取合約文件','error');}
+  try{const response=await fetch(state.signing.documentUrl,{method:'POST',credentials:'same-origin',cache:'no-store',referrerPolicy:'no-referrer',headers:{'content-type':'application/json'},body:JSON.stringify({token:state.token,liffCredential:state.credential})});if(!response.ok){const failure=await response.json().catch(()=>({}));throw new Error(failure.error||'無法讀取合約文件');}const blob=await response.blob();const blobUrl=URL.createObjectURL(blob);if(target)target.location.replace(blobUrl);else location.href=blobUrl;state.reviewAcknowledged=true;if(state.signing.canSign){byId('consent').disabled=false;byId('submit-signature').disabled=false;byId('review-state').textContent='已開啟合約 PDF。詳閱後請返回本頁，填寫資料、上傳證件，並在下方大簽名格完成簽名。';}else{byId('review-state').textContent='已開啟完整合約；你目前是群組成員唯讀檢視，無法簽署。';}}catch(failure){if(target)target.close();show(failure.message||'無法讀取合約文件','error');}
 });
 byId('clear-signature').addEventListener('click',clearSignature);
 byId('identity-front').addEventListener('change',()=>identitySelected('identity-front','identity-front-state','正面'));
@@ -347,11 +347,11 @@ export function renderContractSigningPage({ liffId, nonce = randomBytes(16).toSt
 header{background:var(--green);color:#fff;padding:16px max(16px,env(safe-area-inset-left));text-align:center}header small{display:block;opacity:.82;letter-spacing:.12em}header h1{font-size:19px;margin:3px 0 0}
 main{width:min(100%,680px);margin:auto;padding:14px}.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:12px;box-shadow:0 3px 14px rgba(34,48,42,.05)}
 h2{font-size:15px;margin:0 0 8px}.hint{font-size:13px;color:var(--dim);margin:0}.message{min-height:48px;border-radius:10px;padding:12px 14px;background:#eef2f0;font-size:14px}.message.ok{background:#eaf6ee;color:#1f683e}.message.error{background:#fff0ed;color:var(--danger)}
-.document-button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;margin-top:12px;border-radius:9px;background:#eef6f1;color:#1f683e;padding:9px 14px;font-weight:700;text-decoration:none}.signature-wrap{border:1px dashed #9aac9f;border-radius:10px;background:#fff;overflow:hidden;touch-action:none;margin:10px 0}canvas{display:block;width:100%;height:180px;touch-action:none}
+.document-button{display:inline-flex;align-items:center;justify-content:center;min-height:48px;margin-top:12px;border-radius:9px;background:#eef6f1;color:#1f683e;padding:10px 14px;font-weight:700;text-align:center;text-decoration:none}.document-warning{margin-top:12px;border:1px solid #e8c779;border-radius:10px;background:#fff8e6;color:#6b5017;padding:11px 12px;font-size:13px;font-weight:650}.signature-heading{margin-top:18px}.signature-instruction{border-radius:10px;background:#eaf6ee;color:#1f683e;padding:11px 12px;font-size:14px;font-weight:700}.signature-wrap{height:clamp(320px,48vh,480px);border:2px solid var(--green);border-radius:12px;background:linear-gradient(#fff,#fbfdfc);overflow:hidden;touch-action:none;margin:12px 0;box-shadow:inset 0 0 0 1px rgba(46,125,82,.08)}.signature-wrap canvas{display:block;width:100%;height:100%;touch-action:none;cursor:crosshair}
 .actions{display:flex;gap:9px}.button{min-height:46px;border-radius:9px;border:1px solid var(--line);background:#fff;color:var(--ink);padding:10px 14px;font:inherit;font-weight:650}.button.primary{flex:1;background:var(--green);border-color:var(--green);color:#fff}.button:disabled{opacity:.55}.consent{display:flex;align-items:flex-start;gap:9px;font-size:13px;margin:14px 0}.consent input{width:20px;height:20px;flex:none;margin-top:2px}
 .identity-grid{display:grid;grid-template-columns:1fr;gap:10px;margin:12px 0}.identity-upload{border:1px dashed #9aac9f;border-radius:10px;padding:12px;background:#fbfdfc}.identity-upload label{display:block;font-weight:700;font-size:14px}.identity-upload input{display:block;width:100%;margin-top:8px}.identity-state{font-size:12px;color:var(--dim);margin-top:6px}.privacy-note{border-radius:10px;background:#f5f1e8;color:#5c4b2c;padding:11px 12px;font-size:12px;margin-top:10px}
 .party-fields{display:grid;grid-template-columns:1fr;gap:10px;margin:12px 0}.party-fields label{display:block;font-weight:700;font-size:14px}.party-fields input,.party-fields textarea{display:block;width:100%;box-sizing:border-box;margin-top:6px;border:1px solid var(--line);border-radius:9px;padding:11px 12px;background:#fff;color:var(--ink);font:inherit}.party-fields textarea{min-height:76px;resize:vertical}.required-note{font-size:12px;color:#991b1b;margin-top:6px}
-@media(min-width:700px){main{padding:22px}.card{padding:20px}canvas{height:210px}}
+@media(min-width:700px){main{padding:22px}.card{padding:20px}.signature-wrap{height:380px}}
 </style>
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js" nonce="${nonce}"></script>
 </head>
@@ -359,7 +359,7 @@ h2{font-size:15px;margin:0 0 8px}.hint{font-size:13px;color:var(--dim);margin:0}
 <header><small>ENGINEERING AM</small><h1>工程合約線上簽署</h1></header>
 <main>
   <section class="card"><h2>安全驗證</h2><div id="message" class="message">頁面載入中…</div></section>
-  <section class="card"><h2>合約確認</h2><p id="contract-state" class="hint">完成 LINE 身分與群組資格驗證後，才會開放合約文件。</p><a id="document-link" class="document-button" href="#" target="_blank" rel="noopener noreferrer" hidden>開啟合約文件</a><p id="review-state" class="hint" aria-live="polite"></p></section>
+  <section class="card"><h2>合約確認</h2><p id="contract-state" class="hint">完成 LINE 身分與群組資格驗證後，才會開放合約文件。</p><div class="document-warning">PDF 僅供閱讀，請勿在 PDF 閱讀器內使用畫筆簽名。閱讀後請返回此頁，在下方的大簽名格完成正式簽署；系統會自動將簽名帶入合約與本票的簽名位置。</div><a id="document-link" class="document-button" href="#" target="_blank" rel="noopener noreferrer" hidden>開啟合約 PDF 閱讀（不在 PDF 上簽名）</a><p id="review-state" class="hint" aria-live="polite"></p></section>
   <section class="card" id="sign-panel" hidden>
     <h2>乙方簽約資料</h2><p class="hint">以下三項會直接寫入電子簽署完成版合約，請依本人證件完整填寫。</p>
     <div class="party-fields">
@@ -374,9 +374,9 @@ h2{font-size:15px;margin:0 0 8px}.hint{font-size:13px;color:var(--dim);margin:0}
       <div class="identity-upload"><label for="identity-back">身分證反面</label><input id="identity-back" type="file" accept="image/jpeg,image/png" capture="environment"><div id="identity-back-state" class="identity-state">尚未選擇</div></div>
     </div>
     <div class="privacy-note">證件影像僅供本工程合約的當事人身分確認、履約管理及爭議處理，儲存在工程 AM 私有簽署證據區，不會出現在草約頁、LINE 訊息或合約 PDF 內。若不同意電子提供，請聯繫工程人員改採書面核驗方式。</div>
-    <h2>簽名</h2><p class="hint">請使用手指或滑鼠在下方簽名。簽名只會提交至受保護的工程 AM 儲存空間。</p>
-    <div class="signature-wrap"><canvas id="signature" aria-label="簽名區"></canvas></div>
-    <div class="actions"><button class="button" id="clear-signature" type="button">全部清除</button></div>
+    <h2 class="signature-heading">正式簽名</h2><div class="signature-instruction">請直接在下面整個大格內簽名，不必對準 PDF 裡的小框，也不要在 PDF 閱讀器的畫筆工具中簽名。</div><p class="hint">簽名只會提交至受保護的工程 AM 儲存空間，並自動帶入合約及本票。</p>
+    <div class="signature-wrap"><canvas id="signature" aria-label="大尺寸正式簽名區"></canvas></div>
+    <div class="actions"><button class="button" id="clear-signature" type="button">清除並重新簽名</button></div>
     <label class="consent"><input id="consent" type="checkbox" disabled><span>我已詳閱本工程合約及其附件，確認內容與版本無誤；我確認上述乙方資料正確，同意將其寫入簽署完成版合約，也同意依上述用途提供身分證正反面影像，並同意以本簽名完成簽署。</span></label>
     <button class="button primary" id="submit-signature" type="button" disabled>送出簽名</button>
   </section>
