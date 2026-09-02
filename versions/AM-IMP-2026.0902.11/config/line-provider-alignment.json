@@ -1,0 +1,23 @@
+{
+  "version": "2026-09-02",
+  "purpose": "Keep LINE Login identity comparable with Messaging API group identities.",
+  "requirements": [
+    "The contract LIFF app and the runtime Messaging API channel belong to the same LINE Developers provider.",
+    "The LIFF app uses the exact production contract-signing HTTPS endpoint.",
+    "The LIFF app requests only openid and profile for this flow.",
+    "The runtime continues to verify current membership against the contract-bound group.",
+    "Only the designated signer may submit identity documents or a signature."
+  ],
+  "forbidden": [
+    "Committing production channel IDs, LIFF IDs, group IDs, user IDs, or tokens",
+    "Matching users by display name",
+    "Treating a stored member name as proof of current membership",
+    "Disabling the current-group membership check"
+  ],
+  "productionEvidence": [
+    "Provider alignment inspected in LINE Developers Console",
+    "Project-local LIFF environment value deployed without committing it",
+    "Known non-signer group member reached read-only contract access",
+    "No invitation, signature, contract transition, or LINE message was created by verification"
+  ]
+}
