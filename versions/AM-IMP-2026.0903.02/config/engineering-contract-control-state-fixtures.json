@@ -1,0 +1,115 @@
+{
+  "schemaVersion": "2026-09-03.control-state-fixtures.v1",
+  "cases": [
+    {
+      "id": "party-b-only",
+      "input": {
+        "contract": { "id": "contract-party-b-only", "workflowState": "signed" },
+        "version": { "id": "version-1", "contractSnapshot": { "documentPackage": { "partyAProfileSnapshot": { "profileType": "individual" } } } },
+        "signingBundle": {
+          "session": {
+            "externalSessionId": "session-party-b-only", "status": "signed", "partyASignerLineUserId": "U-party-a",
+            "submission": { "receivedAt": "2026-09-03T01:10:00.000Z" },
+            "events": [{ "type": "signed", "at": "2026-09-03T01:10:00.000Z" }]
+          }
+        }
+      },
+      "expect": {
+        "stage": "awaiting_party_a", "waitingOn": "party_a", "primaryNextAction.code": "sign_party_a",
+        "partyA.status": "pending_signature", "partyB.status": "signed", "queueMembership.pendingSigning": true,
+        "health.status": "attention", "health.issues.0.code": "aggregate_state_masks_party_a_requirement"
+      }
+    },
+    {
+      "id": "party-a-only",
+      "input": {
+        "contract": { "id": "contract-party-a-only" },
+        "version": { "id": "version-2", "contractSnapshot": { "documentPackage": { "partyAProfileSnapshot": { "profileType": "individual" } } } },
+        "signingBundle": {
+          "session": {
+            "externalSessionId": "session-party-a-only", "status": "sent", "partyASignerLineUserId": "U-party-a",
+            "partyASubmission": { "receivedAt": "2026-09-03T02:10:00.000Z" },
+            "events": [{ "type": "party_a_signed", "at": "2026-09-03T02:10:00.000Z" }]
+          }
+        }
+      },
+      "expect": {
+        "stage": "awaiting_party_b", "waitingOn": "party_b", "primaryNextAction.code": "sign_party_b",
+        "partyA.status": "signed", "partyB.status": "pending_signature", "health.status": "healthy"
+      }
+    },
+    {
+      "id": "both-parties-signed",
+      "input": {
+        "contract": { "id": "contract-both-signed" },
+        "version": { "id": "version-3", "contractSnapshot": { "documentPackage": { "partyAProfileSnapshot": { "profileType": "individual" } } } },
+        "signingBundle": {
+          "session": {
+            "externalSessionId": "session-both-signed", "status": "signed", "partyASignerLineUserId": "U-party-a",
+            "partyASubmission": { "receivedAt": "2026-09-03T03:10:00.000Z" }, "submission": { "receivedAt": "2026-09-03T03:11:00.000Z" },
+            "events": [{ "type": "party_a_signed", "at": "2026-09-03T03:10:00.000Z" }, { "type": "signed", "at": "2026-09-03T03:11:00.000Z" }]
+          }
+        }
+      },
+      "expect": {
+        "stage": "awaiting_internal_confirmation", "waitingOn": "engineering_am", "primaryNextAction.code": "confirm_signature_evidence",
+        "partyA.status": "signed", "partyB.status": "signed", "internal.status": "awaiting_confirmation", "queueMembership.pendingMyConfirmation": true
+      }
+    },
+    {
+      "id": "company-party-a-party-b-signed",
+      "input": {
+        "contract": { "id": "contract-company-party-a" },
+        "version": { "id": "version-4", "contractSnapshot": { "documentPackage": { "partyAProfileSnapshot": { "profileType": "company", "assets": { "large_seal": { "fileId": "private-drive-file" } } } } } },
+        "signingBundle": {
+          "session": {
+            "externalSessionId": "session-company-party-a", "status": "signed", "submission": { "receivedAt": "2026-09-03T04:10:00.000Z" },
+            "events": [{ "type": "signed", "at": "2026-09-03T04:10:00.000Z" }]
+          }
+        }
+      },
+      "expect": {
+        "stage": "awaiting_internal_confirmation", "partyA.requirement": "frozen_company_seal", "partyA.status": "frozen_company_seal",
+        "partyA.hasFrozenSeal": true, "partyB.status": "signed", "health.status": "healthy"
+      }
+    },
+    {
+      "id": "archive-in-progress",
+      "input": {
+        "contract": { "id": "contract-archive-in-progress" },
+        "version": { "id": "version-5", "contractSnapshot": { "documentPackage": { "partyAProfileSnapshot": { "profileType": "company", "assets": { "large_seal": { "fileId": "private-drive-file" } } } } } },
+        "signingBundle": {
+          "session": {
+            "externalSessionId": "session-archive-in-progress", "status": "confirmed", "confirmedAt": "2026-09-03T05:10:00.000Z",
+            "submission": { "receivedAt": "2026-09-03T05:00:00.000Z" },
+            "events": [{ "type": "signed", "at": "2026-09-03T05:00:00.000Z" }, { "type": "confirmed", "at": "2026-09-03T05:10:00.000Z" }]
+          }
+        }
+      },
+      "expect": {
+        "stage": "awaiting_archive", "waitingOn": "engineering_am", "primaryNextAction.code": "archive_confirmed_contract",
+        "internal.status": "confirmed", "archive.status": "awaiting_archive", "queueMembership.archiveManagement": true
+      }
+    },
+    {
+      "id": "db-schema-data-conflict",
+      "input": {
+        "runtime": { "schemaReady": false, "databaseConfigured": true, "schemaVersion": "2026-09-02.engineering-contract-evidence.v9" },
+        "contract": { "id": "contract-schema-conflict", "workflowState": "signed" },
+        "version": { "id": "version-6", "contractSnapshot": { "documentPackage": { "partyAProfileSnapshot": { "profileType": "individual" } } } },
+        "signingBundle": {
+          "session": {
+            "externalSessionId": "session-schema-conflict", "status": "signed", "partyASignerLineUserId": "U-party-a",
+            "submission": { "receivedAt": "2026-09-03T06:00:00.000Z" },
+            "events": [{ "type": "signed", "at": "2026-09-03T06:00:00.000Z" }]
+          }
+        }
+      },
+      "expect": {
+        "stage": "data_attention", "underlyingStage": "awaiting_party_a", "waitingOn": "data_reconciliation",
+        "primaryNextAction.code": "reconcile_authoritative_signing_data", "health.status": "blocked", "health.issues.0.code": "schema_not_ready",
+        "queueMembership.dataAttention": true
+      }
+    }
+  ]
+}

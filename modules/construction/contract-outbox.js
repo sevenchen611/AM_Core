@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { assertProjectScope } from './contract-domain.js';
 import { resolveAuthoritativeSigningGroup } from './contract-authority.js';
 import { createRuntimeSigningService } from './contract-runtime.js';
+import { deriveEngineeringContractControlState } from './contract-control-state.js';
 import { sameId, textFrag } from './common.js';
 
 const REQUIRED_STORE_METHODS = [
@@ -180,7 +181,11 @@ export function createContractOutboxWorker(deps, options = {}) {
     if (!sameId(page.parent?.data_source_id, deps.dataSources?.contracts)) {
       throw outboxError('CONTRACT_PROJECTION_SCOPE_MISMATCH', 'Notion projection target is outside Engineering contracts.', 403);
     }
-    const signingStatus = text(first(session, ['status'], payload.status || first(contract, ['signingStatus', 'signing_status'])));
+   const signingStatus = text(first(session, ['status'], payload.status || first(contract, ['signingStatus', 'signing_status'])));
+    const controlState = deriveEngineeringContractControlState({
+      contract, version, signingBundle: bundle || {},
+      runtime: { configured: true, databaseConfigured: true, schemaReady: true },
+    });
     const properties = {
       '電子簽署狀態': { select: { name: statusLabel(text(version.status), signingStatus) } },
       '電子簽署版本': { number: Number(first(version, ['versionNo', 'version_no'], 0)) || null },
@@ -189,7 +194,7 @@ export function createContractOutboxWorker(deps, options = {}) {
       'PostgreSQL Version ID': { rich_text: textFrag(version.id) },
       '投影版本': { number: Number(first(contract, ['rowVersion', 'row_version'], 1)) || 1 },
       '投影時間': { date: date(new Date().toISOString()) },
-      '投影警示': { rich_text: [] },
+     '投影警示': { rich_text: [] },
       '簽發時間': { date: date(first(version, ['issuedAt', 'issued_at'])) },
       '發送時間': { date: date(first(session, ['sentAt', 'sent_at'])) },
       '收件時間': { date: date(first(session, ['receivedAt', 'received_at'])) },
@@ -198,10 +203,13 @@ export function createContractOutboxWorker(deps, options = {}) {
       '簽署人參照': { rich_text: textFrag(maskLineId(first(evidence, ['verifiedSignerLineUserId', 'verified_signer_line_user_id']))) },
       '簽署IP遮罩': { rich_text: textFrag(maskIp(first(evidence, ['ipAddress', 'ip_address']))) },
     };
-    if (['signed', 'confirmed', 'completed'].includes(signingStatus)) properties['狀態'] = { select: { name: '已簽約' } };
+    if (controlState.stage === 'archived') properties['狀態'] = { select: { name: '已簽約' } };
+    else if (['awaiting_party_a', 'awaiting_party_b', 'awaiting_internal_confirmation', 'awaiting_archive'].includes(controlState.stage)) {
+      properties['投影警示'] = { rich_text: textFrag(`權威簽署狀態：${controlState.primaryNextAction?.label || '請由工程合約控制中心處理'}`) };
+    }
     await deps.notionRequest(`/v1/pages/${encodeURIComponent(notionPageId)}`, { method: 'PATCH', body: { properties } });
     const budget = await projectBudget(context, contract);
-    return { contractId: contract.id, versionId: version.id, signingStatus, budget };
+    return { contractId: contract.id, versionId: version.id, signingStatus, controlStage: controlState.stage, budget };
   }
 
   async function processClaimed(context, job) {

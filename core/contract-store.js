@@ -12,7 +12,49 @@ const COMPATIBLE_SCHEMA_VERSIONS = new Set([
   '2026-09-02.engineering-contract-evidence.v6',
   '2026-09-02.engineering-contract-evidence.v7',
   SCHEMA_VERSION,
+  '2026-09-02.engineering-contract-evidence.v9',
 ]);
+// A recognized schema version alone is not sufficient to start the contract
+// outbox.  A partially applied migration can retain schema_meta while missing
+// a table that the runtime must read or write.  Keep optional feature tables
+// (Party A profiles and LINE archives) separate so their availability is
+// reported precisely without weakening the core gate.
+const REQUIRED_CORE_TABLES = Object.freeze([
+  'schema_meta',
+  'contracts',
+  'contract_versions',
+  'contract_templates',
+  'contract_template_versions',
+  'contract_documents',
+  'payment_milestones',
+  'acceptance_criteria',
+  'signing_sessions',
+  'signing_events',
+  'signatures',
+  'artifacts',
+  'integration_outbox',
+  'contract_draft_reviews',
+  'contract_draft_review_events',
+]);
+
+function compatibleSchemaVersion(value) {
+  return COMPATIBLE_SCHEMA_VERSIONS.has(String(value || ''));
+}
+
+function statusCapabilities(row = {}) {
+  const coreReady = row.ready === true;
+  const schemaVersion = String(row.schema_version || '');
+  return {
+    schemaVersion,
+    coreReady,
+    schemaReady: coreReady && compatibleSchemaVersion(schemaVersion),
+    partyAProfileSchemaReady: row.profile_ready === true,
+    // Production rows always include archive_ready.  The fallback preserves
+    // compatibility with older in-process test adapters which only modeled
+    // the old core `ready` result; it cannot mask a live false result.
+    archiveSchemaReady: row.archive_ready === undefined ? coreReady : row.archive_ready === true,
+  };
+}
 
 function envValue(env, tenant, name, fallback = '') {
   const prefix = String(tenant?.envPrefix || '').trim();
@@ -242,24 +284,38 @@ export function createContractStore({ env = process.env, logger = console, poolF
     if (!config.configured) return { configured: false, schemaReady: false };
     try {
       const result = await withTenant(tenant, async (client) => client.query(
-         `SELECT EXISTS (
-           SELECT 1 FROM information_schema.tables
-            WHERE table_schema = $1 AND table_name = 'signing_sessions'
-         ) AS ready,
-         EXISTS (
-           SELECT 1 FROM information_schema.tables
-            WHERE table_schema = $1 AND table_name = 'party_a_profiles'
-         ) AS profile_ready,
-         (SELECT version FROM ${SCHEMA}.schema_meta WHERE singleton = true) AS schema_version`,
-        [SCHEMA],
+         `WITH required_core(table_name) AS (
+            SELECT unnest($2::text[])
+          ),
+          present_tables AS (
+            SELECT table_name
+              FROM information_schema.tables
+             WHERE table_schema = $1
+          )
+          SELECT NOT EXISTS (
+                   SELECT 1
+                     FROM required_core required
+                     LEFT JOIN present_tables present USING (table_name)
+                    WHERE present.table_name IS NULL
+                 ) AS ready,
+                 EXISTS (
+                   SELECT 1 FROM present_tables
+                    WHERE table_name = 'party_a_profiles'
+                 ) AS profile_ready,
+                 EXISTS (
+                   SELECT 1 FROM present_tables
+                    WHERE table_name = 'contract_line_conversation_archives'
+                 ) AS archive_ready,
+                 (SELECT version FROM ${SCHEMA}.schema_meta WHERE singleton = true) AS schema_version`,
+        [SCHEMA, REQUIRED_CORE_TABLES],
       ), { readOnly: true });
-      const schemaVersion = String(result.value.rows[0]?.schema_version || '');
+      const capabilities = statusCapabilities(result.value.rows[0]);
       return {
         configured: true,
-        schemaReady: Boolean(result.value.rows[0]?.ready && COMPATIBLE_SCHEMA_VERSIONS.has(schemaVersion)),
-        partyAProfileSchemaReady: result.value.rows[0]?.profile_ready === true,
-        archiveSchemaReady: schemaVersion === SCHEMA_VERSION,
-        schemaVersion,
+        schemaReady: capabilities.schemaReady,
+        partyAProfileSchemaReady: capabilities.partyAProfileSchemaReady,
+        archiveSchemaReady: capabilities.archiveSchemaReady,
+        schemaVersion: capabilities.schemaVersion,
       };
     } catch (error) {
       logger.warn?.(`Contract store status failed (tenant=${tenant?.key || '-'}): ${error.message}`);
@@ -1455,4 +1511,5 @@ export function createContractStore({ env = process.env, logger = console, poolF
 }
 
 export const __test = { canonical, sha256, configFor, databaseTls, parseCertificateAuthority,
-  parseCertificateFingerprint, pinnedServerIdentity, productionRuntime, SCHEMA_VERSION };
+  parseCertificateFingerprint, pinnedServerIdentity, productionRuntime, SCHEMA_VERSION,
+  COMPATIBLE_SCHEMA_VERSIONS, REQUIRED_CORE_TABLES, compatibleSchemaVersion, statusCapabilities };

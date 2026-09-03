@@ -1,0 +1,12 @@
+{
+  "id": "AM-IMP-2026.0903.02",
+  "name": "Engineering contract control state read model",
+  "type": "Engineering contract workflow visibility",
+  "portable": true,
+  "requiresDatabases": ["engineering_contracts signing evidence schema v9 or capability-compatible later schema"],
+  "requiresEnv": [],
+  "requiresScripts": ["tools/dryrun-engineering-contract-control-state.mjs", "tools/dryrun-engineering-contract-control-center.mjs", "tools/dryrun-engineering-contract-control-web.mjs"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "dataIsolation": { "canCopyCode": true, "canCopySchema": false, "canCopyData": false, "canCopySecrets": false },
+  "definitionOfDone": ["Party A and Party B render independently", "holder, next action and timestamps come from authority evidence", "scope is enforced server-side", "tokens and raw signer identifiers are not exposed"]
+}
