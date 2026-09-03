@@ -1,0 +1,41 @@
+{
+  "id": "AM-IMP-2026.0903.04",
+  "name": "Engineering contract payment operations",
+  "type": "AM Platform / Engineering contracts / payment control",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-09-03",
+  "dependsOn": ["AM-IMP-2026.0903.02", "AM-IMP-2026.0903.03"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Immutable-version payment schedule derivation",
+    "Evidence-first payment claim submission, review, and approval",
+    "Role and separation-of-duties gates",
+    "Append-only payment audit events and idempotency",
+    "Safe read presentation with no bank-payment execution"
+  ],
+  "requiresDatabases": ["Engineering dedicated PostgreSQL contract database"],
+  "requiresEnv": [],
+  "requiresScripts": ["tools/dryrun-engineering-contract-payments.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Install only into the Engineering-dedicated contract database. Payment evidence references stay protected; the package contains no payment data or bank instructions."
+  },
+  "definitionOfDone": [
+    "Claims can only reference a frozen evidence-hashed contract version after internal signing confirmation",
+    "Every claim has evidence references with SHA-256 hashes",
+    "Submitter, reviewer, and approver are role-gated and separated",
+    "Events are append-only and idempotent",
+    "Approval reports no bank transfer or payment execution",
+    "Focused payment dry-run and package check pass"
+  ],
+  "files": [
+    "modules/construction/contract-payments.js",
+    "modules/construction/contract-payment-api.js",
+    "tools/dryrun-engineering-contract-payments.mjs",
+    "versions/AM-IMP-2026.0903.04/schemas/engineering-contract-payment-operations.sql"
+  ]
+}

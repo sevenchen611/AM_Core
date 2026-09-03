@@ -1,0 +1,40 @@
+{
+  "id": "AM-IMP-2026.0903.05",
+  "name": "Engineering contract acceptance management",
+  "type": "AM Platform / engineering contracts / acceptance control",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-09-03",
+  "dependsOn": ["AM-IMP-2026.0903.01", "AM-IMP-2026.0903.02"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Frozen-version acceptance checklist",
+    "Evidence-linked submit/review/reopen workflow",
+    "Append-only acceptance event audit chain",
+    "Server-side project scope and role gates"
+  ],
+  "requiresDatabases": ["Engineering contract PostgreSQL schema v9 or later"],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-acceptance.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Acceptance evidence references and event rows remain tenant-scoped in the dedicated Engineering contract database; raw evidence files remain in their existing private storage."
+  },
+  "definitionOfDone": [
+    "Acceptance items are derived only from frozen contract versions",
+    "Evidence-required submissions contain immutable references and SHA-256 hashes",
+    "Submit, review, and reopen commands enforce server-side scope and roles",
+    "Events are append-only and hash-linked without a mutable overwrite path",
+    "Focused acceptance dry-run passes before production installation"
+  ],
+  "files": [
+    "modules/construction/contract-acceptance.js",
+    "tools/dryrun-engineering-contract-acceptance.mjs",
+    "versions/AM-IMP-2026.0903.05/schemas/engineering-contract-acceptance-v1.sql"
+  ]
+}

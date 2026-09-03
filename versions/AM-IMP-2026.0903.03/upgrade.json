@@ -1,0 +1,37 @@
+{
+  "id": "AM-IMP-2026.0903.03",
+  "name": "Engineering contract control action-task bridge",
+  "type": "AM Platform / Engineering contracts / task-control bridge",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-09-03",
+  "dependsOn": ["AM-IMP-2026.0903.02"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "requiresDatabases": ["Existing project-local task store or adapter"],
+  "requiresEnv": [],
+  "requiresScripts": ["tools/dryrun-engineering-contract-action-task-bridge.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The bridge accepts tenant-scoped, project-local evidence and returns an instruction only; it never writes customer tasks, Notion, LINE, or production data."
+  },
+  "definitionOfDone": [
+    "Action-task intent uses deterministic semantic and state keys",
+    "Formal intent requires project goal and project-local source evidence",
+    "Missing requirements become candidate pending confirmation",
+    "Every create/update intent records status-change evidence",
+    "The bridge has no direct external side effects"
+  ],
+  "files": [
+    "modules/construction/contract-action-task-bridge.js",
+    "tools/dryrun-engineering-contract-action-task-bridge.mjs",
+    "versions/AM-IMP-2026.0903.03/config/engineering-contract-action-task-bridge.json",
+    "versions/AM-IMP-2026.0903.03/README.md",
+    "versions/AM-IMP-2026.0903.03/INSTALL.md",
+    "versions/AM-IMP-2026.0903.03/VERIFY.md",
+    "versions/AM-IMP-2026.0903.03/ROLLBACK.md",
+    "versions/AM-IMP-2026.0903.03/upgrade.json"
+  ]
+}

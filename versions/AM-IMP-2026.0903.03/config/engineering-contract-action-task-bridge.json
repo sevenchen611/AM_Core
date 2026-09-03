@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "2026-09-03.contract-action-task-bridge.v1",
+  "purpose": "Convert one authoritative Engineering contract control next action into one reviewable, project-local task intent.",
+  "sourceEvidenceGate": {
+    "formalTaskRequires": ["projectGoalId", "atLeastOneProjectLocalContractEvidence"],
+    "fallback": "candidate_pending_confirmation"
+  },
+  "deduplication": {
+    "semanticKey": ["tenantKey", "projectId", "contractId", "actionCode"],
+    "stateFingerprint": ["controlStage", "partyAStatus", "partyBStatus", "internalStatus", "archiveStatus", "healthStatus", "authoritativeTimestamps"]
+  },
+  "sideEffects": {
+    "moduleWrites": false,
+    "notionWrites": false,
+    "lineSends": false,
+    "productionTaskMutations": false,
+    "receivingAdapterRequirement": "The project-local adapter must explicitly apply the intent with tenant authorization and preserve source evidence."
+  },
+  "sensitiveCompletion": {
+    "category": "contractual",
+    "requiresProjectOwnerConfirmation": true
+  }
+}

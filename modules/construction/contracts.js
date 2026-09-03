@@ -3,8 +3,10 @@
 // 合約簽約/金額異動會自動回寫該租戶「預算控制」的已發包金額/對象/日期/狀態。
 
 import crypto from 'node:crypto';
-import { plain, sameId, textFrag, queryAll, readJsonBody, sendJson, parseScope, assertProjectInScope } from './common.js';
+import { plain, sameId, textFrag, queryAll, readJsonBody, sendJson, parseScope, projectCodeMap, assertProjectInScope } from './common.js';
 import { createContractWorkflowApiHandler } from './contract-workflow-api.js';
+import { createEngineeringContractControlCenterService } from './contract-control-center.js';
+import { renderContractControlCenter } from './contract-control-center-web.js';
 import { contractFileUploadMetadata, readContractFileBody, uploadContractSourceFile } from './contract-files.js';
 import {
   hydratePartyASigningAssets,
@@ -24,6 +26,12 @@ async function assertPartyAProfileStore(deps) {
   if (status?.partyAProfileSchemaReady !== true) {
     throw Object.assign(new Error('甲方主檔資料庫尚未升級，請先套用工程合約 schema v6'), { statusCode: 503 });
   }
+}
+
+async function contractControlScope(deps, scope) {
+  if (!scope) return null;
+  const codes = await projectCodeMap(deps);
+  return new Set(Object.entries(codes).filter(([, code]) => scope.has(code)).map(([projectId]) => projectId));
 }
 
 function requiredTemplateText(value, label, max) {
@@ -119,6 +127,34 @@ export async function handleContractsRequest(req, res, pathname, url, deps) {
     if (req.method === 'GET' && pathname === '/contracts') {
       res.writeHead(canContract ? 200 : 403, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(canContract ? renderContractsPage(deps.tenantKey, key, canBudget, canManage, canIssue, canConfirm) : renderDeniedPage());
+    }
+    if (req.method === 'GET' && pathname === '/contracts/api/v2/control-center') {
+      if (!canContract) return sendJson(res, 403, { error: '無合約發包檢視權限' });
+      const permittedProjectIds = await contractControlScope(deps, scope);
+      res.setHeader?.('Cache-Control', 'no-store');
+      const service = createEngineeringContractControlCenterService({
+        store: deps.contractStore,
+        ...(typeof deps.contractClock === 'function' ? { clock: deps.contractClock } : {}),
+      });
+      return sendJson(res, 200, { ok: true, data: await service.list({ tenant: deps.tenant, scope: permittedProjectIds }) });
+    }
+    const controlDetailMatch = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/control$/);
+    if (req.method === 'GET' && controlDetailMatch) {
+      if (!canContract) return sendJson(res, 403, { error: '無合約發包檢視權限' });
+      let contractId = '';
+      try {
+        contractId = decodeURIComponent(controlDetailMatch[1]);
+      } catch {
+        return sendJson(res, 400, { error: '合約 ID 編碼不合法' });
+      }
+      if (!contractId || contractId.includes('/')) return sendJson(res, 400, { error: '合約 ID 不合法' });
+      const permittedProjectIds = await contractControlScope(deps, scope);
+      res.setHeader?.('Cache-Control', 'no-store');
+      const service = createEngineeringContractControlCenterService({
+        store: deps.contractStore,
+        ...(typeof deps.contractClock === 'function' ? { clock: deps.contractClock } : {}),
+      });
+      return sendJson(res, 200, { ok: true, data: await service.detail({ tenant: deps.tenant, scope: permittedProjectIds }, contractId) });
     }
     if (req.method === 'POST' && pathname === '/contracts/api/v2/files') {
       if (!canManage) return sendJson(res, 403, { error: '只有合約管理者可以上傳合約附件' });
@@ -536,7 +572,8 @@ function renderContractsPage(tenantKey, key, canBudget, canManage, canIssue, can
 </head>
 <body>
 <header><h1>📑 工程合約管理</h1>${canBudget ? `<a href="/budget${qs()}">→ 💰 預算控制</a>` : ''}<a href="/dashboard${qs()}" style="${canBudget ? 'margin-left:14px' : ''}">→ 儀表板</a></header>
-<div class="workspace-nav"><button id="nav-overview" class="active" onclick="showOverview()">合約總覽</button><button id="nav-library" onclick="showVersionLibrary()">合約範本版本庫</button>${canManage ? '<button id="nav-party-a" onclick="showPartyAProfiles()">甲方主檔</button>' : ''}<button disabled>待簽署</button><button disabled>待我方確認</button><button disabled>付款管理</button><button disabled>驗收管理</button></div>
+<div class="workspace-nav"><button id="nav-overview" class="active" onclick="showOverview()">合約總覽</button><button id="nav-library" onclick="showVersionLibrary()">合約範本版本庫</button>${canManage ? '<button id="nav-party-a" onclick="showPartyAProfiles()">甲方主檔</button>' : ''}<button onclick="showContractControlQueue('pending_signing')">待簽署</button><button onclick="showContractControlQueue('pending_internal_confirmation')">待我方確認</button><button onclick="showContractControlQueue('payment')">付款管理</button><button onclick="showContractControlQueue('acceptance')">驗收管理</button></div>
+${renderContractControlCenter({ tenantKey, apiKey: key })}
 <div id="page-message" hidden></div>
 <div id="readiness"></div>
 <div class="tabs" id="tabs"></div>
@@ -597,6 +634,13 @@ function showPageMessage(message, error=false) {
   box.hidden=!message; box.className='page-message'+(error?' error':''); box.textContent=message||'';
 }
 function showOverview() { setWorkspaceNav('overview'); render(); }
+function showContractControlQueue(queue) {
+  const root=document.getElementById('engineering-contract-control-center');
+  if(!root) return;
+  root.scrollIntoView({behavior:'smooth',block:'start'});
+  const chip=root.querySelector('[data-queue="'+String(queue||'')+'"]');
+  if(chip && !chip.classList.contains('active')) chip.click();
+}
 function render() {
   setWorkspaceNav('overview');
   const es = DATA.electronicSigning || {};
