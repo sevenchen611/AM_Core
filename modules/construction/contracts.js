@@ -6,6 +6,10 @@ import crypto from 'node:crypto';
 import { plain, sameId, textFrag, queryAll, readJsonBody, sendJson, parseScope, projectCodeMap, assertProjectInScope } from './common.js';
 import { createContractWorkflowApiHandler } from './contract-workflow-api.js';
 import { createEngineeringContractControlCenterService } from './contract-control-center.js';
+import { createEngineeringContractPaymentService, PAYMENT_ROLES } from './contract-payments.js';
+import { createContractPaymentApiHandler } from './contract-payment-api.js';
+import { createContractAcceptanceService } from './contract-acceptance.js';
+import { createContractAcceptanceApiHandler } from './contract-acceptance-api.js';
 import { renderContractControlCenter } from './contract-control-center-web.js';
 import { contractFileUploadMetadata, readContractFileBody, uploadContractSourceFile } from './contract-files.js';
 import {
@@ -32,6 +36,50 @@ async function contractControlScope(deps, scope) {
   if (!scope) return null;
   const codes = await projectCodeMap(deps);
   return new Set(Object.entries(codes).filter(([, code]) => scope.has(code)).map(([projectId]) => projectId));
+}
+
+function contractOperationsError(message, code = 'CONTRACT_OPERATION_FORBIDDEN') {
+  return Object.assign(new Error(message), { code, statusCode: 403 });
+}
+
+function contractOperationScope(projectIds) {
+  return projectIds === null ? { all: true } : { projectIds: [...projectIds] };
+}
+
+function paymentOperationPermissions(operation, capabilities) {
+  const { canManage, canConfirm, canAdmin } = capabilities;
+  if (operation === 'schedule' || operation === 'getClaim' || operation === 'submitClaim') {
+    if (!canManage && !canAdmin) throw contractOperationsError('只有合約管理者可以建立或查看請款控制。');
+    return [PAYMENT_ROLES.submit];
+  }
+  if (operation === 'reviewClaim') {
+    if (!canConfirm && !canAdmin) throw contractOperationsError('只有合約確認者可以覆核請款。');
+    return [PAYMENT_ROLES.review];
+  }
+  if (operation === 'approveClaim') {
+    if (!canAdmin) throw contractOperationsError('只有合約管理員可以核准請款。');
+    return [PAYMENT_ROLES.approve];
+  }
+  throw contractOperationsError('未知的付款控制操作。', 'PAYMENT_OPERATION_UNKNOWN');
+}
+
+function acceptanceOperationRoles(operation, capabilities) {
+  const { canContract, canManage, canConfirm, canAdmin } = capabilities;
+  if (!canContract) throw contractOperationsError('無合約發包檢視權限');
+  if (operation === 'get') return [];
+  if (operation === 'submit') {
+    if (!canManage && !canAdmin) throw contractOperationsError('只有合約管理者可以送出驗收。');
+    return ['engineering_acceptance_submitter'];
+  }
+  if (operation === 'review') {
+    if (!canConfirm && !canAdmin) throw contractOperationsError('只有合約確認者可以覆核驗收。');
+    return ['engineering_acceptance_reviewer'];
+  }
+  if (operation === 'reopen') {
+    if (!canAdmin) throw contractOperationsError('只有合約管理員可以重啟已驗收項目。');
+    return ['engineering_acceptance_approver'];
+  }
+  throw contractOperationsError('未知的驗收控制操作。', 'ACCEPTANCE_OPERATION_UNKNOWN');
 }
 
 function requiredTemplateText(value, label, max) {
@@ -124,6 +172,29 @@ export async function handleContractsRequest(req, res, pathname, url, deps) {
   const canBudget = url.searchParams.get('budget') === '1';
   const scope = parseScope(url);
   try {
+    const capabilities = { canContract, canManage, canConfirm, canAdmin };
+    const resolveOperationsContext = async (_req, { operation, kind }) => {
+      const permittedProjectIds = await contractControlScope(deps, scope);
+      const base = {
+        tenant: deps.tenant,
+        actor: String(deps.actor || '').trim(),
+        scope: contractOperationScope(permittedProjectIds),
+      };
+      if (kind === 'payment') {
+        return { ...base, permissions: paymentOperationPermissions(operation, capabilities) };
+      }
+      return { ...base, actorRoles: acceptanceOperationRoles(operation, capabilities) };
+    };
+    const paymentApi = createContractPaymentApiHandler({
+      paymentService: createEngineeringContractPaymentService({ store: deps.contractStore }),
+      resolveContext: (request, route) => resolveOperationsContext(request, { ...route, kind: 'payment' }),
+    });
+    if (await paymentApi(req, res, url)) return;
+    const acceptanceApi = createContractAcceptanceApiHandler({
+      acceptanceService: createContractAcceptanceService({ repository: deps.contractStore }),
+      resolveContext: (request, route) => resolveOperationsContext(request, { ...route, kind: 'acceptance' }),
+    });
+    if (await acceptanceApi(req, res, url)) return;
     if (req.method === 'GET' && pathname === '/contracts') {
       res.writeHead(canContract ? 200 : 403, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(canContract ? renderContractsPage(deps.tenantKey, key, canBudget, canManage, canIssue, canConfirm) : renderDeniedPage());

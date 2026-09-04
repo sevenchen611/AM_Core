@@ -56,6 +56,70 @@ function statusCapabilities(row = {}) {
   };
 }
 
+function isUuid(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || ''));
+}
+
+function paymentStoreError(message, code = 'PAYMENT_STORE_INVALID_INPUT', statusCode = 400) {
+  return Object.assign(new Error(message), { code, statusCode });
+}
+
+function paymentUuid(value, field) {
+  if (!isUuid(value)) throw paymentStoreError(String(field) + ' must be a UUID.', 'PAYMENT_STORE_IDENTIFIER_INVALID');
+  return String(value);
+}
+
+function paymentEventJson(event = {}) {
+  return {
+    eventType: String(event.eventType || ''),
+    eventVersion: String(event.eventVersion || ''),
+    contractId: String(event.contractId || ''),
+    claimId: String(event.claimId || ''),
+    occurredAt: String(event.occurredAt || ''),
+    actorKind: String(event.actorKind || ''),
+    actor: String(event.actor || ''),
+    authority: event.authority && typeof event.authority === 'object' ? event.authority : {},
+    idempotencyKey: String(event.idempotencyKey || ''),
+    evidenceFingerprint: String(event.evidenceFingerprint || ''),
+    details: event.details && typeof event.details === 'object' && !Array.isArray(event.details) ? event.details : {},
+  };
+}
+
+function mapPaymentClaim(row = {}, evidence = []) {
+  if (!row || !row.id) return null;
+  const normalizedEvidence = Array.isArray(evidence) ? evidence.map((item) => ({
+    id: item.id,
+    kind: item.evidence_kind || item.kind,
+  })) : [];
+  return {
+    id: row.id,
+    contractId: row.contract_id,
+    projectId: row.project_id,
+    contractNumber: row.contract_number,
+    projectCode: row.project_code,
+    versionId: row.version_id,
+    versionNo: Number(row.version_no || 0),
+    versionFingerprint: row.source_version_sha256,
+    milestoneId: row.source_milestone_id,
+    milestoneLabel: row.milestone_label || '',
+    amount: Number(row.amount),
+    currency: row.currency,
+    status: row.status,
+    submittedAt: row.submitted_at,
+    submittedBy: row.submitted_by,
+    reviewedAt: row.reviewed_at,
+    reviewedBy: row.reviewed_by,
+    reviewSummary: row.review_summary || '',
+    approvedAt: row.approved_at,
+    approvedBy: row.approved_by,
+    approvalSummary: row.approval_summary || '',
+    sourceSummary: row.source_summary || '',
+    evidence: normalizedEvidence,
+    evidenceCount: normalizedEvidence.length,
+    evidenceKinds: [...new Set(normalizedEvidence.map((item) => item.kind).filter(Boolean))],
+  };
+}
+
 function envValue(env, tenant, name, fallback = '') {
   const prefix = String(tenant?.envPrefix || '').trim();
   return String((prefix && env[`${prefix}_${name}`]) || env[`AMCORE_${name}`] || fallback || '').trim();
@@ -557,6 +621,171 @@ export function createContractStore({ env = process.env, logger = console, poolF
       [tenant.key, versionId],
     ), { readOnly: true });
     return result.value.rows[0] || null;
+  }
+
+  /**
+   * Loads the immutable, tenant-scoped facts used by the acceptance service.
+   * The returned event records deliberately use the service's camel-case
+   * interface so the service can hash-verify them before projecting a status.
+   */
+  async function getAcceptanceContext(tenant, { contractId, versionId } = {}) {
+    const result = await withTenant(tenant, async (client) => {
+      const context = await client.query(
+        `SELECT c.id AS "contractId",
+                c.project_notion_page_id AS "projectId",
+                c.project_code AS "projectCode",
+                c.notion_contract_page_id AS "notionContractPageId",
+                c.contract_number AS "contractNumber",
+                c.title AS "title",
+                c.trade AS "trade",
+                c.counterparty_name AS "counterpartyName",
+                c.amount AS "amount",
+                c.currency AS "currency",
+                v.id AS "versionId",
+                v.contract_id AS "versionContractId",
+                v.version_no AS "versionNo",
+                v.status AS "versionStatus",
+                v.contract_snapshot AS "contractSnapshot",
+                v.bundle_manifest AS "bundleManifest",
+                v.bundle_sha256 AS "bundleSha256",
+                v.frozen_at AS "frozenAt",
+                v.issued_at AS "issuedAt"
+           FROM ${SCHEMA}.contracts c
+           JOIN ${SCHEMA}.contract_versions v ON v.contract_id = c.id
+          WHERE c.tenant_key = $1 AND c.id = $2 AND v.id = $3
+          LIMIT 1`,
+        [tenant.key, contractId, versionId],
+      );
+      if (!context.rowCount) return null;
+      const row = context.rows[0];
+      const events = await client.query(
+        `SELECT id,
+                contract_id AS "contractId",
+                version_id AS "versionId",
+                item_id AS "itemId",
+                sequence_no AS "sequenceNo",
+                event_type AS "type",
+                previous_event_hash AS "previousEventHash",
+                event_hash AS "eventHash",
+                actor,
+                occurred_at AS "occurredAt",
+                payload
+           FROM ${SCHEMA}.contract_acceptance_events
+          WHERE contract_id = $1 AND version_id = $2
+          ORDER BY sequence_no ASC`,
+        [row.contractId, row.versionId],
+      );
+      return {
+        contract: {
+          id: row.contractId,
+          projectId: row.projectId,
+          projectCode: row.projectCode,
+          notionContractPageId: row.notionContractPageId,
+          contractNumber: row.contractNumber,
+          title: row.title,
+          trade: row.trade,
+          counterpartyName: row.counterpartyName,
+          amount: row.amount,
+          currency: row.currency,
+        },
+        version: {
+          id: row.versionId,
+          contractId: row.versionContractId,
+          versionNo: row.versionNo,
+          status: row.versionStatus,
+          contractSnapshot: row.contractSnapshot,
+          bundleManifest: row.bundleManifest,
+          bundleSha256: row.bundleSha256,
+          frozenAt: row.frozenAt,
+          issuedAt: row.issuedAt,
+        },
+        events: events.rows,
+      };
+    }, { readOnly: true });
+    return result.value;
+  }
+
+  /**
+   * Appends one hash-linked acceptance event. Locking the version row also
+   * serializes an empty event chain, where locking only the latest event would
+   * otherwise leave a first-event race. The expected sequence/hash supplied
+   * by the service is checked inside that same transaction before insertion.
+   */
+  async function appendAcceptanceEvent(tenant, input = {}) {
+    const event = input && typeof input === 'object' ? input : {};
+    const expectedSequenceNo = Number(event.expectedSequenceNo);
+    const expectedPreviousEventHash = String(event.expectedPreviousEventHash || '');
+    if (!event.contractId || !event.versionId || !event.itemId
+      || !Number.isInteger(expectedSequenceNo) || expectedSequenceNo < 1) {
+      throw Object.assign(new Error('Acceptance event identifiers and expected sequence are required.'), {
+        code: 'ACCEPTANCE_EVENT_APPEND_INVALID', statusCode: 422,
+      });
+    }
+    const result = await withTenant(tenant, async (client) => {
+      const locked = await client.query(
+        `SELECT c.id AS contract_id, v.id AS version_id, v.status
+           FROM ${SCHEMA}.contract_versions v
+           JOIN ${SCHEMA}.contracts c ON c.id = v.contract_id
+          WHERE c.tenant_key = $1 AND c.id = $2 AND v.id = $3
+          FOR UPDATE OF v`,
+        [tenant.key, event.contractId, event.versionId],
+      );
+      if (!locked.rowCount) {
+        throw Object.assign(new Error('Acceptance context was not found in tenant scope.'), {
+          code: 'ACCEPTANCE_CONTEXT_NOT_FOUND', statusCode: 404,
+        });
+      }
+      const latest = await client.query(
+        `SELECT sequence_no, event_hash
+           FROM ${SCHEMA}.contract_acceptance_events
+          WHERE contract_id = $1 AND version_id = $2
+          ORDER BY sequence_no DESC
+          LIMIT 1
+          FOR UPDATE`,
+        [event.contractId, event.versionId],
+      );
+      const prior = latest.rows[0] || null;
+      const actualSequenceNo = Number(prior?.sequence_no || 0) + 1;
+      const actualPreviousEventHash = String(prior?.event_hash || '');
+      if (expectedSequenceNo !== actualSequenceNo
+        || expectedPreviousEventHash !== actualPreviousEventHash) {
+        throw Object.assign(new Error('Acceptance event chain changed before this append could be committed.'), {
+          code: 'ACCEPTANCE_EVENT_CAS_FAILED',
+          statusCode: 409,
+          expectedSequenceNo,
+          actualSequenceNo,
+          expectedPreviousEventHash,
+          actualPreviousEventHash,
+        });
+      }
+      const inserted = await client.query(
+        `INSERT INTO ${SCHEMA}.contract_acceptance_events
+           (id, contract_id, version_id, item_id, sequence_no, event_type,
+            previous_event_hash, event_hash, actor, occurred_at, payload)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::timestamptz,$11::jsonb)
+         RETURNING id,
+                   contract_id AS "contractId",
+                   version_id AS "versionId",
+                   item_id AS "itemId",
+                   sequence_no AS "sequenceNo",
+                   event_type AS "type",
+                   previous_event_hash AS "previousEventHash",
+                   event_hash AS "eventHash",
+                   actor,
+                   occurred_at AS "occurredAt",
+                   payload`,
+        [event.id, event.contractId, event.versionId, event.itemId, expectedSequenceNo,
+          event.type, expectedPreviousEventHash, event.eventHash, event.actor,
+          event.occurredAt, JSON.stringify(event.payload || {})],
+      );
+      if (!inserted.rowCount) {
+        throw Object.assign(new Error('Acceptance event was not appended.'), {
+          code: 'ACCEPTANCE_EVENT_APPEND_FAILED', statusCode: 409,
+        });
+      }
+      return inserted.rows[0];
+    });
+    return result.value;
   }
 
   async function transitionVersion(tenant, input) {
@@ -1112,6 +1341,325 @@ export function createContractStore({ env = process.env, logger = console, poolF
     return result.value.rows;
   }
 
+  async function paymentClaimById(client, tenantKey, claimId, { forUpdate = false } = {}) {
+    const claim = await client.query(
+      `SELECT p.*,
+              c.project_notion_page_id AS project_id, c.project_code, c.contract_number,
+              v.version_no, COALESCE(p.milestone_snapshot->>'label','') AS milestone_label
+         FROM ${SCHEMA}.contract_payment_claims p
+         JOIN ${SCHEMA}.contracts c ON c.id = p.contract_id
+         JOIN ${SCHEMA}.contract_versions v ON v.id = p.version_id
+        WHERE c.tenant_key = $1 AND p.id = $2
+        ${forUpdate ? 'FOR UPDATE OF p' : ''}
+        LIMIT 1`,
+      [tenantKey, claimId],
+    );
+    if (!claim.rowCount) return null;
+    const evidence = await client.query(
+      `SELECT id, evidence_kind
+         FROM ${SCHEMA}.contract_payment_evidence
+        WHERE claim_id = $1
+        ORDER BY created_at, id`,
+      [claimId],
+    );
+    return mapPaymentClaim(claim.rows[0], evidence.rows);
+  }
+
+  async function getContractPaymentContext(tenant, { contractId } = {}) {
+    const targetId = paymentUuid(contractId, 'contractId');
+    const result = await withTenant(tenant, async (client, config) => client.query(
+      `SELECT c.id, c.project_notion_page_id, c.project_code, c.contract_number,
+              c.amount, c.currency,
+              v.id AS version_id, v.version_no, v.status AS version_status,
+              v.contract_snapshot, v.bundle_sha256,
+              s.status AS signing_status, s.confirmed_at AS signing_confirmed_at,
+              s.completed_at AS signing_completed_at
+         FROM ${SCHEMA}.contracts c
+         JOIN ${SCHEMA}.contract_versions v ON v.id = c.current_version_id
+         LEFT JOIN LATERAL (
+           SELECT status, confirmed_at, completed_at
+             FROM ${SCHEMA}.signing_sessions
+            WHERE version_id = v.id
+            ORDER BY created_at DESC
+            LIMIT 1
+         ) s ON true
+        WHERE c.tenant_key = $1 AND c.id = $2
+        LIMIT 1`,
+      [config.tenantKey, targetId],
+    ), { readOnly: true });
+    const row = result.value.rows[0];
+    if (!row) return null;
+    return {
+      contract: {
+        id: row.id,
+        projectId: row.project_notion_page_id,
+        projectCode: row.project_code,
+        contractNumber: row.contract_number,
+        amount: Number(row.amount),
+        currency: row.currency,
+      },
+      version: {
+        id: row.version_id,
+        versionNo: Number(row.version_no || 0),
+        status: row.version_status,
+        contractSnapshot: row.contract_snapshot || {},
+        bundleSha256: row.bundle_sha256,
+      },
+      signingSession: {
+        status: row.signing_status || '',
+        confirmedAt: row.signing_confirmed_at || null,
+        completedAt: row.signing_completed_at || null,
+      },
+    };
+  }
+
+  async function findPaymentIdempotency(tenant, { action, idempotencyKey, contractId } = {}) {
+    const targetContractId = paymentUuid(contractId, 'contractId');
+    const result = await withTenant(tenant, async (client, config) => {
+      const event = await client.query(
+        `SELECT e.event_type AS "eventType", e.event_version AS "eventVersion",
+                p.contract_id AS "contractId", e.claim_id AS "claimId",
+                e.occurred_at AS "occurredAt", e.actor_kind AS "actorKind",
+                e.actor_ref AS actor, e.authority, e.idempotency_key AS "idempotencyKey",
+                e.evidence_fingerprint AS "evidenceFingerprint", e.details
+           FROM ${SCHEMA}.contract_payment_events e
+           JOIN ${SCHEMA}.contract_payment_claims p ON p.id = e.claim_id
+           JOIN ${SCHEMA}.contracts c ON c.id = p.contract_id
+          WHERE c.tenant_key = $1 AND p.contract_id = $2
+            AND e.event_type = $3 AND e.idempotency_key = $4
+          LIMIT 1`,
+        [config.tenantKey, targetContractId, String(action || ''), String(idempotencyKey || '')],
+      );
+      if (!event.rowCount) return null;
+      const claim = await paymentClaimById(client, config.tenantKey, event.rows[0].claimId);
+      return claim ? { claim, event: event.rows[0] } : null;
+    }, { readOnly: true });
+    return result.value;
+  }
+
+  async function createPaymentClaim(tenant, input = {}) {
+    const claim = input.claim || {};
+    const claimId = paymentUuid(claim.id, 'claimId');
+    const contractId = paymentUuid(claim.contractId, 'contractId');
+    const versionId = paymentUuid(claim.versionId, 'versionId');
+    const sourceMilestoneId = String(claim.milestoneId || '').trim();
+    const versionSha256 = String(claim.versionFingerprint || '').trim().toLowerCase();
+    const evidence = Array.isArray(claim.evidence) ? claim.evidence : [];
+    if (!sourceMilestoneId || sourceMilestoneId.length > 160 || !/^[a-f0-9]{64}$/.test(versionSha256)) {
+      throw paymentStoreError('Payment claim source milestone or frozen version evidence is invalid.');
+    }
+    if (!Number.isFinite(Number(claim.amount)) || Number(claim.amount) <= 0 || String(claim.currency || '').toUpperCase() !== 'TWD') {
+      throw paymentStoreError('Payment claim amount or currency is invalid.');
+    }
+    if (!evidence.length || evidence.some((item) => !item?.id || !item?.kind
+      || !/^[a-f0-9]{64}$/.test(String(item.sha256 || '').toLowerCase()))) {
+      throw paymentStoreError('Payment claim requires hash-verified evidence.');
+    }
+    if (new Set(evidence.map((item) => String(item.id))).size !== evidence.length) {
+      throw paymentStoreError('Payment claim evidence identifiers must be unique.');
+    }
+    return withTenant(tenant, async (client, config) => {
+      const snapshot = JSON.stringify({
+        id: sourceMilestoneId, label: String(claim.milestoneLabel || '').slice(0, 240),
+        amount: Number(claim.amount), currency: 'TWD',
+      });
+      const insertedItem = await client.query(
+        `INSERT INTO ${SCHEMA}.contract_payment_items
+           (contract_id, version_id, source_milestone_id, source_version_sha256, milestone_snapshot, status)
+         SELECT c.id, v.id, $3, $4, $5::jsonb, 'eligible'
+           FROM ${SCHEMA}.contracts c
+           JOIN ${SCHEMA}.contract_versions v ON v.id = $2 AND v.contract_id = c.id
+          WHERE c.tenant_key = $1 AND c.id = $6 AND v.status IN ('frozen','issued','superseded')
+            AND v.bundle_sha256 = $4
+         ON CONFLICT (contract_id, version_id, source_milestone_id) DO NOTHING
+         RETURNING id, source_version_sha256`,
+        [config.tenantKey, versionId, sourceMilestoneId, versionSha256, snapshot, contractId],
+      );
+      let paymentItem = insertedItem.rows[0] || null;
+      if (!paymentItem) {
+        const existing = await client.query(
+          `SELECT i.id, i.source_version_sha256
+             FROM ${SCHEMA}.contract_payment_items i
+             JOIN ${SCHEMA}.contracts c ON c.id = i.contract_id
+            WHERE c.tenant_key = $1 AND i.contract_id = $2 AND i.version_id = $3
+              AND i.source_milestone_id = $4
+            FOR UPDATE OF i`,
+          [config.tenantKey, contractId, versionId, sourceMilestoneId],
+        );
+        paymentItem = existing.rows[0] || null;
+      }
+      if (!paymentItem || paymentItem.source_version_sha256 !== versionSha256) {
+        throw paymentStoreError('Payment milestone is not available for this tenant and frozen contract version.',
+          'PAYMENT_STORE_MILESTONE_NOT_FOUND', 409);
+      }
+      const insertedClaim = await client.query(
+        `INSERT INTO ${SCHEMA}.contract_payment_claims
+           (id, payment_item_id, contract_id, version_id, source_milestone_id, source_version_sha256,
+            amount, currency, status, submitted_by, submitted_at, source_summary, review_due_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'submitted',$9,$10::timestamptz,$11,$12::timestamptz)
+         ON CONFLICT (id) DO NOTHING
+         RETURNING id`,
+        [claimId, paymentItem.id, contractId, versionId, sourceMilestoneId, versionSha256,
+          Number(claim.amount), 'TWD', String(input.actor || claim.submittedBy || ''),
+          claim.submittedAt, String(claim.sourceSummary || ''), claim.reviewDueAt || null],
+      );
+      if (!insertedClaim.rowCount) {
+        const existing = await paymentClaimById(client, config.tenantKey, claimId, { forUpdate: true });
+        if (existing && existing.contractId === contractId && existing.versionId === versionId
+          && existing.milestoneId === sourceMilestoneId && existing.amount === Number(claim.amount)
+          && existing.status === 'submitted') return { claim: existing, replayed: true };
+        throw paymentStoreError('Payment claim identifier conflicts with a different immutable claim.',
+          'PAYMENT_STORE_CLAIM_ID_CONFLICT', 409);
+      }
+      for (const item of evidence) {
+        await client.query(
+          `INSERT INTO ${SCHEMA}.contract_payment_evidence
+             (claim_id, evidence_kind, protected_reference, sha256)
+           VALUES ($1,$2,$3,$4)`,
+          [claimId, String(item.kind), String(item.id), String(item.sha256).toLowerCase()],
+        );
+      }
+      await client.query(
+        `UPDATE ${SCHEMA}.contract_payment_items
+            SET status = 'claim_submitted', projected_at = clock_timestamp()
+          WHERE id = $1`,
+        [paymentItem.id],
+      );
+      return { claim: await paymentClaimById(client, config.tenantKey, claimId) };
+    });
+  }
+
+  async function getPaymentClaim(tenant, { claimId } = {}) {
+    const targetId = paymentUuid(claimId, 'claimId');
+    const result = await withTenant(tenant, async (client, config) => (
+      paymentClaimById(client, config.tenantKey, targetId)
+    ), { readOnly: true });
+    return result.value;
+  }
+
+  async function recordPaymentReview(tenant, input = {}) {
+    const claimId = paymentUuid(input.claimId, 'claimId');
+    const claim = input.claim || {};
+    return withTenant(tenant, async (client, config) => {
+      const updated = await client.query(
+        `UPDATE ${SCHEMA}.contract_payment_claims p
+            SET status = $3, reviewed_by = $4, reviewed_at = $5::timestamptz,
+                review_summary = $6, updated_at = clock_timestamp(), row_version = row_version + 1
+           FROM ${SCHEMA}.contracts c
+          WHERE p.id = $1 AND p.contract_id = c.id AND c.tenant_key = $2
+            AND p.status = $7 AND p.submitted_by <> $4
+         RETURNING p.payment_item_id`,
+        [claimId, config.tenantKey, String(claim.status || ''), String(input.actor || ''),
+          claim.reviewedAt, String(claim.reviewSummary || ''), String(input.expectedStatus || '')],
+      );
+      if (!updated.rowCount) throw paymentStoreError('Payment claim state changed or review separation failed.',
+        'PAYMENT_STORE_REVIEW_CONFLICT', 409);
+      await client.query(
+        `UPDATE ${SCHEMA}.contract_payment_items
+            SET status = $2, projected_at = clock_timestamp()
+          WHERE id = $1`,
+        [updated.rows[0].payment_item_id, String(claim.status || '')],
+      );
+      return { claim: await paymentClaimById(client, config.tenantKey, claimId) };
+    });
+  }
+
+  async function recordPaymentApproval(tenant, input = {}) {
+    const claimId = paymentUuid(input.claimId, 'claimId');
+    const claim = input.claim || {};
+    return withTenant(tenant, async (client, config) => {
+      const updated = await client.query(
+        `UPDATE ${SCHEMA}.contract_payment_claims p
+            SET status = 'approved', approved_by = $3, approved_at = $4::timestamptz,
+                approval_summary = $5, updated_at = clock_timestamp(), row_version = row_version + 1
+           FROM ${SCHEMA}.contracts c
+          WHERE p.id = $1 AND p.contract_id = c.id AND c.tenant_key = $2
+            AND p.status = $6 AND p.submitted_by <> $3
+            AND COALESCE(p.reviewed_by,'') <> $3
+         RETURNING p.payment_item_id`,
+        [claimId, config.tenantKey, String(input.actor || ''), claim.approvedAt,
+          String(claim.approvalSummary || ''), String(input.expectedStatus || '')],
+      );
+      if (!updated.rowCount) throw paymentStoreError('Payment claim state changed or approval separation failed.',
+        'PAYMENT_STORE_APPROVAL_CONFLICT', 409);
+      await client.query(
+        `UPDATE ${SCHEMA}.contract_payment_items
+            SET status = 'approved', projected_at = clock_timestamp()
+          WHERE id = $1`,
+        [updated.rows[0].payment_item_id],
+      );
+      return { claim: await paymentClaimById(client, config.tenantKey, claimId) };
+    });
+  }
+
+  async function appendPaymentEvent(tenant, { event, idempotencyKey } = {}) {
+    const normalized = paymentEventJson(event);
+    const claimId = paymentUuid(normalized.claimId, 'claimId');
+    const contractId = paymentUuid(normalized.contractId, 'contractId');
+    if (!normalized.eventType || !normalized.eventVersion || !normalized.occurredAt
+      || !normalized.actorKind || !normalized.actor || !normalized.idempotencyKey
+      || !/^[a-f0-9]{64}$/.test(normalized.evidenceFingerprint)) {
+      throw paymentStoreError('Payment event is incomplete or has invalid evidence fingerprint.');
+    }
+    if (String(idempotencyKey || '') !== normalized.idempotencyKey) {
+      throw paymentStoreError('Payment event idempotency key does not match its payload.',
+        'PAYMENT_STORE_IDEMPOTENCY_MISMATCH', 409);
+    }
+    return withTenant(tenant, async (client, config) => {
+      const claim = await paymentClaimById(client, config.tenantKey, claimId, { forUpdate: true });
+      if (!claim || claim.contractId !== contractId) {
+        throw paymentStoreError('Payment event claim is outside the tenant contract scope.',
+          'PAYMENT_STORE_CLAIM_NOT_FOUND', 404);
+      }
+      const existing = await client.query(
+        `SELECT event_type, event_version, occurred_at, actor_kind, actor_ref, authority,
+                idempotency_key, evidence_fingerprint, details
+           FROM ${SCHEMA}.contract_payment_events
+          WHERE claim_id = $1 AND idempotency_key = $2
+          LIMIT 1`,
+        [claimId, normalized.idempotencyKey],
+      );
+      if (existing.rowCount) {
+        const row = existing.rows[0];
+        if (row.event_type !== normalized.eventType || row.event_version !== normalized.eventVersion
+          || row.evidence_fingerprint !== normalized.evidenceFingerprint) {
+          throw paymentStoreError('Payment event idempotency key conflicts with different evidence.',
+            'PAYMENT_STORE_EVENT_IDEMPOTENCY_CONFLICT', 409);
+        }
+        return { event: {
+          eventType: row.event_type, eventVersion: row.event_version, contractId, claimId,
+          occurredAt: row.occurred_at, actorKind: row.actor_kind, actor: row.actor_ref,
+          authority: row.authority, idempotencyKey: row.idempotency_key,
+          evidenceFingerprint: row.evidence_fingerprint, details: row.details,
+        }, replayed: true };
+      }
+      const sequence = await client.query(
+        `SELECT COALESCE(MAX(sequence_no),0) + 1 AS next_sequence
+           FROM ${SCHEMA}.contract_payment_events
+          WHERE claim_id = $1`,
+        [claimId],
+      );
+      const inserted = await client.query(
+        `INSERT INTO ${SCHEMA}.contract_payment_events
+           (claim_id, sequence_no, event_type, event_version, idempotency_key, occurred_at,
+            actor_kind, actor_ref, authority, evidence_fingerprint, details)
+         VALUES ($1,$2,$3,$4,$5,$6::timestamptz,$7,$8,$9::jsonb,$10,$11::jsonb)
+         RETURNING event_type, event_version, occurred_at, actor_kind, actor_ref, authority,
+                   idempotency_key, evidence_fingerprint, details`,
+        [claimId, Number(sequence.rows[0].next_sequence), normalized.eventType, normalized.eventVersion,
+          normalized.idempotencyKey, normalized.occurredAt, normalized.actorKind, normalized.actor,
+          JSON.stringify(normalized.authority), normalized.evidenceFingerprint, JSON.stringify(normalized.details)],
+      );
+      const row = inserted.rows[0];
+      return { event: {
+        eventType: row.event_type, eventVersion: row.event_version, contractId, claimId,
+        occurredAt: row.occurred_at, actorKind: row.actor_kind, actor: row.actor_ref,
+        authority: row.authority, idempotencyKey: row.idempotency_key,
+        evidenceFingerprint: row.evidence_fingerprint, details: row.details,
+      } };
+    });
+  }
+
   async function listContractTemplates(tenant) {
     const result = await withTenant(tenant, async (client) => client.query(
       `SELECT t.*,
@@ -1479,6 +2027,8 @@ export function createContractStore({ env = process.env, logger = console, poolF
     createVersion,
     listVersions,
     getVersion,
+    getAcceptanceContext,
+    appendAcceptanceEvent,
     transitionVersion,
     freezeVersion: freezeStoredVersion,
     issueVersion,
@@ -1491,6 +2041,13 @@ export function createContractStore({ env = process.env, logger = console, poolF
     recordArtifact,
     getSigningBundle,
     listContracts,
+    getContractPaymentContext,
+    findPaymentIdempotency,
+    createPaymentClaim,
+    getPaymentClaim,
+    recordPaymentReview,
+    recordPaymentApproval,
+    appendPaymentEvent,
     listContractTemplates,
     getContractTemplateVersion,
     createContractTemplateVersion,
@@ -1512,4 +2069,5 @@ export function createContractStore({ env = process.env, logger = console, poolF
 
 export const __test = { canonical, sha256, configFor, databaseTls, parseCertificateAuthority,
   parseCertificateFingerprint, pinnedServerIdentity, productionRuntime, SCHEMA_VERSION,
-  COMPATIBLE_SCHEMA_VERSIONS, REQUIRED_CORE_TABLES, compatibleSchemaVersion, statusCapabilities };
+  COMPATIBLE_SCHEMA_VERSIONS, REQUIRED_CORE_TABLES, compatibleSchemaVersion, statusCapabilities,
+  isUuid, mapPaymentClaim, paymentEventJson };

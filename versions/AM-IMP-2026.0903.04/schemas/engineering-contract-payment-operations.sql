@@ -6,6 +6,12 @@
 -- Engineering deployment owner. Do not run this file against a shared tenant
 -- database and do not place live data or credentials in this package.
 
+\if :{?runtime_role}
+\else
+  \echo 'runtime_role is required (use -v runtime_role=<restricted role>)'
+  \quit 3
+\endif
+
 BEGIN;
 
 CREATE SCHEMA IF NOT EXISTS engineering_contracts;
@@ -48,6 +54,9 @@ CREATE TABLE IF NOT EXISTS engineering_contracts.contract_payment_claims (
   approved_by text,
   approved_at timestamptz,
   source_summary text NOT NULL DEFAULT '' CHECK (length(source_summary) <= 300),
+  review_summary text NOT NULL DEFAULT '' CHECK (length(review_summary) <= 500),
+  approval_summary text NOT NULL DEFAULT '' CHECK (length(approval_summary) <= 500),
+  review_due_at timestamptz,
   row_version bigint NOT NULL DEFAULT 1 CHECK (row_version >= 1),
   created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
@@ -114,5 +123,88 @@ DROP TRIGGER IF EXISTS engineering_contract_payment_events_no_update
 CREATE TRIGGER engineering_contract_payment_events_no_update
 BEFORE UPDATE OR DELETE ON engineering_contracts.contract_payment_events
 FOR EACH ROW EXECUTE FUNCTION engineering_contracts.reject_contract_payment_event_mutation();
+
+ALTER TABLE engineering_contracts.contract_payment_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE engineering_contracts.contract_payment_items FORCE ROW LEVEL SECURITY;
+ALTER TABLE engineering_contracts.contract_payment_claims ENABLE ROW LEVEL SECURITY;
+ALTER TABLE engineering_contracts.contract_payment_claims FORCE ROW LEVEL SECURITY;
+ALTER TABLE engineering_contracts.contract_payment_evidence ENABLE ROW LEVEL SECURITY;
+ALTER TABLE engineering_contracts.contract_payment_evidence FORCE ROW LEVEL SECURITY;
+ALTER TABLE engineering_contracts.contract_payment_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE engineering_contracts.contract_payment_events FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS engineering_contract_payment_items_tenant_policy
+  ON engineering_contracts.contract_payment_items;
+CREATE POLICY engineering_contract_payment_items_tenant_policy
+  ON engineering_contracts.contract_payment_items
+  USING (EXISTS (
+    SELECT 1 FROM engineering_contracts.contracts c
+     WHERE c.id = contract_payment_items.contract_id
+       AND c.tenant_key = current_setting('app.tenant_key', true)
+  ))
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM engineering_contracts.contracts c
+     WHERE c.id = contract_payment_items.contract_id
+       AND c.tenant_key = current_setting('app.tenant_key', true)
+  ));
+
+DROP POLICY IF EXISTS engineering_contract_payment_claims_tenant_policy
+  ON engineering_contracts.contract_payment_claims;
+CREATE POLICY engineering_contract_payment_claims_tenant_policy
+  ON engineering_contracts.contract_payment_claims
+  USING (EXISTS (
+    SELECT 1 FROM engineering_contracts.contracts c
+     WHERE c.id = contract_payment_claims.contract_id
+       AND c.tenant_key = current_setting('app.tenant_key', true)
+  ))
+  WITH CHECK (EXISTS (
+    SELECT 1 FROM engineering_contracts.contracts c
+     WHERE c.id = contract_payment_claims.contract_id
+       AND c.tenant_key = current_setting('app.tenant_key', true)
+  ));
+
+DROP POLICY IF EXISTS engineering_contract_payment_evidence_tenant_policy
+  ON engineering_contracts.contract_payment_evidence;
+CREATE POLICY engineering_contract_payment_evidence_tenant_policy
+  ON engineering_contracts.contract_payment_evidence
+  USING (EXISTS (
+    SELECT 1
+      FROM engineering_contracts.contract_payment_claims p
+      JOIN engineering_contracts.contracts c ON c.id = p.contract_id
+     WHERE p.id = contract_payment_evidence.claim_id
+       AND c.tenant_key = current_setting('app.tenant_key', true)
+  ))
+  WITH CHECK (EXISTS (
+    SELECT 1
+      FROM engineering_contracts.contract_payment_claims p
+      JOIN engineering_contracts.contracts c ON c.id = p.contract_id
+     WHERE p.id = contract_payment_evidence.claim_id
+       AND c.tenant_key = current_setting('app.tenant_key', true)
+  ));
+
+DROP POLICY IF EXISTS engineering_contract_payment_events_tenant_policy
+  ON engineering_contracts.contract_payment_events;
+CREATE POLICY engineering_contract_payment_events_tenant_policy
+  ON engineering_contracts.contract_payment_events
+  USING (EXISTS (
+    SELECT 1
+      FROM engineering_contracts.contract_payment_claims p
+      JOIN engineering_contracts.contracts c ON c.id = p.contract_id
+     WHERE p.id = contract_payment_events.claim_id
+       AND c.tenant_key = current_setting('app.tenant_key', true)
+  ))
+  WITH CHECK (EXISTS (
+    SELECT 1
+      FROM engineering_contracts.contract_payment_claims p
+      JOIN engineering_contracts.contracts c ON c.id = p.contract_id
+     WHERE p.id = contract_payment_events.claim_id
+       AND c.tenant_key = current_setting('app.tenant_key', true)
+  ));
+
+GRANT USAGE ON SCHEMA engineering_contracts TO :"runtime_role";
+GRANT SELECT, INSERT, UPDATE ON engineering_contracts.contract_payment_items TO :"runtime_role";
+GRANT SELECT, INSERT, UPDATE ON engineering_contracts.contract_payment_claims TO :"runtime_role";
+GRANT SELECT, INSERT ON engineering_contracts.contract_payment_evidence TO :"runtime_role";
+GRANT SELECT, INSERT ON engineering_contracts.contract_payment_events TO :"runtime_role";
 
 COMMIT;
