@@ -1,6 +1,6 @@
 # AM-IMP-2026.0907.01 - Reliable LINE group onboarding confirmation
 
-Status: Installed
+Status: Deployed
 
 ## Engineering installation
 
@@ -14,5 +14,10 @@ Status: Installed
 
 ## Verification boundary
 
-Local verification passes. Production deployment and one target-group retry
-are pending; no group binding or LINE message was created by this package.
+Local parser, reply/push-delivery, core, syntax, package and whitespace checks
+passed. PR #122 was merged at commit `137a535`; Render deployment
+`dep-daf6a695efls73ag57ig` reached Live. Production health returned HTTP 200,
+reported build `engineering-group-onboarding-confirmation-2026-09-07`, and
+confirmed Engineering LINE, Notion and group routing are ready. The target
+group must resend its command once to complete the actual binding; deployment
+verification did not create a binding or send a LINE message.

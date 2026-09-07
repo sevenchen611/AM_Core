@@ -3,7 +3,7 @@
   "name": "Reliable LINE group onboarding confirmation",
   "type": "AM Platform / LINE onboarding / confirmation reliability",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-09-07",
   "dependsOn": ["AM-IMP-2026.0828.02"],
   "installTargets": ["AM_PLATFORM:engineering"],
