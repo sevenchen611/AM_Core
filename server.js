@@ -11,6 +11,7 @@ import { safePortalHandoffLocation } from './core/portal-handoff.js';
 import { sendJson, sendText, readBody } from './core/util.js';
 import {
   GROUP_ONBOARDING_BUILD,
+  deliverGroupOnboardingReply,
   groupOnboardingProperties,
   groupOnboardingRepairProperties,
   groupOnboardingSuccessMessage,
@@ -139,7 +140,8 @@ function bindingMemberMap(row) {
 }
 
 async function replyLine(event, text) {
-  if (event.replyToken) await line.replyLineMessage(event.replyToken, text).catch(() => {});
+  const result = await deliverGroupOnboardingReply({ line, event, text, logger });
+  return result.delivered;
 }
 
 async function maybeHandleGroupOnboardingCommand(event, groupId, resolved = {}) {

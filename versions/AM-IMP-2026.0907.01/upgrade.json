@@ -1,0 +1,38 @@
+{
+  "id": "AM-IMP-2026.0907.01",
+  "name": "Reliable LINE group onboarding confirmation",
+  "type": "AM Platform / LINE onboarding / confirmation reliability",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-07",
+  "dependsOn": ["AM-IMP-2026.0828.02"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Normalize common LINE quotation, invisible-character, spacing, and full-width command variants",
+    "Fall back to an idempotent group push when the reply token cannot deliver the result",
+    "Log both reply and push delivery failures instead of silently discarding them"
+  ],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-core.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The existing groupId and tenant-local Notion guards remain authoritative; the change only improves command recognition and response delivery."
+  },
+  "definitionOfDone": [
+    "The reported Engineering AM command and common LINE formatting variants are recognized",
+    "Every recognized onboarding command attempts a visible success or failure response",
+    "A failed reply-token delivery attempts one idempotent push to the same source group",
+    "Cross-tenant duplicate binding and tenant-local storage guards remain unchanged"
+  ],
+  "files": [
+    "core/group-onboarding.js",
+    "server.js",
+    "tools/dryrun-core.mjs"
+  ]
+}

@@ -10,6 +10,7 @@ import {
   groupOnboardingProperties,
   groupOnboardingRepairProperties,
   groupOnboardingSuccessMessage,
+  deliverGroupOnboardingReply,
   parseGroupOnboardingCommand,
   supportedGroupOnboardingExamples,
   withResolvedGroupName,
@@ -271,6 +272,63 @@ await check('通用群組綁定指令可解析工程 AM / Forest / Green / HOZO'
     { tenantKey: 'hozo-am-2-0', groupName: '營運處 VS 好住寓好' },
   );
   assert.match(parseGroupOnboardingCommand('綁定 營運群').error, /格式不完整/);
+});
+
+await check('工程 AM 綁定指令容忍 LINE 引號、不可見字元與全形字母', () => {
+  for (const text of [
+    '「綁定 工程 AM 群組：明義街水電/洪鵬舜」',
+    '\uFEFF綁定\u200B 工程 AM 群組：明義街水電/洪鵬舜',
+    '綁定工程 AM群組=明義街水電/洪鵬舜',
+    '綁定 工程 ＡＭ 群組：明義街水電／洪鵬舜',
+  ]) {
+    const command = parseGroupOnboardingCommand(text);
+    assert.equal(command.isCommand, true);
+    assert.equal(command.tenantKey, 'engineering');
+    assert.equal(command.groupName, '明義街水電/洪鵬舜');
+  }
+  assert.match(parseGroupOnboardingCommand('「綁定 工程 AM」').error, /格式不完整/);
+});
+
+await check('群組綁定確認在 reply token 失敗時改用群組推播', async () => {
+  const calls = [];
+  const event = {
+    replyToken: 'expired-reply-token',
+    webhookEventId: 'webhook-event-1',
+    source: { groupId: 'gEngineering' },
+    message: { id: 'message-1' },
+  };
+  const delivered = await deliverGroupOnboardingReply({
+    event,
+    text: '已綁定 工程 AM：明義街水電/洪鵬舜',
+    line: {
+      replyLineMessage: async () => { calls.push('reply'); throw new Error('reply token expired'); },
+      pushLineMessage: async (to, text, mention, delivery) => calls.push({ to, text, mention, delivery }),
+    },
+    logger: { warn: () => {}, log: () => {} },
+  });
+  assert.deepEqual(delivered, { delivered: true, method: 'push' });
+  assert.equal(calls[0], 'reply');
+  assert.deepEqual(calls[1], {
+    to: 'gEngineering',
+    text: '已綁定 工程 AM：明義街水電/洪鵬舜',
+    mention: undefined,
+    delivery: { retryKey: 'group-onboarding:webhook-event-1' },
+  });
+});
+
+await check('群組綁定確認由 reply token 送達時不重複推播', async () => {
+  const calls = [];
+  const delivered = await deliverGroupOnboardingReply({
+    event: { replyToken: 'valid-reply-token', source: { groupId: 'gEngineering' } },
+    text: '已綁定 工程 AM：明義街水電/洪鵬舜',
+    line: {
+      replyLineMessage: async () => calls.push('reply'),
+      pushLineMessage: async () => calls.push('push'),
+    },
+    logger: { warn: () => {}, log: () => {} },
+  });
+  assert.deepEqual(delivered, { delivered: true, method: 'reply' });
+  assert.deepEqual(calls, ['reply']);
 });
 
 await check('工程 AM 新綁定採用正式功能與安全的未分類工程欄位', () => {

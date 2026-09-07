@@ -7,7 +7,7 @@
 
 import { textItem } from './util.js';
 
-export const GROUP_ONBOARDING_BUILD = 'engineering-group-onboarding-2026-08-28';
+export const GROUP_ONBOARDING_BUILD = 'engineering-group-onboarding-confirmation-2026-09-07';
 export const LEGACY_HOZO20_BIND_COMMAND = '<绑定 HOZOAM 2.0 群组>';
 
 export const ONBOARDING_TENANTS = [
@@ -61,10 +61,11 @@ const normalizedAlias = (value) => String(value || '')
 
 export function normalizeGroupOnboardingText(value) {
   return String(value || '')
+    .normalize('NFKC')
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
     .trim()
-    .replace(/[＜]/g, '<')
-    .replace(/[＞]/g, '>')
-    .replace(/[：]/g, ':')
+    .replace(/^[「『“”"'`]+/, '')
+    .replace(/[」』“”"'`]+$/, '')
     .replace(/\s+/g, ' ');
 }
 
@@ -98,9 +99,9 @@ export function parseGroupOnboardingCommand(value) {
     };
   }
 
-  const match = text.match(/^(綁定|绑定)\s+(.+?)\s*(群組|群组)\s*:\s*(.+)$/i);
+  const match = text.match(/^(綁定|绑定)\s*(.+?)\s*(群組|群组)\s*[:=]\s*(.+)$/i);
   if (!match) {
-    return /^(綁定|绑定)(\s|$)/i.test(text)
+    return /^(綁定|绑定)/i.test(text)
       ? { isCommand: true, error: '格式不完整，請指定 AM 租戶與群組名稱。', sourceCommand: text }
       : { isCommand: false };
   }
@@ -146,6 +147,28 @@ export function groupOnboardingSuccessMessage({
   const statusLine = includeStatus && statusLabel ? `\n狀態：${statusLabel}` : '';
   const instructionLine = command?.postBindInstruction ? `\n${command.postBindInstruction}` : '';
   return `${action} ${tenantDisplayName}：${command.groupName}${statusLine}${instructionLine}`;
+}
+
+export async function deliverGroupOnboardingReply({ line, event, text, logger = console }) {
+  if (event?.replyToken && typeof line?.replyLineMessage === 'function') {
+    try {
+      await line.replyLineMessage(event.replyToken, text);
+      return { delivered: true, method: 'reply' };
+    } catch (error) {
+      logger.warn?.(`Group onboarding LINE reply failed; trying group push fallback: ${error.message}`);
+    }
+  }
+  const groupId = event?.source?.groupId || event?.source?.roomId || '';
+  if (!groupId || typeof line?.pushLineMessage !== 'function') return { delivered: false, method: 'none' };
+  try {
+    const sourceKey = event.webhookEventId || event.message?.id || `${groupId}:${event.timestamp || ''}`;
+    await line.pushLineMessage(groupId, text, undefined, { retryKey: `group-onboarding:${sourceKey}` });
+    logger.log?.(`Group onboarding confirmation delivered by push fallback (group=${groupId}).`);
+    return { delivered: true, method: 'push' };
+  } catch (error) {
+    logger.warn?.(`Group onboarding push fallback failed (group=${groupId}): ${error.message}`);
+    return { delivered: false, method: 'push' };
+  }
 }
 
 function memberMapProperty(existingMembers = {}, member = null) {
