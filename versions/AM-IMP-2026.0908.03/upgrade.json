@@ -1,0 +1,68 @@
+{
+  "id": "AM-IMP-2026.0908.03",
+  "name": "Contract IP evidence and explicit event timeline",
+  "type": "AM Platform / Engineering contracts / signing audit evidence",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-09-08",
+  "dependsOn": [
+    "AM-IMP-2026.0908.02"
+  ],
+  "installTargets": [
+    "AM_PLATFORM:engineering"
+  ],
+  "scope": [
+    "Persist the trusted issuance-request IP on issued and sent signing events",
+    "Retain Party A and Party B first-open and signature-submission IP evidence",
+    "Expose full IP values only in authorized single-contract detail",
+    "Use a structured dual-party IP section in new evidence receipts",
+    "Replace generic timeline entries with action-specific titles and complete explanations",
+    "Explain exactly which final PDF, receipt, and signature evidence files were preserved"
+  ],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-signing.mjs",
+    "tools/dryrun-engineering-contract-runtime.mjs",
+    "tools/dryrun-engineering-contract-issuance.mjs",
+    "tools/dryrun-engineering-contract-outbox.mjs",
+    "tools/dryrun-engineering-contract-completion.mjs",
+    "tools/dryrun-engineering-contract-control-center.mjs",
+    "tools/dryrun-engineering-contract-control-web.mjs",
+    "tools/dryrun-engineering-contract-workflow-api.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Full IP evidence is tenant/project scoped and returned only by an authorized single-contract detail request. Bulk summaries, LINE messages and public workflow results omit it."
+  },
+  "definitionOfDone": [
+    "New issued and sent events retain the trusted source IP without persisting raw proxy headers",
+    "Party A and Party B open/sign IPs remain append-only PostgreSQL evidence",
+    "The detail drawer clearly displays dispatch, first-open and signature-submission IPs",
+    "Every supported signing event has a specific title and full explanation",
+    "New evidence receipts contain structured dispatch, Party A, Party B and internal IP evidence",
+    "The Engineering production Render service is live and HZ-CT-001 is verified read-only"
+  ],
+  "files": [
+    "modules/construction/contract-signing.js",
+    "modules/construction/contract-runtime.js",
+    "modules/construction/contract-issuance.js",
+    "modules/construction/contract-outbox.js",
+    "modules/construction/contract-completion.js",
+    "modules/construction/contract-control-center.js",
+    "modules/construction/contract-control-center-web.js",
+    "modules/construction/contract-workflow-api.js",
+    "tools/dryrun-engineering-contract-signing.mjs",
+    "tools/dryrun-engineering-contract-runtime.mjs",
+    "tools/dryrun-engineering-contract-issuance.mjs",
+    "tools/dryrun-engineering-contract-outbox.mjs",
+    "tools/dryrun-engineering-contract-completion.mjs",
+    "tools/dryrun-engineering-contract-control-center.mjs",
+    "tools/dryrun-engineering-contract-control-web.mjs",
+    "tools/dryrun-engineering-contract-workflow-api.mjs"
+  ]
+}
+

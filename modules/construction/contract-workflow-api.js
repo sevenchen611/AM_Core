@@ -26,6 +26,11 @@ const UNTRUSTED_AUTHORIZATION_FIELDS = Object.freeze([
   'projectAuthorization',
   'allowedProjectIds',
   'allowedProjectCodes',
+  'requestMeta',
+  'requestIp',
+  'requestUserAgent',
+  'ipAddress',
+  'ipEvidence',
 ]);
 
 function apiError(code, message, statusCode = 400, details = {}) {
@@ -322,7 +327,10 @@ export function createContractWorkflowApiHandler(deps) {
         res.setHeader?.('Allow', route.allow);
         throw apiError('METHOD_NOT_ALLOWED', 'HTTP method is not allowed for this endpoint.', 405);
       }
-      const context = requireAuthority(deps, authority);
+      const context = {
+        ...requireAuthority(deps, authority),
+        requestMeta: signingRequestMeta(req),
+      };
       requireCapability(authority, route.capability);
       if (!route.issuance && !route.completion && !route.revocation && !route.review && !route.finalArtifact) {
         service ||= createContractManagementService({

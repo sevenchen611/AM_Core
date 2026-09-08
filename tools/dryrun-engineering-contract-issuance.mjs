@@ -5,7 +5,10 @@ const HASH = 'a'.repeat(64);
 const PDF_HASH = 'b'.repeat(64);
 const FILE_ID = 'driveFile_1234567890';
 const calls = [];
-const context = { tenant: { key: 'engineering' }, actor: 'server-admin-7', scope: ['project-1'] };
+const context = {
+  tenant: { key: 'engineering' }, actor: 'server-admin-7', scope: ['project-1'],
+  requestMeta: { remoteAddress: '198.51.100.17', headers: { 'user-agent': 'Engineering AM Issuer' } },
+};
 
 function fixture(overrides = {}) {
   const contract = {
@@ -222,9 +225,13 @@ function fixture(overrides = {}) {
   assert.equal(issueCall.actor, 'server-admin-7');
   assert.equal(issueCall.issuedPdfDriveFileId, FILE_ID);
   assert.equal(issueCall.issuedPdfSha256, PDF_HASH);
+  const invitation = issueCall.outbox.find((job) => job.eventKind === 'line_signing_invitation');
+  assert.equal(invitation.payload.requestIp, '198.51.100.17');
+  assert.equal(invitation.payload.requestUserAgent, 'Engineering AM Issuer');
   assert.equal(sessions[0].lineGroupId, 'C-authoritative-group');
   assert.equal(sessions[0].signerLineUserId, 'U-signer');
   assert.equal(sessions[0].documentHash, PDF_HASH);
+  assert.equal(sessions[0].requestIp, '198.51.100.17');
   assert.equal(sessions[0].documentRef, `https://drive.google.com/file/d/${FILE_ID}/view`);
   assert.equal(result.documentHash, PDF_HASH);
   assert.equal(result.documentRef, sessions[0].documentRef);

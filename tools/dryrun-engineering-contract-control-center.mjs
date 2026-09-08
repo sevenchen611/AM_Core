@@ -10,7 +10,7 @@ const rows = [
 const versions = {
   'version-1': { id: 'version-1', contract_snapshot: { documentPackage: { partyAProfileSnapshot: { profileType: 'individual' }, paymentMilestones: [{ name: '第一期' }], acceptanceCriteria: [{ criterion: '結構驗收' }] } } },
   'version-2': { id: 'version-2', contract_snapshot: { documentPackage: { partyAProfileSnapshot: { profileType: 'company', assets: { large_seal: { fileId: 'private-file' } } } } } },
-  'version-3': { id: 'version-3', contract_snapshot: { documentPackage: { partyAProfileSnapshot: { profileType: 'individual' } } } },
+  'version-3': { id: 'version-3', version_no: 14, contract_snapshot: { documentPackage: { partyAProfileSnapshot: { profileType: 'individual' } } } },
 };
 const bundles = {
   'session-1': {
@@ -24,7 +24,7 @@ const bundles = {
   },
   'session-3': {
     contract: { id: 'contract-3' },
-    version: { id: 'version-3' },
+    version: { id: 'version-3', versionNo: 14 },
     session: {
       external_session_id: 'session-3', status: 'completed', partyASignerLineUserId: 'party-a-private',
       partyASubmission: { receivedAt: '2026-09-03T02:10:00.000Z' },
@@ -32,12 +32,19 @@ const bundles = {
       confirmedAt: '2026-09-03T02:14:00.000Z', completedAt: '2026-09-03T02:15:00.000Z',
     },
     events: [
-      { event_type: 'party_a_signed', occurred_at: '2026-09-03T02:10:00.000Z' },
-      { event_type: 'signed', occurred_at: '2026-09-03T02:12:00.000Z' },
-      { event_type: 'confirmed', occurred_at: '2026-09-03T02:14:00.000Z' },
-      { event_type: 'completed', occurred_at: '2026-09-03T02:15:00.000Z' },
+      { event_type: 'issued', occurred_at: '2026-09-03T02:00:00.000Z', ip_address: '198.51.100.10', actor_kind: 'admin' },
+      { event_type: 'sent', occurred_at: '2026-09-03T02:01:00.000Z', ip_address: '198.51.100.10', actor_kind: 'system' },
+      { event_type: 'party_a_first_opened', occurred_at: '2026-09-03T02:08:00.000Z', ip_address: '203.0.113.21', actor_kind: 'signer' },
+      { event_type: 'party_a_signed', occurred_at: '2026-09-03T02:10:00.000Z', ip_address: '203.0.113.22', actor_kind: 'signer' },
+      { event_type: 'party_a_submission_received', occurred_at: '2026-09-03T02:10:00.000Z', ip_address: '203.0.113.22', actor_kind: 'system' },
+      { event_type: 'first_opened', occurred_at: '2026-09-03T02:11:00.000Z', ip_address: '203.0.113.31', actor_kind: 'signer' },
+      { event_type: 'signed', occurred_at: '2026-09-03T02:12:00.000Z', ip_address: '203.0.113.32', actor_kind: 'signer' },
+      { event_type: 'submission_received', occurred_at: '2026-09-03T02:12:00.000Z', ip_address: '203.0.113.32', actor_kind: 'system' },
+      { event_type: 'confirmed', occurred_at: '2026-09-03T02:14:00.000Z', ip_address: '198.51.100.40', actor_kind: 'admin' },
+      { event_type: 'completed', occurred_at: '2026-09-03T02:15:00.000Z', ip_address: '198.51.100.40', actor_kind: 'admin' },
     ],
     artifacts: [
+      { artifact_kind: 'party_a_signature_image', created_at: '2026-09-03T02:10:01.000Z' },
       { artifact_kind: 'signed_pdf', created_at: '2026-09-03T02:15:01.000Z' },
       { artifact_kind: 'evidence_receipt', created_at: '2026-09-03T02:15:02.000Z' },
     ],
@@ -71,6 +78,7 @@ assert.equal(detail.timeline.length, 3);
 assert.equal(JSON.stringify(detail).includes('must-not-leak'), false);
 const archived = await service.detail({ tenant, scope: new Set(['project-demolition']) }, 'contract-3');
 const archivedSummary = model.contracts.find((contract) => contract.contractId === 'contract-3');
+assert.equal(Object.hasOwn(archivedSummary.partyA, 'signedIp'), false, 'bulk summary must not expose full IP evidence');
 assert.equal(archived.contract.workflowStatus, 'archived');
 assert.equal(archived.contract.overallStatus, '簽署與歸檔完成');
 assert.equal(archived.contract.partyA.label, '甲方已簽署');
@@ -94,9 +102,22 @@ assert.deepEqual(
   },
   'summary and detail must use the same authoritative signing projection',
 );
-assert.equal(archived.timeline.length, 6);
+assert.equal(archived.contract.partyA.dispatchIp, '198.51.100.10');
+assert.equal(archived.contract.partyA.openedIp, '203.0.113.21');
+assert.equal(archived.contract.partyA.signedIp, '203.0.113.22');
+assert.equal(archived.contract.partyB.dispatchIp, '198.51.100.10');
+assert.equal(archived.contract.partyB.openedIp, '203.0.113.31');
+assert.equal(archived.contract.partyB.signedIp, '203.0.113.32');
+assert.equal(archived.timeline.length, 13);
+assert.equal(archived.timeline[0].label, '正式簽發合約 V14');
+assert.match(archived.timeline[0].summary, /線上簽署文件/);
+assert.equal(archived.timeline[0].ipAddress, '198.51.100.10');
+assert.equal(archived.timeline.some((event) => event.label === '其他簽署流程紀錄'), false);
+assert.match(archived.timeline.find((event) => event.type === 'party_a_submission_received').summary, /甲方簽名資料/);
+assert.match(archived.timeline.find((event) => event.type === 'submission_received').summary, /乙方簽名與身分資料/);
 assert.deepEqual(archived.timeline.slice(-2).map((event) => event.label), [
-  '最終簽署合約 PDF 已封存', '簽署證據收據已封存',
+  '甲乙雙方完成簽署的最終合約 PDF 已保存', '完整簽署證據收據 JSON 已保存',
 ]);
+assert.match(archived.timeline.at(-1).summary, /來源 IP/);
 await assert.rejects(() => service.detail({ tenant, scope: new Set(['project-new']) }, 'contract-1'), { code: 'CONTRACT_NOT_FOUND' });
 console.log('dryrun-engineering-contract-control-center: OK');

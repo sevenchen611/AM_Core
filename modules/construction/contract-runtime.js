@@ -3,7 +3,7 @@ import { BlockList, isIP } from 'node:net';
 import { createContractArtifactService } from './contract-artifacts.js';
 import { composeDraftBundle, extractContractBodyForVersion } from './contract-draft-review.js';
 import { hydratePartyASigningAssets, partyAProfileContext } from './contract-party-a-profiles.js';
-import { createContractSigningService } from './contract-signing.js';
+import { createContractSigningService, getTrustedClientIp } from './contract-signing.js';
 
 const RENDER_PROXY_SENTINEL = 'render';
 const RENDER_INTERNAL_PROXY_PEERS = new BlockList();
@@ -46,6 +46,27 @@ function trustedProxyOptions(config) {
 
 function contractConfig(deps) {
   return deps.tenant?.config?.contracts || {};
+}
+
+function requestHeader(headers, name) {
+  if (!headers) return '';
+  if (typeof headers.get === 'function') return String(headers.get(name) || '').trim();
+  const wanted = String(name).toLowerCase();
+  const entry = Object.entries(headers).find(([key]) => String(key).toLowerCase() === wanted);
+  if (!entry) return '';
+  return String(Array.isArray(entry[1]) ? entry[1].join(',') : entry[1] || '').trim();
+}
+
+/**
+ * Resolve the small, server-owned evidence envelope that may safely cross the
+ * durable issuance outbox. Raw proxy headers are never persisted.
+ */
+export function signingRequestEvidence(deps, requestMeta = {}) {
+  const config = contractConfig(deps);
+  return Object.freeze({
+    ip: getTrustedClientIp(requestMeta, trustedProxyOptions(config)),
+    userAgent: requestHeader(requestMeta.headers, 'user-agent').slice(0, 400),
+  });
 }
 
 function exactHttpsOrigin(value) {

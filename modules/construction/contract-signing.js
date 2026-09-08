@@ -497,6 +497,7 @@ export function createContractSigningService(options = {}) {
 
   async function issueSigningRequest(input = {}) {
     const issuedAt = nowIso();
+    const evidence = requestEvidence(input.requestMeta);
     const durableKey = optionalText(input.idempotencyKey, 500);
     // A durable outbox may retry after a process restart. Derive the opaque
     // token from the high-entropy pepper and the server-owned outbox key so the
@@ -536,7 +537,8 @@ export function createContractSigningService(options = {}) {
     }
     appendEvent(session, {
       type: 'issued', at: issuedAt, actorType: 'admin', actorId: input.actorId,
-      idempotencyKey: `issued:${id}`, metadata: { channel: 'line_group' }, randomBytes,
+      idempotencyKey: `issued:${id}`, ip: evidence.ip, userAgent: evidence.userAgent,
+      metadata: { channel: 'line_group', evidenceRole: 'issuance_request' }, randomBytes,
     });
     if (!await storage.create(session)) {
       if (!durableKey) throw signingError('SIGNING_COLLISION', '簽署識別碼發生衝突，請重試。', 409);
@@ -568,7 +570,7 @@ export function createContractSigningService(options = {}) {
     };
   }
 
-  async function sendInvitation({ sessionId, token } = {}) {
+  async function sendInvitation({ sessionId, token, requestMeta } = {}) {
     const id = requiredText(sessionId, 'sessionId');
     const rawToken = requiredText(token, 'token', 500);
     let session = await storage.getById(id);
@@ -592,6 +594,7 @@ export function createContractSigningService(options = {}) {
       throw signingError('LINE_SEND_NOT_ACCEPTED', 'LINE 未接受簽署邀請，尚未記錄為已發送。', 502);
     }
     const sentAt = nowIso();
+    const evidence = requestEvidence(requestMeta);
     const updated = await mutate(id, (draft) => {
       const duplicate = findIdempotentEvent(draft, 'sent', `sent:${id}`);
       if (duplicate) return { noWrite: true, result: { sentAt: duplicate.at, idempotent: true } };
@@ -599,10 +602,12 @@ export function createContractSigningService(options = {}) {
       draft.status = draft.status === 'issued' ? 'sent' : draft.status;
       appendEvent(draft, {
         type: 'sent', at: sentAt, actorType: 'system', idempotencyKey: `sent:${id}`,
+        ip: evidence.ip, userAgent: evidence.userAgent,
         metadata: {
           channel: 'line_group',
           providerAccepted: true,
           providerMessageId: optionalText(providerResult.messageId, 240),
+          evidenceRole: 'issuance_request',
           // Deliberately no `delivered` or `read` flag.
         },
         randomBytes,
@@ -627,7 +632,7 @@ export function createContractSigningService(options = {}) {
   async function issueAndSend(input = {}) {
     const issued = await issueSigningRequest(input);
     try {
-      const sent = await sendInvitation({ sessionId: issued.sessionId, token: issued.token });
+      const sent = await sendInvitation({ sessionId: issued.sessionId, token: issued.token, requestMeta: input.requestMeta });
       return { ...issued, sentAt: sent.sentAt, sent: true };
     } catch (failure) {
       // Raw tokens are never persisted. If LINE does not accept the invitation,

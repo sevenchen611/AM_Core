@@ -4,6 +4,11 @@ import { Readable } from 'node:stream';
 import { createContractWorkflowApiHandler } from '../modules/construction/contract-workflow-api.js';
 import { __test as workflowApiTest } from '../modules/construction/contract-workflow-api.js';
 
+assert.deepEqual(workflowApiTest.cleanRequestInput({
+  contractId: 'contract-1', requestMeta: { remoteAddress: '192.0.2.1' },
+  requestIp: '192.0.2.2', requestUserAgent: 'forged', ipAddress: '192.0.2.3', ipEvidence: { forged: true },
+}), { contractId: 'contract-1' });
+
 const NOW = '2026-08-28T01:30:00.000Z';
 
 function completePackage() {

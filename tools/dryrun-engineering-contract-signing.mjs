@@ -200,6 +200,10 @@ const finalArtifactHash = digest('final-evidence-bundle-v1');
 
 // Issue and send through the project LINE group. The raw token is returned once
 // to the caller, while storage receives only its SHA-256 digest.
+const issuanceRequest = {
+  remoteAddress: '198.51.100.7',
+  headers: { 'user-agent': 'Engineering AM Issuer' },
+};
 const issued = await service.issueAndSend({
   projectId: 'project-001',
   contractId: 'contract-001',
@@ -208,6 +212,7 @@ const issued = await service.issueAndSend({
   lineGroupId: 'C-engineering',
   signerLineUserId: 'U-signer',
   actorId: 'admin-seven',
+  requestMeta: issuanceRequest,
 });
 assert.equal(issued.sent, true);
 assert.equal(issued.expiresAt, new Date(Date.parse('2026-08-28T01:00:00.000Z') + CONTRACT_SIGNING_TOKEN_TTL_MS).toISOString());
@@ -219,6 +224,9 @@ let session = await service.getSession(issued.sessionId);
 assert.equal(session.tokenHash, hashSigningToken(issued.token, tokenPepper));
 assert.equal(Object.hasOwn(session, 'token'), false);
 assert.deepEqual(session.events.map((event) => event.type), ['issued', 'sent']);
+assert.equal(session.events.find((event) => event.type === 'issued').ip, '198.51.100.7');
+assert.equal(session.events.find((event) => event.type === 'sent').ip, '198.51.100.7');
+assert.equal(session.events.find((event) => event.type === 'issued').userAgent, 'Engineering AM Issuer');
 assert.equal(session.status, 'sent');
 const serializedStorage = JSON.stringify(await storage.dump());
 assert.equal(serializedStorage.includes(issued.token), false);

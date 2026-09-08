@@ -116,6 +116,10 @@ export function createContractOutboxWorker(deps, options = {}) {
       partyASignerLineUserId: text(partyAGroup?.signerLineUserId),
       actorId: text(payload.requestedBy || context.actor),
       idempotencyKey: job.idempotency_key,
+      requestMeta: {
+        remoteAddress: text(payload.requestIp),
+        headers: { 'user-agent': text(payload.requestUserAgent) },
+      },
     };
     if (job.external_session_id) {
       const existing = await signing.getSession(job.external_session_id);
@@ -128,7 +132,11 @@ export function createContractOutboxWorker(deps, options = {}) {
       id: job.id, workerId, externalSessionId: issued.sessionId,
     }));
     if (!linked) throw outboxError('OUTBOX_LEASE_LOST', 'Outbox worker could not durably link the signing session.', 409);
-    const sent = await signing.sendInvitation({ sessionId: issued.sessionId, token: issued.token });
+    const sent = await signing.sendInvitation({
+      sessionId: issued.sessionId,
+      token: issued.token,
+      requestMeta: signingInput.requestMeta,
+    });
     return { ...issued, ...sent, sent: true };
   }
 
