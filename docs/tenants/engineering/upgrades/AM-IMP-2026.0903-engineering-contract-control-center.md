@@ -1,6 +1,6 @@
 # Engineering contract control center — 2026-09-03
 
-Status: Blocked
+Status: Deployed
 
 ## Deployed runtime and evidence check
 
@@ -22,21 +22,28 @@ empty; `HZ-CT-002` / 水電工程 is still draft and has no signing session. No
 contract, task, Notion projection, LINE message, payment claim, or acceptance
 event was changed.
 
-## Blocked database migration gate
+## Database migration and access cleanup
 
-The Render service's restricted role (`engineering_contracts_runtime`) has the
-intended least privilege and correctly rejects `CREATE TABLE`. The two additive
-schema files were attempted with `ON_ERROR_STOP`; PostgreSQL stopped before any
-object was created. The service environment contains no separate administrator
-database connection. An Engineering database owner must provide a temporary
-migration connection (or run packages `.04` and `.05` with a role that can
-create tables, policies, functions, triggers, and grants), then revoke that
-temporary access and rerun the read-only table/status verification.
+On 2026-09-08, packages `.04` and `.05` were applied as additive PostgreSQL
+migrations using a temporary owner-scoped connection. This created the payment
+claim/event/evidence/item tables and the acceptance-event table with forced
+tenant RLS, their policies, indexes, audit helpers, and runtime grants.
+
+The restricted `engineering_contracts_runtime` role then completed read-only
+production checks against both payment claims and acceptance events with the
+Engineering tenant context. Both tables are accessible and contain zero rows.
+No payment claim, payment action, acceptance event, contract transition, task,
+Notion projection, or LINE message was created or changed by the migration.
+
+After verification, the temporary database CONNECT and role-assumption grants
+were revoked and the temporary Render environment secret was deleted. The
+original owner and all pre-existing contracts, signing evidence, and functions
+were left in place.
 
 ## Local verification
 
 - All `dryrun-engineering-contract*.mjs` regression checks passed.
 - Packages `.01` through `.05` passed `tools/check-upgrade-package.js`.
 - No live data or credentials are included in the packages.
-- The payment and acceptance schema status remains `Blocked`; it must not be
-  represented as `Deployed` until the additive database migrations verify.
+- Payment and acceptance schema migrations have been applied and verified with
+  the restricted production runtime; both packages are `Deployed`.
