@@ -430,11 +430,13 @@ await expectSigningError(
   'TOKEN_REPLAYED',
   409,
 );
-await expectSigningError(
-  () => service.openSigningRequest({ token: issued.token, liffCredential: 'credential-signer', requestMeta: trustedRequest }),
-  'TOKEN_ALREADY_USED',
-  409,
-);
+const signedReadOnly = await service.openSigningRequest({
+  token: issued.token, liffCredential: 'credential-signer', requestMeta: trustedRequest,
+});
+assert.equal(signedReadOnly.status, 'signed');
+assert.equal(signedReadOnly.canSign, false);
+assert.equal(signedReadOnly.canSignPartyB, false);
+assert.equal(signedReadOnly.accessMode, 'submitted_contract_read_only');
 
 // Confirmation and completion are separate, durable, idempotent events. The
 // final artifact stays in protected storage and is never pushed to the group.
@@ -486,6 +488,26 @@ assert.deepEqual(
     .map((event) => event.type),
   ['issued', 'sent', 'first_opened', 'signed', 'submission_received', 'confirmed', 'completed'],
 );
+const eventsBeforePermanentView = session.events.length;
+clock.advance(CONTRACT_SIGNING_TOKEN_TTL_MS + 1);
+const finalGroupView = await service.openSigningRequest({
+  token: issued.token, liffCredential: 'credential-other', requestMeta: trustedRequest,
+});
+assert.equal(finalGroupView.status, 'completed');
+assert.equal(finalGroupView.finalDocument, true);
+assert.equal(finalGroupView.documentKind, 'final_signed_pdf');
+assert.equal(finalGroupView.accessMode, 'final_contract_read_only');
+assert.equal(finalGroupView.canSign, false);
+assert.equal(finalGroupView.canSignPartyA, false);
+assert.equal(finalGroupView.canSignPartyB, false);
+assert.equal(finalGroupView.canInspectSigning, false);
+assert.equal((await service.getSession(issued.sessionId)).events.length, eventsBeforePermanentView);
+line.memberships.delete('C-engineering:U-other');
+await expectSigningError(
+  () => service.openSigningRequest({ token: issued.token, liffCredential: 'credential-other', requestMeta: trustedRequest }),
+  'GROUP_MEMBERSHIP_REQUIRED', 403,
+);
+line.memberships.add('C-engineering:U-other');
 for (const push of line.pushes) {
   if (push.contentClass === 'status_and_protected_link_only') continue;
   for (const sensitive of [documentHash, signatureHash, finalArtifactHash, '203.0.113.45', '198.51.100.8', '.pdf']) {

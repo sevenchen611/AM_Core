@@ -439,10 +439,15 @@ export function createContractSigningService(options = {}) {
   }
 
   function publicSigningView(session, idempotent = false, authorization = {}) {
-    const canSign = authorization.canSign === true;
-    const canSignPartyB = authorization.canSignPartyB === true || canSign;
-    const canSignPartyA = authorization.canSignPartyA === true;
-    const canInspectSigning = authorization.canInspectSigning === true;
+    const finalDocument = session.status === 'completed';
+    const canSignPartyB = ACTIVE_TOKEN_STATUSES.has(session.status)
+      && (authorization.canSignPartyB === true || authorization.canSign === true);
+    const canSignPartyA = PARTY_A_SIGNABLE_STATUSES.has(session.status)
+      && !session.partyASubmission && authorization.canSignPartyA === true;
+    const canSign = canSignPartyB;
+    const readOnlyAfterSubmission = ['signed', 'confirmed', 'completed'].includes(session.status)
+      && !canSignPartyA;
+    const canInspectSigning = !readOnlyAfterSubmission && authorization.canInspectSigning === true;
     return {
       sessionId: session.id,
       contractId: session.contractId,
@@ -458,8 +463,12 @@ export function createContractSigningService(options = {}) {
       partyARequired: Boolean(session.partyASignerLineUserId),
       partyASigned: Boolean(session.partyASubmission),
       canInspectSigning,
+      finalDocument,
+      documentKind: finalDocument ? 'final_signed_pdf' : 'issued_contract_pdf',
       signingRole: canSignPartyB ? 'party_b' : canSignPartyA ? 'party_a' : 'group_member',
-      accessMode: canSignPartyB ? 'signer' : canSignPartyA ? 'party_a_signer'
+      accessMode: finalDocument ? 'final_contract_read_only'
+        : readOnlyAfterSubmission ? 'submitted_contract_read_only'
+        : canSignPartyB ? 'signer' : canSignPartyA ? 'party_a_signer'
         : canInspectSigning ? 'signer_inspection_read_only' : 'group_member_read_only',
     };
   }
@@ -475,7 +484,7 @@ export function createContractSigningService(options = {}) {
       ? '工程合約簽署狀態：甲方與乙方均已完成本次線上簽署，待工程 AM 內部確認。'
       : '工程合約簽署狀態：個人甲方已完成本次合約線上簽名；仍須乙方完成簽署及工程 AM 內部確認。';
     if (kind === 'confirmed') return '工程合約簽署狀態：內部已確認，待完成歸檔。請至工程 AM 權限頁查看詳細資料。';
-    if (kind === 'completed') return '工程合約簽署狀態：流程已完成。請至工程 AM 權限頁查看已歸檔合約。';
+    if (kind === 'completed') return '工程合約簽署狀態：甲乙雙方簽署與正式歸檔均已完成。工程 LINE 群組成員可隨時由原簽署邀請連結查閱最終合約。';
     if (kind === 'revoked') return '工程合約簽署狀態：原簽署連結已撤銷；如仍需簽署，請由工程 AM 重新簽發。';
     throw new Error(`unknown group message kind: ${kind}`);
   }
@@ -682,11 +691,21 @@ export function createContractSigningService(options = {}) {
     let session = await loadByToken(token);
     const identity = await authenticateGroupMember(session, liffCredential);
     const partyAAccess = identity.canSignPartyA && PARTY_A_SIGNABLE_STATUSES.has(session.status);
-    if (!ACTIVE_TOKEN_STATUSES.has(session.status) && !partyAAccess) {
+    const permanentReadOnlyAccess = ['signed', 'confirmed', 'completed'].includes(session.status);
+    if (!ACTIVE_TOKEN_STATUSES.has(session.status) && !partyAAccess && !permanentReadOnlyAccess) {
       throw signingError('TOKEN_ALREADY_USED', '簽署權杖已使用。', 409);
     }
     if (!(session.events || []).some((event) => event.type === 'sent')) {
       throw signingError('INVITATION_NOT_SENT', '簽署邀請尚未由 LINE 群組發出。', 409);
+    }
+    // The original LINE invitation is the durable contract entry point. Once
+    // submission has closed (or final archiving has completed), every current
+    // member of the exact bound group may keep using the same opaque link in
+    // read-only mode. No open event is appended and no signing capability is
+    // exposed; LIFF identity and current membership are still checked above on
+    // every request.
+    if (permanentReadOnlyAccess && !partyAAccess) {
+      return publicSigningView(session, true, identity);
     }
     // A verified member of the bound LINE group may inspect the exact frozen
     // PDF, but must not advance signer state or create signer-open evidence.

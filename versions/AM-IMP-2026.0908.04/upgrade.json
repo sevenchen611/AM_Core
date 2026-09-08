@@ -1,0 +1,48 @@
+{
+  "id": "AM-IMP-2026.0908.04",
+  "name": "Permanent LINE contract entry and final PDF",
+  "type": "AM Platform / Engineering contracts / permanent group access",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-09-08",
+  "dependsOn": ["AM-IMP-2026.0908.03"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Keep the original LINE invitation usable as a read-only contract entry after submission",
+    "Switch the same entry to the final signed PDF after completion",
+    "Revalidate LIFF identity and current exact-group membership on every open and PDF request",
+    "Remove all signing capabilities from completed-contract access",
+    "Verify final artifact privacy, relationship, completion record and SHA-256 before serving",
+    "Keep revoked links and expired incomplete sessions blocked"
+  ],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-signing.mjs",
+    "tools/dryrun-engineering-contract-signing-web.mjs",
+    "tools/dryrun-engineering-contract-runtime.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The opaque token is never logged or returned by APIs. Token possession alone is insufficient; the server revalidates LIFF identity and current membership in the exact bound LINE group before every document response."
+  },
+  "definitionOfDone": [
+    "A completed invitation remains readable after the original signing TTL",
+    "The open response is final_contract_read_only with no Party A or Party B signing capability",
+    "The document endpoint returns the verified final signed PDF instead of the issued PDF",
+    "No signer-open evidence is appended by completed read-only views",
+    "Cross-group, removed-member, revoked, non-completed expired, public-artifact and hash-mismatch access is rejected",
+    "The Engineering production Render service is Live and the original completed-contract LINE link is verified read-only"
+  ],
+  "files": [
+    "modules/construction/contract-signing.js",
+    "modules/construction/contract-signing-web.js",
+    "modules/construction/contract-runtime.js",
+    "tools/dryrun-engineering-contract-signing.mjs",
+    "tools/dryrun-engineering-contract-signing-web.mjs",
+    "tools/dryrun-engineering-contract-runtime.mjs"
+  ]
+}

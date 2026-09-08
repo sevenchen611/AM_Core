@@ -344,8 +344,62 @@ async function renderPartyASignedPreview(deps, opened, original, options) {
   };
 }
 
-export async function loadContractPdf(deps, { documentRef, documentHash, sessionId, partyASigned }, options = {}) {
+function artifactValue(artifact, camel, snake) {
+  return String(artifact?.[camel] || artifact?.[snake] || '').trim();
+}
+
+async function loadFinalSignedContractPdf(deps, opened) {
+  if (typeof deps.contractStore?.getSigningBundle !== 'function') {
+    throw runtimeFailure('最終合約資料庫讀取功能尚未設定', 503, 'FINAL_CONTRACT_STORE_UNAVAILABLE');
+  }
+  if (typeof deps.auditDrivePrivate !== 'function') {
+    throw runtimeFailure('最終合約隱私稽核功能尚未設定', 503, 'FINAL_CONTRACT_PRIVACY_AUDIT_UNAVAILABLE');
+  }
+  const bundle = unwrap(await deps.contractStore.getSigningBundle(deps.tenant, opened.sessionId));
+  if (!bundle?.contract || !bundle?.version || !bundle?.session
+      || String(bundle.session.externalSessionId || '') !== String(opened.sessionId || '')
+      || String(bundle.session.status || '') !== 'completed'
+      || String(bundle.contract.id || '') !== String(opened.contractId || '')
+      || String(bundle.contract.projectId || '') !== String(opened.projectId || '')
+      || String(bundle.version.id || '') !== String(bundle.session.versionId || '')) {
+    throw runtimeFailure('最終合約與簽署流程關聯不一致', 409, 'FINAL_CONTRACT_RELATION_MISMATCH');
+  }
+  const artifact = (Array.isArray(bundle.artifacts) ? bundle.artifacts : [])
+    .find((item) => artifactValue(item, 'artifactKind', 'artifact_kind') === 'signed_pdf');
+  const fileId = artifactValue(artifact, 'driveFileId', 'drive_file_id');
+  const rawHash = String(artifact?.sha256 || '').trim().toLowerCase();
+  if (!/^[A-Za-z0-9_-]{10,240}$/.test(fileId) || !/^[a-f0-9]{64}$/.test(rawHash)) {
+    throw runtimeFailure('最終簽署合約歸檔紀錄不完整', 404, 'FINAL_CONTRACT_ARTIFACT_MISSING');
+  }
+  const expectedHash = requiredSha256(rawHash, '最終簽署合約');
+  const completionHash = requiredSha256(bundle.session.completion?.finalArtifactHash, '最終簽署完成事件');
+  const completionRef = String(bundle.session.completion?.finalArtifactRef || '').trim();
+  if (completionHash !== expectedHash || completionRef !== fileId) {
+    throw runtimeFailure('最終合約歸檔檔案與完成事件不一致', 409, 'FINAL_CONTRACT_COMPLETION_MISMATCH');
+  }
+  const privacy = await deps.auditDrivePrivate(fileId);
+  if (privacy?.private !== true) {
+    throw runtimeFailure('最終簽署合約不是私有檔案，禁止開啟', 409, 'FINAL_CONTRACT_NOT_PRIVATE');
+  }
+  const downloaded = await deps.downloadFromDrive(fileId, 40 * 1024 * 1024);
+  const buffer = downloaded?.buffer;
+  if (!Buffer.isBuffer(buffer) || !buffer.subarray(0, 5).equals(Buffer.from('%PDF-'))) {
+    throw runtimeFailure('最終簽署合約不是有效 PDF', 502, 'FINAL_CONTRACT_PDF_INVALID');
+  }
+  const digest = crypto.createHash('sha256').update(buffer).digest('hex');
+  if (digest !== expectedHash) {
+    throw runtimeFailure('最終簽署合約雜湊驗證失敗，禁止開啟', 409, 'FINAL_CONTRACT_HASH_MISMATCH');
+  }
+  const stem = String(bundle.contract.contractNumber || bundle.contract.id || 'engineering-contract')
+    .replace(/[^A-Za-z0-9._-]/g, '-').replace(/[. -]+$/g, '') || 'engineering-contract';
+  return { buffer, contentType: 'application/pdf', sha256: digest, viewKind: 'final_signed_pdf', fileName: `${stem}-signed.pdf` };
+}
+
+export async function loadContractPdf(deps, { documentRef, documentHash, sessionId, partyASigned, finalDocument, contractId, projectId }, options = {}) {
   if (typeof deps.downloadFromDrive !== 'function') throw Object.assign(new Error('工程合約 Drive 讀取功能尚未設定'), { statusCode: 503 });
+  if (finalDocument === true) return loadFinalSignedContractPdf(deps, {
+    sessionId, contractId, projectId,
+  });
   let fileId = String(documentRef || '').trim();
   const driveUrl = /^https:\/\/drive\.google\.com\/file\/d\/([A-Za-z0-9_-]{10,200})\/view(?:[?#].*)?$/i.exec(fileId);
   if (driveUrl) fileId = driveUrl[1];

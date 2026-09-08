@@ -187,4 +187,54 @@ assert.equal(previewCalls[0].payload.partyASignerName, '陳聖文');
 assert.equal(previewCalls[0].payload.documentHash, originalHash);
 assert.match(previewCalls[0].key, /signing-session-013/);
 
+const finalPdf = Buffer.from('%PDF-1.7\nfinal signed contract\n%%EOF');
+const finalHash = createHash('sha256').update(finalPdf).digest('hex');
+const finalLoaded = await loadContractPdf({
+  tenant: { key: 'engineering' },
+  contractStore: {
+    getSigningBundle: async () => ({
+      contract: { id: 'contract-001', projectId: 'project-001', contractNumber: 'HZ-CT-001' },
+      version: { id: 'version-013' },
+      session: {
+        externalSessionId: 'signing-session-013', versionId: 'version-013', status: 'completed',
+        completion: { finalArtifactHash: finalHash, finalArtifactRef: 'private-final-file' },
+      },
+      artifacts: [{ artifact_kind: 'signed_pdf', drive_file_id: 'private-final-file', sha256: finalHash }],
+    }),
+  },
+  auditDrivePrivate: async (fileId) => ({ private: fileId === 'private-final-file' }),
+  downloadFromDrive: async (fileId, maxBytes) => {
+    assert.equal(fileId, 'private-final-file');
+    assert.equal(maxBytes, 40 * 1024 * 1024);
+    return { buffer: finalPdf, contentType: 'application/pdf' };
+  },
+}, {
+  documentRef: 'drive-file-123456', documentHash: originalHash,
+  sessionId: 'signing-session-013', contractId: 'contract-001', projectId: 'project-001',
+  finalDocument: true,
+});
+assert.equal(finalLoaded.viewKind, 'final_signed_pdf');
+assert.equal(finalLoaded.fileName, 'HZ-CT-001-signed.pdf');
+assert.deepEqual(finalLoaded.buffer, finalPdf);
+
+await assert.rejects(
+  () => loadContractPdf({
+    tenant: { key: 'engineering' },
+    contractStore: { getSigningBundle: async () => ({
+      contract: { id: 'contract-001', projectId: 'project-001' },
+      version: { id: 'version-013' },
+      session: {
+        externalSessionId: 'signing-session-013', versionId: 'version-013', status: 'completed',
+        completion: { finalArtifactHash: finalHash, finalArtifactRef: 'public-final-file' },
+      },
+      artifacts: [{ artifact_kind: 'signed_pdf', drive_file_id: 'public-final-file', sha256: finalHash }],
+    }) },
+    auditDrivePrivate: async () => ({ private: false }),
+    downloadFromDrive: async () => ({ buffer: finalPdf }),
+  }, {
+    sessionId: 'signing-session-013', contractId: 'contract-001', projectId: 'project-001', finalDocument: true,
+  }),
+  { code: 'FINAL_CONTRACT_NOT_PRIVATE' },
+);
+
 console.log('Engineering contract runtime dry-run passed: LINE group adapter, LIFF membership, config gates, and Drive signature evidence verified.');

@@ -240,8 +240,12 @@ function publicOpenPayload(result, documentUrl) {
     partyARequired: result?.partyARequired === true,
     partyASigned: result?.partyASigned === true,
     canInspectSigning,
+    finalDocument: result?.finalDocument === true,
+    documentKind: result?.finalDocument === true ? 'final_signed_pdf' : 'issued_contract_pdf',
     signingRole: canSignPartyB ? 'party_b' : canSignPartyA ? 'party_a' : 'group_member',
-    accessMode: canSignPartyB ? 'signer' : canSignPartyA ? 'party_a_signer'
+    accessMode: result?.finalDocument === true ? 'final_contract_read_only'
+      : result?.accessMode === 'submitted_contract_read_only' ? 'submitted_contract_read_only'
+      : canSignPartyB ? 'signer' : canSignPartyA ? 'party_a_signer'
       : canInspectSigning ? 'signer_inspection_read_only' : 'group_member_read_only',
   };
 }
@@ -302,7 +306,7 @@ function setReviewAcknowledged(value,persist=true) {
   byId('signature').setAttribute('aria-disabled',enablePartyB?'false':'true');
   byId('party-a-signature').setAttribute('aria-disabled',enablePartyA?'false':'true');
   const note=byId('review-lock-note');
-  note.textContent=state.reviewAcknowledged?'✓ 合約 PDF 已成功載入，可勾選確認並完成簽署。':'請先按上方「在本頁開啟完整合約 PDF」，成功載入後才會開放確認與送出。';
+  note.textContent=state.signing?.finalDocument?(state.reviewAcknowledged?'✓ 最終簽署合約 PDF 已成功載入；本頁為永久唯讀查閱入口。':'請按上方「開啟最終簽署合約 PDF」查閱已歸檔文件。'):state.reviewAcknowledged?'✓ 合約 PDF 已成功載入，可勾選確認並完成簽署。':'請先按上方「在本頁開啟完整合約 PDF」，成功載入後才會開放確認與送出。';
   note.className='review-lock-note '+(state.reviewAcknowledged?'ready':'');
 }
 function restoreReviewAcknowledgement(){const key=reviewStorageKey();setReviewAcknowledged(Boolean(key&&sessionStorage.getItem(key)==='1'),false);}
@@ -421,7 +425,16 @@ async function initialize() {
   state.signing=opened.signing;
   byId('document-link').hidden=false;
   byId('external-browser').hidden=!liff.isInClient();
-  if(state.signing.canSignPartyB){
+  if(state.signing.finalDocument){
+    byId('contract-state').textContent='本合約已完成甲乙雙方簽署與正式歸檔。這個原 LINE 連結會持續作為群組成員的最終合約唯讀入口。';
+    byId('document-link').textContent='開啟最終簽署合約 PDF';
+    byId('document-warning').textContent='下方將顯示甲乙雙方簽署並完成歸檔的最終版本；本頁不再提供任何簽名或修改功能。';
+    show('已驗證 LINE 身分與目前群組成員資格，可查閱最終簽署合約。','ok');
+  }else if(state.signing.accessMode==='submitted_contract_read_only'){
+    byId('contract-state').textContent='雙方簽署資料已提交，正在進行內部確認或最終歸檔；目前可唯讀查閱已送簽版本，歸檔完成後同一連結會自動顯示最終合約。';
+    byId('document-warning').textContent='目前流程已停止簽名操作；最終歸檔完成後，這個原 LINE 連結會自動切換成最終簽署 PDF。';
+    show('已驗證群組成員身分，目前為簽署後唯讀查閱。','ok');
+  }else if(state.signing.canSignPartyB){
     byId('contract-state').textContent=state.signing.partyASigned?'甲方已完成簽署。你是本合約指定的乙方簽署人；開啟 PDF 後會看到甲方簽名，再完成乙方簽署。':'你是本合約指定的乙方簽署人。請先開啟文件詳閱，再進行簽名。';
     byId('sign-panel').hidden=false;
     show('已驗證乙方指定簽署人身分，請先開啟合約文件詳閱。','ok');
@@ -445,12 +458,17 @@ async function initialize() {
     byId('contract-state').textContent='你是此工程 LINE 群組成員，可以檢視完整合約；只有指定簽署人可以填寫資料與簽署。';
     show('已驗證群組成員身分，目前為唯讀檢視。','ok');
   }
-  restoreReviewAcknowledgement();
+  if(state.signing.finalDocument){
+    setReviewAcknowledged(false,false);
+    byId('document-link').click();
+  }else{
+    restoreReviewAcknowledgement();
+  }
 }
 byId('external-browser').addEventListener('click',openInExternalBrowser);
 byId('document-link').addEventListener('click',async()=>{
   if(state.documentLoading)return;state.documentLoading=true;const button=byId('document-link');button.disabled=true;show('正在安全載入完整合約 PDF…');
-  try{const response=await fetch(state.signing.documentUrl,{method:'POST',credentials:'same-origin',cache:'no-store',referrerPolicy:'no-referrer',headers:{'content-type':'application/json'},body:JSON.stringify({token:state.token,liffCredential:state.credential})});if(!response.ok){const failure=await response.json().catch(()=>({}));throw new Error(failure.error||'無法讀取合約文件');}const bytes=await response.arrayBuffer();await renderPdfInPage(bytes);setReviewAcknowledged(true);byId('review-state').textContent=state.signing.canSignPartyB?(state.signing.partyASigned?'已載入甲方簽名版合約。請確認甲方簽名後，填寫乙方資料、上傳證件並完成乙方簽署。':'完整合約已在本頁載入。詳閱後請填寫資料、上傳證件並簽名。'):state.signing.canSignPartyA?'完整合約已在本頁載入。詳閱後請在甲方大簽名格完成本次簽名。':'完整合約已在本頁載入，可向下逐頁檢視。';button.textContent='重新載入完整合約 PDF';show(state.signing.partyASigned&&state.signing.canSignPartyB?'甲方簽名版合約已成功載入，請確認後完成乙方簽署。':'完整合約 PDF 已成功載入，請詳閱後完成簽署。','ok');}catch(failure){show(failure.message||'無法讀取合約文件','error');}finally{state.documentLoading=false;button.disabled=false;}
+  try{const response=await fetch(state.signing.documentUrl,{method:'POST',credentials:'same-origin',cache:'no-store',referrerPolicy:'no-referrer',headers:{'content-type':'application/json'},body:JSON.stringify({token:state.token,liffCredential:state.credential})});if(!response.ok){const failure=await response.json().catch(()=>({}));throw new Error(failure.error||'無法讀取合約文件');}const bytes=await response.arrayBuffer();await renderPdfInPage(bytes);setReviewAcknowledged(true);byId('review-state').textContent=state.signing.finalDocument?'已載入甲乙雙方完成簽署與歸檔的最終合約 PDF。':state.signing.canSignPartyB?(state.signing.partyASigned?'已載入甲方簽名版合約。請確認甲方簽名後，填寫乙方資料、上傳證件並完成乙方簽署。':'完整合約已在本頁載入。詳閱後請填寫資料、上傳證件並簽名。'):state.signing.canSignPartyA?'完整合約已在本頁載入。詳閱後請在甲方大簽名格完成本次簽名。':'完整合約已在本頁載入，可向下逐頁檢視。';button.textContent=state.signing.finalDocument?'重新載入最終簽署合約 PDF':'重新載入完整合約 PDF';show(state.signing.finalDocument?'最終簽署合約 PDF 已成功載入；本頁為唯讀查閱。':state.signing.partyASigned&&state.signing.canSignPartyB?'甲方簽名版合約已成功載入，請確認後完成乙方簽署。':'完整合約 PDF 已成功載入，請詳閱後完成簽署。','ok');}catch(failure){show(failure.message||'無法讀取合約文件','error');}finally{state.documentLoading=false;button.disabled=false;}
 });
 byId('clear-signature').addEventListener('click',clearSignature);
 byId('party-a-clear-signature').addEventListener('click',clearPartyASignature);
@@ -635,7 +653,7 @@ export function createContractSigningWebHandler(options = {}) {
           ...contractSigningSecurityHeaders(),
           'Content-Type': 'application/pdf',
           'Content-Length': String(document.buffer.length),
-          'Content-Disposition': 'inline; filename="engineering-contract.pdf"',
+          'Content-Disposition': `inline; filename="${String(document.fileName || 'engineering-contract.pdf').replace(/["\\\r\n]/g, '-')}"`,
         });
         res.end(document.buffer);
         return true;
