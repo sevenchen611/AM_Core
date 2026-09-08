@@ -151,6 +151,7 @@ function createFixture(options = {}) {
     resolveDocumentUrl,
     loadDocument: async (opened) => {
       calls.document.push(opened);
+      if (options.loadDocument) return options.loadDocument(opened);
       return { buffer: Buffer.from('%PDF-1.7\ntest\n%%EOF'), contentType: 'application/pdf' };
     },
     logger: { error: (...args) => calls.logs.push(args) },
@@ -188,6 +189,9 @@ const jsonHeaders = { 'content-type': 'application/json' };
 {
   const html = renderContractSigningPage({ liffId: '2000000000-engineering', nonce: 'fixed-nonce' });
   assert.match(html, /<meta name="viewport"[^>]*width=device-width/);
+  assert.match(html, /state\.signing\.finalDocument/);
+  assert.match(html, /開啟最終簽署合約 PDF/);
+  assert.match(html, /byId\('document-link'\)\.click\(\)/);
   assert.match(html, /static\.line-scdn\.net\/liff\/edge\/2\/sdk\.js/);
   assert.match(html, /<canvas id="signature"/);
   assert.match(html, /<canvas id="party-a-signature"/);
@@ -352,6 +356,8 @@ const jsonHeaders = { 'content-type': 'application/json' };
     partyARequired: true,
     partyASigned: false,
     canInspectSigning: true,
+    finalDocument: false,
+    documentKind: 'issued_contract_pdf',
     signingRole: 'party_b',
     accessMode: 'signer',
   });
@@ -376,6 +382,36 @@ const jsonHeaders = { 'content-type': 'application/json' };
   assert.match(document.response.body, /^%PDF-/);
   assert.equal(fixture.calls.document.length, 1);
   assert.equal(fixture.calls.open.length, 2);
+}
+
+// A completed contract keeps the original LINE entry in permanent read-only
+// mode and serves the final archived PDF without exposing signing controls.
+{
+  const fixture = createFixture({
+    openResult: {
+      status: 'completed', canSign: false, canSignPartyB: false, canSignPartyA: false,
+      canInspectSigning: false, finalDocument: true, accessMode: 'final_contract_read_only',
+    },
+    loadDocument: async () => ({
+      buffer: Buffer.from('%PDF-1.7\nfinal signed\n%%EOF'),
+      contentType: 'application/pdf',
+      fileName: 'HZ-CT-001-signed.pdf',
+    }),
+  });
+  const opened = await invoke(fixture.handler, {
+    method: 'POST', url: CONTRACT_SIGNING_OPEN_PATH, headers: jsonHeaders, body: validOpenBody,
+  });
+  assert.equal(opened.response.statusCode, 200);
+  assert.equal(opened.json.signing.finalDocument, true);
+  assert.equal(opened.json.signing.documentKind, 'final_signed_pdf');
+  assert.equal(opened.json.signing.accessMode, 'final_contract_read_only');
+  assert.equal(opened.json.signing.canSign, false);
+  const document = await invoke(fixture.handler, {
+    method: 'POST', url: CONTRACT_SIGNING_DOCUMENT_PATH, headers: jsonHeaders, body: validOpenBody,
+  });
+  assert.equal(document.response.statusCode, 200);
+  assert.equal(getHeader(document.response.headers, 'content-disposition'), 'inline; filename="HZ-CT-001-signed.pdf"');
+  assert.match(document.response.body, /final signed/);
 }
 
 // An individual Party A sees only the Party A signature role. Submission stores
