@@ -93,6 +93,10 @@ export function contractControlCenterClientScript(options = {}) {
       receivedAt: text(input.receivedAt),
       holder: text(input.holder),
       detail: text(input.detail || input.note),
+      dispatchIp: text(input.dispatchIp),
+      openedIp: text(input.openedIp),
+      signedIp: text(input.signedIp),
+      ipEvidenceNote: text(input.ipEvidenceNote),
     };
   }
   function contract(value) {
@@ -214,8 +218,15 @@ export function contractControlCenterClientScript(options = {}) {
     const heading = el('h4'); heading.textContent = title;
     const stateLine = el('p', 'am-contract-control-party-state'); stateLine.textContent = current.label;
     const list = el('dl');
-    [['送出時間', current.sentAt], ['收到時間', current.receivedAt], ['簽署時間', current.signedAt], ['目前持有人', current.holder], ['說明', current.detail]].forEach(([name, value]) => {
-      if (!value) return; const term = el('dt'); term.textContent = name; const definition = el('dd'); definition.textContent = name.endsWith('時間') ? formatTime(value) : value; list.append(term, definition);
+    [
+      ['送出時間', current.sentAt, 'time'], ['收到／首次開啟時間', current.receivedAt, 'time'],
+      ['簽署時間', current.signedAt, 'time'], ['送簽來源 IP', current.dispatchIp || '未記錄', 'text'],
+      ['首次開啟（收件）IP', current.openedIp || '未記錄／不適用', 'text'],
+      ['簽署提交 IP', current.signedIp || '未記錄／不適用', 'text'],
+      ['目前持有人', current.holder, 'text'], ['說明', current.detail, 'text'],
+      ['IP 證據說明', current.ipEvidenceNote, 'text'],
+    ].forEach(([name, value, kind]) => {
+      if (!value) return; const term = el('dt'); term.textContent = name; const definition = el('dd'); definition.textContent = kind === 'time' ? formatTime(value) : value; list.append(term, definition);
     });
     card.append(heading, stateLine); if (list.childElementCount) card.append(list); return card;
   }
@@ -226,7 +237,9 @@ export function contractControlCenterClientScript(options = {}) {
     if (!events.length) { const empty = el('p', 'am-contract-control-empty'); empty.textContent = '尚未提供可顯示的合約事件。'; container.append(empty); return; }
     events.forEach(event => {
       const item = el('li'); const name = el('strong'); name.textContent = label(event.label || event.type || event.title);
-      const meta = el('span'); meta.textContent = formatTime(event.occurredAt || event.at || event.createdAt) + (text(event.actor || event.owner) ? '｜' + text(event.actor || event.owner) : '');
+      const meta = el('span'); meta.textContent = formatTime(event.occurredAt || event.at || event.createdAt)
+        + (text(event.actor || event.owner) ? '｜' + text(event.actor || event.owner) : '')
+        + (text(event.ipAddress || event.ip) ? '｜來源 IP：' + text(event.ipAddress || event.ip) : '');
       const note = el('p'); note.textContent = text(event.description || event.note || event.summary);
       item.append(name, meta); if (note.textContent) item.append(note); container.append(item);
     });
@@ -321,7 +334,7 @@ function controlCenterMarkup({ rootId }) {
   <p class="am-contract-control-status" data-contract-control-status aria-live="polite">尚未載入合約控制資料。</p>
   <div class="am-contract-control-list" data-contract-control-list></div>
   <div class="am-contract-control-footer"><span data-contract-control-count>共 0 份合約</span><span>每 15 秒與回到頁面時自動更新</span></div>
-  <div class="am-contract-control-drawer" data-contract-control-drawer role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="${escapeHtml(rootId)}-drawer-title" tabindex="-1" hidden><section class="am-contract-control-drawer-card"><div class="am-contract-control-drawer-heading"><div><h3 id="${escapeHtml(rootId)}-drawer-title" data-contract-control-drawer-title>合約控制詳情</h3><p class="am-contract-control-drawer-meta" data-contract-control-drawer-meta></p></div><button class="am-contract-control-close" data-contract-control-close type="button" aria-label="關閉合約控制詳情">×</button></div><div data-contract-control-detail-summary></div><h4>簽署與交接</h4><div class="am-contract-control-parties" data-contract-control-parties></div><ul class="am-contract-control-blockers" data-contract-control-blockers hidden></ul><h4>合約事件時間軸</h4><ol class="am-contract-control-timeline" data-contract-control-timeline></ol></section></div>
+  <div class="am-contract-control-drawer" data-contract-control-drawer role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="${escapeHtml(rootId)}-drawer-title" tabindex="-1" hidden><section class="am-contract-control-drawer-card"><div class="am-contract-control-drawer-heading"><div><h3 id="${escapeHtml(rootId)}-drawer-title" data-contract-control-drawer-title>合約控制詳情</h3><p class="am-contract-control-drawer-meta" data-contract-control-drawer-meta></p></div><button class="am-contract-control-close" data-contract-control-close type="button" aria-label="關閉合約控制詳情">×</button></div><div data-contract-control-detail-summary></div><h4>簽署與交接</h4><div class="am-contract-control-parties" data-contract-control-parties></div><ul class="am-contract-control-blockers" data-contract-control-blockers hidden></ul><h4>合約簽署與歸檔完整事件軸</h4><ol class="am-contract-control-timeline" data-contract-control-timeline></ol></section></div>
 </section>`;
 }
 

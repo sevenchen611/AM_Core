@@ -27,6 +27,12 @@ assert.match(script, /驗收管理/);
 assert.match(script, /資料異常/);
 assert.match(script, /甲方簽署狀態/);
 assert.match(script, /乙方簽署狀態/);
+assert.match(script, /送簽來源 IP/);
+assert.match(script, /首次開啟（收件）IP/);
+assert.match(script, /簽署提交 IP/);
+assert.match(script, /IP 證據說明/);
+assert.match(script, /來源 IP/);
+assert.match(markup, /合約簽署與歸檔完整事件軸/);
 assert.doesNotMatch(script, /state_snapshot|snapshot/);
 assert.match(script, /AMContractControlCenter/);
 

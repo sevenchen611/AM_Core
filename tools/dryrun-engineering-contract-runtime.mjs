@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { createContractLineAdapter, createRuntimeSigningService, isRenderInternalProxyPeer, loadContractPdf, saveContractIdentityDocuments, saveContractSignature, __test } from '../modules/construction/contract-runtime.js';
+import { createContractLineAdapter, createRuntimeSigningService, isRenderInternalProxyPeer, loadContractPdf, saveContractIdentityDocuments, saveContractSignature, signingRequestEvidence, __test } from '../modules/construction/contract-runtime.js';
 import { getTrustedClientIp } from '../modules/construction/contract-signing.js';
 import { createHash } from 'node:crypto';
 
@@ -68,6 +68,13 @@ assert.equal(getTrustedClientIp({
   remoteAddress: '10.42.0.8',
   headers: { 'x-forwarded-for': '192.0.2.81' },
 }, renderProxyOptions), '10.42.0.8');
+const durableEvidence = signingRequestEvidence({
+  tenant: { config: { contracts: { trustedProxyIps: ['render'], trustedClientIpHeaders: ['cf-connecting-ip'] } } },
+}, {
+  remoteAddress: '10.42.0.8',
+  headers: { 'cf-connecting-ip': '203.0.113.82', 'x-forwarded-for': '192.0.2.82', 'user-agent': 'Engineering AM Browser' },
+});
+assert.deepEqual(durableEvidence, { ip: '203.0.113.82', userAgent: 'Engineering AM Browser' });
 
 const uploaded = [];
 const saved = await saveContractSignature({

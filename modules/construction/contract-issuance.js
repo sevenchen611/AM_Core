@@ -1,7 +1,7 @@
 import { createContractArtifactService } from './contract-artifacts.js';
 import { resolveAuthoritativeSigningGroup } from './contract-authority.js';
 import { createContractManagementService } from './contract-management.js';
-import { createRuntimeSigningService } from './contract-runtime.js';
+import { createRuntimeSigningService, signingRequestEvidence } from './contract-runtime.js';
 import { createContractOutboxWorker } from './contract-outbox.js';
 import { captureContractLineArchive } from './contract-line-archive.js';
 import { composeDraftBundle, extractContractBodyForVersion } from './contract-draft-review.js';
@@ -190,6 +190,7 @@ export function createContractIssuanceService(deps, options = {}) {
     const authority = serverContext(context);
     rejectClientAuthority(input);
     const signerLineUserId = requireSigner(input);
+    const issuanceEvidence = signingRequestEvidence(deps, authority.requestMeta);
 
     // This is intentionally the first external/domain operation. Rendering and
     // LINE authority lookup must never run for an incomplete frozen bundle.
@@ -277,6 +278,7 @@ export function createContractIssuanceService(deps, options = {}) {
             contractId: contract.id, versionId: version.id, signerLineUserId: group.signerLineUserId,
             partyASignerLineUserId: partyAGroup?.signerLineUserId || '',
             documentRef, documentHash: normalizeHash(storedPdf.sha256), requestedBy: authority.actor,
+            requestIp: issuanceEvidence.ip, requestUserAgent: issuanceEvidence.userAgent,
           },
         },
         {
@@ -305,6 +307,7 @@ export function createContractIssuanceService(deps, options = {}) {
     const authority = serverContext(context);
     rejectClientAuthority(input);
     const signerLineUserId = requireSigner(input);
+    const issuanceEvidence = signingRequestEvidence(deps, authority.requestMeta);
     const contractId = text(first(input, ['contractId', 'contract_id']));
     const versionId = text(first(input, ['versionId', 'version_id']));
     const detail = await management.getContractDetail(authority, { contractId });
@@ -336,6 +339,7 @@ export function createContractIssuanceService(deps, options = {}) {
           contractId: detail.contract.id, versionId: version.id, signerLineUserId: group.signerLineUserId,
           partyASignerLineUserId: partyAGroup?.signerLineUserId || '',
           documentRef: driveDocumentRef(fields.fileId), documentHash: normalizeHash(fields.sha256), requestedBy: authority.actor,
+          requestIp: issuanceEvidence.ip, requestUserAgent: issuanceEvidence.userAgent,
         },
       });
     } else if (['pending', 'failed', 'processing'].includes(text(existing.status))) {
@@ -397,6 +401,7 @@ export function createContractIssuanceService(deps, options = {}) {
           partyASignerLineUserId: partyAGroup?.signerLineUserId || '',
           documentRef: driveDocumentRef(fields.fileId), documentHash: normalizeHash(fields.sha256), requestedBy: authority.actor,
           replacesExternalSessionId: externalSessionId || undefined,
+          requestIp: issuanceEvidence.ip, requestUserAgent: issuanceEvidence.userAgent,
         },
       });
     }

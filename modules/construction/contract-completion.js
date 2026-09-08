@@ -77,6 +77,7 @@ function rejectClientAuthority(input) {
     'actor', 'actorId', 'tenant', 'scope', 'projectId', 'project_id',
     'contractId', 'contract_id', 'versionId', 'version_id', 'lineGroupId',
     'signerLineUserId', 'signatureHash', 'documentHash', 'bundleHash', 'ipAddress',
+    'ipEvidence', 'requestMeta', 'requestIp', 'requestUserAgent',
   ]) {
     if (Object.prototype.hasOwnProperty.call(input || {}, field)) {
       throw completionError(
@@ -161,6 +162,11 @@ function eventAt(bundle, type, fallback = '') {
 function eventMetadata(bundle, type) {
   const event = bundle.events.find((item) => eventType(item) === type);
   return event?.metadata || event?.payload || {};
+}
+
+function eventIp(bundle, type) {
+  const event = bundle.events.find((item) => eventType(item) === type);
+  return text(first(event, ['ip', 'ipAddress', 'ip_address']));
 }
 
 function chainHead(bundle) {
@@ -505,6 +511,25 @@ export function createContractCompletionService(deps, options = {}) {
     const signedEvent = bundle.events.find((item) => eventType(item) === 'signed') || {};
     const ipAddress = text(first(bundle.signatureEvidence, ['ipAddress', 'ip_address'], first(signedEvent, ['ip', 'ipAddress', 'ip_address'])));
     if (!ipAddress) throw completionError('SIGNING_IP_MISSING', '簽署證據缺少 IP。', 500);
+    const ipEvidence = {
+      dispatch: {
+        issuedIp: eventIp(bundle, 'issued'),
+        sentIp: eventIp(bundle, 'sent'),
+      },
+      partyA: {
+        firstOpenedIp: eventIp(bundle, 'party_a_first_opened') || eventIp(bundle, 'party_a_opened'),
+        signatureSubmittedIp: eventIp(bundle, 'party_a_signed'),
+        submissionReceivedIp: eventIp(bundle, 'party_a_submission_received'),
+      },
+      partyB: {
+        firstOpenedIp: eventIp(bundle, 'first_opened') || eventIp(bundle, 'opened'),
+        signatureSubmittedIp: eventIp(bundle, 'signed') || ipAddress,
+        submissionReceivedIp: eventIp(bundle, 'submission_received') || ipAddress,
+      },
+      internal: {
+        confirmedIp: eventIp(bundle, 'confirmed'),
+      },
+    };
     const times = {
       issuedAt: text(first(bundle.session, ['issuedAt', 'issued_at'], eventAt(bundle, 'issued'))),
       sentAt: eventAt(bundle, 'sent', first(bundle.session, ['sentAt', 'sent_at'], '')),
@@ -568,6 +593,7 @@ export function createContractCompletionService(deps, options = {}) {
           sha256: signatureHash,
         },
         ipAddress,
+        ipEvidence,
         times,
         verification,
         counterpartyDetails,
@@ -615,7 +641,7 @@ export function createContractCompletionService(deps, options = {}) {
     if (!receiptArtifact) {
       const generatedUtc = new Date(clock()).toISOString();
       const receipt = {
-        schemaVersion: 'engineering-contract-evidence-receipt-v3-dual-party-signatures',
+        schemaVersion: 'engineering-contract-evidence-receipt-v4-dual-party-ip-evidence',
         generatedAt: { utc: generatedUtc, asiaTaipei: taipeiTime(generatedUtc) },
         tenantKey: authority.tenant.key,
         project: { id: bundle.projectId, code: bundle.projectCode },
@@ -626,7 +652,7 @@ export function createContractCompletionService(deps, options = {}) {
         },
         version: { id: bundle.versionId, bundleHash, documentHash: originalDocumentHash },
         signing: {
-          sessionId, times, ipAddress,
+          sessionId, times, ipAddress, ipEvidence,
           partyA: {
             profileType: partyA.profileType,
             signerName: partyA.signerName,

@@ -52,17 +52,21 @@ function fixture() {
       signedAt: '2026-08-28T01:06:00.000Z',
     },
     events: [
-      { sequenceNo: 1, type: 'issued', at: '2026-08-28T01:00:00.000Z', eventHash: eventHash('issued') },
-      { sequenceNo: 2, type: 'sent', at: '2026-08-28T01:01:00.000Z', eventHash: eventHash('sent') },
+      { sequenceNo: 1, type: 'issued', at: '2026-08-28T01:00:00.000Z', ip: '198.51.100.10', eventHash: eventHash('issued') },
+      { sequenceNo: 2, type: 'sent', at: '2026-08-28T01:01:00.000Z', ip: '198.51.100.10', eventHash: eventHash('sent') },
+      { sequenceNo: 3, type: 'party_a_first_opened', at: '2026-08-28T01:03:00.000Z', ip: '203.0.113.21', eventHash: eventHash('party-a-opened') },
+      { sequenceNo: 4, type: 'party_a_signed', at: '2026-08-28T01:07:00.000Z', ip: '203.0.113.22', eventHash: eventHash('party-a-signed') },
+      { sequenceNo: 5, type: 'party_a_submission_received', at: '2026-08-28T01:07:00.000Z', ip: '203.0.113.22', eventHash: eventHash('party-a-received') },
+      { sequenceNo: 6, type: 'first_opened', at: '2026-08-28T01:04:00.000Z', ip: '203.0.113.31', eventHash: eventHash('party-b-opened') },
       {
-        sequenceNo: 3, type: 'signed', at: '2026-08-28T01:06:00.000Z', eventHash: eventHash('signed'),
+        sequenceNo: 7, type: 'signed', at: '2026-08-28T01:06:00.000Z', eventHash: eventHash('signed'),
         ip: '203.0.113.45',
         metadata: {
           identitySource: 'verified_liff', membershipVerified: true,
           specifiedUserMatched: true, reviewAcknowledged: true,
         },
       },
-      { sequenceNo: 4, type: 'submission_received', at: '2026-08-28T01:06:00.000Z', eventHash: eventHash('received') },
+      { sequenceNo: 8, type: 'submission_received', at: '2026-08-28T01:06:00.000Z', ip: '203.0.113.45', eventHash: eventHash('received') },
     ],
     artifacts: [
       { artifactKind: 'issued_pdf', driveFileId: 'drive-issued-1', sha256: issuedHash, byteSize: 123 },
@@ -118,7 +122,7 @@ const signingService = {
     state.confirmation = { confirmedAt: '2026-08-28T01:10:00.000Z', actorId: input.actorId };
     bundle.session.status = 'confirmed';
     bundle.events.push({
-      sequenceNo: 5, type: 'confirmed', at: state.confirmation.confirmedAt,
+      sequenceNo: 9, type: 'confirmed', at: state.confirmation.confirmedAt, ip: '198.51.100.40',
       eventHash: eventHash('confirmed'), metadata: {},
     });
     return { ok: true, status: 'confirmed' };
@@ -252,6 +256,11 @@ assert.equal(signedPdfPayload.signature.sha256, signatureHash);
 assert.equal(signedPdfPayload.partyASigningAssets.signature.base64, partyASignatureBytes.toString('base64'));
 assert.equal(signedPdfPayload.partyASigningAssets.signature.sha256, partyASignatureHash);
 assert.equal(signedPdfPayload.ipAddress, '203.0.113.45');
+assert.equal(signedPdfPayload.ipEvidence.dispatch.issuedIp, '198.51.100.10');
+assert.equal(signedPdfPayload.ipEvidence.partyA.firstOpenedIp, '203.0.113.21');
+assert.equal(signedPdfPayload.ipEvidence.partyA.signatureSubmittedIp, '203.0.113.22');
+assert.equal(signedPdfPayload.ipEvidence.partyB.firstOpenedIp, '203.0.113.31');
+assert.equal(signedPdfPayload.ipEvidence.partyB.signatureSubmittedIp, '203.0.113.45');
 assert.equal(signedPdfPayload.bundleHash, bundleHash);
 assert.deepEqual(signedPdfPayload.counterpartyDetails, counterpartyDetails);
 assert.deepEqual(Object.keys(signedPdfPayload.times).sort(), [
@@ -273,6 +282,12 @@ assert.equal(signedPdfPayload.confirmedBy, 'admin@example.com');
 // verification evidence, and the issued/signed/signature artifact hashes.
 assert.equal(receiptPayload.generatedAt.utc, '2026-08-28T01:11:12.000Z');
 assert.equal(receiptPayload.generatedAt.asiaTaipei, '2026-08-28T09:11:12+08:00');
+assert.equal(receiptPayload.schemaVersion, 'engineering-contract-evidence-receipt-v4-dual-party-ip-evidence');
+assert.equal(receiptPayload.signing.ipEvidence.dispatch.sentIp, '198.51.100.10');
+assert.equal(receiptPayload.signing.ipEvidence.partyA.submissionReceivedIp, '203.0.113.22');
+assert.equal(receiptPayload.signing.ipEvidence.partyB.firstOpenedIp, '203.0.113.31');
+assert.equal(receiptPayload.signing.ipEvidence.partyB.submissionReceivedIp, '203.0.113.45');
+assert.equal(receiptPayload.signing.ipEvidence.internal.confirmedIp, '198.51.100.40');
 assert.equal(receiptPayload.eventChain.headHash, eventHash('confirmed'));
 assert.equal(receiptPayload.verification.liffIdentityVerified, true);
 assert.equal(receiptPayload.verification.groupMembershipVerified, true);
@@ -284,7 +299,6 @@ assert.equal(receiptPayload.verification.counterpartyDetailsHash, digest(JSON.st
 })));
 assert.ok(receiptPayload.artifacts.some((item) => item.kind === 'issued_pdf' && item.sha256 === issuedHash));
 assert.ok(receiptPayload.artifacts.some((item) => item.kind === 'signed_pdf'));
-assert.equal(receiptPayload.schemaVersion, 'engineering-contract-evidence-receipt-v3-dual-party-signatures');
 assert.equal(receiptPayload.signing.partyA.method, 'contract_specific_signature');
 assert.equal(receiptPayload.signing.partyA.signatureSha256, partyASignatureHash);
 assert.equal(receiptPayload.signing.partyB.signatureSha256, signatureHash);
