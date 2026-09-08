@@ -296,11 +296,13 @@ function safeTimeline(bundle) {
   const artifacts = arrayOf(bundle?.artifacts).map((artifact) => {
     const kind = text(artifact?.artifact_kind || artifact?.artifactKind, 100);
     const labels = {
+      issued_pdf: '正式送簽合約 PDF 已保存',
       signed_pdf: '甲乙雙方完成簽署的最終合約 PDF 已保存',
       evidence_receipt: '完整簽署證據收據 JSON 已保存',
       party_a_signature_image: '甲方手寫簽名圖檔已保存',
     };
     const summaries = {
+      issued_pdf: '保存的是工程 AM 正式簽發、供甲乙雙方線上閱讀與簽署的凍結合約 PDF；文件 SHA-256 已登錄，所有簽名必須對應此份內容。',
       signed_pdf: '保存的是已套用甲乙雙方簽名的最終合約 PDF；系統同時登錄檔案 SHA-256 與檔案大小，供日後驗證內容未被修改。',
       evidence_receipt: '保存的是本次簽署的 JSON 證據收據，包含合約版本、事件時間、甲乙雙方驗證與簽署證據、來源 IP，以及文件與簽名雜湊。',
       party_a_signature_image: '保存的是甲方本次線上簽署送出的手寫簽名圖檔；檔案雜湊已登錄並會在產製最終 PDF 前重新核對。',
