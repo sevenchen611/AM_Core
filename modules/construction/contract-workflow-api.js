@@ -10,6 +10,7 @@ import { createContractCompletionService } from './contract-completion.js';
 import { createContractArtifactService } from './contract-artifacts.js';
 import { createRuntimeSigningService, signingRequestMeta } from './contract-runtime.js';
 import { createContractDraftReviewService } from './contract-draft-review.js';
+import { createContractFinalArtifactReader } from './contract-final-artifact-reader.js';
 
 export const CONTRACT_WORKFLOW_API_BASE = '/contracts/api/v2';
 
@@ -206,6 +207,16 @@ function routeFor(method, pathname) {
     return { operation: 'previewInternal', capability: 'view', review: true, binary: true,
       contractId: decodeSegment(match[1]), versionId: decodeSegment(match[2]) };
   }
+  match = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/versions\/([^/]+)\/final-signed-pdf$/);
+  if (method === 'GET' && match) {
+    return { operation: 'loadSignedPdf', capability: 'view', finalArtifact: true, binary: true,
+      contractId: decodeSegment(match[1]), versionId: decodeSegment(match[2]) };
+  }
+  match = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/versions\/([^/]+)\/evidence-receipt$/);
+  if (method === 'GET' && match) {
+    return { operation: 'loadEvidenceReceipt', capability: 'view', finalArtifact: true, binary: true,
+      contractId: decodeSegment(match[1]), versionId: decodeSegment(match[2]) };
+  }
   match = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/versions\/([^/]+)\/line-archives$/);
   if (match) {
     if (method === 'GET') return { operation: 'listLineArchives', capability: 'view', review: true,
@@ -301,6 +312,7 @@ export function createContractWorkflowApiHandler(deps) {
   let service;
   let issuanceService;
   let reviewService;
+  let finalArtifactService;
   return async function handleContractWorkflowApi(req, res, pathname, url, authority) {
     const route = routeFor(String(req.method || 'GET').toUpperCase(), pathname);
     if (!route) return false;
@@ -312,7 +324,7 @@ export function createContractWorkflowApiHandler(deps) {
       }
       const context = requireAuthority(deps, authority);
       requireCapability(authority, route.capability);
-      if (!route.issuance && !route.completion && !route.revocation && !route.review) {
+      if (!route.issuance && !route.completion && !route.revocation && !route.review && !route.finalArtifact) {
         service ||= createContractManagementService({
           store: deps.contractStore,
           ...(deps.contractClock ? { clock: deps.contractClock } : {}),
@@ -364,6 +376,7 @@ export function createContractWorkflowApiHandler(deps) {
       if (route.archiveId) bindPathReference(input, 'archiveId', route.archiveId);
       if (route.issuance) issuanceService ||= createContractIssuanceService(deps);
       if (route.review) reviewService ||= createContractDraftReviewService(deps);
+      if (route.finalArtifact) finalArtifactService ||= createContractFinalArtifactReader(deps);
       const completionService = route.completion ? createContractCompletionService(deps, {
         artifactService: createContractArtifactService(deps),
         signingService: createRuntimeSigningService(deps),
@@ -383,7 +396,9 @@ export function createContractWorkflowApiHandler(deps) {
         },
       } : null;
       const target = route.revocation ? revocationService
-        : (route.completion ? completionService : (route.issuance ? issuanceService : (route.review ? reviewService : service)));
+        : (route.completion ? completionService
+          : (route.issuance ? issuanceService
+            : (route.review ? reviewService : (route.finalArtifact ? finalArtifactService : service))));
       const data = await target[route.operation](context, input);
       if (route.binary) sendBinary(res, data);
       else sendJson(res, 200, { ok: true, data });

@@ -43,6 +43,10 @@ async function runEdit({ scope, contractProject = 'project-hz', groupProject = '
     tenantKey: 'engineering',
     actor: 'Portal 真實帳號',
     dataSources,
+    contractStore: {
+      async getAcceptanceContext() { return null; },
+      async appendAcceptanceEvent() { throw new Error('not expected in scope test'); },
+    },
     notionRequest: async (pathname, options = {}) => {
       calls.push({ pathname, options });
       if (pathname === '/v1/pages/contract-1' && options.method === 'GET') {

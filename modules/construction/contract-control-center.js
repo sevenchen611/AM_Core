@@ -170,13 +170,21 @@ function safeTimeline(bundle) {
       summary: '',
     };
   }).filter((event) => event.occurredAt);
-  const artifacts = arrayOf(bundle?.artifacts).map((artifact) => ({
-    type: 'artifact_registered',
-    label: '證據檔已保存',
-    occurredAt: safeIso(artifact?.created_at || artifact?.createdAt),
-    actor: 'system',
-    summary: text(artifact?.artifact_kind || artifact?.artifactKind, 100),
-  })).filter((event) => event.occurredAt);
+  const artifacts = arrayOf(bundle?.artifacts).map((artifact) => {
+    const kind = text(artifact?.artifact_kind || artifact?.artifactKind, 100);
+    const labels = {
+      signed_pdf: '最終簽署合約 PDF 已封存',
+      evidence_receipt: '簽署證據收據已封存',
+      party_a_signature_image: '甲方簽名證據已封存',
+    };
+    return {
+      type: 'artifact_registered',
+      label: labels[kind] || '證據檔已保存',
+      occurredAt: safeIso(artifact?.created_at || artifact?.createdAt),
+      actor: 'system',
+      summary: labels[kind] ? '' : kind,
+    };
+  }).filter((event) => event.occurredAt);
   return [...events, ...artifacts].sort((left, right) => Date.parse(left.occurredAt) - Date.parse(right.occurredAt));
 }
 
@@ -259,6 +267,17 @@ async function buildRecord(store, tenant, raw, runtime) {
       issues.push({ code: 'signing_bundle_load_failed', severity: 'blocking', message: '無法讀取權威簽署證據；不可用摘要狀態代替。' });
     }
   }
+  const sessionStatus = text(first(bundle?.session?.status, bundle?.signingStatus), 80).toLowerCase();
+  if (sessionStatus === 'completed') {
+    const artifactKinds = new Set(arrayOf(bundle?.artifacts)
+      .map((item) => text(first(item?.artifact_kind, item?.artifactKind), 80)));
+    if (!artifactKinds.has('signed_pdf') || !artifactKinds.has('evidence_receipt')) {
+      issues.push({
+        code: 'final_artifacts_missing', severity: 'attention',
+        message: '簽署 session 已完成，但最終合約 PDF 或簽署證據收據不完整；請由資料管理者核對。',
+      });
+    }
+  }
   const state = deriveEngineeringContractControlState({
     contract: raw,
     version: version || {},
@@ -324,8 +343,11 @@ export function createEngineeringContractControlCenterService({ store, clock = (
     const tenant = context.tenant;
     if (!tenant?.key) throw controlError('CONTRACT_TENANT_REQUIRED', '缺少工程租戶內容。', 403);
     const { runtime } = await readyStore(store, tenant);
-    if (typeof store.getContract !== 'function') throw controlError('CONTRACT_CONTROL_STORE_UNAVAILABLE', '工程合約資料庫查詢介面不完整。');
-    const raw = unwrap(await store.getContract(tenant, { contractId: text(contractId, 160) }));
+    // Detail must use the same enriched PostgreSQL projection as the summary.
+    // A bare contracts-table row does not include the latest signing session
+    // and previously made an archived contract look unsigned when opened.
+    const rows = arrayOf(unwrap(await store.listContracts(tenant, null)));
+    const raw = rows.find((row) => text(row?.id, 160) === text(contractId, 160));
     if (!raw || !scopeAllows(context.scope, raw)) throw controlError('CONTRACT_NOT_FOUND', '找不到此範圍內的工程合約。', 404);
     const loaded = await buildRecord(store, tenant, raw, runtime);
     return Object.freeze({
