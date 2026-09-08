@@ -17,6 +17,8 @@ let createdInput;
 const deps = {
   tenantKey: 'engineering', tenant: { key: 'engineering' }, actor: 'Portal 管理者',
   contractStore: {
+    async getAcceptanceContext() { return null; },
+    async appendAcceptanceEvent() { throw new Error('not expected in template test'); },
     async listContractTemplates() {
       return { value: [{ id: 'template-1', template_name: '泥作標準合約', contract_type: '泥作合約', versions: [] }] };
     },

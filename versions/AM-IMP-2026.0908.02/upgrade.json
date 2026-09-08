@@ -1,0 +1,56 @@
+{
+  "id": "AM-IMP-2026.0908.02",
+  "name": "Final contract access and control-detail parity",
+  "type": "AM Platform / Engineering contracts / completed signing read paths",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-08",
+  "dependsOn": [
+    "AM-IMP-2026.0903.02",
+    "AM-IMP-2026.0908.01"
+  ],
+  "installTargets": [
+    "AM_PLATFORM:engineering"
+  ],
+  "scope": [
+    "Use one authoritative PostgreSQL signing projection for control-center summary and detail",
+    "Restore completed Party A, Party B, holder, next-action and event-timeline presentation",
+    "Stream final signed PDFs and evidence receipts through tenant-scoped view authorization",
+    "Recheck private Drive state and SHA-256 before returning final artifact bytes",
+    "Promote final artifacts in the workspace while retaining the frozen pre-signing version"
+  ],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-control-center.mjs",
+    "tools/dryrun-engineering-contract-final-artifacts.mjs",
+    "tools/dryrun-engineering-contract-workspace.mjs",
+    "tools/dryrun-engineering-contract-control-routes.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Final artifacts stay private in the Engineering Drive root. The browser receives no Drive id, service credential, signing token, or raw signing evidence."
+  },
+  "definitionOfDone": [
+    "A completed contract has identical archived status in control summary and detail",
+    "Party A and Party B completion evidence and the contract timeline load in detail",
+    "The completed workspace presents the final signed PDF as its primary document",
+    "The evidence receipt and pre-signing frozen version remain separately accessible",
+    "Artifact reads reject missing scope, non-private files and SHA-256 mismatches",
+    "The Engineering production Render service is live and HZ-CT-001 is verified read-only"
+  ],
+  "files": [
+    "modules/construction/contract-control-center.js",
+    "modules/construction/contract-final-artifact-reader.js",
+    "modules/construction/contract-workflow-api.js",
+    "modules/construction/contracts.js",
+    "tools/dryrun-engineering-contract-control-center.mjs",
+    "tools/dryrun-engineering-contract-final-artifacts.mjs",
+    "tools/dryrun-engineering-contract-workspace.mjs",
+    "tools/dryrun-engineering-contract-scope.mjs",
+    "tools/dryrun-engineering-contract-template-library.mjs"
+  ]
+}

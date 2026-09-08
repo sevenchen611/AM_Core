@@ -19,7 +19,13 @@ await handleContractsRequest(
   pageRes,
   '/contracts',
   new URL('https://example.test/contracts?contract=1&contractManage=1'),
-  { tenantKey: 'engineering' },
+  {
+    tenantKey: 'engineering',
+    contractStore: {
+      async getAcceptanceContext() { return null; },
+      async appendAcceptanceEvent() { throw new Error('not expected while rendering workspace'); },
+    },
+  },
 );
 assert.equal(pageRes.status, 200);
 assert.match(pageRes.body, /工程合約管理/);
@@ -82,6 +88,13 @@ assert.match(pageRes.body, /草約未送出/);
 assert.match(pageRes.body, /內部審查文件（唯讀）/);
 assert.match(pageRes.body, /開啟完整合併合約 PDF/);
 assert.match(pageRes.body, /internal-preview/);
+assert.match(pageRes.body, /開啟最終簽署合約 PDF/);
+assert.match(pageRes.body, /開啟簽署證據收據/);
+assert.match(pageRes.body, /final-signed-pdf/);
+assert.match(pageRes.body, /evidence-receipt/);
+assert.match(pageRes.body, /簽署前凍結版本與附件/);
+assert.match(pageRes.body, /contractDocumentsHtml\(latest\)/);
+assert.match(pageRes.body, /WORKFLOW\.row\.signingStatus='completed';await refreshWorkflowSigningState\(\)/);
 assert.match(pageRes.body, /internal-attachments/);
 assert.match(pageRes.body, /不會送出 LINE/);
 assert.match(pageRes.body, /LINE 對話封存/);
