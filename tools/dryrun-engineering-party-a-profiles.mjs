@@ -92,10 +92,16 @@ assert.match(page, /party-a-profiles/);
 assert.match(page, /簽名不存主檔/);
 assert.match(page, /每份合約以指定 LINE 帳號簽名/);
 assert.match(page, /assign-party-a/);
+assert.match(page, /!WORKFLOW\.row\.partyASignerLineUserId&&!WORKFLOW\.row\.partyASigned/);
+assert.match(page, /我方確認已完成；目前只需產生最終歸檔/);
+assert.match(page, /繼續產生最終歸檔/);
+assert.match(page, /refreshWorkflowSigningState/);
 assert.doesNotMatch(page, /id="party-a-contract-signature"/);
-const pageScript = page.match(/<script>([\s\S]*)<\/script>/)?.[1];
-assert.ok(pageScript);
-new vm.Script(pageScript, { filename: 'engineering-contracts-page.js' });
+const pageScripts = [...page.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
+assert.ok(pageScripts.length);
+for (const [index, pageScript] of pageScripts.entries()) {
+  new vm.Script(pageScript, { filename: `engineering-contracts-page-${index + 1}.js` });
+}
 
 const migrationUrl = new URL('../versions/AM-IMP-2026.0902.08/schemas/engineering-contract-party-a-profiles-v6.sql', import.meta.url);
 const rawMigration = await fs.readFile(migrationUrl, 'utf8');

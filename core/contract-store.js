@@ -1332,7 +1332,15 @@ export function createContractStore({ env = process.env, logger = console, poolF
                 WHERE v.contract_id = c.id ORDER BY s.created_at DESC LIMIT 1) AS signing_status,
               (SELECT s.external_session_id FROM ${SCHEMA}.signing_sessions s
                  JOIN ${SCHEMA}.contract_versions v ON v.id = s.version_id
-                WHERE v.contract_id = c.id ORDER BY s.created_at DESC LIMIT 1) AS signing_external_session_id
+                WHERE v.contract_id = c.id ORDER BY s.created_at DESC LIMIT 1) AS signing_external_session_id,
+              (SELECT NULLIF(s.state_snapshot->>'partyASignerLineUserId', '')
+                 FROM ${SCHEMA}.signing_sessions s
+                 JOIN ${SCHEMA}.contract_versions v ON v.id = s.version_id
+                WHERE v.contract_id = c.id ORDER BY s.created_at DESC LIMIT 1) AS party_a_signer_line_user_id,
+              (SELECT COALESCE(jsonb_typeof(s.state_snapshot->'partyASubmission') = 'object', false)
+                 FROM ${SCHEMA}.signing_sessions s
+                 JOIN ${SCHEMA}.contract_versions v ON v.id = s.version_id
+                WHERE v.contract_id = c.id ORDER BY s.created_at DESC LIMIT 1) AS party_a_signed
          FROM ${SCHEMA}.contracts c
         WHERE c.tenant_key = $1 AND ($2::text[] IS NULL OR c.project_notion_page_id = ANY($2::text[]))
         ORDER BY c.updated_at DESC`,

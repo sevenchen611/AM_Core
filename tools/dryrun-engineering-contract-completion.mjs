@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { createContractCompletionService } from '../modules/construction/contract-completion.js';
+import { createContractCompletionService, __test as completionTest } from '../modules/construction/contract-completion.js';
 
 const digest = (value) => createHash('sha256').update(value).digest('hex');
 const signatureBytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4, 5]);
@@ -91,6 +91,7 @@ const calls = [];
 let failFirstPdf = true;
 let receiptPayload;
 let signedPdfPayload;
+let signedPdfIdempotencyKey;
 
 const contractStore = {
   async getSigningBundle(tenant, sessionId) {
@@ -148,7 +149,10 @@ const artifactService = {
   async renderPdf(kind, payload, idempotencyKey) {
     calls.push(`render:${kind}`);
     assert.equal(kind, 'signed_pdf');
-    assert.match(idempotencyKey, /session-1/);
+    assert.match(idempotencyKey, /^engineering-contract-signed-pdf:[a-f0-9]{64}$/);
+    assert.ok(idempotencyKey.length <= 240);
+    signedPdfIdempotencyKey ||= idempotencyKey;
+    assert.equal(idempotencyKey, signedPdfIdempotencyKey);
     if (failFirstPdf) {
       failFirstPdf = false;
       throw Object.assign(new Error('renderer temporarily unavailable'), { code: 'PDF_RENDER_FAILED' });
@@ -229,6 +233,18 @@ assert.equal(result.retried, true);
 assert.equal(calls.filter((item) => item === 'confirm').length, 1);
 assert.ok(calls.indexOf('record:signed_pdf') < calls.indexOf('record:evidence_receipt'));
 assert.ok(calls.indexOf('record:evidence_receipt') < calls.indexOf('complete'));
+
+// Production-length identifiers and three evidence hashes must still fit the
+// renderer's 240-character idempotency-key limit.
+const productionLengthKey = completionTest.signedPdfIdempotencyKey({
+  tenantKey: 'engineering',
+  sessionId: `cs_${'s'.repeat(120)}`,
+  bundleHash,
+  partyBSignatureHash: signatureHash,
+  partyASignatureHash,
+});
+assert.match(productionLengthKey, /^engineering-contract-signed-pdf:[a-f0-9]{64}$/);
+assert.ok(productionLengthKey.length <= 240);
 
 // Renderer receives the signature bytes and every contract evidence time.
 assert.equal(signedPdfPayload.signature.base64, signatureBytes.toString('base64'));
