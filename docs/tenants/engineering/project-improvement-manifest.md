@@ -63,6 +63,14 @@ Runtime target: `AM_PLATFORM`
   current group membership, LIFF identity, token, and frozen bundle hash must
   all match.
 
+## Operational runbook
+
+For future Engineering PostgreSQL schema releases, follow
+[Temporary PostgreSQL migration access](runbooks/temporary-postgresql-migration-access.md).
+It documents the owner-scoped, temporary-access procedure, verification, and
+mandatory cleanup without recording any credential or production connection
+value.
+
 ## Activation gate
 
 `ENG_CONTRACTS_SIGNING_ENABLED` stays `0` until every remaining check in the
