@@ -3,7 +3,7 @@
   "name": "Contract IP evidence and explicit event timeline",
   "type": "AM Platform / Engineering contracts / signing audit evidence",
   "portable": true,
-  "status": "Ready",
+  "status": "Deployed",
   "createdAt": "2026-09-08",
   "dependsOn": [
     "AM-IMP-2026.0908.02"
@@ -65,4 +65,3 @@
     "tools/dryrun-engineering-contract-workflow-api.mjs"
   ]
 }
-
