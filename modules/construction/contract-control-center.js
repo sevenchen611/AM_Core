@@ -230,7 +230,8 @@ function contractPresentation(raw, version, bundle, state, additionalIssues = []
       ? '先修復權威資料或 schema，再處理合約流程'
       : text(state.primaryNextAction?.label, 300),
     nextActionOwner: ownerLabel(health.status === 'blocked' ? 'data_reconciliation' : state.primaryNextAction?.owner),
-    dueAt: safeIso(bundle?.session?.expiresAt || bundle?.session?.expires_at),
+    dueAt: state.archive?.status === 'archived'
+      ? '' : safeIso(bundle?.session?.expiresAt || bundle?.session?.expires_at),
     paymentStatus: payment.label,
     acceptanceStatus: acceptance.label,
     dataHealth: health.label,

@@ -77,6 +77,7 @@ assert.equal(archived.contract.partyA.label, '甲方已簽署');
 assert.equal(archived.contract.partyB.label, '乙方已簽署');
 assert.equal(archived.contract.currentHolder, '無');
 assert.equal(archived.contract.nextAction, '流程已歸檔');
+assert.equal(archived.contract.dueAt, '');
 assert.equal(archived.contract.blockers.length, 0);
 assert.deepEqual(
   {
