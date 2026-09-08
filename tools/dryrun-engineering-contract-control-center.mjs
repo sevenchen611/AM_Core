@@ -44,6 +44,7 @@ const bundles = {
       { event_type: 'completed', occurred_at: '2026-09-03T02:15:00.000Z', ip_address: '198.51.100.40', actor_kind: 'admin' },
     ],
     artifacts: [
+      { artifact_kind: 'issued_pdf', created_at: '2026-09-03T02:00:01.000Z' },
       { artifact_kind: 'party_a_signature_image', created_at: '2026-09-03T02:10:01.000Z' },
       { artifact_kind: 'signed_pdf', created_at: '2026-09-03T02:15:01.000Z' },
       { artifact_kind: 'evidence_receipt', created_at: '2026-09-03T02:15:02.000Z' },
@@ -108,8 +109,10 @@ assert.equal(archived.contract.partyA.signedIp, '203.0.113.22');
 assert.equal(archived.contract.partyB.dispatchIp, '198.51.100.10');
 assert.equal(archived.contract.partyB.openedIp, '203.0.113.31');
 assert.equal(archived.contract.partyB.signedIp, '203.0.113.32');
-assert.equal(archived.timeline.length, 13);
+assert.equal(archived.timeline.length, 14);
 assert.equal(archived.timeline[0].label, '正式簽發合約 V14');
+assert.equal(archived.timeline[1].label, '正式送簽合約 PDF 已保存');
+assert.match(archived.timeline[1].summary, /供甲乙雙方線上閱讀與簽署/);
 assert.match(archived.timeline[0].summary, /線上簽署文件/);
 assert.equal(archived.timeline[0].ipAddress, '198.51.100.10');
 assert.equal(archived.timeline.some((event) => event.label === '其他簽署流程紀錄'), false);
