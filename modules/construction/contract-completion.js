@@ -39,6 +39,17 @@ function canonical(value) {
   return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
 }
 
+function signedPdfIdempotencyKey(input) {
+  const digest = hash(canonical({
+    tenantKey: text(input.tenantKey),
+    sessionId: text(input.sessionId),
+    bundleHash: sha256(input.bundleHash, 'idempotency.bundleHash'),
+    partyBSignatureHash: sha256(input.partyBSignatureHash, 'idempotency.partyBSignatureHash'),
+    partyASignatureHash: text(input.partyASignatureHash).toLowerCase() || 'company-seal',
+  }));
+  return `engineering-contract-signed-pdf:${digest}`;
+}
+
 function sha256(value, field) {
   const normalized = text(value).toLowerCase();
   if (!HASH_RE.test(normalized)) {
@@ -563,7 +574,13 @@ export function createContractCompletionService(deps, options = {}) {
         partyASigningAssets,
         identityDocuments: verifiedIdentityDocuments,
         confirmedBy: authority.actor,
-      }, `engineering-contract-signed-pdf:${authority.tenant.key}:${sessionId}:${bundleHash}:${signatureHash}:${partyASignatureHash || 'company-seal'}`);
+      }, signedPdfIdempotencyKey({
+        tenantKey: authority.tenant.key,
+        sessionId,
+        bundleHash,
+        partyBSignatureHash: signatureHash,
+        partyASignatureHash,
+      }));
       const lineArchives = typeof deps.contractStore.listLineConversationArchives === 'function'
         ? await deps.contractStore.listLineConversationArchives(
           authority.tenant, bundle.contractId, Number(first(bundle.version, ['versionNo', 'version_no'])),
@@ -679,4 +696,11 @@ export function createContractCompletionService(deps, options = {}) {
   return Object.freeze({ completeContract, confirmAndArchive: completeContract });
 }
 
-export const __test = Object.freeze({ normalizeBundle, taipeiTime, rejectClientAuthority, bufferResult, decodePartyASignature });
+export const __test = Object.freeze({
+  normalizeBundle,
+  taipeiTime,
+  rejectClientAuthority,
+  bufferResult,
+  decodePartyASignature,
+  signedPdfIdempotencyKey,
+});

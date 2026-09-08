@@ -1,0 +1,48 @@
+{
+  "id": "AM-IMP-2026.0908.01",
+  "name": "Engineering contract finalization recovery",
+  "type": "AM Platform / Engineering contracts / signing finalization",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-09-08",
+  "dependsOn": [
+    "AM-IMP-2026.0903.02"
+  ],
+  "installTargets": [
+    "AM_PLATFORM:engineering"
+  ],
+  "scope": [
+    "Replace the oversized signed-PDF idempotency key with a deterministic fixed-length digest",
+    "Expose authoritative Party A assignment and signing flags to the contract workspace",
+    "Hide completed Party A assignment and finalization controls",
+    "Refresh authoritative signing state after partial failures so the next action remains accurate"
+  ],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-engineering-contract-completion.mjs",
+    "tools/dryrun-engineering-party-a-profiles.mjs",
+    "tools/dryrun-engineering-contract-control-routes.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "All workflow status and Party A assignment fields remain tenant-scoped and server-derived. No signing evidence is accepted from the browser."
+  },
+  "definitionOfDone": [
+    "Signed-PDF renderer idempotency keys remain valid and no longer than 240 characters",
+    "A confirmed session can retry archival without reconfirming or resigning",
+    "Party A assignment controls disappear once the signer is assigned or Party A has signed",
+    "Completed finalization controls disappear after authoritative completion",
+    "Existing signatures, contract versions, and business records remain unchanged during deployment verification"
+  ],
+  "files": [
+    "modules/construction/contract-completion.js",
+    "modules/construction/contracts.js",
+    "core/contract-store.js",
+    "tools/dryrun-engineering-contract-completion.mjs",
+    "tools/dryrun-engineering-party-a-profiles.mjs"
+  ]
+}
