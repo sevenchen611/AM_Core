@@ -1,6 +1,6 @@
 # Engineering contract finalization recovery — 2026-09-08
 
-Status: Ready
+Status: Deployed
 
 ## Scope
 
@@ -23,3 +23,17 @@ to be repeated.
 Deployment verification is read-only. Completing the existing contract is a
 separate contractual production action and requires explicit user approval.
 This package needs no schema migration or temporary database owner access.
+
+## Deployment record
+
+- PR: `#126`
+- Production commit: `90a0505b8ef96d0fc83a88e73d8bc2ae7e184227`
+- Render deploy: `dep-dafp3ps9v7es73catsjg` (`Live` on 2026-09-08)
+- Production UI verification: `HZ-CT-001` shows both parties signed and the
+  durable `confirmed` state as "我方已確認，待歸檔". The completed Party A
+  assignment control is absent, while the only remaining action is "繼續產生最終歸檔".
+- No finalization action was executed during verification, so the existing
+  signatures and contract records were not changed.
+- The package check, JavaScript syntax checks, `npm run check`, and all 18
+  Engineering dry-run suites passed. The repository-wide alignment audit still
+  reports pre-existing external project-path and historical manifest gaps.
