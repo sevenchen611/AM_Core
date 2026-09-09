@@ -20,10 +20,22 @@ const job = {
   idempotency_key: 'evt-001',
 };
 const calls = [];
+const identities = new Map();
 const client = {
   async query(sql, params = []) {
     const normalized = String(sql).replace(/\s+/g, ' ').trim();
     calls.push({ sql: normalized, params });
+    if (normalized.startsWith('INSERT INTO am_memory.processing_jobs') && normalized.includes('completed_at')) {
+      const key = `${params[0]}:${params[1]}:${params[2]}`;
+      if (identities.has(key)) return { rows: [], rowCount: 0 };
+      identities.set(key, params[3]);
+      return { rows: [{ job_id: '00000000-0000-4000-8000-000000000002' }], rowCount: 1 };
+    }
+    if (normalized.startsWith("SELECT input_payload ->> 'payloadDigest'")) {
+      const key = `${params[0]}:${params[1]}:${params[2]}`;
+      const payloadDigest = identities.get(key);
+      return { rows: payloadDigest ? [{ payload_digest: payloadDigest }] : [] };
+    }
     if (normalized.startsWith('SELECT job_id, status')) return { rows: [{ ...job }] };
     if (normalized.startsWith('WITH ready AS')) {
       job.status = 'leased';
@@ -74,5 +86,26 @@ const settled = await memory.settleProcessingJob(tenant, {
 assert.equal(settled.status, 'retry');
 assert.ok(calls.some((call) => call.sql.includes("WHERE tenant_id = $1 AND job_id = $2 AND status = 'leased'")));
 
+const firstIdentity = await memory.bindProcessingIdentity(tenant, {
+  jobKind: 'finance-line-notification',
+  idempotencyKey: 'bank-draft-notification:v1:11111111-1111-4111-8111-111111111111',
+  payloadDigest: 'a'.repeat(64),
+});
+assert.deepEqual(firstIdentity, { ok: true, conflict: false, replayed: false });
+
+const replayedIdentity = await memory.bindProcessingIdentity(tenant, {
+  jobKind: 'finance-line-notification',
+  idempotencyKey: 'bank-draft-notification:v1:11111111-1111-4111-8111-111111111111',
+  payloadDigest: 'a'.repeat(64),
+});
+assert.deepEqual(replayedIdentity, { ok: true, conflict: false, replayed: true });
+
+const conflictingIdentity = await memory.bindProcessingIdentity(tenant, {
+  jobKind: 'finance-line-notification',
+  idempotencyKey: 'bank-draft-notification:v1:11111111-1111-4111-8111-111111111111',
+  payloadDigest: 'b'.repeat(64),
+});
+assert.deepEqual(conflictingIdentity, { ok: true, conflict: true, replayed: true });
+
 await memory.close();
-console.log('Generic persistent processing job store dry-run passed.');
+console.log('Generic persistent processing job store and immutable identity binding dry-run passed.');

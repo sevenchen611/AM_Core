@@ -186,6 +186,39 @@ export function createOperationalMemory({ env = process.env, logger = console, p
     return result.skipped ? { ok: false, skipped: result.skipped } : { ok: true, job: result.value };
   }
 
+  async function bindProcessingIdentity(tenant, input = {}) {
+    const jobKind = safeText(input.jobKind, 120);
+    const idempotencyKey = safeText(input.idempotencyKey, 240);
+    const payloadDigest = safeText(input.payloadDigest, 64);
+    if (!jobKind || !idempotencyKey || !/^[a-f0-9]{64}$/.test(payloadDigest)) {
+      throw new Error('Processing identity kind, key, and SHA-256 digest are required');
+    }
+    const result = await withTenant(tenant, async (client, config) => {
+      await ensureTenant(client, config);
+      const inserted = await client.query(
+        `INSERT INTO am_memory.processing_jobs
+           (tenant_id, job_kind, idempotency_key, status, max_attempts, input_payload, completed_at)
+         VALUES ($1, $2, $3, 'succeeded', 1, jsonb_build_object('payloadDigest', $4::text), clock_timestamp())
+         ON CONFLICT (tenant_id, job_kind, idempotency_key) DO NOTHING
+         RETURNING job_id`,
+        [config.tenantId, jobKind, idempotencyKey, payloadDigest],
+      );
+      const selected = await client.query(
+        `SELECT input_payload ->> 'payloadDigest' AS payload_digest
+           FROM am_memory.processing_jobs
+          WHERE tenant_id = $1 AND job_kind = $2 AND idempotency_key = $3
+          LIMIT 1`,
+        [config.tenantId, jobKind, idempotencyKey],
+      );
+      if (!selected.rows[0]) throw new Error('Unable to persist processing identity');
+      return {
+        conflict: selected.rows[0].payload_digest !== payloadDigest,
+        replayed: inserted.rowCount === 0,
+      };
+    });
+    return result.skipped ? { ok: false, skipped: result.skipped } : { ok: true, ...result.value };
+  }
+
   async function leaseProcessingJobs(tenant, input = {}) {
     const jobKind = safeText(input.jobKind, 120);
     if (!jobKind) throw new Error('Processing job kind is required');
@@ -705,6 +738,7 @@ export function createOperationalMemory({ env = process.env, logger = console, p
     snapshot,
     close,
     enqueueProcessingJob,
+    bindProcessingIdentity,
     leaseProcessingJobs,
     settleProcessingJob,
     settingsForTenant: (tenant) => tenantConfig(tenant, env),

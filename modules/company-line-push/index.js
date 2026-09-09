@@ -4,13 +4,15 @@ import { readBody, sendJson } from '../../core/util.js';
 let platform = null;
 
 const COMPANY_GROUP_RE = /HOZO\s*\u516c\u53f8[\u7fa4\u7d44]*/i;
-const LINE_GROUP_ID_RE = /^C[a-f0-9]{20,}$/i;
+const LINE_GROUP_ID_RE = /^C[a-f0-9]{32}$/i;
 const LINE_USER_ID_RE = /^U[a-f0-9]{32}$/i;
 const HOZO_TENANT_KEY = 'hozo-am-2-0';
 const FINANCE_GROUP_CANONICAL_NAME = 'HOZO \u8ca1\u52d9\u7fa4\u7d44';
 const FINANCE_RETRY_KEY_RE = /^finance-notification:v1:[a-f0-9]{64}$/;
+const FINANCE_SOURCE_NOTIFICATION_ID_RE = /^bank-draft-notification:v1:[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const FINANCE_BODY_FIELDS = new Set([
   'text', 'message', 'imageUrls', 'image_urls', 'dryRun', 'retryKey', 'timeoutMs', 'mentionName',
+  'sourceNotificationId',
 ]);
 
 function init(injected) {
@@ -40,12 +42,10 @@ function titleText(page) {
 }
 
 function extractLineGroupId(page) {
-  for (const prop of Object.values(page?.properties || {})) {
-    for (const value of textValues(prop)) {
-      if (LINE_GROUP_ID_RE.test(value)) return value;
-    }
-  }
-  return '';
+  const prop = page?.properties?.['LINE \u7fa4\u7d44 ID'];
+  if (prop?.type !== 'rich_text' || !Array.isArray(prop.rich_text) || prop.rich_text.length !== 1) return '';
+  const value = String(prop.rich_text[0]?.plain_text || '').trim();
+  return LINE_GROUP_ID_RE.test(value) ? value : '';
 }
 
 function maskLineId(id) {
@@ -120,14 +120,23 @@ function canonicalGroupName(page) {
   return explicit || titleText(page);
 }
 
-function financeRetryKeyFor({ text, mentionName, imageUrls }) {
+function financeRetryKeyFor({ sourceNotificationId, text, mentionName, imageUrls }) {
   const identity = JSON.stringify({
     contract: 'hozo-rental-finance-group-mention-v1',
+    sourceNotificationId,
     text,
     mentionName,
     imageUrls,
   });
   return `finance-notification:v1:${crypto.createHash('sha256').update(identity).digest('hex')}`;
+}
+
+function validateSourceNotificationId(value) {
+  const sourceNotificationId = String(value || '').trim();
+  if (!FINANCE_SOURCE_NOTIFICATION_ID_RE.test(sourceNotificationId)) {
+    throw requestError(400, 'invalid_source_notification_id', 'Finance push requires a valid sourceNotificationId.');
+  }
+  return sourceNotificationId.toLowerCase();
 }
 
 function validateFinanceRetryKey(value, identity) {
@@ -149,6 +158,25 @@ function financeDeliveryRetryKey(retryKey, target, mention) {
     userId: mention.userId,
   });
   return `finance-provider:v1:${crypto.createHash('sha256').update(routingIdentity).digest('hex')}`;
+}
+
+async function bindFinanceNotificationIdentity(ctx, sourceNotificationId, retryKey) {
+  const store = platform?.operationalMemory;
+  if (!store || typeof store.bindProcessingIdentity !== 'function') {
+    throw requestError(503, 'idempotency_store_unavailable', 'Finance notification identity store is unavailable.');
+  }
+  const binding = await store.bindProcessingIdentity(ctx.tenant, {
+    jobKind: 'finance-line-notification',
+    idempotencyKey: sourceNotificationId,
+    payloadDigest: retryKey.slice(-64),
+  });
+  if (!binding?.ok) {
+    throw requestError(503, 'idempotency_store_unavailable', 'Finance notification identity store is unavailable.');
+  }
+  if (binding.conflict) {
+    throw requestError(409, 'source_notification_conflict', 'Finance sourceNotificationId is already bound to different content.');
+  }
+  return binding;
 }
 
 function resolveMentionFromBinding(page, requestedName) {
@@ -263,19 +291,19 @@ async function resolveGroup(ctx, { matcher, canonicalName, label }) {
     seenCursors.add(startCursor);
     if (pageNumber === 99) throw new Error(`HOZO ${label} group binding lookup exceeded the page limit.`);
   }
-  const matches = pages
-    .map((page) => ({
+  const candidates = pages.map((page) => ({
       page,
       name: canonicalGroupName(page),
       groupId: extractLineGroupId(page),
       text: pageText(page),
-    }))
-    .filter((item) => item.groupId && (canonicalName
+    }));
+  const matches = candidates.filter((item) => (canonicalName
       ? normalizedCanonicalGroupName(item.name) === normalizedCanonicalGroupName(canonicalName)
-      : matcher.test(item.text)));
+      : item.groupId && matcher.test(item.text)));
 
   if (matches.length === 0) throw new Error(`HOZO ${label} group binding was not found.`);
   if (matches.length > 1) throw new Error(`Multiple HOZO ${label} group bindings were found.`);
+  if (!matches[0].groupId) throw new Error(`HOZO ${label} group binding has an invalid canonical LINE group ID.`);
   return matches[0];
 }
 
@@ -300,6 +328,7 @@ async function pushToGroup(req, res, ctx, {
 
     let mention;
     let financeRetryKey = '';
+    let sourceNotificationId = '';
     if (requireMention) {
       if (!Object.hasOwn(body, 'mentionName')) {
         throw requestError(400, 'mention_required', 'Finance push requires mentionName.');
@@ -311,7 +340,11 @@ async function pushToGroup(req, res, ctx, {
       if (!text.includes(mentionName)) {
         throw requestError(400, 'mention_not_in_text', 'Finance push text must contain mentionName.');
       }
-      financeRetryKey = validateFinanceRetryKey(body.retryKey, { text, mentionName, imageUrls });
+      sourceNotificationId = validateSourceNotificationId(body.sourceNotificationId);
+      financeRetryKey = validateFinanceRetryKey(body.retryKey, {
+        sourceNotificationId, text, mentionName, imageUrls,
+      });
+      await bindFinanceNotificationIdentity(ctx, sourceNotificationId, financeRetryKey);
     }
     const target = await resolveGroup(ctx, { matcher, canonicalName, label });
     if (requireMention) mention = resolveMentionFromBinding(target.page, body.mentionName);
@@ -430,4 +463,5 @@ export default {
 export const __test = {
   extractLineGroupId, pageText, titleText, isRentalAuthorized, resolveMentionFromBinding,
   parseFlatMemberMap, canonicalGroupName, financeRetryKeyFor, financeDeliveryRetryKey,
+  validateSourceNotificationId,
 };

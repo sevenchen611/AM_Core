@@ -7,13 +7,20 @@ a second LINE sender or accept raw LINE targets from Rental.
 
 ## Contract
 
-- Rental supplies human-readable `text` and `mentionName`, plus the required
-  content-bound `retryKey`; the route never creates a random key for finance
-  notifications.
+- Rental supplies human-readable `text` and `mentionName`, a stable
+  `sourceNotificationId` in the form `bank-draft-notification:v1:<UUID>`, and
+  the required source-and-content-bound `retryKey`; the route never creates a
+  random identifier or key for finance notifications.
+- Distinct notification events use distinct source ids even when text is equal.
+  An identical replay reuses the same source id, while changed content under an
+  existing source id returns HTTP 409 before LINE is called.
 - The route selects exactly one HOZO finance group binding across all pages by
   exact normalized canonical title/`群組名稱`, never by unrelated page text.
 - The LINE user identity is read only from that selected binding page's
   `成員對照` JSON.
+- The LINE group identity is read only from that page's canonical
+  `LINE 群組 ID` property, which must be one rich-text value in exact
+  `C` plus 32 hexadecimal format.
 - The requested name must resolve to exactly one valid LINE user identity and
   must occur in the outgoing text.
 - The route calls the existing `platform.pushLineMessage(groupId, text,
