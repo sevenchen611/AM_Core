@@ -1,0 +1,12 @@
+{
+  "contract": "hozo-rental-finance-group-mention-v1",
+  "endpoint": "/control/hozo/rental/finance-group/push",
+  "method": "POST",
+  "access": "machine-only",
+  "requiredBodyFields": ["text", "mentionName"],
+  "forbiddenCallerFields": ["groupId", "userId"],
+  "identitySource": "selected-finance-group-binding.成員對照",
+  "successGate": ["http-2xx", "ok=true", "mention.resolved=true", "mention.delivered=true"],
+  "failurePolicy": "fail-closed-without-provider-push",
+  "responseIdentityPolicy": "mention-name-and-booleans-only"
+}

@@ -51,9 +51,22 @@ Content-Type: application/json
 Body:
 
 ```json
-{ "text": "finance workflow message from HOZO Rental" }
+{
+  "text": "@陸昱晴 finance workflow message from HOZO Rental",
+  "mentionName": "陸昱晴"
+}
 ```
 
 This endpoint uses the same machine credential as the Rental company-group API,
 but resolves exactly one group binding whose fields contain `HOZO 財務群組`.
-The caller still cannot provide a LINE group id.
+The caller cannot provide a LINE group id or LINE user id. `mentionName` is
+required and must occur in `text`. The endpoint resolves exactly one matching
+name from that one finance binding page's `成員對照` JSON and passes the
+resolved identity to the shared LINE `textV2` mention sender.
+
+Missing, malformed, unknown, ambiguous, or invalid member mappings fail closed
+without sending. The response reports only the mention name and
+resolved/delivered booleans; it never returns the LINE user id. Callers must
+record every non-2xx response as a notification failure and must not mark the
+notice as delivered unless `ok`, `mention.resolved`, and `mention.delivered` are
+all true.

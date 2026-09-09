@@ -1,0 +1,31 @@
+{
+  "id": "AM-IMP-2026.0909.01",
+  "name": "Finance-group verified LINE mention",
+  "type": "AM Platform / machine notification security",
+  "portable": false,
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
+  "requiresDatabases": ["HOZO AM 2.0 Group Bindings with one finance binding and a valid 成員對照 JSON field"],
+  "requiresEnv": ["HZ2_RENTAL_COMPANY_GROUP_PUSH_KEY", "LINE_CHANNEL_ACCESS_TOKEN"],
+  "requiresScripts": ["tools/verify-company-line-push.mjs"],
+  "dependencies": ["Existing /control/hozo/rental/finance-group/push route", "Shared platform.pushLineMessage textV2 mention support"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The caller supplies neither groupId nor userId. The route resolves both only inside the HOZO AM 2.0 tenant and reads mention identity solely from the uniquely selected finance binding page."
+  },
+  "definitionOfDone": [
+    "The finance push body requires a bounded mentionName present in text",
+    "Caller-supplied groupId, userId, and unsupported fields are rejected",
+    "Exactly one member-map entry on the selected finance binding resolves the mention",
+    "Missing, malformed, invalid, and ambiguous member mappings return non-2xx without a LINE push",
+    "The existing LINE sender receives the resolved mention object and produces textV2",
+    "Responses and logs do not expose the resolved LINE user id",
+    "Rental records non-2xx or non-delivered results as notification failure"
+  ],
+  "projectStatus": {
+    "AM_PLATFORM:hozo-am-2-0": "Installed"
+  },
+  "status": "Installed"
+}
