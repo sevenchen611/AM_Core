@@ -7,8 +7,11 @@ a second LINE sender or accept raw LINE targets from Rental.
 
 ## Contract
 
-- Rental supplies human-readable `text` and `mentionName` only.
-- The route selects exactly one HOZO finance group binding.
+- Rental supplies human-readable `text` and `mentionName`, plus the required
+  content-bound `retryKey`; the route never creates a random key for finance
+  notifications.
+- The route selects exactly one HOZO finance group binding across all pages by
+  exact normalized canonical title/`群組名稱`, never by unrelated page text.
 - The LINE user identity is read only from that selected binding page's
   `成員對照` JSON.
 - The requested name must resolve to exactly one valid LINE user identity and
@@ -17,6 +20,12 @@ a second LINE sender or accept raw LINE targets from Rental.
   { name, userId }, delivery)` path, which emits a LINE `textV2` mention.
 - Missing, malformed, invalid, unknown, or ambiguous identity data stops before
   the provider call and returns a non-2xx response with `ok: false`.
+- The member map parser accepts only a flat JSON string-to-string object and
+  rejects duplicate decoded keys before ordinary JSON last-key-wins behavior.
+- LINE member ids are exactly `U` followed by 32 hexadecimal characters.
+- A LINE `409` is accepted only with provider accepted-request evidence, and the
+  content-bound caller key plus route-bound provider key prevent a different
+  payload or resolved destination from borrowing it.
 - Neither responses nor application logs expose the resolved LINE user id.
 
 No production group id, member id, token, Notion id, message, or customer data

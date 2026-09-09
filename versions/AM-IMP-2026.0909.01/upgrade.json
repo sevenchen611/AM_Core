@@ -17,11 +17,14 @@
   },
   "definitionOfDone": [
     "The finance push body requires a bounded mentionName present in text",
+    "Finance retryKey is required, fixed-format, and cryptographically bound to the normalized payload",
     "Caller-supplied groupId, userId, and unsupported fields are rejected",
+    "The finance binding is selected by exact canonical name across all Notion result pages",
     "Exactly one member-map entry on the selected finance binding resolves the mention",
-    "Missing, malformed, invalid, and ambiguous member mappings return non-2xx without a LINE push",
+    "Duplicate JSON keys plus missing, malformed, invalid, and ambiguous member mappings return non-2xx without a LINE push",
     "The existing LINE sender receives the resolved mention object and produces textV2",
     "Responses and logs do not expose the resolved LINE user id",
+    "A LINE 409 is delivered only with accepted-request evidence for the same content-bound payload",
     "Rental records non-2xx or non-delivered results as notification failure"
   ],
   "projectStatus": {

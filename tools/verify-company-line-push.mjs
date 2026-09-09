@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
-import companyLinePush from '../modules/company-line-push/index.js';
+import companyLinePush, { __test } from '../modules/company-line-push/index.js';
 
 const HOZO_GROUP_ID = 'C1234567890abcdef123456';
 const HOZO_FINANCE_GROUP_ID = 'Cabcdef1234567890abcdef';
@@ -13,6 +13,19 @@ function groupBinding(name, groupId, members = {}) {
       LineId: { type: 'rich_text', rich_text: [{ plain_text: groupId }] },
       '成員對照': { type: 'rich_text', rich_text: [{ plain_text: JSON.stringify(members) }] },
     },
+  };
+}
+
+function financeBody(text, extras = {}) {
+  const mentionName = extras.mentionName || '陸昱晴';
+  const imageUrls = extras.imageUrls || extras.image_urls || [];
+  return {
+    text,
+    mentionName,
+    ...extras,
+    retryKey: Object.hasOwn(extras, 'retryKey') ? extras.retryKey : __test.financeRetryKeyFor({
+      text: String(text).trim(), mentionName: String(mentionName).normalize('NFKC').trim(), imageUrls,
+    }),
   };
 }
 
@@ -49,6 +62,7 @@ async function call(route, { body, headers = {}, url } = {}) {
 
 const pushCalls = [];
 let pushFailure = null;
+let pushReceipt = { status: 200, requestId: 'line-req-1', messageIds: ['line-msg-1'] };
 let bindingResults = [
   groupBinding('HOZO 公司群', HOZO_GROUP_ID, { '陸昱晴': 'Uabcdefabcdefabcdefabcdefabcdefab' }),
   groupBinding('HOZO 財務群組', HOZO_FINANCE_GROUP_ID, { '陸昱晴': MAGGIE_USER_ID }),
@@ -66,7 +80,7 @@ companyLinePush.init({
   pushLineMessage: async (to, text, mention, delivery) => {
     pushCalls.push({ to, text, mention, delivery });
     if (pushFailure) throw pushFailure;
-    return { status: 200, requestId: 'line-req-1', messageIds: ['line-msg-1'] };
+    return pushReceipt;
   },
 });
 
@@ -79,6 +93,15 @@ assert.ok(controlRoute);
 assert.deepEqual(rentalFinanceRoute.access, {
   kind: 'machine', scope: 'tenant', capability: 'line.push.finance-group.rental',
 });
+const routingBoundCallerKey = financeBody('@陸昱晴 route binding proof').retryKey;
+assert.notEqual(
+  __test.financeDeliveryRetryKey(routingBoundCallerKey, { groupId: HOZO_FINANCE_GROUP_ID }, { userId: MAGGIE_USER_ID }),
+  __test.financeDeliveryRetryKey(routingBoundCallerKey, { groupId: HOZO_GROUP_ID }, { userId: MAGGIE_USER_ID }),
+);
+assert.notEqual(
+  __test.financeDeliveryRetryKey(routingBoundCallerKey, { groupId: HOZO_FINANCE_GROUP_ID }, { userId: MAGGIE_USER_ID }),
+  __test.financeDeliveryRetryKey(routingBoundCallerKey, { groupId: HOZO_FINANCE_GROUP_ID }, { userId: 'Uabcdefabcdefabcdefabcdefabcdefab' }),
+);
 
 let res = await call(rentalRoute, { body: { text: 'hello' } });
 assert.equal(res.status, 401);
@@ -132,7 +155,7 @@ assert.equal(res.payload.source, 'control');
 
 res = await call(rentalFinanceRoute, {
   headers: { authorization: 'Bearer rental-only-key' },
-  body: { text: '@陸昱晴 finance workflow completed', mentionName: '陸昱晴', retryKey: 'finance-retry-1' },
+  body: financeBody('@陸昱晴 finance workflow completed'),
 });
 assert.equal(res.status, 200);
 assert.equal(res.payload.source, 'hozo-rental-finance');
@@ -143,7 +166,28 @@ assert.equal(pushCalls.length, 2);
 assert.equal(pushCalls[1].to, HOZO_FINANCE_GROUP_ID);
 assert.equal(pushCalls[1].text, '@陸昱晴 finance workflow completed');
 assert.deepEqual(pushCalls[1].mention, { name: '陸昱晴', userId: MAGGIE_USER_ID });
-assert.equal(pushCalls[1].delivery.retryKey, 'finance-retry-1');
+assert.match(pushCalls[1].delivery.retryKey, /^finance-provider:v1:[a-f0-9]{64}$/);
+
+pushReceipt = { status: 409, acceptedRequestId: 'line-accepted-1', messageIds: [] };
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' },
+  body: financeBody('@陸昱晴 finance workflow completed'),
+});
+assert.equal(res.status, 200);
+assert.equal(res.payload.line.status, 409);
+assert.equal(res.payload.mention.delivered, true);
+assert.equal(pushCalls[2].delivery.retryKey, pushCalls[1].delivery.retryKey);
+
+pushReceipt = { status: 409, acceptedRequestId: '', messageIds: [] };
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' },
+  body: financeBody('@陸昱晴 unconfirmed provider conflict'),
+});
+assert.equal(res.status, 500);
+assert.equal(res.payload.ok, false);
+assert.equal(res.payload.code, 'finance_notification_failed');
+assert.equal(res.payload.mention, undefined);
+pushReceipt = { status: 200, requestId: 'line-req-1', messageIds: ['line-msg-1'] };
 
 const pushCountAfterMention = pushCalls.length;
 
@@ -161,6 +205,31 @@ res = await call(rentalFinanceRoute, {
 });
 assert.equal(res.status, 400);
 assert.equal(res.payload.code, 'mention_not_in_text');
+assert.equal(pushCalls.length, pushCountAfterMention);
+
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' },
+  body: { text: '@陸昱晴 missing retry key', mentionName: '陸昱晴' },
+});
+assert.equal(res.status, 400);
+assert.equal(res.payload.code, 'invalid_retry_key');
+assert.equal(pushCalls.length, pushCountAfterMention);
+
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' },
+  body: financeBody('@陸昱晴 invalid retry key', { retryKey: `finance-notification:v1:${'a'.repeat(65)}` }),
+});
+assert.equal(res.status, 400);
+assert.equal(res.payload.code, 'invalid_retry_key');
+assert.equal(pushCalls.length, pushCountAfterMention);
+
+const boundToDifferentText = financeBody('@陸昱晴 original payload').retryKey;
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' },
+  body: financeBody('@陸昱晴 changed payload', { retryKey: boundToDifferentText }),
+});
+assert.equal(res.status, 409);
+assert.equal(res.payload.code, 'idempotency_key_mismatch');
 assert.equal(pushCalls.length, pushCountAfterMention);
 
 res = await call(rentalFinanceRoute, {
@@ -187,7 +256,7 @@ pushFailure = Object.assign(new Error(`provider rejected mention ${MAGGIE_USER_I
 });
 res = await call(rentalFinanceRoute, {
   headers: { authorization: 'Bearer rental-only-key' },
-  body: { text: '@陸昱晴 provider failure', mentionName: '陸昱晴' },
+  body: financeBody('@陸昱晴 provider failure'),
 });
 assert.equal(res.status, 502);
 assert.equal(res.payload.ok, false);
@@ -202,20 +271,42 @@ bindingResults = [
 ];
 res = await call(rentalFinanceRoute, {
   headers: { authorization: 'Bearer rental-only-key' },
-  body: { text: '@陸昱晴 wrong-page identity must not be used', mentionName: '陸昱晴' },
+  body: financeBody('@陸昱晴 wrong-page identity must not be used'),
 });
 assert.equal(res.status, 422);
 assert.equal(res.payload.code, 'mention_not_resolved');
 assert.ok(!JSON.stringify(res.payload).includes(MAGGIE_USER_ID));
 assert.equal(pushCalls.length, pushCountAfterProviderFailure);
 
-const duplicateFinanceBinding = groupBinding('HOZO 財務群組 duplicate', 'C111111111111111111111', { '陸昱晴': MAGGIE_USER_ID });
+const fuzzyFinanceBinding = groupBinding('Unrelated group', HOZO_FINANCE_GROUP_ID, { '陸昱晴': MAGGIE_USER_ID });
+fuzzyFinanceBinding.properties.Description = { type: 'rich_text', rich_text: [{ plain_text: 'notes mention HOZO 財務群組' }] };
+bindingResults = [fuzzyFinanceBinding];
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' },
+  body: financeBody('@陸昱晴 fuzzy group text must not route'),
+});
+assert.equal(res.status, 500);
+assert.equal(res.payload.code, 'finance_notification_failed');
+assert.equal(pushCalls.length, pushCountAfterProviderFailure);
+
+const conflictingCanonicalName = groupBinding('HOZO 財務群組', HOZO_FINANCE_GROUP_ID, { '陸昱晴': MAGGIE_USER_ID });
+conflictingCanonicalName.properties['群組名稱'] = { type: 'rich_text', rich_text: [{ plain_text: 'Unrelated group' }] };
+bindingResults = [conflictingCanonicalName];
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' },
+  body: financeBody('@陸昱晴 explicit canonical name must win'),
+});
+assert.equal(res.status, 500);
+assert.equal(res.payload.code, 'finance_notification_failed');
+assert.equal(pushCalls.length, pushCountAfterProviderFailure);
+
+const duplicateFinanceBinding = groupBinding('HOZO 財務群組', 'C111111111111111111111', { '陸昱晴': MAGGIE_USER_ID });
 bindingPageResolver = (body) => body.start_cursor
   ? { results: [duplicateFinanceBinding], has_more: false }
   : { results: [groupBinding('HOZO 財務群組', HOZO_FINANCE_GROUP_ID, { '陸昱晴': MAGGIE_USER_ID })], has_more: true, next_cursor: 'page-2' };
 res = await call(rentalFinanceRoute, {
   headers: { authorization: 'Bearer rental-only-key' },
-  body: { text: '@陸昱晴 duplicate binding on page two', mentionName: '陸昱晴' },
+  body: financeBody('@陸昱晴 duplicate binding on page two'),
 });
 assert.equal(res.status, 500);
 assert.equal(res.payload.ok, false);
@@ -226,7 +317,7 @@ bindingPageResolver = () => ({ results: bindingResults });
 bindingResults = [groupBinding('HOZO 財務群組', HOZO_FINANCE_GROUP_ID, { '陸昱晴': 'not-a-line-user' })];
 res = await call(rentalFinanceRoute, {
   headers: { authorization: 'Bearer rental-only-key' },
-  body: { text: '@陸昱晴 invalid identity', mentionName: '陸昱晴' },
+  body: financeBody('@陸昱晴 invalid identity'),
 });
 assert.equal(res.status, 422);
 assert.equal(res.payload.code, 'mention_not_resolved');
@@ -238,7 +329,18 @@ malformedBinding.properties['成員對照'].rich_text[0].plain_text = '{invalid-
 bindingResults = [malformedBinding];
 res = await call(rentalFinanceRoute, {
   headers: { authorization: 'Bearer rental-only-key' },
-  body: { text: '@陸昱晴 malformed member map', mentionName: '陸昱晴' },
+  body: financeBody('@陸昱晴 malformed member map'),
+});
+assert.equal(res.status, 422);
+assert.equal(res.payload.code, 'mention_not_resolved');
+assert.equal(pushCalls.length, pushCountAfterProviderFailure);
+
+const duplicateRawKeyBinding = groupBinding('HOZO 財務群組', HOZO_FINANCE_GROUP_ID);
+duplicateRawKeyBinding.properties['成員對照'].rich_text[0].plain_text = `{"\u9678\u6631\u6674":"${MAGGIE_USER_ID}","\u9678\u6631\u6674":"Uabcdefabcdefabcdefabcdefabcdefab"}`;
+bindingResults = [duplicateRawKeyBinding];
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' },
+  body: financeBody('@陸昱晴 duplicate raw member key'),
 });
 assert.equal(res.status, 422);
 assert.equal(res.payload.code, 'mention_not_resolved');
@@ -250,7 +352,7 @@ bindingResults = [groupBinding('HOZO 財務群組', HOZO_FINANCE_GROUP_ID, {
 })];
 res = await call(rentalFinanceRoute, {
   headers: { authorization: 'Bearer rental-only-key' },
-  body: { text: '@陸昱晴 ambiguous identity', mentionName: '陸昱晴' },
+  body: financeBody('@陸昱晴 ambiguous identity'),
 });
 assert.equal(res.status, 422);
 assert.equal(res.payload.code, 'mention_not_resolved');
@@ -260,7 +362,7 @@ assert.equal(pushCalls.length, pushCountAfterProviderFailure);
 bindingResults = [groupBinding('HOZO 財務群組', HOZO_FINANCE_GROUP_ID, { '陸昱晴': MAGGIE_USER_ID })];
 res = await call(rentalFinanceRoute, {
   headers: { authorization: 'Bearer rental-only-key' },
-  body: { text: '@陸昱晴 dry run mention', mentionName: '陸昱晴', dryRun: true },
+  body: financeBody('@陸昱晴 dry run mention', { dryRun: true }),
 });
 assert.equal(res.status, 200);
 assert.deepEqual(res.payload.mention, { name: '陸昱晴', resolved: true, delivered: false });

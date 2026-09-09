@@ -4,10 +4,11 @@ import { readBody, sendJson } from '../../core/util.js';
 let platform = null;
 
 const COMPANY_GROUP_RE = /HOZO\s*\u516c\u53f8[\u7fa4\u7d44]*/i;
-const FINANCE_GROUP_RE = /HOZO\s*\u8ca1\u52d9\u7fa4\u7d44/i;
 const LINE_GROUP_ID_RE = /^C[a-f0-9]{20,}$/i;
-const LINE_USER_ID_RE = /^U[a-f0-9]{20,}$/i;
+const LINE_USER_ID_RE = /^U[a-f0-9]{32}$/i;
 const HOZO_TENANT_KEY = 'hozo-am-2-0';
+const FINANCE_GROUP_CANONICAL_NAME = 'HOZO \u8ca1\u52d9\u7fa4\u7d44';
+const FINANCE_RETRY_KEY_RE = /^finance-notification:v1:[a-f0-9]{64}$/;
 const FINANCE_BODY_FIELDS = new Set([
   'text', 'message', 'imageUrls', 'image_urls', 'dryRun', 'retryKey', 'timeoutMs', 'mentionName',
 ]);
@@ -63,6 +64,93 @@ function normalizedMemberName(value) {
   return String(value || '').normalize('NFKC').trim();
 }
 
+function readJsonStringToken(raw, start) {
+  if (raw[start] !== '"') throw new Error('Expected JSON string.');
+  let escaped = false;
+  for (let index = start + 1; index < raw.length; index += 1) {
+    const char = raw[index];
+    if (escaped) { escaped = false; continue; }
+    if (char === '\\') { escaped = true; continue; }
+    if (char === '"') return { value: JSON.parse(raw.slice(start, index + 1)), end: index + 1 };
+    if (char.charCodeAt(0) < 0x20) throw new Error('Invalid JSON string.');
+  }
+  throw new Error('Unterminated JSON string.');
+}
+
+function parseFlatMemberMap(rawValue) {
+  const raw = String(rawValue || '');
+  let index = 0;
+  const skipWhitespace = () => { while (/\s/.test(raw[index] || '')) index += 1; };
+  skipWhitespace();
+  if (raw[index] !== '{') throw new Error('Member map must be an object.');
+  index += 1;
+  skipWhitespace();
+  const members = Object.create(null);
+  const keys = new Set();
+  if (raw[index] === '}') { index += 1; skipWhitespace(); if (index !== raw.length) throw new Error('Trailing JSON.'); return members; }
+  while (index < raw.length) {
+    const keyToken = readJsonStringToken(raw, index);
+    index = keyToken.end;
+    if (keys.has(keyToken.value)) throw new Error('Duplicate member key.');
+    keys.add(keyToken.value);
+    skipWhitespace();
+    if (raw[index] !== ':') throw new Error('Expected colon.');
+    index += 1;
+    skipWhitespace();
+    const valueToken = readJsonStringToken(raw, index);
+    index = valueToken.end;
+    members[keyToken.value] = valueToken.value;
+    skipWhitespace();
+    if (raw[index] === '}') { index += 1; break; }
+    if (raw[index] !== ',') throw new Error('Expected comma.');
+    index += 1;
+    skipWhitespace();
+  }
+  skipWhitespace();
+  if (index !== raw.length) throw new Error('Trailing JSON.');
+  return members;
+}
+
+function normalizedCanonicalGroupName(value) {
+  return String(value || '').normalize('NFKC').trim().replace(/\s+/g, ' ');
+}
+
+function canonicalGroupName(page) {
+  const explicit = textValues(page?.properties?.['\u7fa4\u7d44\u540d\u7a31']).join('').trim();
+  return explicit || titleText(page);
+}
+
+function financeRetryKeyFor({ text, mentionName, imageUrls }) {
+  const identity = JSON.stringify({
+    contract: 'hozo-rental-finance-group-mention-v1',
+    text,
+    mentionName,
+    imageUrls,
+  });
+  return `finance-notification:v1:${crypto.createHash('sha256').update(identity).digest('hex')}`;
+}
+
+function validateFinanceRetryKey(value, identity) {
+  const supplied = String(value || '');
+  if (!FINANCE_RETRY_KEY_RE.test(supplied)) {
+    throw requestError(400, 'invalid_retry_key', 'Finance push requires a valid content-bound retryKey.');
+  }
+  const expected = financeRetryKeyFor(identity);
+  if (!timingSafeEqual(supplied, expected)) {
+    throw requestError(409, 'idempotency_key_mismatch', 'Finance push retryKey does not match the normalized payload.');
+  }
+  return supplied;
+}
+
+function financeDeliveryRetryKey(retryKey, target, mention) {
+  const routingIdentity = JSON.stringify({
+    retryKey,
+    groupId: target.groupId,
+    userId: mention.userId,
+  });
+  return `finance-provider:v1:${crypto.createHash('sha256').update(routingIdentity).digest('hex')}`;
+}
+
 function resolveMentionFromBinding(page, requestedName) {
   const mentionName = normalizedMemberName(requestedName);
   if (!mentionName || mentionName.length > 80 || /[\u0000-\u001f\u007f]/.test(mentionName)) {
@@ -71,7 +159,7 @@ function resolveMentionFromBinding(page, requestedName) {
 
   let members;
   try {
-    members = JSON.parse(richTextPlain(page?.properties?.['\u6210\u54e1\u5c0d\u7167']));
+    members = parseFlatMemberMap(richTextPlain(page?.properties?.['\u6210\u54e1\u5c0d\u7167']));
   } catch {
     throw requestError(422, 'mention_not_resolved', 'Finance group mention could not be resolved.');
   }
@@ -153,7 +241,7 @@ function normalizeImageUrls(value) {
     .slice(0, 4);
 }
 
-async function resolveGroup(ctx, matcher, label) {
+async function resolveGroup(ctx, { matcher, canonicalName, label }) {
   const dataSourceId = ctx.tenant?.dataSources?.groupBindings;
   if (!dataSourceId) throw new Error('HOZO group bindings data source is not configured.');
 
@@ -178,11 +266,13 @@ async function resolveGroup(ctx, matcher, label) {
   const matches = pages
     .map((page) => ({
       page,
-      name: titleText(page),
+      name: canonicalGroupName(page),
       groupId: extractLineGroupId(page),
       text: pageText(page),
     }))
-    .filter((item) => item.groupId && matcher.test(item.text));
+    .filter((item) => item.groupId && (canonicalName
+      ? normalizedCanonicalGroupName(item.name) === normalizedCanonicalGroupName(canonicalName)
+      : matcher.test(item.text)));
 
   if (matches.length === 0) throw new Error(`HOZO ${label} group binding was not found.`);
   if (matches.length > 1) throw new Error(`Multiple HOZO ${label} group bindings were found.`);
@@ -190,7 +280,7 @@ async function resolveGroup(ctx, matcher, label) {
 }
 
 async function pushToGroup(req, res, ctx, {
-  source = 'control', matcher = COMPANY_GROUP_RE, label = 'company', requireMention = false,
+  source = 'control', matcher = COMPANY_GROUP_RE, canonicalName = '', label = 'company', requireMention = false,
 } = {}) {
   if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'Method not allowed.' });
   if (ctx.tenant?.key !== HOZO_TENANT_KEY) return sendJson(res, 404, { ok: false, error: 'Not found.' });
@@ -208,17 +298,26 @@ async function pushToGroup(req, res, ctx, {
     if (text.length > 4900) return sendJson(res, 400, { ok: false, error: 'Text is too long.' });
     const imageUrls = normalizeImageUrls(body.imageUrls || body.image_urls);
 
-    const target = await resolveGroup(ctx, matcher, label);
     let mention;
+    let financeRetryKey = '';
     if (requireMention) {
       if (!Object.hasOwn(body, 'mentionName')) {
         throw requestError(400, 'mention_required', 'Finance push requires mentionName.');
       }
-      mention = resolveMentionFromBinding(target.page, body.mentionName);
-      if (!text.includes(mention.name)) {
+      const mentionName = normalizedMemberName(body.mentionName);
+      if (!mentionName || mentionName.length > 80 || /[\u0000-\u001f\u007f]/.test(mentionName)) {
+        throw requestError(400, 'invalid_mention_name', 'Invalid mentionName.');
+      }
+      if (!text.includes(mentionName)) {
         throw requestError(400, 'mention_not_in_text', 'Finance push text must contain mentionName.');
       }
+      financeRetryKey = validateFinanceRetryKey(body.retryKey, { text, mentionName, imageUrls });
     }
+    const target = await resolveGroup(ctx, { matcher, canonicalName, label });
+    if (requireMention) mention = resolveMentionFromBinding(target.page, body.mentionName);
+    const deliveryRetryKey = requireMention
+      ? financeDeliveryRetryKey(financeRetryKey, target, mention)
+      : body.retryKey || crypto.randomUUID();
     if (body.dryRun === true) {
       return sendJson(res, 200, {
         ok: true,
@@ -231,7 +330,7 @@ async function pushToGroup(req, res, ctx, {
     }
 
     const receipt = await platform.pushLineMessage(target.groupId, text, mention, {
-      retryKey: body.retryKey || crypto.randomUUID(),
+      retryKey: deliveryRetryKey,
       timeoutMs: body.timeoutMs,
       additionalMessages: imageUrls.map((url) => ({
         type: 'image',
@@ -239,6 +338,11 @@ async function pushToGroup(req, res, ctx, {
         previewImageUrl: url,
       })),
     });
+    if (requireMention) {
+      const status = Number(receipt?.status || 0);
+      const accepted = (status >= 200 && status < 300) || (status === 409 && Boolean(receipt.acceptedRequestId));
+      if (!accepted) throw Object.assign(new Error('LINE push did not provide accepted delivery evidence.'), { code: 'LINE_PUSH_UNCONFIRMED' });
+    }
     return sendJson(res, 200, {
       ok: true,
       source,
@@ -292,7 +396,7 @@ async function handleRentalFinancePush(req, res, ctx) {
   if (!isRentalAuthorized(req, ctx)) return sendJson(res, 401, { ok: false, error: 'Unauthorized.' });
   return pushToGroup(req, res, ctx, {
     source: 'hozo-rental-finance',
-    matcher: FINANCE_GROUP_RE,
+    canonicalName: FINANCE_GROUP_CANONICAL_NAME,
     label: 'finance',
     requireMention: true,
   });
@@ -325,4 +429,5 @@ export default {
 
 export const __test = {
   extractLineGroupId, pageText, titleText, isRentalAuthorized, resolveMentionFromBinding,
+  parseFlatMemberMap, canonicalGroupName, financeRetryKeyFor, financeDeliveryRetryKey,
 };
