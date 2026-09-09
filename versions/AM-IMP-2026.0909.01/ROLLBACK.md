@@ -7,7 +7,9 @@
    production workflow.
 3. Preserve the finance group binding and its member map; they are shared
    routing data and are not created by this package.
-4. Preserve Rental notification-attempt records for reconciliation.
+4. Preserve Rental notification-attempt records and AM operational-memory
+   finance notification rows for reconciliation; never delete or reset durable
+   evidence merely to force another provider send.
 
 Rollback must not introduce a caller-controlled LINE group id or user id and
 must not silently downgrade required reviewer mentions to plain text.

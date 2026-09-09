@@ -3,8 +3,10 @@
 1. Apply the module change to the AM Platform repository that serves
    `am.hozorental.com`; do not install it in the deprecated standalone HOZO
    webhook sender.
-2. Keep the existing Rental machine credential. Do not add a caller-controlled
-   LINE group id or user id setting.
+2. Configure a distinct `HZ2_RENTAL_FINANCE_GROUP_PUSH_KEY` and send it only as
+   `Authorization: Bearer <key>`. Do not reuse the broader Rental company-group,
+   AMCore, or portal credentials, and do not add a caller-controlled LINE group
+   id or user id setting.
 3. In the HOZO AM 2.0 group-binding data source, verify exactly one binding is
    canonically named `HOZO 財務群組`, its canonical `LINE 群組 ID` property has
    exactly one `C` plus 32 hexadecimal rich-text value, and its `成員對照`
@@ -14,7 +16,7 @@
    for an identical replay; distinct events require distinct ids even if their
    text matches. Send it with `mentionName` and the required source-and-content-
    bound `retryKey` described in the module README. Consider a notification delivered
-   only when the HTTP response is 2xx and contains `ok: true`,
+   only when the HTTP response is exactly 200 and contains `ok: true`,
    `mention.resolved: true`, and `mention.delivered: true`.
 5. Run the verification commands in `VERIFY.md` before merge or deployment.
 

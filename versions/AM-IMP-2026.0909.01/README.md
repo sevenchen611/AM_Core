@@ -11,6 +11,9 @@ a second LINE sender or accept raw LINE targets from Rental.
   `sourceNotificationId` in the form `bank-draft-notification:v1:<UUID>`, and
   the required source-and-content-bound `retryKey`; the route never creates a
   random identifier or key for finance notifications.
+- The route accepts only its dedicated `HZ2_RENTAL_FINANCE_GROUP_PUSH_KEY` as
+  an Authorization bearer token; alternate headers, query keys, and broader
+  service credentials are rejected.
 - Distinct notification events use distinct source ids even when text is equal.
   An identical replay reuses the same source id, while changed content under an
   existing source id returns HTTP 409 before LINE is called.
@@ -23,8 +26,9 @@ a second LINE sender or accept raw LINE targets from Rental.
   `C` plus 32 hexadecimal format.
 - The requested name must resolve to exactly one valid LINE user identity and
   must occur in the outgoing text.
-- The route calls the existing `platform.pushLineMessage(groupId, text,
-  { name, userId }, delivery)` path, which emits a LINE `textV2` mention.
+- The route constructs one LINE `textV2` mention after removing a caller literal
+  `@` immediately before the reviewer, escaping caller braces, and enforcing the
+  5,000 JavaScript UTF-16-code-unit provider limit before durable binding.
 - Missing, malformed, invalid, unknown, or ambiguous identity data stops before
   the provider call and returns a non-2xx response with `ok: false`.
 - The member map parser accepts only a flat JSON string-to-string object and
@@ -33,6 +37,13 @@ a second LINE sender or accept raw LINE targets from Rental.
 - A LINE `409` is accepted only with provider accepted-request evidence, and the
   content-bound caller key plus route-bound provider key prevent a different
   payload or resolved destination from borrowing it.
+- Ordinary provider success is accepted only for HTTP 200 with a nonempty valid
+  request id. HTTP 202/204, missing or malformed evidence, and transport errors
+  remain uncertain and are retried only inside the original 23-hour window.
+- Source content, resolved route, provider retry seed, creation time, and
+  delivery state are durably bound. Verified delivery replays locally; legacy
+  succeeded rows without verified evidence and expired uncertain rows require
+  manual reconciliation without another provider call.
 - Neither responses nor application logs expose the resolved LINE user id.
 
 No production group id, member id, token, Notion id, message, or customer data

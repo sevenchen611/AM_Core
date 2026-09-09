@@ -26,6 +26,14 @@ try {
   assert.deepEqual(receipt.messageIds, ['msg-123']);
   assert.ok(logs.some((line) => line.includes('requestId=req-123') && line.includes('messageIds=msg-123')));
 
+  const logCountBeforeSuppressedEvidence = logs.length;
+  await line.pushLineMessage('C_TEST', 'private finance evidence', undefined, {
+    retryKey: 'finance-provider-log-suppression',
+    suppressEvidenceLogs: true,
+  });
+  assert.ok(logs.slice(logCountBeforeSuppressedEvidence).some((entry) => entry.includes('status=200')));
+  assert.ok(logs.slice(logCountBeforeSuppressedEvidence).every((entry) => !entry.includes('req-123') && !entry.includes('msg-123')));
+
   await line.pushLineMessage('C_TEST', 'result text', undefined, {
     retryKey: 'bank-draft-images',
     additionalMessages: [{
@@ -85,6 +93,13 @@ try {
   assert.equal(replayed.ok, true);
   assert.equal(replayed.replayed, true);
   assert.equal(replayed.acceptedRequestId, 'accepted-123');
+
+  const logCountBeforeSuppressedReplay = logs.length;
+  await line.pushLineMessage('C_TEST', 'private retry evidence', undefined, {
+    retryKey: 'finance-provider-replay-log-suppression',
+    suppressEvidenceLogs: true,
+  });
+  assert.ok(logs.slice(logCountBeforeSuppressedReplay).every((entry) => !entry.includes('accepted-123')));
 
   globalThis.fetch = async () => ({
     ok: false,

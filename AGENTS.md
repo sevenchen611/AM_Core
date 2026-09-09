@@ -1,8 +1,8 @@
 # AMCore Agent Guide
 
-AMCore is the shared core and upgrade-package center for AM-style projects such as HOZO_AM and SevenAM.
+AMCore is the shared core and upgrade-package center for AM-style projects such as HOZO_AM and SevenAM. Its root runtime is also the reviewed source for the current multi-tenant AM Platform service.
 
-This repository is not a production LINE bot by itself. It stores shared architecture rules, reusable runtime templates, upgrade packages, package templates, and alignment tools.
+This repository stores shared architecture rules, reusable runtime templates, upgrade packages, package templates, alignment tools, and the root AM Platform runtime. Historical package-only guidance does not override the root runtime's production role.
 
 ## Main Rule
 
@@ -249,7 +249,7 @@ versions/AM-IMP-2026.0608.18/config/hourly-line-task-reconciliation.json
 
 | Project | Role |
 | --- | --- |
-| AMCore | Shared core source, upgrade packages, templates, audit tools. |
+| AMCore | Shared core source, root multi-tenant AM Platform runtime, upgrade packages, templates, audit tools. |
 | HOZO_AM | HOZO production project with its own LINE, Notion, Render, GitHub, and `.env`. |
 | SevenAM | Seven production project with its own LINE, Notion, Render, GitHub, and `.env`. |
 
@@ -326,14 +326,14 @@ This is not yet a fully generic production runtime. Before turning it into a rea
 
 ## Production Deployment
 
-AMCore does not deploy production services.
+The root AM Platform runtime is production source for the multi-tenant service behind
+`am.hozorental.com` and `am-platform-2ymf.onrender.com`. Production changes must come
+from reviewed commits merged to and pushed on GitHub `main`; never deploy from a local
+feature branch, dirty worktree, or stale checkout.
 
-Deploy each project from its own project folder:
-
-- HOZO_AM deploys to the HOZO Render service.
-- SevenAM deploys to the Seven Render service.
-
-Do not mark a version as `Deployed` unless that project's own production Render service has been verified.
+Legacy standalone HOZO_AM and SevenAM services, where still in use, remain separate
+deployments from their own repositories. Do not mark a version as `Deployed` unless
+the actual target production service has been verified.
 
 ## Status Values
 

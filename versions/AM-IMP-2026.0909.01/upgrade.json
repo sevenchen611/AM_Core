@@ -5,7 +5,7 @@
   "portable": false,
   "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
   "requiresDatabases": ["HOZO AM 2.0 Group Bindings with one finance binding, one canonical LINE 群組 ID, and a valid 成員對照 JSON field", "Existing AM operational-memory processing_jobs store for durable source-notification identity binding"],
-  "requiresEnv": ["HZ2_RENTAL_COMPANY_GROUP_PUSH_KEY", "LINE_CHANNEL_ACCESS_TOKEN"],
+  "requiresEnv": ["HZ2_RENTAL_FINANCE_GROUP_PUSH_KEY", "LINE_CHANNEL_ACCESS_TOKEN"],
   "requiresScripts": ["tools/verify-company-line-push.mjs"],
   "dependencies": ["Existing /control/hozo/rental/finance-group/push route", "Shared platform.pushLineMessage textV2 mention support"],
   "dataIsolation": {
@@ -17,6 +17,7 @@
   },
   "definitionOfDone": [
     "The finance push body requires a bounded mentionName present in text",
+    "The finance route accepts only its dedicated Authorization bearer token and rejects alternate headers, query keys, broader service credentials, and non-HOZO tenants",
     "Finance sourceNotificationId is required, stable per source event, fixed-format, and durably bound to normalized content",
     "Finance retryKey is required, fixed-format, and cryptographically bound to the source id plus normalized payload",
     "Caller-supplied groupId, userId, and unsupported fields are rejected",
@@ -24,9 +25,13 @@
     "The LINE group id is read only from one canonical LINE 群組 ID rich-text value and must be C plus 32 hexadecimal characters",
     "Exactly one member-map entry on the selected finance binding resolves the mention",
     "Duplicate JSON keys plus missing, malformed, invalid, and ambiguous member mappings return non-2xx without a LINE push",
-    "The existing LINE sender receives the resolved mention object and produces textV2",
+    "The finance route passes one prevalidated textV2 payload to the existing LINE sender without a second mention transformation",
+    "Caller braces and an adjacent literal at-sign are normalized into exactly one textV2 mention marker, with the final JavaScript UTF-16 length capped at 5000 before binding",
     "Responses and logs do not expose the resolved LINE user id",
-    "A LINE 409 is delivered only with accepted-request evidence for the same content-bound payload",
+    "Delivery requires LINE HTTP 200 with a valid nonempty request id, or HTTP 409 with valid accepted-request evidence for the same content-bound payload; HTTP 202 and 204 remain uncertain",
+    "Source content, resolved route, provider retry seed, creation time, and delivery lifecycle are durable",
+    "Unverified sends retry only inside 23 hours; expired attempts and legacy succeeded rows without verified evidence require manual reconciliation without provider resend",
+    "Operational-memory pool initialization can recover after rejection and idle pool errors are handled without logging secrets",
     "Rental records non-2xx or non-delivered results as notification failure"
   ],
   "projectStatus": {

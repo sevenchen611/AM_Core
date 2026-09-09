@@ -3,6 +3,8 @@
   "endpoint": "/control/hozo/rental/finance-group/push",
   "method": "POST",
   "access": "machine-only",
+  "authentication": "authorization-bearer-HZ2_RENTAL_FINANCE_GROUP_PUSH_KEY-only",
+  "rejectedCredentialChannels": ["x-hozo-rental-key", "x-amcore-key", "query-key", "broader-service-credentials"],
   "requiredBodyFields": ["text", "mentionName", "sourceNotificationId", "retryKey"],
   "forbiddenCallerFields": ["groupId", "userId"],
   "bindingSelector": "exact-normalized-canonical-title-or-群組名稱-across-all-pages",
@@ -12,7 +14,12 @@
   "sourceConflict": "same-sourceNotificationId-plus-different-normalized-content-is-http-409-fail-closed",
   "retryKey": "finance-notification:v1:sha256(sourceNotificationId-plus-normalized-payload-identity)",
   "providerRetryKey": "finance-provider:v1:sha256(caller-retry-key-plus-resolved-group-and-member)",
-  "successGate": ["http-2xx", "ok=true", "mention.resolved=true", "mention.delivered=true"],
+  "textV2": "remove-adjacent-literal-at; escape-caller-braces; exactly-one-mention-marker; max-5000-JS-UTF16-code-units-before-binding",
+  "durableIdentity": "source-content-plus-resolved-route-plus-provider-retry-seed-plus-created-at-plus-delivery-state",
+  "providerRetryWindow": "strictly-less-than-23-hours-from-durable-created-at",
+  "providerEvidence": "http-200-plus-valid-nonempty-x-line-request-id-or-http-409-plus-valid-nonempty-accepted-request-id",
+  "successGate": ["http-200", "ok=true", "mention.resolved=true", "mention.delivered=true"],
+  "manualReconciliation": "expired-unverified-or-legacy-succeeded-without-verified-evidence; no-provider-resend",
   "failurePolicy": "fail-closed-without-provider-push",
   "responseIdentityPolicy": "mention-name-and-booleans-only"
 }

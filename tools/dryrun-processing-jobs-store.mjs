@@ -21,10 +21,41 @@ const job = {
 };
 const calls = [];
 const identities = new Map();
+const financeIdentities = new Map();
 const client = {
   async query(sql, params = []) {
     const normalized = String(sql).replace(/\s+/g, ' ').trim();
     calls.push({ sql: normalized, params });
+    if (normalized.startsWith('INSERT INTO am_memory.processing_jobs') && normalized.includes("'finance-line-notification'")) {
+      const key = `${params[0]}:${params[1]}`;
+      if (financeIdentities.has(key)) return { rows: [], rowCount: 0 };
+      financeIdentities.set(key, {
+        job_id: '00000000-0000-4000-8000-000000000003',
+        status: 'retry',
+        input_payload: JSON.parse(params[2]),
+        output_payload: {},
+        created_at: new Date().toISOString(),
+      });
+      return { rows: [{ job_id: '00000000-0000-4000-8000-000000000003' }], rowCount: 1 };
+    }
+    if (normalized.startsWith('SELECT job_id, status, input_payload, output_payload, created_at')) {
+      const key = `${params[0]}:${params[1]}`;
+      return { rows: financeIdentities.has(key) ? [{ ...financeIdentities.get(key) }] : [] };
+    }
+    if (normalized.startsWith('UPDATE am_memory.processing_jobs') && normalized.includes("job_kind = 'finance-line-notification'")) {
+      const key = `${params[0]}:${params[1]}`;
+      const row = financeIdentities.get(key);
+      if (!row || (row.status === 'succeeded' && row.output_payload.deliveryEvidence === 'verified')) return { rows: [], rowCount: 0 };
+      row.status = params[2];
+      row.input_payload = { ...row.input_payload, deliveryStatus: params[3] };
+      if (params[2] === 'succeeded') row.output_payload = JSON.parse(params[4]);
+      return { rows: [{ job_id: row.job_id }], rowCount: 1 };
+    }
+    if (normalized.startsWith('SELECT status, output_payload') && normalized.includes("job_kind = 'finance-line-notification'")) {
+      const key = `${params[0]}:${params[1]}`;
+      const row = financeIdentities.get(key);
+      return { rows: row ? [{ status: row.status, output_payload: row.output_payload }] : [] };
+    }
     if (normalized.startsWith('INSERT INTO am_memory.processing_jobs') && normalized.includes('completed_at')) {
       const key = `${params[0]}:${params[1]}:${params[2]}`;
       if (identities.has(key)) return { rows: [], rowCount: 0 };
@@ -107,5 +138,90 @@ const conflictingIdentity = await memory.bindProcessingIdentity(tenant, {
 });
 assert.deepEqual(conflictingIdentity, { ok: true, conflict: true, replayed: true });
 
+const financeInput = {
+  sourceNotificationId: 'bank-draft-notification:v1:22222222-2222-4222-8222-222222222222',
+  payloadDigest: 'c'.repeat(64),
+  routeDigest: 'd'.repeat(64),
+  providerRetryKey: `finance-provider:v1:${'e'.repeat(64)}`,
+};
+const firstFinance = await memory.bindFinanceNotificationIdentity(tenant, financeInput);
+assert.equal(firstFinance.ok, true);
+assert.equal(firstFinance.delivered, false);
+assert.equal(firstFinance.manual, false);
+assert.equal(firstFinance.replayed, false);
+assert.ok(Date.parse(firstFinance.createdAt));
+
+const uncertainFinance = await memory.markFinanceNotificationUncertain(
+  tenant, financeInput.sourceNotificationId, 'provider_delivery_unconfirmed',
+);
+assert.deepEqual(uncertainFinance, { ok: true });
+const replayedFinance = await memory.bindFinanceNotificationIdentity(tenant, financeInput);
+assert.equal(replayedFinance.replayed, true);
+assert.equal(replayedFinance.delivered, false);
+
+const deliveredFinance = await memory.markFinanceNotificationDelivered(
+  tenant, financeInput.sourceNotificationId, 'f'.repeat(64),
+);
+assert.deepEqual(deliveredFinance, { ok: true });
+const deliveredReplay = await memory.bindFinanceNotificationIdentity(tenant, financeInput);
+assert.equal(deliveredReplay.delivered, true);
+
+const unverifiedSucceededInput = {
+  sourceNotificationId: 'bank-draft-notification:v1:33333333-3333-4333-8333-333333333333',
+  payloadDigest: '1'.repeat(64),
+  routeDigest: '2'.repeat(64),
+  providerRetryKey: `finance-provider:v1:${'3'.repeat(64)}`,
+};
+financeIdentities.set(`${tenant.tenantId}:${unverifiedSucceededInput.sourceNotificationId}`, {
+  job_id: '00000000-0000-4000-8000-000000000004',
+  status: 'succeeded',
+  input_payload: {
+    contract: 'hozo-rental-finance-group-mention-v1',
+    payloadDigest: unverifiedSucceededInput.payloadDigest,
+    routeDigest: unverifiedSucceededInput.routeDigest,
+    providerRetryKey: unverifiedSucceededInput.providerRetryKey,
+  },
+  output_payload: {},
+  created_at: new Date().toISOString(),
+});
+const unverifiedSucceeded = await memory.bindFinanceNotificationIdentity(tenant, unverifiedSucceededInput);
+assert.equal(unverifiedSucceeded.legacyUnverified, true);
+assert.equal(unverifiedSucceeded.delivered, false);
+
+let poolAttempts = 0;
+let poolErrorHandler = null;
+const warnings = [];
+const recoveringMemory = createOperationalMemory({
+  env: {
+    FOREST_AM_MEMORY_DATABASE_URL: 'postgres://runtime.example/recovering-memory',
+    FOREST_AM_MEMORY_DATABASE_SSL: '1',
+  },
+  logger: { warn(message) { warnings.push(message); } },
+  poolFactory: async () => {
+    poolAttempts += 1;
+    if (poolAttempts === 1) throw new Error('transient pool initialization');
+    return {
+      on(event, handler) { if (event === 'error') poolErrorHandler = handler; },
+      connect: async () => client,
+      end: async () => {},
+    };
+  },
+});
+await assert.rejects(
+  recoveringMemory.bindProcessingIdentity(tenant, {
+    jobKind: 'finance-line-notification', idempotencyKey: 'pool-recovery', payloadDigest: '1'.repeat(64),
+  }),
+  /transient pool initialization/,
+);
+const recovered = await recoveringMemory.bindProcessingIdentity(tenant, {
+  jobKind: 'finance-line-notification', idempotencyKey: 'pool-recovery', payloadDigest: '1'.repeat(64),
+});
+assert.equal(recovered.ok, true);
+assert.equal(poolAttempts, 2);
+assert.equal(typeof poolErrorHandler, 'function');
+assert.doesNotThrow(() => poolErrorHandler(new Error('idle client failure')));
+assert.deepEqual(warnings, ['[operational-memory] idle PostgreSQL pool error']);
+
 await memory.close();
+await recoveringMemory.close();
 console.log('Generic persistent processing job store and immutable identity binding dry-run passed.');

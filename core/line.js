@@ -254,6 +254,7 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
       .slice(0, 4);
     const messages = [message, ...additionalMessages].slice(0, 5);
     const retryKey = normalizeLineRetryKey(delivery.retryKey);
+    const suppressEvidenceLogs = delivery.suppressEvidenceLogs === true;
     const timeoutMs = Math.max(10, Number(delivery.timeoutMs || pushTimeoutMs) || 8000);
     const startedAt = Date.now();
     const targetHash = crypto.createHash('sha256').update(String(to || '')).digest('hex').slice(0, 10);
@@ -279,7 +280,9 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
         ? responseBody.sentMessages.map((item) => String(item?.id || '')).filter(Boolean)
         : [];
       if (response.status === 409 && acceptedRequestId) {
-        logger.warn?.(`[line] push retry already accepted targetHash=${targetHash} status=409 acceptedRequestId=${acceptedRequestId} durationMs=${Date.now() - startedAt}`);
+        logger.warn?.(suppressEvidenceLogs
+          ? `[line] push retry already accepted targetHash=${targetHash} status=409 durationMs=${Date.now() - startedAt}`
+          : `[line] push retry already accepted targetHash=${targetHash} status=409 acceptedRequestId=${acceptedRequestId} durationMs=${Date.now() - startedAt}`);
         return { ok: true, status: 409, retryKey, requestId, acceptedRequestId, messageIds, replayed: true };
       }
       if (!response.ok) {
@@ -289,7 +292,9 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
           requestId,
         });
       }
-      logger.info?.(`[line] push accepted targetHash=${targetHash} status=${response.status} requestId=${requestId || '-'} messageIds=${messageIds.join(',') || '-'} durationMs=${Date.now() - startedAt}`);
+      logger.info?.(suppressEvidenceLogs
+        ? `[line] push accepted targetHash=${targetHash} status=${response.status} durationMs=${Date.now() - startedAt}`
+        : `[line] push accepted targetHash=${targetHash} status=${response.status} requestId=${requestId || '-'} messageIds=${messageIds.join(',') || '-'} durationMs=${Date.now() - startedAt}`);
       return { ok: true, status: response.status, retryKey, requestId, acceptedRequestId, messageIds, replayed: false };
     } catch (error) {
       if (controller.signal.aborted) {
