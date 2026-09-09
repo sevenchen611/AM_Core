@@ -11,6 +11,9 @@ a second LINE sender or accept raw LINE targets from Rental.
   `sourceNotificationId` in the form `bank-draft-notification:v1:<UUID>`, and
   the required source-and-content-bound `retryKey`; the route never creates a
   random identifier or key for finance notifications.
+- The route accepts only its dedicated `HZ2_RENTAL_FINANCE_GROUP_PUSH_KEY` as
+  an Authorization bearer token; alternate headers, query keys, and broader
+  service credentials are rejected.
 - Distinct notification events use distinct source ids even when text is equal.
   An identical replay reuses the same source id, while changed content under an
   existing source id returns HTTP 409 before LINE is called.

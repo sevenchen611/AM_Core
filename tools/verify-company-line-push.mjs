@@ -66,12 +66,12 @@ function response() {
   };
 }
 
-async function call(route, { body, headers = {}, url } = {}) {
+async function call(route, { body, headers = {}, url, tenantKey = 'hozo-am-2-0' } = {}) {
   const res = response();
   await route.handler(request(body, headers, url), res, {
     url: new URL(url || `https://am.example.test${route.prefix}`),
     tenant: {
-      key: 'hozo-am-2-0',
+      key: tenantKey,
       queueAccessKey: 'tenant-control-key',
       dataSources: { groupBindings: 'group-bindings-ds' },
     },
@@ -89,13 +89,16 @@ let bindingResults = [
 let bindingPageResolver = () => ({ results: bindingResults });
 const notificationIdentities = new Map();
 const notificationIdentityCalls = [];
+const notionCalls = [];
 let notificationIdentityStoreAvailable = true;
 let nowMs = Date.now();
 companyLinePush.init({
   queueAccessKey: 'platform-control-key',
   portalServiceToken: 'portal-service-token',
-  rentalCompanyGroupPushKey: 'rental-only-key',
+  rentalCompanyGroupPushKey: 'company-only-key',
+  rentalFinanceGroupPushKey: 'rental-only-key',
   notionRequest: async (pathname, opts) => {
+    notionCalls.push({ pathname, tenantKey: opts.tenantKey });
     assert.equal(pathname, '/v1/data_sources/group-bindings-ds/query');
     assert.equal(opts.tenantKey, 'hozo-am-2-0');
     return bindingPageResolver(opts.body);
@@ -150,7 +153,7 @@ let res = await call(rentalRoute, { body: { text: 'hello' } });
 assert.equal(res.status, 401);
 
 res = await call(rentalRoute, {
-  headers: { authorization: 'Bearer rental-only-key' },
+  headers: { authorization: 'Bearer company-only-key' },
   body: { text: 'dry run', dryRun: true },
 });
 assert.equal(res.status, 200);
@@ -160,7 +163,7 @@ assert.equal(res.payload.source, 'hozo-rental');
 assert.equal(pushCalls.length, 0);
 
 res = await call(rentalRoute, {
-  headers: { 'x-hozo-rental-key': 'rental-only-key' },
+  headers: { 'x-hozo-rental-key': 'company-only-key' },
   body: {
     message: 'rental production message', retryKey: 'retry-1', timeoutMs: 1000,
     imageUrls: [
@@ -195,6 +198,36 @@ res = await call(controlRoute, {
 });
 assert.equal(res.status, 200);
 assert.equal(res.payload.source, 'control');
+
+const callsBeforeFinanceAuthRejections = {
+  notion: notionCalls.length,
+  push: pushCalls.length,
+  identity: notificationIdentityCalls.length,
+};
+for (const attempt of [
+  { headers: { authorization: 'Bearer company-only-key' } },
+  { headers: { 'x-hozo-rental-key': 'rental-only-key' } },
+  { headers: { 'x-amcore-key': 'rental-only-key' } },
+  { url: `https://am.example.test${rentalFinanceRoute.prefix}?key=rental-only-key` },
+]) {
+  res = await call(rentalFinanceRoute, {
+    ...attempt,
+    body: financeBody('@陸昱晴 rejected alternate finance credential'),
+  });
+  assert.equal(res.status, 401);
+}
+
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' },
+  tenantKey: 'forest',
+  body: financeBody('@陸昱晴 wrong tenant'),
+});
+assert.equal(res.status, 404);
+assert.deepEqual({
+  notion: notionCalls.length,
+  push: pushCalls.length,
+  identity: notificationIdentityCalls.length,
+}, callsBeforeFinanceAuthRejections);
 
 const completedNotification = financeBody('@陸昱晴 finance workflow completed');
 res = await call(rentalFinanceRoute, {

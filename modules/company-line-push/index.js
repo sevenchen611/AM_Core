@@ -279,6 +279,10 @@ function isRentalAuthorized(req, ctx) {
   return matchesAnySecret(provided, [platform?.rentalCompanyGroupPushKey]);
 }
 
+function isRentalFinanceAuthorized(req) {
+  return matchesAnySecret(bearerToken(req), [platform?.rentalFinanceGroupPushKey]);
+}
+
 async function readJson(req) {
   try {
     return JSON.parse(await readBody(req));
@@ -507,10 +511,10 @@ async function handleRentalPush(req, res, ctx) {
 async function handleRentalFinancePush(req, res, ctx) {
   if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'Method not allowed.' });
   if (ctx.tenant?.key !== HOZO_TENANT_KEY) return sendJson(res, 404, { ok: false, error: 'Not found.' });
-  if (!platform?.rentalCompanyGroupPushKey) {
+  if (!platform?.rentalFinanceGroupPushKey) {
     return sendJson(res, 503, { ok: false, error: 'Rental finance-group push key is not configured.' });
   }
-  if (!isRentalAuthorized(req, ctx)) return sendJson(res, 401, { ok: false, error: 'Unauthorized.' });
+  if (!isRentalFinanceAuthorized(req)) return sendJson(res, 401, { ok: false, error: 'Unauthorized.' });
   return pushToGroup(req, res, ctx, {
     source: 'hozo-rental-finance',
     canonicalName: FINANCE_GROUP_CANONICAL_NAME,
@@ -545,7 +549,7 @@ export default {
 };
 
 export const __test = {
-  extractLineGroupId, pageText, titleText, isRentalAuthorized, resolveMentionFromBinding,
+  extractLineGroupId, pageText, titleText, isRentalAuthorized, isRentalFinanceAuthorized, resolveMentionFromBinding,
   parseFlatMemberMap, canonicalGroupName, financeRetryKeyFor, financeDeliveryRetryKey,
   validateSourceNotificationId, financeMentionMessage, safeProviderEvidence, FINANCE_PROVIDER_RETRY_WINDOW_MS,
 };

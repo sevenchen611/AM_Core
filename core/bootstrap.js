@@ -185,6 +185,8 @@ export async function bootstrap(env = process.env, overrides = {}) {
     queueAccessKey: env.AMCORE_QUEUE_ACCESS_KEY || '',
     // Dedicated narrow key for HOZO Rental to send text into the HOZO company LINE group.
     rentalCompanyGroupPushKey: env.HZ2_RENTAL_COMPANY_GROUP_PUSH_KEY || env.HOZO_RENTAL_COMPANY_GROUP_PUSH_KEY || '',
+    // Finance notifications use a separate bearer-only credential; never alias broader control keys.
+    rentalFinanceGroupPushKey: env.HZ2_RENTAL_FINANCE_GROUP_PUSH_KEY || '',
     // Dedicated AM→Rental Calendar identity integration. Secrets are never exposed to modules.
     calendarIntegrationConfigured: calendarIntegration.configured,
     calendarBindingConsume: calendarIntegration.consumeBinding,

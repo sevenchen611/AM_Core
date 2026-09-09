@@ -3,6 +3,8 @@
   "endpoint": "/control/hozo/rental/finance-group/push",
   "method": "POST",
   "access": "machine-only",
+  "authentication": "authorization-bearer-HZ2_RENTAL_FINANCE_GROUP_PUSH_KEY-only",
+  "rejectedCredentialChannels": ["x-hozo-rental-key", "x-amcore-key", "query-key", "broader-service-credentials"],
   "requiredBodyFields": ["text", "mentionName", "sourceNotificationId", "retryKey"],
   "forbiddenCallerFields": ["groupId", "userId"],
   "bindingSelector": "exact-normalized-canonical-title-or-群組名稱-across-all-pages",

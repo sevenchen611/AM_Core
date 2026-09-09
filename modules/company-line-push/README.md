@@ -44,7 +44,7 @@ The caller cannot provide a LINE group id. The module resolves exactly one group
 
 ```http
 POST /control/hozo/rental/finance-group/push
-Authorization: Bearer <HZ2_RENTAL_COMPANY_GROUP_PUSH_KEY>
+Authorization: Bearer <HZ2_RENTAL_FINANCE_GROUP_PUSH_KEY>
 Content-Type: application/json
 ```
 
@@ -59,8 +59,9 @@ Body:
 }
 ```
 
-This endpoint uses the same machine credential as the Rental company-group API,
-but resolves exactly one group binding whose canonical title/`群組名稱` is
+This endpoint uses its own bearer-only finance credential. It rejects the
+broader Rental company-group credential, `x-hozo-rental-key`, `x-amcore-key`,
+and query-string keys. It resolves exactly one group binding whose canonical title/`群組名稱` is
 exactly `HOZO 財務群組` after NFKC/whitespace normalization.
 Its LINE destination is read only from that page's canonical `LINE 群組 ID`
 property. That property must contain exactly one rich-text item whose trimmed

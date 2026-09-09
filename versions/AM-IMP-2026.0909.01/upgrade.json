@@ -5,7 +5,7 @@
   "portable": false,
   "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
   "requiresDatabases": ["HOZO AM 2.0 Group Bindings with one finance binding, one canonical LINE 群組 ID, and a valid 成員對照 JSON field", "Existing AM operational-memory processing_jobs store for durable source-notification identity binding"],
-  "requiresEnv": ["HZ2_RENTAL_COMPANY_GROUP_PUSH_KEY", "LINE_CHANNEL_ACCESS_TOKEN"],
+  "requiresEnv": ["HZ2_RENTAL_FINANCE_GROUP_PUSH_KEY", "LINE_CHANNEL_ACCESS_TOKEN"],
   "requiresScripts": ["tools/verify-company-line-push.mjs"],
   "dependencies": ["Existing /control/hozo/rental/finance-group/push route", "Shared platform.pushLineMessage textV2 mention support"],
   "dataIsolation": {
@@ -17,6 +17,7 @@
   },
   "definitionOfDone": [
     "The finance push body requires a bounded mentionName present in text",
+    "The finance route accepts only its dedicated Authorization bearer token and rejects alternate headers, query keys, broader service credentials, and non-HOZO tenants",
     "Finance sourceNotificationId is required, stable per source event, fixed-format, and durably bound to normalized content",
     "Finance retryKey is required, fixed-format, and cryptographically bound to the source id plus normalized payload",
     "Caller-supplied groupId, userId, and unsupported fields are rejected",

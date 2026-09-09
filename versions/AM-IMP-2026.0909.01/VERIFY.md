@@ -13,6 +13,8 @@ node tools/check-upgrade-package.js AM-IMP-2026.0909.01
 
 The finance-route verifier must prove:
 
+- only the dedicated finance bearer token is accepted; alternate key headers,
+  query keys, broader service credentials, and non-HOZO tenants are rejected;
 - successful resolution builds exactly one LINE `textV2` mention, strips a
   caller literal `@` next to the chosen name, and escapes caller braces;
 - the 5,000-code-unit check uses JavaScript UTF-16 length after expansion and
