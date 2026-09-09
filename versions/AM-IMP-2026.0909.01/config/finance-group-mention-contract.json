@@ -1,0 +1,18 @@
+{
+  "contract": "hozo-rental-finance-group-mention-v1",
+  "endpoint": "/control/hozo/rental/finance-group/push",
+  "method": "POST",
+  "access": "machine-only",
+  "requiredBodyFields": ["text", "mentionName", "sourceNotificationId", "retryKey"],
+  "forbiddenCallerFields": ["groupId", "userId"],
+  "bindingSelector": "exact-normalized-canonical-title-or-群組名稱-across-all-pages",
+  "groupIdSource": "selected-finance-group-binding.LINE 群組 ID-single-rich-text-C-plus-32-hex",
+  "identitySource": "selected-finance-group-binding.成員對照-flat-unique-key-map",
+  "sourceNotificationId": "bank-draft-notification:v1:<RFC-variant-UUID-v1-through-v5>; stable-per-source-event",
+  "sourceConflict": "same-sourceNotificationId-plus-different-normalized-content-is-http-409-fail-closed",
+  "retryKey": "finance-notification:v1:sha256(sourceNotificationId-plus-normalized-payload-identity)",
+  "providerRetryKey": "finance-provider:v1:sha256(caller-retry-key-plus-resolved-group-and-member)",
+  "successGate": ["http-2xx", "ok=true", "mention.resolved=true", "mention.delivered=true"],
+  "failurePolicy": "fail-closed-without-provider-push",
+  "responseIdentityPolicy": "mention-name-and-booleans-only"
+}
