@@ -1,8 +1,8 @@
 # AM_Core
 
-AM_Core is the **version master and core-code holder** for AM-style LINE/Notion assistant projects.
+AM_Core is the **version master, core-code holder, and source repository for the current multi-tenant AM Platform root runtime** used by AM-style LINE/Notion assistant projects.
 
-It is not a production LINE bot by itself. It stores shared architecture rules, upgrade package standards, reusable scripts, and version integration tools used by projects such as HOZO_AM and SevenAM, and it holds one upgrade package for every `AM-IMP` version in the family.
+It stores shared architecture rules, upgrade package standards, reusable scripts, version integration tools, and the reviewed runtime behind the AM Platform service. Historical package-only notes do not override this production role. Production runtime changes must go through a feature branch and review, then be merged and pushed to GitHub `main`; never deploy a local, dirty, stale, or feature-branch checkout.
 
 ## Version State
 

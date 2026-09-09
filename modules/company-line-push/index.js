@@ -10,6 +10,7 @@ const HOZO_TENANT_KEY = 'hozo-am-2-0';
 const FINANCE_GROUP_CANONICAL_NAME = 'HOZO \u8ca1\u52d9\u7fa4\u7d44';
 const FINANCE_RETRY_KEY_RE = /^finance-notification:v1:[a-f0-9]{64}$/;
 const FINANCE_SOURCE_NOTIFICATION_ID_RE = /^bank-draft-notification:v1:[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
+const FINANCE_PROVIDER_RETRY_WINDOW_MS = 23 * 60 * 60 * 1000;
 const FINANCE_BODY_FIELDS = new Set([
   'text', 'message', 'imageUrls', 'image_urls', 'dryRun', 'retryKey', 'timeoutMs', 'mentionName',
   'sourceNotificationId',
@@ -160,21 +161,54 @@ function financeDeliveryRetryKey(retryKey, target, mention) {
   return `finance-provider:v1:${crypto.createHash('sha256').update(routingIdentity).digest('hex')}`;
 }
 
-async function bindFinanceNotificationIdentity(ctx, sourceNotificationId, retryKey) {
+function safeProviderEvidence(value) {
+  const text = String(value || '').trim();
+  return /^[A-Za-z0-9_-]{1,128}$/.test(text)
+    && !LINE_GROUP_ID_RE.test(text)
+    && !LINE_USER_ID_RE.test(text)
+    ? text
+    : '';
+}
+
+function financeMentionMessage(text, mention) {
+  const index = text.indexOf(mention.name);
+  if (index < 0) throw requestError(400, 'mention_not_in_text', 'Finance push text must contain mentionName.');
+  const escape = (value) => value.replaceAll('{', '{{').replaceAll('}', '}}');
+  const rawPrefix = text.slice(0, index);
+  const prefix = rawPrefix.endsWith('@') ? rawPrefix.slice(0, -1) : rawPrefix;
+  const normalizedText = `${escape(prefix)}{who}${escape(text.slice(index + mention.name.length))}`;
+  if (normalizedText.length > 5000) {
+    throw requestError(400, 'invalid_text', 'Finance push text exceeds the LINE textV2 limit after normalization.');
+  }
+  return {
+    type: 'textV2',
+    text: normalizedText,
+    substitution: { who: { type: 'mention', mentionee: { type: 'user', userId: mention.userId } } },
+  };
+}
+
+async function bindFinanceNotificationIdentity(ctx, {
+  sourceNotificationId, retryKey, routeDigest, providerRetryKey,
+}) {
   const store = platform?.operationalMemory;
-  if (!store || typeof store.bindProcessingIdentity !== 'function') {
+  if (!store || typeof store.bindFinanceNotificationIdentity !== 'function') {
     throw requestError(503, 'idempotency_store_unavailable', 'Finance notification identity store is unavailable.');
   }
-  const binding = await store.bindProcessingIdentity(ctx.tenant, {
-    jobKind: 'finance-line-notification',
-    idempotencyKey: sourceNotificationId,
+  const binding = await store.bindFinanceNotificationIdentity(ctx.tenant, {
+    sourceNotificationId,
     payloadDigest: retryKey.slice(-64),
+    routeDigest,
+    providerRetryKey,
   });
   if (!binding?.ok) {
     throw requestError(503, 'idempotency_store_unavailable', 'Finance notification identity store is unavailable.');
   }
   if (binding.conflict) {
     throw requestError(409, 'source_notification_conflict', 'Finance sourceNotificationId is already bound to different content.');
+  }
+  if (binding.legacyUnverified || binding.manual) {
+    await store.markFinanceNotificationManual?.(ctx.tenant, sourceNotificationId, 'delivery_evidence_unavailable');
+    throw requestError(409, 'manual_reconciliation_required', 'Finance notification requires manual reconciliation.');
   }
   return binding;
 }
@@ -350,6 +384,7 @@ async function pushToGroup(req, res, ctx, {
     const deliveryRetryKey = requireMention
       ? financeDeliveryRetryKey(financeRetryKey, target, mention)
       : body.retryKey || crypto.randomUUID();
+    const financeMessage = requireMention ? financeMentionMessage(text, mention) : null;
     if (body.dryRun === true) {
       return sendJson(res, 200, {
         ok: true,
@@ -360,37 +395,84 @@ async function pushToGroup(req, res, ctx, {
         ...(mention ? { mention: { name: mention.name, resolved: true, delivered: false } } : {}),
       });
     }
+    let financeBinding = null;
     if (requireMention) {
-      await bindFinanceNotificationIdentity(ctx, sourceNotificationId, financeRetryKey);
+      const routeDigest = crypto.createHash('sha256')
+        .update(JSON.stringify({ groupId: target.groupId, userId: mention.userId }))
+        .digest('hex');
+      financeBinding = await bindFinanceNotificationIdentity(ctx, {
+        sourceNotificationId,
+        retryKey: financeRetryKey,
+        routeDigest,
+        providerRetryKey: deliveryRetryKey,
+      });
+      if (financeBinding.delivered) {
+        return sendJson(res, 200, {
+          ok: true,
+          replayed: true,
+          source,
+          imageCount: imageUrls.length,
+          target: { name: target.name || `HOZO ${label} group`, maskedId: maskLineId(target.groupId) },
+          mention: { name: mention.name, resolved: true, delivered: true },
+        });
+      }
+      const createdAt = Date.parse(financeBinding.createdAt);
+      const currentTime = typeof platform?.now === 'function' ? platform.now() : Date.now();
+      if (!Number.isFinite(createdAt) || currentTime - createdAt >= FINANCE_PROVIDER_RETRY_WINDOW_MS) {
+        await platform.operationalMemory.markFinanceNotificationManual?.(ctx.tenant, sourceNotificationId, 'provider_retry_window_expired');
+        throw requestError(409, 'manual_reconciliation_required', 'Finance notification requires manual reconciliation.');
+      }
     }
 
-    const receipt = await platform.pushLineMessage(target.groupId, text, mention, {
-      retryKey: deliveryRetryKey,
-      timeoutMs: body.timeoutMs,
-      additionalMessages: imageUrls.map((url) => ({
-        type: 'image',
-        originalContentUrl: url,
-        previewImageUrl: url,
-      })),
-    });
+    let receipt;
+    try {
+      receipt = await platform.pushLineMessage(target.groupId, financeMessage || text, requireMention ? null : mention, {
+        retryKey: deliveryRetryKey,
+        timeoutMs: body.timeoutMs,
+        suppressEvidenceLogs: requireMention,
+        additionalMessages: imageUrls.map((url) => ({
+          type: 'image',
+          originalContentUrl: url,
+          previewImageUrl: url,
+        })),
+      });
+    } catch (error) {
+      if (requireMention) {
+        await platform.operationalMemory.markFinanceNotificationUncertain?.(ctx.tenant, sourceNotificationId, 'provider_request_uncertain');
+      }
+      throw error;
+    }
     if (requireMention) {
       const status = Number(receipt?.status || 0);
-      const accepted = (status >= 200 && status < 300) || (status === 409 && Boolean(receipt.acceptedRequestId));
-      if (!accepted) throw Object.assign(new Error('LINE push did not provide accepted delivery evidence.'), { code: 'LINE_PUSH_UNCONFIRMED' });
+      const requestId = safeProviderEvidence(receipt?.requestId);
+      const acceptedRequestId = safeProviderEvidence(receipt?.acceptedRequestId);
+      const accepted = (status === 200 && requestId) || (status === 409 && acceptedRequestId);
+      if (!accepted) {
+        await platform.operationalMemory.markFinanceNotificationUncertain?.(ctx.tenant, sourceNotificationId, 'provider_delivery_unconfirmed');
+        throw requestError(502, 'line_push_unconfirmed', 'LINE push did not provide accepted delivery evidence.');
+      }
+      const evidenceDigest = crypto.createHash('sha256').update(`${status}:${requestId || acceptedRequestId}`).digest('hex');
+      const marked = await platform.operationalMemory.markFinanceNotificationDelivered?.(
+        ctx.tenant,
+        sourceNotificationId,
+        evidenceDigest,
+      );
+      if (!marked?.ok) throw requestError(503, 'idempotency_store_unavailable', 'Finance notification delivery store is unavailable.');
     }
-    return sendJson(res, 200, {
+    const response = {
       ok: true,
       source,
       imageCount: imageUrls.length,
       target: { name: target.name || `HOZO ${label} group`, maskedId: maskLineId(target.groupId) },
       ...(mention ? { mention: { name: mention.name, resolved: true, delivered: true } } : {}),
-      line: {
+      ...(!requireMention ? { line: {
         status: receipt.status,
         requestId: receipt.requestId || '',
         acceptedRequestId: receipt.acceptedRequestId || '',
         messageIds: receipt.messageIds || [],
-      },
-    });
+      } } : {}),
+    };
+    return sendJson(res, 200, response);
   } catch (error) {
     const lineFailure = error.code === 'LINE_PUSH_FAILED' || error.code === 'LINE_PUSH_TIMEOUT';
     const protectedFailure = requireMention && !error.statusCode;
@@ -400,7 +482,7 @@ async function pushToGroup(req, res, ctx, {
       error: lineFailure ? 'LINE push failed.' : protectedFailure ? 'Finance group notification failed.' : error.message,
       detail: lineFailure && !requireMention ? error.message : undefined,
       lineStatus: error.lineStatus || undefined,
-      requestId: error.requestId || undefined,
+      requestId: !requireMention ? error.requestId || undefined : undefined,
     });
   }
 }
@@ -465,5 +547,5 @@ export default {
 export const __test = {
   extractLineGroupId, pageText, titleText, isRentalAuthorized, resolveMentionFromBinding,
   parseFlatMemberMap, canonicalGroupName, financeRetryKeyFor, financeDeliveryRetryKey,
-  validateSourceNotificationId,
+  validateSourceNotificationId, financeMentionMessage, safeProviderEvidence, FINANCE_PROVIDER_RETRY_WINDOW_MS,
 };

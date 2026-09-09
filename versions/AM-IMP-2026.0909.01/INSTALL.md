@@ -14,7 +14,7 @@
    for an identical replay; distinct events require distinct ids even if their
    text matches. Send it with `mentionName` and the required source-and-content-
    bound `retryKey` described in the module README. Consider a notification delivered
-   only when the HTTP response is 2xx and contains `ok: true`,
+   only when the HTTP response is exactly 200 and contains `ok: true`,
    `mention.resolved: true`, and `mention.delivered: true`.
 5. Run the verification commands in `VERIFY.md` before merge or deployment.
 

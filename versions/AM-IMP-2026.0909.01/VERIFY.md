@@ -4,14 +4,19 @@ Run from the AM Platform repository root:
 
 ```text
 node --check modules/company-line-push/index.js
+node --check core/operational-memory.js
 node tools/verify-company-line-push.mjs
 node tools/verify-line-push-timeout.mjs
+node tools/dryrun-processing-jobs-store.mjs
 node tools/check-upgrade-package.js AM-IMP-2026.0909.01
 ```
 
 The finance-route verifier must prove:
 
-- successful resolution passes `{ name, userId }` to the existing LINE sender;
+- successful resolution builds exactly one LINE `textV2` mention, strips a
+  caller literal `@` next to the chosen name, and escapes caller braces;
+- the 5,000-code-unit check uses JavaScript UTF-16 length after expansion and
+  rejects before identity binding or provider access;
 - the HTTP response contains no LINE user id;
 - omitted `mentionName`, a name absent from text, caller-supplied targets,
   missing mappings, malformed mappings, invalid ids, and normalized duplicate
@@ -22,6 +27,13 @@ The finance-route verifier must prove:
   distinct events, and changed content under one source id returns HTTP 409;
 - a repeated identical payload uses the identical provider retry key, while a
   provider `409` without accepted-request evidence is not delivered;
+- HTTP 200 requires a nonempty valid request id; HTTP 202/204, malformed
+  evidence, and transport ambiguity remain uncertain;
+- uncertain retries reuse the durable provider key only within 23 hours;
+  expired attempts and legacy succeeded rows without verified evidence require
+  manual reconciliation and never resend automatically;
+- a rejected PostgreSQL pool initialization can recover on the next attempt,
+  and idle pool errors have a non-secret error listener;
 - unrelated page text cannot select a finance binding and exact duplicate
   canonical bindings on later Notion pages fail closed;
 - the group id is read only from one canonical `LINE 群組 ID` rich-text item;
@@ -30,5 +42,6 @@ The finance-route verifier must prove:
 - raw duplicate member-map keys are rejected before JSON last-key-wins parsing;
 - a mapping found on another binding page is never used;
 - dry run resolves but does not claim delivery and does not call LINE.
+- verified delivery replays locally without another LINE call.
 
 No production LINE push is part of local verification.

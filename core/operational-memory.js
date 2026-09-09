@@ -101,25 +101,36 @@ function retryDelay(attempt) {
 
 export function createOperationalMemory({ env = process.env, logger = console, poolFactory = null } = {}) {
   const pools = new Map();
+  const poolPromises = new Map();
 
   async function poolFor(config) {
     if (!config.databaseUrl) return null;
     if (pools.has(config.databaseUrl)) return pools.get(config.databaseUrl);
-    let factory = poolFactory;
-    if (!factory) {
-      const pg = await import('pg');
-      factory = (options) => new pg.Pool(options);
-    }
-    const pool = factory({
-      connectionString: config.databaseUrl,
-      ssl: config.databaseSsl ? { rejectUnauthorized: false } : undefined,
-      max: positiveInt(env.AM_MEMORY_POOL_SIZE, 4, 20),
-      idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 8_000,
-      application_name: 'am-platform-operational-memory',
+    if (poolPromises.has(config.databaseUrl)) return poolPromises.get(config.databaseUrl);
+    const ready = Promise.resolve().then(async () => {
+      let factory = poolFactory;
+      if (!factory) {
+        const pg = await import('pg');
+        factory = (options) => new pg.Pool(options);
+      }
+      const pool = await factory({
+        connectionString: config.databaseUrl,
+        ssl: config.databaseSsl ? { rejectUnauthorized: false } : undefined,
+        max: positiveInt(env.AM_MEMORY_POOL_SIZE, 4, 20),
+        idleTimeoutMillis: 30_000,
+        connectionTimeoutMillis: 8_000,
+        application_name: 'am-platform-operational-memory',
+      });
+      pool.on?.('error', () => logger.warn?.('[operational-memory] idle PostgreSQL pool error'));
+      pools.set(config.databaseUrl, pool);
+      poolPromises.delete(config.databaseUrl);
+      return pool;
+    }).catch((error) => {
+      poolPromises.delete(config.databaseUrl);
+      throw error;
     });
-    pools.set(config.databaseUrl, pool);
-    return pool;
+    poolPromises.set(config.databaseUrl, ready);
+    return ready;
   }
 
   async function withTenant(tenant, work) {
@@ -218,6 +229,107 @@ export function createOperationalMemory({ env = process.env, logger = console, p
     });
     return result.skipped ? { ok: false, skipped: result.skipped } : { ok: true, ...result.value };
   }
+
+  async function bindFinanceNotificationIdentity(tenant, input = {}) {
+    const sourceNotificationId = safeText(input.sourceNotificationId, 240);
+    const payloadDigest = safeText(input.payloadDigest, 64);
+    const routeDigest = safeText(input.routeDigest, 64);
+    const providerRetryKey = safeText(input.providerRetryKey, 120);
+    if (!sourceNotificationId
+      || !/^[a-f0-9]{64}$/.test(payloadDigest)
+      || !/^[a-f0-9]{64}$/.test(routeDigest)
+      || !/^finance-provider:v1:[a-f0-9]{64}$/.test(providerRetryKey)) {
+      throw new Error('Invalid finance notification identity');
+    }
+    const result = await withTenant(tenant, async (client, config) => {
+      await ensureTenant(client, config);
+      const inputPayload = {
+        contract: 'hozo-rental-finance-group-mention-v1',
+        payloadDigest,
+        routeDigest,
+        providerRetryKey,
+        deliveryStatus: 'pending',
+      };
+      const inserted = await client.query(
+        `INSERT INTO am_memory.processing_jobs
+           (tenant_id, job_kind, idempotency_key, status, max_attempts, input_payload)
+         VALUES ($1, 'finance-line-notification', $2, 'retry', 1, $3::jsonb)
+         ON CONFLICT (tenant_id, job_kind, idempotency_key) DO NOTHING
+         RETURNING job_id`,
+        [config.tenantId, sourceNotificationId, JSON.stringify(inputPayload)],
+      );
+      const selected = await client.query(
+        `SELECT job_id, status, input_payload, output_payload, created_at
+           FROM am_memory.processing_jobs
+          WHERE tenant_id = $1 AND job_kind = 'finance-line-notification' AND idempotency_key = $2
+          LIMIT 1`,
+        [config.tenantId, sourceNotificationId],
+      );
+      const row = selected.rows[0];
+      if (!row) throw new Error('Unable to persist finance notification identity');
+      const stored = row.input_payload && typeof row.input_payload === 'object' ? row.input_payload : {};
+      const output = row.output_payload && typeof row.output_payload === 'object' ? row.output_payload : {};
+      const legacyUnverified = inserted.rowCount === 0
+        && row.status === 'succeeded'
+        && output.deliveryEvidence !== 'verified';
+      return {
+        conflict: stored.payloadDigest !== payloadDigest
+          || (stored.contract === inputPayload.contract && (
+            stored.routeDigest !== routeDigest || stored.providerRetryKey !== providerRetryKey
+          )),
+        replayed: inserted.rowCount === 0,
+        delivered: row.status === 'succeeded' && output.deliveryEvidence === 'verified',
+        manual: ['dead_letter', 'cancelled'].includes(row.status),
+        legacyUnverified,
+        createdAt: row.created_at,
+      };
+    });
+    return result.skipped ? { ok: false, skipped: result.skipped } : { ok: true, ...result.value };
+  }
+
+  async function updateFinanceNotification(tenant, sourceNotificationId, { status, deliveryStatus, reason = '', evidenceDigest = '' }) {
+    const id = safeText(sourceNotificationId, 240);
+    if (!id || !['retry', 'dead_letter', 'succeeded'].includes(status)) throw new Error('Invalid finance notification update');
+    if (evidenceDigest && !/^[a-f0-9]{64}$/.test(evidenceDigest)) throw new Error('Invalid finance delivery evidence digest');
+    const result = await withTenant(tenant, async (client, config) => {
+      await ensureTenant(client, config);
+      const output = status === 'succeeded'
+        ? { deliveryEvidence: 'verified', evidenceDigest }
+        : {};
+      const updated = await client.query(
+        `UPDATE am_memory.processing_jobs
+            SET status = $3,
+                input_payload = input_payload || jsonb_build_object('deliveryStatus', $4::text),
+                output_payload = CASE WHEN $3 = 'succeeded' THEN $5::jsonb ELSE output_payload END,
+                last_error = CASE WHEN $6::text = '' THEN last_error ELSE jsonb_build_object('code', $6::text) END,
+                completed_at = CASE WHEN $3 IN ('succeeded','dead_letter') THEN clock_timestamp() ELSE NULL END,
+                updated_at = clock_timestamp()
+          WHERE tenant_id = $1 AND job_kind = 'finance-line-notification' AND idempotency_key = $2
+            AND NOT (status = 'succeeded' AND output_payload ->> 'deliveryEvidence' = 'verified')
+         RETURNING job_id`,
+        [config.tenantId, id, status, deliveryStatus, JSON.stringify(output), safeText(reason, 120)],
+      );
+      if (updated.rowCount > 0) return true;
+      const existing = await client.query(
+        `SELECT status, output_payload FROM am_memory.processing_jobs
+          WHERE tenant_id = $1 AND job_kind = 'finance-line-notification' AND idempotency_key = $2 LIMIT 1`,
+        [config.tenantId, id],
+      );
+      return existing.rows[0]?.status === 'succeeded'
+        && existing.rows[0]?.output_payload?.deliveryEvidence === 'verified';
+    });
+    return result.skipped ? { ok: false, skipped: result.skipped } : { ok: Boolean(result.value) };
+  }
+
+  const markFinanceNotificationUncertain = (tenant, sourceNotificationId, reason) => updateFinanceNotification(
+    tenant, sourceNotificationId, { status: 'retry', deliveryStatus: 'uncertain', reason },
+  );
+  const markFinanceNotificationManual = (tenant, sourceNotificationId, reason) => updateFinanceNotification(
+    tenant, sourceNotificationId, { status: 'dead_letter', deliveryStatus: 'manual', reason },
+  );
+  const markFinanceNotificationDelivered = (tenant, sourceNotificationId, evidenceDigest) => updateFinanceNotification(
+    tenant, sourceNotificationId, { status: 'succeeded', deliveryStatus: 'delivered', evidenceDigest },
+  );
 
   async function leaseProcessingJobs(tenant, input = {}) {
     const jobKind = safeText(input.jobKind, 120);
@@ -724,8 +836,10 @@ export function createOperationalMemory({ env = process.env, logger = console, p
   }
 
   async function close() {
+    await Promise.allSettled([...poolPromises.values()]);
     await Promise.all([...pools.values()].map((pool) => pool.end?.().catch(() => {})));
     pools.clear();
+    poolPromises.clear();
   }
 
   return {
@@ -739,6 +853,10 @@ export function createOperationalMemory({ env = process.env, logger = console, p
     close,
     enqueueProcessingJob,
     bindProcessingIdentity,
+    bindFinanceNotificationIdentity,
+    markFinanceNotificationUncertain,
+    markFinanceNotificationManual,
+    markFinanceNotificationDelivered,
     leaseProcessingJobs,
     settleProcessingJob,
     settingsForTenant: (tenant) => tenantConfig(tenant, env),

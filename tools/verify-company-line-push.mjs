@@ -90,6 +90,7 @@ let bindingPageResolver = () => ({ results: bindingResults });
 const notificationIdentities = new Map();
 const notificationIdentityCalls = [];
 let notificationIdentityStoreAvailable = true;
+let nowMs = Date.now();
 companyLinePush.init({
   queueAccessKey: 'platform-control-key',
   portalServiceToken: 'portal-service-token',
@@ -104,17 +105,25 @@ companyLinePush.init({
     if (pushFailure) throw pushFailure;
     return pushReceipt;
   },
+  now: () => nowMs,
   operationalMemory: {
-    bindProcessingIdentity: async (_tenant, input) => {
+    bindFinanceNotificationIdentity: async (_tenant, input) => {
       notificationIdentityCalls.push({ ...input });
       if (!notificationIdentityStoreAvailable) return { ok: false, skipped: 'database-not-configured' };
-      const key = `${input.jobKind}:${input.idempotencyKey}`;
-      const existing = notificationIdentities.get(key);
-      if (existing && existing !== input.payloadDigest) return { ok: true, conflict: true, replayed: true };
-      if (existing) return { ok: true, conflict: false, replayed: true };
-      notificationIdentities.set(key, input.payloadDigest);
-      return { ok: true, conflict: false, replayed: false };
+      const existing = notificationIdentities.get(input.sourceNotificationId);
+      if (existing && (existing.payloadDigest !== input.payloadDigest
+        || (existing.status !== 'legacy' && (existing.routeDigest !== input.routeDigest
+          || existing.providerRetryKey !== input.providerRetryKey)))) {
+        return { ok: true, conflict: true, replayed: true };
+      }
+      if (existing) return { ok: true, conflict: false, replayed: true, delivered: existing.status === 'delivered', manual: existing.status === 'manual', legacyUnverified: existing.status === 'legacy', createdAt: existing.createdAt };
+      const row = { ...input, status: 'pending', createdAt: new Date(nowMs).toISOString() };
+      notificationIdentities.set(input.sourceNotificationId, row);
+      return { ok: true, conflict: false, replayed: false, delivered: false, manual: false, legacyUnverified: false, createdAt: row.createdAt };
     },
+    markFinanceNotificationUncertain: async (_tenant, id) => { notificationIdentities.get(id).status = 'uncertain'; return { ok: true }; },
+    markFinanceNotificationManual: async (_tenant, id) => { notificationIdentities.get(id).status = 'manual'; return { ok: true }; },
+    markFinanceNotificationDelivered: async (_tenant, id) => { notificationIdentities.get(id).status = 'delivered'; return { ok: true }; },
   },
 });
 
@@ -197,10 +206,14 @@ assert.equal(res.payload.source, 'hozo-rental-finance');
 assert.equal(res.payload.target.name, 'HOZO 財務群組');
 assert.deepEqual(res.payload.mention, { name: '陸昱晴', resolved: true, delivered: true });
 assert.ok(!JSON.stringify(res.payload).includes(MAGGIE_USER_ID));
+assert.equal(res.payload.line, undefined);
 assert.equal(pushCalls.length, 2);
 assert.equal(pushCalls[1].to, HOZO_FINANCE_GROUP_ID);
-assert.equal(pushCalls[1].text, '@陸昱晴 finance workflow completed');
-assert.deepEqual(pushCalls[1].mention, { name: '陸昱晴', userId: MAGGIE_USER_ID });
+assert.equal(pushCalls[1].text.type, 'textV2');
+assert.equal(pushCalls[1].text.text, '{who} finance workflow completed');
+assert.deepEqual(pushCalls[1].text.substitution.who.mentionee, { type: 'user', userId: MAGGIE_USER_ID });
+assert.equal(pushCalls[1].mention, null);
+assert.equal(pushCalls[1].delivery.suppressEvidenceLogs, true);
 assert.match(pushCalls[1].delivery.retryKey, /^finance-provider:v1:[a-f0-9]{64}$/);
 
 pushReceipt = { status: 409, acceptedRequestId: 'line-accepted-1', messageIds: [] };
@@ -209,9 +222,19 @@ res = await call(rentalFinanceRoute, {
   body: completedNotification,
 });
 assert.equal(res.status, 200);
-assert.equal(res.payload.line.status, 409);
+assert.equal(res.payload.replayed, true);
 assert.equal(res.payload.mention.delivered, true);
-assert.equal(pushCalls[2].delivery.retryKey, pushCalls[1].delivery.retryKey);
+assert.equal(pushCalls.length, 2);
+
+const acceptedConflictEvent = financeBody('@陸昱晴 provider accepted retry conflict');
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' },
+  body: acceptedConflictEvent,
+});
+assert.equal(res.status, 200);
+assert.equal(res.payload.line, undefined);
+assert.equal(res.payload.mention.delivered, true);
+assert.equal(pushCalls.length, 3);
 
 pushReceipt = { status: 200, requestId: 'line-req-2', messageIds: ['line-msg-2'] };
 const distinctEventSameText = financeBody('@陸昱晴 finance workflow completed', {
@@ -241,10 +264,103 @@ res = await call(rentalFinanceRoute, {
   headers: { authorization: 'Bearer rental-only-key' },
   body: financeBody('@陸昱晴 unconfirmed provider conflict'),
 });
-assert.equal(res.status, 500);
+assert.equal(res.status, 502);
 assert.equal(res.payload.ok, false);
-assert.equal(res.payload.code, 'finance_notification_failed');
+assert.equal(res.payload.code, 'line_push_unconfirmed');
 assert.equal(res.payload.mention, undefined);
+pushReceipt = { status: 200, requestId: 'line-req-1', messageIds: ['line-msg-1'] };
+
+const braceNotification = financeBody('@陸昱晴 請看 {invoice} 與 {{raw}}');
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' },
+  body: braceNotification,
+});
+assert.equal(res.status, 200);
+assert.equal(pushCalls.at(-1).text.text, '{who} 請看 {{invoice}} 與 {{{{raw}}}}');
+assert.deepEqual(Object.keys(pushCalls.at(-1).text.substitution), ['who']);
+
+const callsBeforeOversized = notificationIdentityCalls.length;
+const pushesBeforeOversized = pushCalls.length;
+const oversizedText = `@陸昱晴 ${'😀'.repeat(2000)}${'{'.repeat(600)}`;
+assert.ok(oversizedText.length <= 4900);
+assert.throws(
+  () => __test.financeMentionMessage(oversizedText, { name: '陸昱晴', userId: MAGGIE_USER_ID }),
+  (error) => error?.code === 'invalid_text',
+);
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' },
+  body: financeBody(oversizedText),
+});
+assert.equal(res.status, 400);
+assert.equal(res.payload.code, 'invalid_text');
+assert.equal(notificationIdentityCalls.length, callsBeforeOversized);
+assert.equal(pushCalls.length, pushesBeforeOversized);
+
+for (const receipt of [
+  { status: 200, requestId: '' },
+  { status: 200, requestId: MAGGIE_USER_ID },
+  { status: 202, requestId: 'line-202' },
+  { status: 204, requestId: 'line-204' },
+  { status: 409, acceptedRequestId: MAGGIE_USER_ID },
+]) {
+  pushReceipt = receipt;
+  res = await call(rentalFinanceRoute, {
+    headers: { authorization: 'Bearer rental-only-key' },
+    body: financeBody(`@陸昱晴 rejected evidence ${JSON.stringify(receipt)}`),
+  });
+  assert.equal(res.status, 502);
+  assert.equal(res.payload.code, 'line_push_unconfirmed');
+  assert.equal(res.payload.mention, undefined);
+  assert.ok(!JSON.stringify(res.payload).includes(MAGGIE_USER_ID));
+}
+
+pushReceipt = { status: 202, requestId: 'line-uncertain' };
+const retryableNotification = financeBody('@陸昱晴 retry inside provider window');
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' }, body: retryableNotification,
+});
+assert.equal(res.status, 502);
+const uncertainRetryKey = pushCalls.at(-1).delivery.retryKey;
+pushReceipt = { status: 200, requestId: 'line-retry-ok' };
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' }, body: retryableNotification,
+});
+assert.equal(res.status, 200);
+assert.equal(pushCalls.at(-1).delivery.retryKey, uncertainRetryKey);
+
+pushReceipt = { status: 202, requestId: 'line-old-uncertain' };
+const expiredNotification = financeBody('@陸昱晴 expired provider retry');
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' }, body: expiredNotification,
+});
+assert.equal(res.status, 502);
+const expiredPushCount = pushCalls.length;
+notificationIdentities.get(expiredNotification.sourceNotificationId).createdAt = new Date(
+  nowMs - __test.FINANCE_PROVIDER_RETRY_WINDOW_MS,
+).toISOString();
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' }, body: expiredNotification,
+});
+assert.equal(res.status, 409);
+assert.equal(res.payload.code, 'manual_reconciliation_required');
+assert.equal(pushCalls.length, expiredPushCount);
+assert.equal(notificationIdentities.get(expiredNotification.sourceNotificationId).status, 'manual');
+
+const legacyNotification = financeBody('@陸昱晴 legacy succeeded without evidence');
+notificationIdentities.set(legacyNotification.sourceNotificationId, {
+  payloadDigest: legacyNotification.retryKey.slice(-64),
+  status: 'legacy',
+  createdAt: new Date(nowMs).toISOString(),
+});
+const legacyPushCount = pushCalls.length;
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' }, body: legacyNotification,
+});
+assert.equal(res.status, 409);
+assert.equal(res.payload.code, 'manual_reconciliation_required');
+assert.equal(pushCalls.length, legacyPushCount);
+assert.equal(notificationIdentities.get(legacyNotification.sourceNotificationId).status, 'manual');
+
 pushReceipt = { status: 200, requestId: 'line-req-1', messageIds: ['line-msg-1'] };
 
 const pushCountAfterMention = pushCalls.length;
