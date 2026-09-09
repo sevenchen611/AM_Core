@@ -88,6 +88,7 @@ let bindingResults = [
 ];
 let bindingPageResolver = () => ({ results: bindingResults });
 const notificationIdentities = new Map();
+const notificationIdentityCalls = [];
 let notificationIdentityStoreAvailable = true;
 companyLinePush.init({
   queueAccessKey: 'platform-control-key',
@@ -105,6 +106,7 @@ companyLinePush.init({
   },
   operationalMemory: {
     bindProcessingIdentity: async (_tenant, input) => {
+      notificationIdentityCalls.push({ ...input });
       if (!notificationIdentityStoreAvailable) return { ok: false, skipped: 'database-not-configured' };
       const key = `${input.jobKind}:${input.idempotencyKey}`;
       const existing = notificationIdentities.get(key);
@@ -481,6 +483,7 @@ assert.ok(!JSON.stringify(res.payload).includes(MAGGIE_USER_ID));
 assert.equal(pushCalls.length, pushCountAfterProviderFailure);
 
 bindingResults = [groupBinding('HOZO 財務群組', HOZO_FINANCE_GROUP_ID, { '陸昱晴': MAGGIE_USER_ID })];
+const identityCallCountBeforeDryRun = notificationIdentityCalls.length;
 res = await call(rentalFinanceRoute, {
   headers: { authorization: 'Bearer rental-only-key' },
   body: financeBody('@陸昱晴 dry run mention', { dryRun: true }),
@@ -489,5 +492,6 @@ assert.equal(res.status, 200);
 assert.deepEqual(res.payload.mention, { name: '陸昱晴', resolved: true, delivered: false });
 assert.ok(!JSON.stringify(res.payload).includes(MAGGIE_USER_ID));
 assert.equal(pushCalls.length, pushCountAfterProviderFailure);
+assert.equal(notificationIdentityCalls.length, identityCallCountBeforeDryRun);
 
 console.log('Company LINE push verification passed: finance mention identity is binding-scoped, fail-closed, non-leaking, and passed to LINE textV2 delivery.');

@@ -344,7 +344,6 @@ async function pushToGroup(req, res, ctx, {
       financeRetryKey = validateFinanceRetryKey(body.retryKey, {
         sourceNotificationId, text, mentionName, imageUrls,
       });
-      await bindFinanceNotificationIdentity(ctx, sourceNotificationId, financeRetryKey);
     }
     const target = await resolveGroup(ctx, { matcher, canonicalName, label });
     if (requireMention) mention = resolveMentionFromBinding(target.page, body.mentionName);
@@ -360,6 +359,9 @@ async function pushToGroup(req, res, ctx, {
         target: { name: target.name || `HOZO ${label} group`, maskedId: maskLineId(target.groupId) },
         ...(mention ? { mention: { name: mention.name, resolved: true, delivered: false } } : {}),
       });
+    }
+    if (requireMention) {
+      await bindFinanceNotificationIdentity(ctx, sourceNotificationId, financeRetryKey);
     }
 
     const receipt = await platform.pushLineMessage(target.groupId, text, mention, {
