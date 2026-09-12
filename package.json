@@ -16,6 +16,7 @@
     "dryrun:groups": "node tools/dryrun-groups.mjs",
     "dryrun:finance-v3-direct": "node tools/dryrun-finance-v3-direct.mjs",
     "dryrun:finance-v3-postgres": "node tools/dryrun-finance-v3-postgres-hotpath.mjs",
+    "dryrun:claims-authority": "node tools/dryrun-claims-authority.mjs && node tools/dryrun-claims-authority-admin.mjs && node tools/dryrun-claims-authority-contract.mjs && node tools/dryrun-claims-authority-outbox.mjs && node tools/dryrun-claims-authority-postgres.mjs && node tools/dryrun-claims-authority-runtime.mjs && node tools/dryrun-claims-authority-v3.mjs",
     "inventory:finance-v3-legacy": "node tools/inventory-finance-v3-legacy-jobs.mjs",
     "dryrun:processing-jobs": "node tools/dryrun-processing-jobs-store.mjs"
   },

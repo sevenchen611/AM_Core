@@ -396,6 +396,18 @@ const server = http.createServer(async (req, res) => {
     }
     try {
       for (const event of body.events || []) {
+        const groupId = event?.source?.groupId || event?.source?.roomId || '';
+        if (groupId && typeof financeClaimsModule?.preAckClaimsAuthorityEvent === 'function') {
+          const authorityResult = await financeClaimsModule.preAckClaimsAuthorityEvent({
+            tenant: financeClaimsTenant,
+            binding: null,
+            event,
+          });
+          if (authorityResult?.intercepted) {
+            financeInterceptedEvents.add(event);
+            continue;
+          }
+        }
         const financeCandidate = (event?.type === 'message'
           && event.message?.type === 'text'
           && ['請款', '費用申請'].includes(String(event.message.text || '').trim()))
@@ -405,7 +417,6 @@ const server = http.createServer(async (req, res) => {
           || typeof financeClaimsModule?.preAckLineEvent !== 'function') continue;
         const locallyOwned = financeClaimsModule.ownsFinanceV3LineEvent({ tenant: financeClaimsTenant, event });
         if (!locallyOwned) continue;
-        const groupId = event.source?.groupId || event.source?.roomId || '';
         if (!groupId) {
           throw new Error('finance_claim_group_missing');
         }

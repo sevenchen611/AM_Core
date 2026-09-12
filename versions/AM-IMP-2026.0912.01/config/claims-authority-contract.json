@@ -1,0 +1,49 @@
+{
+  "contractVersion": "finance-claims-authority-v1",
+  "modeConfigPath": "claims.authorityRegistry.mode",
+  "modes": ["off", "shadow", "enforce"],
+  "fixedIdentityKey": {
+    "ciphertextKeyId": "fixed-v1",
+    "minimumBytes": 32,
+    "rotationSupported": false,
+    "unknownFormatBehavior": "fail_closed"
+  },
+  "authorityTables": [
+    "am_claims.discovered_groups",
+    "am_claims.groups",
+    "am_claims.members",
+    "am_claims.events"
+  ],
+  "outboxTable": "am_claims.outbox",
+  "auditTable": "am_claims.audit",
+  "groupStates": ["unassigned", "activating", "active", "paused", "needs_attention"],
+  "roles": {
+    "platform_owner": ["view_unassigned", "assign_tenant", "manage_all"],
+    "claims_access_admin": ["manage_tenant_groups", "manage_tenant_members"],
+    "operator": ["view_tenant_groups", "view_tenant_members"],
+    "auditor": ["view_tenant_groups", "view_tenant_members", "view_audit"]
+  },
+  "bindingRequirements": {
+    "status": "啟用",
+    "capability": "請款",
+    "activation": "AM binding plus Finance Claims V3 source handshake"
+  },
+  "lifecycle": {
+    "join": "discover only; never grant authority",
+    "memberJoined": "record event only; never grant authority",
+    "message": "observe member before authorization; hand eligible exact command to existing V3",
+    "memberLeft": "mark left; preserve manual deny",
+    "leave": "pause group and mark OA left"
+  },
+  "idempotency": {
+    "eventReceipt": "unique tenant_id plus SHA-256 event fingerprint",
+    "openV3Claim": "same fingerprint passed as idempotencyKey",
+    "outbox": "leased delivery with retry, backoff, and dead terminal state"
+  },
+  "privacy": {
+    "browserIdentifiers": "encrypted display names may be decrypted for authorized admins; authority keys remain opaque lookup prefixes",
+    "persistence": "tenant/entity HMAC lookup plus authenticated ciphertext",
+    "outboxPayload": "no raw LINE ids or message text"
+  },
+  "failureMode": "shadow then fail-closed enforce"
+}

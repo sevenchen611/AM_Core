@@ -1,0 +1,195 @@
+import crypto from 'node:crypto';
+import { createFinanceClaimsV3Pool } from './v3/postgres.js';
+import { createClaimsAuthority } from '../../core/claims-authority.js';
+import { createClaimsAuthorityPostgresStore } from '../../core/claims-authority-postgres.js';
+import { createClaimsAuthorityRuntimeAdapter } from '../../core/claims-authority-runtime.js';
+import { createClaimsAuthorityV3Adapter } from '../../core/claims-authority-v3.js';
+import { createClaimsAuthorityAdminHandler } from '../../core/claims-authority-admin.js';
+import { createClaimsAuthorityOutboxWorker } from '../../core/claims-authority-outbox.js';
+
+const OPAQUE_REFERENCE = /^line-ref:v1:[0-9a-f-]{36}$/iu;
+const SAFE_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{1,159}$/u;
+
+function parseJson(value, fallback) {
+  try { return JSON.parse(String(value || '')); } catch { return fallback; }
+}
+
+function timingSafeText(left, right) {
+  const a = Buffer.from(String(left || ''));
+  const b = Buffer.from(String(right || ''));
+  return a.length > 0 && a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function targetRegistry(env) {
+  const parsed = parseJson(env.HZ2_CLAIMS_AUTHORITY_TARGETS_JSON, { targets: [] });
+  const targets = Array.isArray(parsed?.targets) ? parsed.targets : [];
+  const result = new Map();
+  for (const item of targets) {
+    if (!SAFE_KEY.test(String(item?.key || '')) || !SAFE_KEY.test(String(item?.tenantKey || ''))
+      || !/^[a-f0-9-]{32,36}$/iu.test(String(item?.bindingId || ''))
+      || !SAFE_KEY.test(String(item?.sourceId || '')) || !SAFE_KEY.test(String(item?.formKey || ''))
+      || !OPAQUE_REFERENCE.test(String(item?.groupReference || '')) || result.has(item.key)) continue;
+    result.set(item.key, {
+      key: item.key,
+      label: String(item.label || item.key).slice(0, 120),
+      tenantKey: item.tenantKey,
+      bindingId: item.bindingId,
+      financeScope: { sourceId: item.sourceId, formKey: item.formKey, groupReference: item.groupReference },
+    });
+  }
+  return result;
+}
+
+function recipientRegistry(env) {
+  const parsed = parseJson(env.HZ2_FINANCE_CLAIMS_V3_RECIPIENT_BINDINGS_JSON, { bindings: [] });
+  const result = new Map();
+  for (const item of Array.isArray(parsed?.bindings) ? parsed.bindings : []) {
+    if (item?.type === 'line_user' && String(item.target || '').startsWith('U')
+      && OPAQUE_REFERENCE.test(String(item.identityReference || ''))) {
+      result.set(`${item.tenantKey}:${item.target}`, item.identityReference);
+    }
+  }
+  return result;
+}
+
+function nodeRequest(req, url, body) {
+  return {
+    method: req.method,
+    url: url.toString(),
+    headers: req.headers,
+    async json() { return body; },
+  };
+}
+
+function sendResponse(res, response) {
+  res.writeHead(response.status, response.headers);
+  res.end(response.body);
+  return true;
+}
+
+export function createClaimsAuthorityIntegration({ env = process.env, platform, groupEntry, receiver } = {}) {
+  const enabled = env.HZ2_CLAIMS_AUTHORITY_ENABLED === 'true';
+  if (!enabled) return { enabled: false, ready: false };
+  const identityKey = String(env.HZ2_CLAIMS_AUTHORITY_IDENTITY_KEY || '');
+  const urls = {
+    tenant: env.HZ2_CLAIMS_AUTHORITY_TENANT_DATABASE_URL,
+    discovery: env.HZ2_CLAIMS_AUTHORITY_DISCOVERY_DATABASE_URL,
+    platform: env.HZ2_CLAIMS_AUTHORITY_PLATFORM_DATABASE_URL,
+    worker: env.HZ2_CLAIMS_AUTHORITY_WORKER_DATABASE_URL,
+  };
+  if (identityKey.length < 32 || Object.values(urls).some((value) => !String(value || '').trim())) {
+    throw new Error('Claims authority fixed key and four role-specific database URLs are required.');
+  }
+  const makePool = (url, role) => createFinanceClaimsV3Pool(url, {
+    onError: (error) => platform?.logger?.warn?.(`Claims authority ${role} pool failed: ${error.message}`),
+  });
+  const store = createClaimsAuthorityPostgresStore({
+    tenantPool: makePool(urls.tenant, 'tenant'),
+    discoveryPool: makePool(urls.discovery, 'discovery'),
+    platformPool: makePool(urls.platform, 'platform'),
+    workerPool: makePool(urls.worker, 'worker'),
+  });
+  const targets = targetRegistry(env);
+  const recipients = recipientRegistry(env);
+  const v3 = createClaimsAuthorityV3Adapter({
+    groupEntry,
+    async verifySource(input) {
+      const match = [...targets.values()].find((item) => item.tenantKey === input.tenantKey
+        && item.bindingId.replaceAll('-', '').toLowerCase() === String(input.bindingId).replaceAll('-', '').toLowerCase()
+        && item.financeScope.sourceId === input.sourceId && item.financeScope.formKey === input.formKey
+        && item.financeScope.groupReference === input.groupReference);
+      return match ? { ok: true, sourceId: match.financeScope.sourceId } : { ok: false };
+    },
+    async resolveApplicantReference({ tenant, userId }) {
+      return recipients.get(`${tenant.key}:${userId}`) || '';
+    },
+    async syncMembership(body) {
+      const result = await receiver.bridgeMembership(body);
+      if (result?.status !== 200) throw new Error('Finance V3 membership bridge rejected the member.');
+      return result.body;
+    },
+  });
+  const authority = createClaimsAuthority({
+    store,
+    identityKey,
+    financeProvisioner: v3.financeProvisioner,
+    openV3Claim: v3.openV3Claim,
+    identityResolver: {
+      resolveGroupName: ({ groupId }) => platform.resolveGroupName(groupId),
+      resolveMemberName: ({ groupId, userId }) => platform.resolveGroupMemberName(groupId, userId),
+    },
+  });
+  const mode = ['shadow', 'enforce'].includes(env.HZ2_CLAIMS_AUTHORITY_MODE) ? env.HZ2_CLAIMS_AUTHORITY_MODE : 'enforce';
+  const authorityTenant = (tenant) => ({
+    ...tenant,
+    config: { ...tenant.config, claims: { ...tenant.config?.claims, authorityRegistry: { mode } } },
+  });
+  const replyLine = async (event, message) => {
+    if (event?.replyToken) return platform.replyLineMessage(event.replyToken, message);
+    const target = event?.source?.groupId || event?.source?.roomId;
+    if (target) return platform.pushLineMessage(target, message);
+    return null;
+  };
+  const runtime = createClaimsAuthorityRuntimeAdapter({ authority, replyLine });
+  const worker = createClaimsAuthorityOutboxWorker({
+    store,
+    workerId: `am-core-${process.pid}`,
+    dispatcher: { async dispatch() { return true; } },
+  });
+
+  function actorFromAccess(access) {
+    const roles = access?.isPlatformOwner ? ['platform_owner']
+      : access?.isTenantAll ? ['claims_access_admin'] : ['operator'];
+    return { subject: access?.actor || 'portal', roles };
+  }
+
+  async function admin(req, res, context) {
+    let parsedBody = {};
+    if (req.method === 'POST') {
+      const chunks = [];
+      let bytes = 0;
+      for await (const chunk of req) {
+        bytes += chunk.length;
+        if (bytes > 64 * 1024) return sendResponse(res, { status: 413, headers: { 'content-type': 'application/json' }, body: '{"error":"Payload too large"}' });
+        chunks.push(chunk);
+      }
+      try { parsedBody = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch { parsedBody = {}; }
+    }
+    const handler = createClaimsAuthorityAdminHandler({
+      authority,
+      basePath: '/admin/claims-authority',
+      resolveContext: async () => ({ tenant: authorityTenant(context.tenant), actor: actorFromAccess(context.access), csrfToken: String(env.HZ2_CLAIMS_AUTHORITY_CSRF_TOKEN || '') }),
+      listTargets: async () => [...targets.values()].map(({ key, label }) => ({ key, label })),
+      resolveTarget: async (key) => {
+        const item = targets.get(String(key || ''));
+        const tenant = context.tenants.find((candidate) => candidate.key === item?.tenantKey);
+        return item && tenant ? { ...item, tenant: authorityTenant(tenant) } : null;
+      },
+      verifyMutation: async (request, current) => {
+        const configured = String(env.HZ2_CLAIMS_AUTHORITY_CSRF_TOKEN || '');
+        if (configured.length < 32 || !timingSafeText(request.headers['x-csrf-token'], configured)) throw new Error('Forbidden');
+        const origin = String(request.headers.origin || '');
+        const host = String(request.headers.host || '');
+        if (origin && new URL(origin).host !== host) throw new Error('Forbidden');
+        if (!current.actor.roles.some((role) => ['platform_owner', 'claims_access_admin'].includes(role))) throw new Error('Forbidden');
+      },
+    });
+    return sendResponse(res, await handler(nodeRequest(req, context.url, parsedBody)));
+  }
+
+  return {
+    enabled: true,
+    ready: true,
+    authority,
+    admin,
+    async handleLineEvent({ tenant, binding, event }) {
+      const enriched = binding ? (() => {
+        const target = [...targets.values()].find((item) => item.tenantKey === tenant.key
+          && item.bindingId.replaceAll('-', '').toLowerCase() === String(binding.pageId || binding.id || '').replaceAll('-', '').toLowerCase());
+        return target ? { ...binding, ...target.financeScope, financeSourceId: target.financeScope.sourceId, claimFormKey: target.financeScope.formKey } : binding;
+      })() : null;
+      return runtime.handle({ tenant: authorityTenant(tenant), binding: enriched, event });
+    },
+    runOutbox: () => worker.runOnce(),
+  };
+}
