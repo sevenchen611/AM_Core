@@ -26,5 +26,11 @@ during startup. Existing recipient bindings remain compatible identity aliases;
 new observed members receive a deterministic opaque identity automatically and
 do not require an allowlist entry.
 
+The console also supports a privileged rescan of the tenant's existing LINE
+group-binding registry. Each known group ID is verified against LINE before it
+is added to the unassigned list. This backfills groups that joined the OA before
+the claims authority registry was deployed; groups not already known locally
+still appear when LINE sends their next join or message webhook.
+
 Production deployment and Render environment changes are intentionally outside
 this local installation and require an explicit deployment request.

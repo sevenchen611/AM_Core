@@ -13,6 +13,9 @@
    requires authenticated roles, and requires CSRF validation on mutations.
 9. Confirm outbox leases use `SKIP LOCKED`, retries back off, leases cannot be
    completed by another worker, and exhausted deliveries become `dead`.
+10. Confirm “重新掃描已知群組” reads only the selected tenant's group-binding
+    registry, verifies current OA membership through LINE group summary, and
+    adds verified groups without exposing raw LINE IDs to the browser or logs.
 
 Run locally:
 

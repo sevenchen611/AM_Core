@@ -13,18 +13,21 @@ const authority = {
   setGroupState: async (input) => { calls.push(['state', input]); return { ok: true }; },
 };
 let mutationChecks = 0;
+let discoverySyncs = 0;
 const handler = createClaimsAuthorityAdminHandler({
   authority,
   resolveContext: async () => ({ actor, tenant, csrfToken: 'synthetic-csrf' }),
   listTargets: async () => [{ key: 'hozo-default', label: 'HOZO｜預設請款群組' }],
   resolveTarget: async () => ({ tenant, bindingId: 'binding', financeScope: {} }),
   verifyMutation: async () => { mutationChecks += 1; },
+  syncDiscovery: async () => { discoverySyncs += 1; return { ok: true, scanned: 4, verified: 3 }; },
 });
 
 const page = renderClaimsAuthorityAdminPage();
 assert.match(page, /Finance V3 請款授權/u);
 assert.match(page, /待綁定群組/u);
 assert.match(page, /綁定勾選群組/u);
+assert.match(page, /重新掃描已知群組/u);
 assert.doesNotMatch(page, /innerHTML/u);
 
 const request = (path, options = {}) => ({
@@ -49,6 +52,14 @@ response = await handler(request('/claims-authority/api/assign', {
 assert.equal(response.status, 200);
 assert.equal(mutationChecks, 1);
 assert.ok(calls.some(([name]) => name === 'assign'));
+response = await handler(request('/claims-authority/api/discovery/sync', {
+  method: 'POST',
+  body: {},
+}));
+assert.equal(response.status, 200);
+assert.equal(JSON.parse(response.body).verified, 3);
+assert.equal(mutationChecks, 2);
+assert.equal(discoverySyncs, 1);
 
 const forbidden = createClaimsAuthorityAdminHandler({
   authority,
