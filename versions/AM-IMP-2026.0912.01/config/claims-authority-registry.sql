@@ -12,6 +12,15 @@ BEGIN
 END
 $roles$;
 
+DO $membership$
+BEGIN
+  EXECUTE format(
+    'GRANT am_claims_tenant,am_claims_discovery_writer,am_claims_platform_owner,am_claims_worker,am_claims_auditor TO %I',
+    current_user
+  );
+END
+$membership$;
+
 CREATE TABLE IF NOT EXISTS am_claims.discovered_groups (
   group_lookup CHAR(64) PRIMARY KEY,
   group_ciphertext TEXT NOT NULL,
