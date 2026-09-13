@@ -41,7 +41,7 @@
     "Synthetic admin and package checks pass"
   ],
   "projectStatus": {
-    "AM_PLATFORM:hozo-am-2-0": "Installed"
+    "AM_PLATFORM:hozo-am-2-0": "Deployed"
   },
-  "status": "Installed"
+  "status": "Deployed"
 }

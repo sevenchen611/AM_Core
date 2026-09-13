@@ -1,6 +1,6 @@
 # AM-IMP-2026.0913.01 — HOZO 請款單管理目錄
 
-Status: `Installed` (local branch; not deployed)
+Status: `Deployed` (AM Platform `b3c25b7`, verified 2026-09-13)
 
 在受保護的 `/claims-authority` 後台新增「請款功能工具」與
 「請款單管理」入口，依 legacy LIFF 至 Finance Claims V3 的順序列出：
