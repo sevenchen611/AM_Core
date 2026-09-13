@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import { createFinanceClaimsV3Pool } from './v3/postgres.js';
 import { createClaimsAuthority } from '../../core/claims-authority.js';
 import { createClaimsAuthorityPostgresStore } from '../../core/claims-authority-postgres.js';
@@ -37,6 +38,26 @@ function targetRegistry(env) {
       financeScope: { sourceId: item.sourceId, formKey: item.formKey, groupReference: item.groupReference },
     });
   }
+  if (result.size) return result;
+  const bindings = parseJson(env.HZ2_FINANCE_CLAIMS_V3_RECIPIENT_BINDINGS_JSON, { bindings: [] });
+  const scopes = parseJson(env.HZ2_FINANCE_CLAIMS_V3_GROUP_ENTRY_SCOPES_JSON, { scopes: [] });
+  const groupRefs = new Map((Array.isArray(bindings?.bindings) ? bindings.bindings : [])
+    .filter((item) => item?.type === 'group_binding' && OPAQUE_REFERENCE.test(String(item.identityReference || '')))
+    .map((item) => [item.identityReference, item]));
+  for (const item of Array.isArray(scopes?.scopes) ? scopes.scopes : []) {
+    const binding = groupRefs.get(item?.groupReference);
+    const uuid = String(item?.groupReference || '').replace(/^line-ref:v1:/u, '');
+    if (!binding || !SAFE_KEY.test(String(item?.tenantKey || '')) || !SAFE_KEY.test(String(item?.sourceId || ''))
+      || !SAFE_KEY.test(String(item?.formKey || '')) || !/^[0-9a-f-]{36}$/iu.test(uuid)) continue;
+    const key = `source-${crypto.createHash('sha256').update(`${item.tenantKey}:${item.sourceId}:${item.formKey}`).digest('hex').slice(0, 16)}`;
+    result.set(key, {
+      key,
+      label: `${item.sourceId} / ${item.formKey}`.slice(0, 120),
+      tenantKey: item.tenantKey,
+      bindingId: uuid,
+      financeScope: { sourceId: item.sourceId, formKey: item.formKey, groupReference: item.groupReference },
+    });
+  }
   return result;
 }
 
@@ -50,6 +71,14 @@ function recipientRegistry(env) {
     }
   }
   return result;
+}
+
+function deterministicApplicantReference(identityKey, tenantKey, userId) {
+  const bytes = crypto.createHmac('sha256', identityKey).update(`applicant:${tenantKey}:${userId}`).digest().subarray(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `line-ref:v1:${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function nodeRequest(req, url, body) {
@@ -71,11 +100,12 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
   const enabled = env.HZ2_CLAIMS_AUTHORITY_ENABLED === 'true';
   if (!enabled) return { enabled: false, ready: false };
   const identityKey = String(env.HZ2_CLAIMS_AUTHORITY_IDENTITY_KEY || '');
+  const sharedDatabaseUrl = String(env.HZ2_FINANCE_CLAIMS_V3_DATABASE_URL || '');
   const urls = {
-    tenant: env.HZ2_CLAIMS_AUTHORITY_TENANT_DATABASE_URL,
-    discovery: env.HZ2_CLAIMS_AUTHORITY_DISCOVERY_DATABASE_URL,
-    platform: env.HZ2_CLAIMS_AUTHORITY_PLATFORM_DATABASE_URL,
-    worker: env.HZ2_CLAIMS_AUTHORITY_WORKER_DATABASE_URL,
+    tenant: env.HZ2_CLAIMS_AUTHORITY_TENANT_DATABASE_URL || sharedDatabaseUrl,
+    discovery: env.HZ2_CLAIMS_AUTHORITY_DISCOVERY_DATABASE_URL || sharedDatabaseUrl,
+    platform: env.HZ2_CLAIMS_AUTHORITY_PLATFORM_DATABASE_URL || sharedDatabaseUrl,
+    worker: env.HZ2_CLAIMS_AUTHORITY_WORKER_DATABASE_URL || sharedDatabaseUrl,
   };
   if (identityKey.length < 32 || Object.values(urls).some((value) => !String(value || '').trim())) {
     throw new Error('Claims authority fixed key and four role-specific database URLs are required.');
@@ -89,6 +119,12 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
     platformPool: makePool(urls.platform, 'platform'),
     workerPool: makePool(urls.worker, 'worker'),
   });
+  const migrationPool = makePool(sharedDatabaseUrl || urls.platform, 'migration');
+  const migrationSql = fs.readFileSync(new URL('../../versions/AM-IMP-2026.0912.01/config/claims-authority-registry.sql', import.meta.url), 'utf8');
+  const migrationPromise = migrationPool.query(migrationSql).then(() => true).catch((error) => {
+    platform?.logger?.warn?.(`Claims authority migration failed closed: ${error.message}`);
+    throw error;
+  });
   const targets = targetRegistry(env);
   const recipients = recipientRegistry(env);
   const v3 = createClaimsAuthorityV3Adapter({
@@ -101,7 +137,8 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
       return match ? { ok: true, sourceId: match.financeScope.sourceId } : { ok: false };
     },
     async resolveApplicantReference({ tenant, userId }) {
-      return recipients.get(`${tenant.key}:${userId}`) || '';
+      return recipients.get(`${tenant.key}:${userId}`)
+        || deterministicApplicantReference(identityKey, tenant.key, userId);
     },
     async syncMembership(body) {
       const result = await receiver.bridgeMembership(body);
@@ -144,6 +181,7 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
   }
 
   async function admin(req, res, context) {
+    await migrationPromise;
     let parsedBody = {};
     if (req.method === 'POST') {
       const chunks = [];
@@ -183,6 +221,7 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
     authority,
     admin,
     async handleLineEvent({ tenant, binding, event }) {
+      await migrationPromise;
       const enriched = binding ? (() => {
         const target = [...targets.values()].find((item) => item.tenantKey === tenant.key
           && item.bindingId.replaceAll('-', '').toLowerCase() === String(binding.pageId || binding.id || '').replaceAll('-', '').toLowerCase());
@@ -190,6 +229,6 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
       })() : null;
       return runtime.handle({ tenant: authorityTenant(tenant), binding: enriched, event });
     },
-    runOutbox: () => worker.runOnce(),
+    async runOutbox() { await migrationPromise; return worker.runOnce(); },
   };
 }

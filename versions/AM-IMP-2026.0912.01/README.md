@@ -16,13 +16,15 @@ stored LINE identities undecryptable and the runtime fails closed.
 - `HZ2_CLAIMS_AUTHORITY_MODE=enforce`
 - `HZ2_CLAIMS_AUTHORITY_IDENTITY_KEY` (one fixed secret, at least 32 bytes)
 - `HZ2_CLAIMS_AUTHORITY_CSRF_TOKEN` (at least 32 bytes)
-- four role-specific PostgreSQL URLs: `TENANT`, `DISCOVERY`, `PLATFORM`, `WORKER`
-- `HZ2_CLAIMS_AUTHORITY_TARGETS_JSON` containing opaque admin target keys and
-  Finance V3 `bindingId`, `sourceId`, `formKey`, and `groupReference` values
+- Existing `HZ2_FINANCE_CLAIMS_V3_DATABASE_URL` is reused by default; optional
+  role-specific URLs may be supplied later for stricter credential separation.
+- Existing Finance V3 scopes are converted into safe back-office targets. The
+  optional `HZ2_CLAIMS_AUTHORITY_TARGETS_JSON` can override their labels/keys.
 
-Apply `config/claims-authority-registry.sql` as a database owner before enabling
-the feature. Existing Finance V3 recipient bindings remain an identity-resolution
-registry only; they no longer decide whether an observed member may submit.
+The enabled service applies `config/claims-authority-registry.sql` idempotently
+during startup. Existing recipient bindings remain compatible identity aliases;
+new observed members receive a deterministic opaque identity automatically and
+do not require an allowlist entry.
 
 Production deployment and Render environment changes are intentionally outside
 this local installation and require an explicit deployment request.
