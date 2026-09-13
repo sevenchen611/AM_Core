@@ -1258,7 +1258,7 @@ export default {
     {
       prefix: '/claims-authority',
       tenantKey: 'hozo-am-2-0',
-      access: { kind: 'tenant', scope: 'tenant' },
+      access: { kind: 'tenant', scope: 'tenant', denied: 'handler' },
       handler: handleClaimsAuthorityAdmin,
     },
     {

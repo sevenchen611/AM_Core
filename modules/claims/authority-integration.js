@@ -5,7 +5,7 @@ import { createClaimsAuthority } from '../../core/claims-authority.js';
 import { createClaimsAuthorityPostgresStore } from '../../core/claims-authority-postgres.js';
 import { createClaimsAuthorityRuntimeAdapter } from '../../core/claims-authority-runtime.js';
 import { createClaimsAuthorityV3Adapter } from '../../core/claims-authority-v3.js';
-import { createClaimsAuthorityAdminHandler } from '../../core/claims-authority-admin.js';
+import { createClaimsAuthorityAdminHandler, renderClaimsAuthorityAccessRecoveryPage } from '../../core/claims-authority-admin.js';
 import { createClaimsAuthorityOutboxWorker } from '../../core/claims-authority-outbox.js';
 
 const OPAQUE_REFERENCE = /^line-ref:v1:[0-9a-f-]{36}$/iu;
@@ -225,6 +225,19 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
   }
 
   async function admin(req, res, context) {
+    if (!context.access?.allowed) {
+      return sendResponse(res, {
+        status: context.access?.user ? 403 : 401,
+        headers: {
+          'content-type': 'text/html; charset=utf-8',
+          'cache-control': 'no-store',
+          'content-security-policy': "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+          'x-content-type-options': 'nosniff',
+          'x-frame-options': 'DENY',
+        },
+        body: renderClaimsAuthorityAccessRecoveryPage({ financeBaseUrl: context.tenant?.config?.claims?.rentalBaseUrl || '' }),
+      });
+    }
     await migrationPromise;
     let parsedBody = {};
     if (req.method === 'POST') {
