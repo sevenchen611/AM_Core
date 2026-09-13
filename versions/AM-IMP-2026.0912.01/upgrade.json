@@ -1,0 +1,35 @@
+{
+  "id": "AM-IMP-2026.0912.01",
+  "name": "Finance V3 self-service claims authority backend",
+  "type": "Shared claims governance",
+  "portable": true,
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0", "AM_PLATFORM:seven-am"],
+  "requiresDatabases": ["Target-project PostgreSQL with role-separated forced tenant RLS"],
+  "requiresEnv": ["<PREFIX>_CLAIMS_AUTHORITY_IDENTITY_KEY", "<PREFIX>_CLAIMS_AUTHORITY_MODE"],
+  "requiresScripts": [
+    "tools/dryrun-claims-authority.mjs",
+    "tools/dryrun-claims-authority-admin.mjs",
+    "tools/dryrun-claims-authority-contract.mjs",
+    "tools/dryrun-claims-authority-outbox.mjs",
+    "tools/dryrun-claims-authority-postgres.mjs",
+    "tools/dryrun-claims-authority-runtime.mjs",
+    "tools/dryrun-claims-authority-v3.mjs",
+    "tools/check-upgrade-package.js AM-IMP-2026.0912.01"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Raw LINE IDs are stored only as fixed-v1 authenticated ciphertext; tenant/entity HMAC lookups, role-separated connections, and forced RLS isolate records."
+  },
+  "definitionOfDone": [
+    "Platform-level unassigned discovery and explicit tenant assignment are implemented",
+    "Observed members default to claim-capable unless manually denied",
+    "Duplicate LINE webhooks cannot open multiple V3 links",
+    "Admin API and responsive page enforce backend RBAC and mutation verification",
+    "Outbox delivery supports lease, retry, and terminal failure",
+    "Synthetic authority, admin, outbox, and package checks pass; global alignment findings are recorded before target installation"
+  ],
+  "status": "Ready"
+}

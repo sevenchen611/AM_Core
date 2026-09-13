@@ -3,11 +3,13 @@ import { normalizeId, readBody, sendJson } from '../../core/util.js';
 import { createFinanceClaimsV3Receiver, createPostgresFinanceClaimsV3Store } from './v3/receiver.js';
 import { createFinanceClaimsV3GroupEntryConsumer, createPostgresGroupEntryStore } from './v3/group-entry.js';
 import { createFinanceClaimsV3Pool } from './v3/postgres.js';
+import { createClaimsAuthorityIntegration } from './authority-integration.js';
 
 let platform = null;
 let localFinanceV3Receiver = null;
 let localFinanceV3GroupEntry = null;
 let localFinanceV3InitPromise = null;
+let claimsAuthorityIntegration = null;
 
 const SESSION_TTL_MS = 15 * 60 * 1000;
 const LIFF_SESSION_COOKIE = 'am_claims_liff_session';
@@ -75,6 +77,17 @@ function init(injected) {
     platform?.logger?.warn?.(`Finance Claims v3 local runtime initialization failed: ${error.message}`);
     return false;
   });
+  try {
+    claimsAuthorityIntegration = createClaimsAuthorityIntegration({
+      env: process.env,
+      platform,
+      groupEntry: localFinanceV3GroupEntry,
+      receiver: localFinanceV3Receiver,
+    });
+  } catch (error) {
+    claimsAuthorityIntegration = { enabled: true, ready: false, error: error.message };
+    platform?.logger?.warn?.(`Claims authority initialization failed closed: ${error.message}`);
+  }
 }
 
 function localFinanceV3Env(env = process.env) {
@@ -1028,6 +1041,11 @@ async function onMessage(ctx) {
 }
 
 async function fastTick({ tenant }) {
+  if (claimsAuthorityIntegration?.ready) {
+    await claimsAuthorityIntegration.runOutbox().catch((error) => {
+      platform?.logger?.warn?.(`Claims authority outbox tick failed: ${error.message}`);
+    });
+  }
   if (!financeV3GroupEntryConfig(tenant).enabled) return { processed: 0, skipped: 'disabled' };
   if (tenant?.key !== 'hozo-am-2-0' || !localFinanceV3GroupEntry) return { processed: 0, skipped: 'not_local_owner' };
   try {
@@ -1037,6 +1055,21 @@ async function fastTick({ tenant }) {
     platform?.logger?.warn?.(`Finance Claims v3 local fast tick failed (tenant=${tenant.key}): ${error.message}`);
     return { processed: 0, error: error.message };
   }
+}
+
+async function preAckClaimsAuthorityEvent({ tenant, binding, event }) {
+  if (!claimsAuthorityIntegration?.enabled) return { handled: false, intercepted: false };
+  if (!claimsAuthorityIntegration.ready) throw new Error(claimsAuthorityIntegration.error || 'claims_authority_unavailable');
+  const result = await claimsAuthorityIntegration.handleLineEvent({ tenant, binding, event });
+  return {
+    ...result,
+    intercepted: Boolean(result?.claim || result?.userMessage),
+  };
+}
+
+async function handleClaimsAuthorityAdmin(req, res, context) {
+  if (!claimsAuthorityIntegration?.ready) return sendJson(res, 503, { error: 'Claims authority is unavailable.' });
+  return claimsAuthorityIntegration.admin(req, res, context);
 }
 
 function ownsFinanceV3LineEvent({ tenant, event }) {
@@ -1194,8 +1227,15 @@ export default {
   onDirectMessage,
   ownsFinanceV3LineEvent,
   preAckLineEvent,
+  preAckClaimsAuthorityEvent,
   fastTick,
   routes: [
+    {
+      prefix: '/admin/claims-authority',
+      tenantKey: 'hozo-am-2-0',
+      access: { kind: 'tenant', scope: 'tenant' },
+      handler: handleClaimsAuthorityAdmin,
+    },
     {
       prefix: '/control/finance/claim-events/v3',
       tenantKey: 'hozo-am-2-0',
@@ -1253,6 +1293,7 @@ export const __test = {
   ownsFinanceV3LineEvent,
   financeV3IngressRequestHash,
   preAckLineEvent,
+  preAckClaimsAuthorityEvent,
   eventDedupe,
   sessions,
   cleanupMemory,
