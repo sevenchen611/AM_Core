@@ -24,6 +24,7 @@ Environment prefix: `HZ2`
 | AM-IMP-2026.0901.04 | Deployed | Finance Claim 10-minute entry compatibility | Accept Rental's ten-minute signed source hint in the bridge and durable entry consumer | Production canary on 2026-09-01 accepted the ten-minute entry through membership and web-entry validation without `entry_response_invalid`. |
 | AM-IMP-2026.0901.05 | Deployed | Finance Claim entry delivery TTL alignment | Apply the same ten-minute signed source-hint ceiling at the final LINE private-message delivery boundary | Render deployed `daa561d`; the 17:11 canary reached `delivered` in about 6.4 seconds, LINE Login identified Seven, and the authorized new expense form loaded successfully. |
 | AM-IMP-2026.0901.06 | Installed | Finance Claim source-group entry and fast delivery | Return the applicant-bound entry URL in the originating group and complete the normal path in one durable queue attempt | Syntax, direct-flow and package verification are required before merge; production group latency and no-private-message behavior remain the deployment canary. |
+| AM-IMP-2026.0913.01 | Installed | Claims form management catalog | Read-only inventory of three legacy LIFF modes and the Finance Claims V3 standard form | The protected claims authority console now exposes 「請款功能工具」→「請款單管理」. Local implementation and synthetic verification are complete; production merge and deployment are not included. |
 
 ## Tenant boundaries
 

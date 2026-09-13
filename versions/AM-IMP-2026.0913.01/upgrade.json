@@ -1,0 +1,47 @@
+{
+  "id": "AM-IMP-2026.0913.01",
+  "name": "HOZO claims form management catalog",
+  "type": "HOZO claims administration UI",
+  "portable": false,
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-claims-authority-admin.mjs",
+    "tools/check-upgrade-package.js AM-IMP-2026.0913.01"
+  ],
+  "dependencies": [
+    "AM-IMP-2026.0912.01 protected claims authority console",
+    "Finance Claims V3 frozen form contract"
+  ],
+  "files": [
+    "core/claims-authority-admin.js",
+    "tools/dryrun-claims-authority-admin.mjs",
+    "versions/AM-IMP-2026.0913.01/README.md",
+    "versions/AM-IMP-2026.0913.01/upgrade.json",
+    "versions/AM-IMP-2026.0913.01/INSTALL.md",
+    "versions/AM-IMP-2026.0913.01/VERIFY.md",
+    "versions/AM-IMP-2026.0913.01/ROLLBACK.md"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The catalog contains contract keys and generic labels only; it reads or writes no production claim, LINE, identity, payment, or attachment data."
+  },
+  "definitionOfDone": [
+    "The claims authority console visibly groups administrative entries under 請款功能工具",
+    "The page heading and browser title both use 請款功能管理",
+    "返回財務後台 resolves from the server-side tenant Rental base URL and never accepts a browser-supplied destination",
+    "請款單管理 opens a read-only catalog without changing authorization state",
+    "Exactly three legacy LIFF modes and one Finance Claims V3 standard form are listed in legacy-to-current order",
+    "The catalog clearly distinguishes 歷史相容 from 現行標準",
+    "The existing protected admin route, RBAC, CSRF mutations, group management, and member management remain unchanged",
+    "Synthetic admin and package checks pass"
+  ],
+  "projectStatus": {
+    "AM_PLATFORM:hozo-am-2-0": "Installed"
+  },
+  "status": "Installed"
+}
