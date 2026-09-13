@@ -41,8 +41,8 @@
     "Synthetic checks and package validation pass"
   ],
   "projectStatus": {
-    "AM_PLATFORM:hozo-am-2-0": "Installed",
-    "HOZO_RENTAL_CLOUDFLARE_PAGES": "Installed"
+    "AM_PLATFORM:hozo-am-2-0": "Deployed",
+    "HOZO_RENTAL_CLOUDFLARE_PAGES": "Deployed"
   },
-  "status": "Installed"
+  "status": "Deployed"
 }
