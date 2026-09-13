@@ -10,7 +10,7 @@ const HTML_HEADERS = Object.freeze({
 const json = (status, value) => ({ status, headers: JSON_HEADERS, body: JSON.stringify(value) });
 const allowedToRead = (actor) => actor?.roles?.some((role) => ['platform_owner', 'claims_access_admin', 'operator', 'auditor'].includes(role));
 
-export function renderClaimsAuthorityAdminPage({ basePath = '/admin/claims-authority', csrfToken = '' } = {}) {
+export function renderClaimsAuthorityAdminPage({ basePath = '/claims-authority', csrfToken = '' } = {}) {
   const api = `${basePath}/api`;
   return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Finance V3 請款授權</title><style>
   :root{font-family:system-ui,"Noto Sans TC",sans-serif;color:#22302a;background:#f4f6f5}body{margin:0}.wrap{max-width:1100px;margin:auto;padding:28px}h1{margin:0 0 6px}.muted{color:#68756f}.bar{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}button,select,input{font:inherit;padding:9px 12px;border:1px solid #cad4cf;border-radius:9px;background:white}button{cursor:pointer;background:#246b4b;color:white}.secondary{background:white;color:#246b4b}table{width:100%;border-collapse:collapse;background:white;border-radius:12px;overflow:hidden}th,td{text-align:left;padding:11px;border-bottom:1px solid #e8ecea}.pill{display:inline-block;padding:3px 8px;border-radius:999px;background:#e9f3ee}.error{color:#a13d34;white-space:pre-wrap}.panel{margin:18px 0}dialog{border:0;border-radius:14px;max-width:760px;width:90%;padding:20px}label{display:block;margin:9px 0 4px}@media(max-width:720px){.wrap{padding:18px}table{display:block;overflow:auto}}
@@ -27,7 +27,7 @@ export function renderClaimsAuthorityAdminPage({ basePath = '/admin/claims-autho
   </script></body></html>`;
 }
 
-export function createClaimsAuthorityAdminHandler({ authority, resolveContext, resolveTarget, listTargets, verifyMutation, basePath = '/admin/claims-authority' } = {}) {
+export function createClaimsAuthorityAdminHandler({ authority, resolveContext, resolveTarget, listTargets, verifyMutation, basePath = '/claims-authority' } = {}) {
   if (!authority || typeof resolveContext !== 'function' || typeof resolveTarget !== 'function' || typeof listTargets !== 'function' || typeof verifyMutation !== 'function') {
     throw new Error('Claims authority admin dependencies are incomplete.');
   }

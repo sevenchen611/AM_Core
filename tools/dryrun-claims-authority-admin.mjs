@@ -33,16 +33,16 @@ const request = (path, options = {}) => ({
   json: async () => options.body || {},
 });
 
-let response = await handler(request('/admin/claims-authority/api/groups'));
+let response = await handler(request('/claims-authority/api/groups'));
 assert.equal(response.status, 200);
 assert.equal(JSON.parse(response.body).items[0].state, 'active');
-response = await handler(request('/admin/claims-authority/api/unassigned'));
+response = await handler(request('/claims-authority/api/unassigned'));
 assert.equal(response.status, 200);
-response = await handler(request('/admin/claims-authority/api/targets'));
+response = await handler(request('/claims-authority/api/targets'));
 assert.equal(JSON.parse(response.body).items[0].key, 'hozo-default');
-response = await handler(request('/admin/claims-authority/api/members?groupLookup=' + 'a'.repeat(64)));
+response = await handler(request('/claims-authority/api/members?groupLookup=' + 'a'.repeat(64)));
 assert.equal(response.status, 200);
-response = await handler(request('/admin/claims-authority/api/assign', {
+response = await handler(request('/claims-authority/api/assign', {
   method: 'POST',
   body: { discoveryLookup: 'b'.repeat(64), targetKey: 'hozo-default' },
 }));
@@ -57,7 +57,7 @@ const forbidden = createClaimsAuthorityAdminHandler({
   resolveTarget: async () => ({ tenant, bindingId: 'binding' }),
   verifyMutation: async () => {},
 });
-response = await forbidden(request('/admin/claims-authority/api/groups'));
+response = await forbidden(request('/claims-authority/api/groups'));
 assert.equal(response.status, 403);
 
 console.log('claims authority admin dry-run passed');

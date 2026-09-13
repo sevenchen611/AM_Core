@@ -195,7 +195,7 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
     }
     const handler = createClaimsAuthorityAdminHandler({
       authority,
-      basePath: '/admin/claims-authority',
+      basePath: '/claims-authority',
       resolveContext: async () => ({ tenant: authorityTenant(context.tenant), actor: actorFromAccess(context.access), csrfToken: String(env.HZ2_CLAIMS_AUTHORITY_CSRF_TOKEN || '') }),
       listTargets: async () => [...targets.values()].map(({ key, label }) => ({ key, label })),
       resolveTarget: async (key) => {
