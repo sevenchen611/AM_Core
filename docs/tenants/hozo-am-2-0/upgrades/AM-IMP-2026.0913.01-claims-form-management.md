@@ -1,8 +1,8 @@
 # AM-IMP-2026.0913.01 — Claims form management catalog
 
-Status: `Installed`
+Status: `Deployed` (2026-09-13)
 
-## Installed scope
+## Deployed scope
 
 - Added 「請款功能工具」 to the protected `/claims-authority` console.
 - Added the 「請款單管理」 navigation button.
@@ -19,4 +19,12 @@ Status: `Installed`
 - `node tools/dryrun-claims-authority-admin.mjs`
 - `node tools/check-upgrade-package.js AM-IMP-2026.0913.01`
 
-Production merge, deployment, and UI canary are not part of this local install.
+## Production verification
+
+- GitHub PR `#144` merged to `main` as `b3c25b7`.
+- The protected production page loaded with both its browser title and H1 set to
+  「請款功能管理」.
+- 「請款單管理」 displayed exactly the three legacy LIFF modes and the V3
+  standard form.
+- 「返回財務後台」 navigated successfully to
+  `https://rental.hozorental.com/admin-finance.html`.
