@@ -23,7 +23,8 @@
     "versions/AM-IMP-2026.0913.02/upgrade.json",
     "versions/AM-IMP-2026.0913.02/INSTALL.md",
     "versions/AM-IMP-2026.0913.02/VERIFY.md",
-    "versions/AM-IMP-2026.0913.02/ROLLBACK.md"
+    "versions/AM-IMP-2026.0913.02/ROLLBACK.md",
+    "docs/tenants/hozo-am-2-0/upgrades/AM-IMP-2026.0913.02-claims-form-previews.md"
   ],
   "dataIsolation": {
     "canCopyCode": true,
@@ -41,8 +42,8 @@
     "Synthetic checks and package validation pass"
   ],
   "projectStatus": {
-    "AM_PLATFORM:hozo-am-2-0": "Installed",
-    "HOZO_RENTAL_CLOUDFLARE_PAGES": "Installed"
+    "AM_PLATFORM:hozo-am-2-0": "Deployed",
+    "HOZO_RENTAL_CLOUDFLARE_PAGES": "Deployed"
   },
-  "status": "Installed"
+  "status": "Deployed"
 }
