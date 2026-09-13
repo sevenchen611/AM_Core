@@ -10,6 +10,10 @@ assert.equal(
   safePortalHandoffLocation('/admin?tab=groups', 'engineering', fallback),
   '/admin?tab=groups&tenant=engineering',
 );
+assert.equal(
+  safePortalHandoffLocation('/claims-authority?tenant=forest', 'hozo-am-2-0', fallback),
+  '/claims-authority?tenant=hozo-am-2-0',
+);
 for (const unsafe of [
   'https://evil.example/meetings/manage',
   '//evil.example/meetings/manage',
