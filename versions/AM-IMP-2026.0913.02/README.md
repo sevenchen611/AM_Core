@@ -1,6 +1,6 @@
 # AM-IMP-2026.0913.02 — HOZO 請款單管理者預覽
 
-Status: `Installed` (local feature branches; not deployed)
+Status: `Deployed` (AM Platform `19c7206`; Rental `70e5bb7`; verified 2026-09-13)
 
 讓受保護的「請款單管理」目錄可開啟四張表單的管理者預覽。
 
@@ -10,3 +10,6 @@ Status: `Installed` (local feature branches; not deployed)
 - 舊版預覽仍受既有 `/claims-authority` 後台角色權限保護。
 
 群組綁定、版本發布、表單編輯與使用範圍設定不在本版範圍。
+
+Production verification confirmed all four preview links, the protected legacy preview,
+and the inert V3 applicant preview with attachment, save, and submit controls disabled.
