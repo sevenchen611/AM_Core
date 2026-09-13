@@ -96,6 +96,32 @@ function sendResponse(res, response) {
   return true;
 }
 
+const notionPlain = (property, kind = 'rich_text') => (property?.[kind] || [])
+  .map((item) => item.plain_text || item.text?.content || '')
+  .join('')
+  .trim();
+
+async function listKnownLineGroups(platform, tenant) {
+  const sourceId = tenant?.dataSources?.groupBindings;
+  if (!sourceId || typeof platform?.notionRequest !== 'function') return [];
+  const groups = [];
+  let cursor = '';
+  do {
+    const body = { page_size: 100 };
+    if (cursor) body.start_cursor = cursor;
+    const page = await platform.notionRequest(`/v1/data_sources/${encodeURIComponent(sourceId)}/query`, {
+      method: 'POST', tenantKey: tenant.key, body,
+    });
+    for (const item of page.results || []) {
+      const groupId = notionPlain(item.properties?.['LINE 群組 ID']);
+      if (!/^C[A-Za-z0-9_-]{20,100}$/u.test(groupId)) continue;
+      groups.push({ groupId, storedName: notionPlain(item.properties?.['群組名稱'], 'title').slice(0, 160) });
+    }
+    cursor = page.has_more ? String(page.next_cursor || '') : '';
+  } while (cursor);
+  return [...new Map(groups.map((item) => [item.groupId, item])).values()];
+}
+
 export function createClaimsAuthorityIntegration({ env = process.env, platform, groupEntry, receiver } = {}) {
   const enabled = env.HZ2_CLAIMS_AUTHORITY_ENABLED === 'true';
   if (!enabled) return { enabled: false, ready: false };
@@ -174,6 +200,24 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
     dispatcher: { async dispatch() { return true; } },
   });
 
+  async function syncDiscovery({ tenant, actor }) {
+    if (!actor?.roles?.includes('platform_owner')) throw new Error('Claims authority access denied.');
+    const known = await listKnownLineGroups(platform, tenant);
+    let verified = 0;
+    for (const item of known) {
+      const liveName = String(await platform.resolveGroupName(item.groupId) || '').trim();
+      if (!liveName) continue;
+      const eventKey = crypto.createHash('sha256').update(`${tenant.tenantId}:${item.groupId}`).digest('hex');
+      await authority.discover({
+        event: { type: 'backfill', webhookEventId: `claims-authority-backfill-${eventKey}` },
+        groupId: item.groupId,
+        groupDisplayName: liveName || item.storedName,
+      });
+      verified += 1;
+    }
+    return { ok: true, scanned: known.length, verified };
+  }
+
   function actorFromAccess(access) {
     const roles = access?.isPlatformOwner ? ['platform_owner']
       : access?.isTenantAll ? ['claims_access_admin'] : ['operator'];
@@ -198,6 +242,7 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
       basePath: '/claims-authority',
       resolveContext: async () => ({ tenant: authorityTenant(context.tenant), actor: actorFromAccess(context.access), csrfToken: String(env.HZ2_CLAIMS_AUTHORITY_CSRF_TOKEN || '') }),
       listTargets: async () => [...targets.values()].map(({ key, label }) => ({ key, label })),
+      syncDiscovery,
       resolveTarget: async (key) => {
         const item = targets.get(String(key || ''));
         const tenant = context.tenants.find((candidate) => candidate.key === item?.tenantKey);
