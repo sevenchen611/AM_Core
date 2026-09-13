@@ -23,6 +23,14 @@ function financeAdminUrl(value) {
   }
 }
 
+function financeClaimsReauthorizeUrl(value) {
+  const adminUrl = financeAdminUrl(value);
+  if (!adminUrl) return '';
+  const url = new URL(adminUrl);
+  url.searchParams.set('open', 'claims-authority');
+  return url.toString();
+}
+
 function financeClaimPreviewUrl(value) {
   try {
     const url = new URL(String(value || ''));
@@ -66,6 +74,16 @@ export const CLAIM_FORM_INVENTORY = Object.freeze([
     description: 'HOZO 同仁費用申請的現行標準表單。',
   }),
 ]);
+
+export function renderClaimsAuthorityAccessRecoveryPage({ financeBaseUrl = '' } = {}) {
+  const reauthorizeUrl = financeClaimsReauthorizeUrl(financeBaseUrl);
+  const action = reauthorizeUrl
+    ? `<a class="button" href="${reauthorizeUrl}">重新授權並開啟請款功能管理</a>`
+    : '<p class="error">目前無法取得財務後台入口，請由財務後台的「請款功能管理」重新進入。</p>';
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>請款功能管理｜重新授權</title><style>
+  :root{font-family:system-ui,"Noto Sans TC",sans-serif;color:#22302a;background:#f4f6f5}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;box-sizing:border-box}.card{width:min(560px,100%);box-sizing:border-box;padding:32px;background:#fff;border:1px solid #e1e7e4;border-radius:16px}h1{margin:0 0 12px;font-size:26px}p{margin:0 0 18px;color:#68756f;line-height:1.7}.button{display:inline-block;padding:11px 16px;border-radius:9px;background:#246b4b;color:#fff;text-decoration:none;font-weight:700}.hint{margin-top:18px;font-size:13px}.error{color:#a13d34}
+  </style></head><body><main class="card"><h1>請款功能管理需要重新授權</h1><p>目前這個入口沒有有效的管理授權。這通常發生在服務更新、登入逾時，或直接開啟舊網址時。</p>${action}<p class="hint">系統會先確認你的財務後台登入與權限，再安全地帶回這個頁面。</p></main></body></html>`;
+}
 
 function renderClaimFormInventory(basePath, financeBaseUrl) {
   const v3Preview = financeClaimPreviewUrl(financeBaseUrl);

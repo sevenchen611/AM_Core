@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { CLAIM_FORM_INVENTORY, createClaimsAuthorityAdminHandler, renderClaimsAuthorityAdminPage } from '../core/claims-authority-admin.js';
+import { CLAIM_FORM_INVENTORY, createClaimsAuthorityAdminHandler, renderClaimsAuthorityAccessRecoveryPage, renderClaimsAuthorityAdminPage } from '../core/claims-authority-admin.js';
 
 const actor = { subject: 'synthetic-owner', roles: ['platform_owner'] };
 const tenant = { key: 'synthetic', tenantId: '00000000-0000-4000-8000-000000000001', config: { claims: { rentalBaseUrl: 'https://rental.example.test' } } };
@@ -46,6 +46,12 @@ assert.deepEqual(CLAIM_FORM_INVENTORY.map((form) => form.key), [
 for (const form of CLAIM_FORM_INVENTORY) assert.match(page, new RegExp(`data-form-key="${form.key}"`, 'u'));
 assert.equal((page.match(/class="form-card"/gu) || []).length, 4);
 assert.doesNotMatch(page, /innerHTML/u);
+
+const recoveryPage = renderClaimsAuthorityAccessRecoveryPage({ financeBaseUrl: 'https://rental.example.test' });
+assert.match(recoveryPage, /<title>請款功能管理｜重新授權<\/title>/u);
+assert.match(recoveryPage, /href="https:\/\/rental\.example\.test\/admin-finance\.html\?open=claims-authority"/u);
+assert.match(recoveryPage, /重新授權並開啟請款功能管理/u);
+assert.doesNotMatch(recoveryPage, /沒有此租戶或對話群組的權限/u);
 
 const request = (path, options = {}) => ({
   method: options.method || 'GET',
@@ -100,5 +106,6 @@ assert.equal(response.status, 403);
 const claimsSource = fs.readFileSync(new URL('../modules/claims/index.js', import.meta.url), 'utf8');
 for (const value of ['renderLegacyClaimFormPreview', 'legacy_social_insurance', 'legacy_shared_operating', 'legacy_other', '管理者預覽｜這個畫面不會建立或送出請款', "$('submit').disabled=true"]) assert.match(claimsSource, new RegExp(value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'));
 assert.match(claimsSource, /preview \? \{[\s\S]*sessionToken: ''[\s\S]*apiPath: ''[\s\S]*liffId: ''/u);
+assert.match(claimsSource, /access: \{ kind: 'tenant', scope: 'tenant', denied: 'handler' \}/u);
 
 console.log('claims authority admin dry-run passed');

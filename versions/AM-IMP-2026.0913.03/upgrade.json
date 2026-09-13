@@ -1,0 +1,48 @@
+{
+  "id": "AM-IMP-2026.0913.03",
+  "name": "HOZO claims authority access recovery",
+  "type": "HOZO claims administration security UX",
+  "portable": false,
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0", "HOZO_RENTAL_CLOUDFLARE_PAGES"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-claims-authority-admin.mjs",
+    "tools/check-upgrade-package.js AM-IMP-2026.0913.03"
+  ],
+  "dependencies": [
+    "AM-IMP-2026.0913.02 HOZO claims form administrator previews",
+    "Existing Rental to AM Platform one-time SSO handoff"
+  ],
+  "files": [
+    "core/claims-authority-admin.js",
+    "modules/claims/index.js",
+    "modules/claims/authority-integration.js",
+    "tools/dryrun-claims-authority-admin.mjs",
+    "versions/AM-IMP-2026.0913.03/README.md",
+    "versions/AM-IMP-2026.0913.03/upgrade.json",
+    "versions/AM-IMP-2026.0913.03/INSTALL.md",
+    "versions/AM-IMP-2026.0913.03/VERIFY.md",
+    "versions/AM-IMP-2026.0913.03/ROLLBACK.md",
+    "docs/tenants/hozo-am-2-0/upgrades/AM-IMP-2026.0913.03-claims-authority-access-recovery.md"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Recovery preserves the existing server-side tenant and role checks and contains no production identity or finance data."
+  },
+  "definitionOfDone": [
+    "Unauthenticated claims administration entry renders a clear recovery page instead of raw JSON",
+    "Recovery uses only the configured HTTPS Rental origin and a fixed claims-authority action",
+    "Rental rechecks login and permission before issuing a one-time SSO handoff",
+    "Existing authorized administration and form preview behavior remains unchanged",
+    "Synthetic checks and package validation pass"
+  ],
+  "projectStatus": {
+    "AM_PLATFORM:hozo-am-2-0": "Installed",
+    "HOZO_RENTAL_CLOUDFLARE_PAGES": "Installed"
+  },
+  "status": "Installed"
+}
