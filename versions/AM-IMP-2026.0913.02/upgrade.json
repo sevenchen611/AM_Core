@@ -1,0 +1,48 @@
+{
+  "id": "AM-IMP-2026.0913.02",
+  "name": "HOZO claims form administrator previews",
+  "type": "HOZO claims administration UI",
+  "portable": false,
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0", "HOZO_RENTAL_CLOUDFLARE_PAGES"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "tools/dryrun-claims-authority-admin.mjs",
+    "tools/check-upgrade-package.js AM-IMP-2026.0913.02"
+  ],
+  "dependencies": [
+    "AM-IMP-2026.0913.01 HOZO claims form management catalog",
+    "Finance Claims V3 applicant page"
+  ],
+  "files": [
+    "core/claims-authority-admin.js",
+    "modules/claims/index.js",
+    "modules/claims/authority-integration.js",
+    "tools/dryrun-claims-authority-admin.mjs",
+    "versions/AM-IMP-2026.0913.02/README.md",
+    "versions/AM-IMP-2026.0913.02/upgrade.json",
+    "versions/AM-IMP-2026.0913.02/INSTALL.md",
+    "versions/AM-IMP-2026.0913.02/VERIFY.md",
+    "versions/AM-IMP-2026.0913.02/ROLLBACK.md"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Preview mode contains generic sample labels only and cannot call claim mutation, attachment, identity, or submission endpoints."
+  },
+  "definitionOfDone": [
+    "All four catalog entries expose an administrator preview action",
+    "Legacy previews reuse the live LIFF form renderer with the selected legacy mode fixed",
+    "V3 preview uses the real applicant page layout with generic sample scope data",
+    "Preview mode cannot create drafts, upload attachments, or submit claims",
+    "Existing claims authority RBAC protects legacy preview routes",
+    "Synthetic checks and package validation pass"
+  ],
+  "projectStatus": {
+    "AM_PLATFORM:hozo-am-2-0": "Installed",
+    "HOZO_RENTAL_CLOUDFLARE_PAGES": "Installed"
+  },
+  "status": "Installed"
+}

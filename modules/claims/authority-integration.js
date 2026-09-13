@@ -122,7 +122,7 @@ async function listKnownLineGroups(platform, tenant) {
   return [...new Map(groups.map((item) => [item.groupId, item])).values()];
 }
 
-export function createClaimsAuthorityIntegration({ env = process.env, platform, groupEntry, receiver } = {}) {
+export function createClaimsAuthorityIntegration({ env = process.env, platform, groupEntry, receiver, renderFormPreview } = {}) {
   const enabled = env.HZ2_CLAIMS_AUTHORITY_ENABLED === 'true';
   if (!enabled) return { enabled: false, ready: false };
   const identityKey = String(env.HZ2_CLAIMS_AUTHORITY_IDENTITY_KEY || '');
@@ -243,6 +243,7 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
       resolveContext: async () => ({ tenant: authorityTenant(context.tenant), actor: actorFromAccess(context.access), csrfToken: String(env.HZ2_CLAIMS_AUTHORITY_CSRF_TOKEN || '') }),
       listTargets: async () => [...targets.values()].map(({ key, label }) => ({ key, label })),
       syncDiscovery,
+      renderFormPreview,
       resolveTarget: async (key) => {
         const item = targets.get(String(key || ''));
         const tenant = context.tenants.find((candidate) => candidate.key === item?.tenantKey);
