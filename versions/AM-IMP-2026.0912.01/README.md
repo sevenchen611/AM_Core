@@ -3,7 +3,7 @@
 Status: `Installed` (local branch; not deployed)
 
 This project-local installation adds the fixed-key claims authority registry,
-LINE group/member observation, the protected `/admin/claims-authority` console,
+LINE group/member observation, the protected `/claims-authority` console,
 and the authority-backed Finance V3 group-entry adapter.
 
 The identity key is intentionally fixed (`fixed-v1`). Rotation is not supported

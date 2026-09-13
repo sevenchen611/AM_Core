@@ -1231,7 +1231,7 @@ export default {
   fastTick,
   routes: [
     {
-      prefix: '/admin/claims-authority',
+      prefix: '/claims-authority',
       tenantKey: 'hozo-am-2-0',
       access: { kind: 'tenant', scope: 'tenant' },
       handler: handleClaimsAuthorityAdmin,
