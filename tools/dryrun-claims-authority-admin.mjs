@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { CLAIM_FORM_INVENTORY, createClaimsAuthorityAdminHandler, renderClaimsAuthorityAdminPage } from '../core/claims-authority-admin.js';
 
 const actor = { subject: 'synthetic-owner', roles: ['platform_owner'] };
@@ -21,6 +22,7 @@ const handler = createClaimsAuthorityAdminHandler({
   resolveTarget: async () => ({ tenant, bindingId: 'binding', financeScope: {} }),
   verifyMutation: async () => { mutationChecks += 1; },
   syncDiscovery: async () => { discoverySyncs += 1; return { ok: true, scanned: 4, verified: 3 }; },
+  renderFormPreview: (formKey) => `<!doctype html><title>${formKey}</title><p>管理者預覽，不會送出</p>`,
 });
 
 const page = renderClaimsAuthorityAdminPage({ financeBaseUrl: 'https://rental.example.test' });
@@ -33,6 +35,8 @@ assert.match(page, /綁定勾選群組/u);
 assert.match(page, /重新掃描已知群組/u);
 assert.match(page, /請款功能工具/u);
 assert.match(page, /請款單管理/u);
+assert.match(page, /開啟管理者預覽/u);
+assert.match(page, /href="https:\/\/rental\.example\.test\/finance-claims\.html\?adminPreview=employee_expense"/u);
 assert.deepEqual(CLAIM_FORM_INVENTORY.map((form) => form.key), [
   'legacy_social_insurance',
   'legacy_shared_operating',
@@ -55,6 +59,12 @@ assert.equal(JSON.parse(response.body).items[0].state, 'active');
 response = await handler(request('/claims-authority'));
 assert.equal(response.status, 200);
 assert.match(response.body, /href="https:\/\/rental\.example\.test\/admin-finance\.html"/u);
+response = await handler(request('/claims-authority/forms/legacy_social_insurance/preview'));
+assert.equal(response.status, 200);
+assert.match(response.body, /legacy_social_insurance/u);
+assert.match(response.body, /管理者預覽，不會送出/u);
+response = await handler(request('/claims-authority/forms/employee_expense/preview'));
+assert.equal(response.status, 404);
 response = await handler(request('/claims-authority/api/unassigned'));
 assert.equal(response.status, 200);
 response = await handler(request('/claims-authority/api/targets'));
@@ -86,5 +96,9 @@ const forbidden = createClaimsAuthorityAdminHandler({
 });
 response = await forbidden(request('/claims-authority/api/groups'));
 assert.equal(response.status, 403);
+
+const claimsSource = fs.readFileSync(new URL('../modules/claims/index.js', import.meta.url), 'utf8');
+for (const value of ['renderLegacyClaimFormPreview', 'legacy_social_insurance', 'legacy_shared_operating', 'legacy_other', '管理者預覽｜這個畫面不會建立或送出請款', "$('submit').disabled=true"]) assert.match(claimsSource, new RegExp(value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'));
+assert.match(claimsSource, /preview \? \{[\s\S]*sessionToken: ''[\s\S]*apiPath: ''[\s\S]*liffId: ''/u);
 
 console.log('claims authority admin dry-run passed');
