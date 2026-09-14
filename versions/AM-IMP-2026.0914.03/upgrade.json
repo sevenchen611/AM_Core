@@ -29,7 +29,20 @@
     "Raw Notion API errors are never exposed to claim applicants",
     "Synthetic checks, package validation and production verification pass"
   ],
-  "deploymentEvidence": null,
-  "projectStatus": { "AM_PLATFORM:hozo-am-2-0": "Ready" },
-  "status": "Ready"
+  "deploymentEvidence": {
+    "pullRequest": 154,
+    "commit": "95afdae0c1d12d482b528c03653ef656d9fbc034",
+    "renderDeploy": "dep-dajrt5mk1f9s7383uehg",
+    "verifiedAt": "2026-09-14",
+    "productionChecks": [
+      "Render auto-deploy reached Live",
+      "Render checked out the exact merged main commit",
+      "custom-domain /health returned HTTP 200",
+      "onrender-domain /health returned HTTP 200",
+      "claims authority route returned the expected protected HTTP 401 without a portal session",
+      "HOZO tenant loaded the claims module and reported authorizationReady true"
+    ]
+  },
+  "projectStatus": { "AM_PLATFORM:hozo-am-2-0": "Deployed" },
+  "status": "Deployed"
 }

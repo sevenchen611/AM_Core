@@ -1,6 +1,6 @@
 # AM-IMP-2026.0914.03 — 請款單即時群組綁定與失敗選擇復原
 
-Status: `Ready`
+Status: `Deployed` (AM Platform `95afdae`; Render `dep-dajrt5mk1f9s7383uehg`; verified 2026-09-14)
 
 修正請款單選擇器沿用舊 Notion 群組頁面 ID，造成舊版 LIFF 顯示
 `object_not_found`，且錯誤入口仍鎖定選擇器、無法改選 V3 的問題。
