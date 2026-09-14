@@ -1,0 +1,67 @@
+{
+  "id": "AM-IMP-2026.0914.06",
+  "name": "Construction Google Drive design drawing version library",
+  "type": "AM Platform / Construction / Google Drive",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-09-14",
+  "dependsOn": ["AM-IMP-2026.0708.01", "AM-IMP-2026.0720.02"],
+  "installTargets": ["AM_PLATFORM:construction-enabled-tenants"],
+  "scope": [
+    "SOP stage-one design drawing upload UI",
+    "Append-only Google Drive drawing versions",
+    "Tenant-local Notion drawing version index",
+    "Project scope and tenant isolation enforcement"
+  ],
+  "requiresDatabases": [
+    "Tenant-local Projects data source",
+    "Tenant-local Design Drawings data source created by tools/provision-design-drawings.mjs"
+  ],
+  "requiresEnv": [
+    "<PREFIX>_PROJECTS_DATA_SOURCE_ID",
+    "<PREFIX>_DESIGN_DRAWINGS_DATA_SOURCE_ID",
+    "<PREFIX>_DRIVE_ROOT_FOLDER_ID",
+    "GOOGLE_OAUTH_CLIENT_ID",
+    "GOOGLE_OAUTH_CLIENT_SECRET",
+    "GOOGLE_OAUTH_REFRESH_TOKEN"
+  ],
+  "requiresScripts": [
+    "node tools/dryrun-construction-drawings.mjs",
+    "node tools/check-upgrade-package.js AM-IMP-2026.0914.06",
+    "node tools/audit-alignment.js"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Every list and upload request passes Portal authentication, construction tenant routing, and project scope checks. Files are written only below ctx.tenant.driveRootFolderId and index rows only to ctx.tenant.dataSources.designDrawings."
+  },
+  "changes": [
+    "Show a design drawing library inside SOP stage one",
+    "Stream drawing files up to 500 MB into a project and drawing-specific Google Drive folder",
+    "Create one immutable index row per uploaded version instead of overwriting prior versions",
+    "Group versions by drawing name and display the newest version first",
+    "Capture status, note, uploader, timestamp, size, MIME type, Drive file ID, and Drive link"
+  ],
+  "definitionOfDone": [
+    "Package validation and drawing dry run pass",
+    "A project-local V1 and V2 upload both remain available in Google Drive",
+    "The dashboard identifies V2 as latest while preserving V1",
+    "Cross-project scope and cross-tenant access remain blocked",
+    "No production IDs, files, project data, or credentials are stored in AMCore"
+  ],
+  "files": [
+    "modules/construction/drawings.js",
+    "modules/construction/dashboard.js",
+    "modules/construction/index.js",
+    "modules/construction/README.md",
+    "tools/provision-design-drawings.mjs",
+    "tools/dryrun-construction-drawings.mjs",
+    "versions/AM-IMP-2026.0914.06/README.md",
+    "versions/AM-IMP-2026.0914.06/INSTALL.md",
+    "versions/AM-IMP-2026.0914.06/VERIFY.md",
+    "versions/AM-IMP-2026.0914.06/ROLLBACK.md",
+    "versions/AM-IMP-2026.0914.06/upgrade.json"
+  ]
+}
