@@ -1,0 +1,36 @@
+{
+  "id": "AM-IMP-2026.0914.07",
+  "name": "HOZO finance claim named personal templates",
+  "type": "HOZO claims applicant convenience",
+  "portable": false,
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0", "HOZO_RENTAL:finance-claims"],
+  "requiresDatabases": ["Existing AM Platform PostgreSQL claims authority database", "Existing Rental D1 Finance Claims database"],
+  "requiresEnv": ["Existing AM_CLAIMS_API_TOKEN", "Existing Finance Claims v3 bridge configuration"],
+  "requiresScripts": [
+    "npm run dryrun:claims-authority",
+    "node scripts/finance-claims-v3-web-drafts.test.mjs",
+    "node scripts/finance-claims-v3-web-ui.test.mjs",
+    "node tools/check-upgrade-package.js AM-IMP-2026.0914.07",
+    "node tools/audit-alignment.js"
+  ],
+  "dependencies": ["AM-IMP-2026.0914.05 Claim form retirement and immutable version history"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Templates are stored in Rental/Finance by canonical tenant and identity. AMCore contains no LINE user IDs, template rows, or financial form contents."
+  },
+  "definitionOfDone": [
+    "Each verified LINE identity can keep up to 20 named private templates per claim form",
+    "Legacy and V3 forms let the current user select, apply, update, rename, and delete their own templates",
+    "Dates, invoice numbers, receipts, OCR state and submission state are excluded",
+    "Authorization and tenant/form/source boundaries are revalidated on every read and write",
+    "Local verification and package checks pass"
+  ],
+  "projectStatus": {
+    "AM_PLATFORM:hozo-am-2-0": "Installed",
+    "HOZO_RENTAL:finance-claims": "Installed"
+  },
+  "status": "Installed"
+}
