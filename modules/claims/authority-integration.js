@@ -385,13 +385,13 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
       const selected = await authority.resolveFormSelection({ tenant: authorityTenant(tenant), sessionId: parsed.sessionId, formKey: body.formKey });
       if (selected.resolvedUrl) return sendResponse(res, { status: 200, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }, body: JSON.stringify({ ok: true, url: selected.resolvedUrl, replayed: true }) });
       let targetUrl = '';
+      const identityReference = await resolveApplicantReference({ tenant, userId: selected.userId });
+      const requestBase = `selector-${parsed.sessionId}`;
+      const membership = await receiver.bridgeMembership({ contractVersion: 'finance-claims-v3.am-bridge-v1', requestId: `${requestBase}-member`, tenantKey: tenant.key, sourceId: selected.sourceId, identityReference, desiredState: 'active', eventSequence: Math.max(1, Date.now()), effectiveAt: new Date().toISOString() });
+      if (membership?.status !== 200 || !membership.body?.matched || membership.body?.effectiveState !== 'active') throw new Error('請款身分尚未啟用，請聯絡財務管理員。');
       if (String(body.formKey).startsWith('legacy_')) {
-        targetUrl = await createLegacyFormLink?.({ tenant, selectorSessionId: parsed.sessionId, formKey: body.formKey, bindingId: selected.bindingId, groupId: selected.groupId, groupName: selected.groupName, userId: selected.userId, userName: actor.displayName || '' });
+        targetUrl = await createLegacyFormLink?.({ tenant, selectorSessionId: parsed.sessionId, formKey: body.formKey, sourceId: selected.sourceId, identityReference, bindingId: selected.bindingId, groupId: selected.groupId, groupName: selected.groupName, userId: selected.userId, userName: actor.displayName || '' });
       } else if (body.formKey === 'employee_expense') {
-        const identityReference = await resolveApplicantReference({ tenant, userId: selected.userId });
-        const requestBase = `selector-${parsed.sessionId}`;
-        const membership = await receiver.bridgeMembership({ contractVersion: 'finance-claims-v3.am-bridge-v1', requestId: `${requestBase}-member`, tenantKey: tenant.key, sourceId: selected.sourceId, identityReference, desiredState: 'active', eventSequence: Math.max(1, Date.now()), effectiveAt: new Date().toISOString() });
-        if (membership?.status !== 200 || !membership.body?.matched || membership.body?.effectiveState !== 'active') throw new Error('V3 請款身分尚未啟用，請聯絡財務管理員。');
         const entry = await receiver.bridgeWebEntry({ contractVersion: 'finance-claims-v3.am-bridge-v1', requestId: `${requestBase}-entry`, tenantKey: tenant.key, sourceId: selected.sourceId, formKey: selected.v3FormKey, identityReference });
         if (entry?.status !== 200 || !entry.body?.url) throw new Error('V3 請款單目前無法開啟，請稍後再試。');
         targetUrl = entry.body.url;
