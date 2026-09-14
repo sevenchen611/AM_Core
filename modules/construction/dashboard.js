@@ -7,6 +7,7 @@
 
 import { plain, sameId, queryAll, pageName, sendJson, readJsonBody, parseScope, assertProjectInScope } from './common.js';
 import { SOP_STAGES } from './sop.js';
+import { listDesignDrawings, uploadDesignDrawing } from './drawings.js';
 import {
   createDashboardSpace,
   createDashboardTrade,
@@ -52,6 +53,27 @@ export async function handleDashboardRequest(req, res, pathname, url, deps) {
       const projectId = url.searchParams.get('project');
       await assertProjectInScope(deps, scope, projectId);
       return sendJson(res, 200, await buildGantt(deps, projectId));
+    }
+    if (req.method === 'GET' && pathname === '/dashboard/api/drawings') {
+      const projectId = url.searchParams.get('project');
+      await assertProjectInScope(deps, scope, projectId);
+      return sendJson(res, 200, await listDesignDrawings(deps, projectId));
+    }
+    if (req.method === 'POST' && pathname === '/dashboard/api/drawings/upload') {
+      const projectId = url.searchParams.get('project');
+      await assertProjectInScope(deps, scope, projectId);
+      return sendJson(res, 201, await uploadDesignDrawing(deps, {
+        projectId,
+        drawingName: url.searchParams.get('name'),
+        version: url.searchParams.get('version'),
+        status: url.searchParams.get('status'),
+        note: url.searchParams.get('note'),
+        filename: url.searchParams.get('filename'),
+        uploader: deps.actor,
+        contentType: req.headers['content-type'],
+        size: Number(req.headers['x-am-file-size'] || req.headers['content-length']),
+        stream: req,
+      }));
     }
     if (req.method === 'GET' && pathname === '/dashboard/api/setup-options') {
       return sendJson(res, 200, await dashboardSetupOptions(deps, scope, url.searchParams.get('project')));
@@ -425,6 +447,15 @@ function renderDashboardPage(tenantKey, canBudget, canContract) {
   .gbar.b-進行中 { background:#e3b93f; }
   .gbar.b-待複驗 { background:#7c9bd6; }
   .gbar.b-完成 { background:#2e7d52; }
+  .drawing-lib { margin-top:10px; padding:12px; border:1px solid #b9d8c6; border-radius:10px; background:#f6fbf8; }
+  .drawing-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .drawing-head strong { color:var(--green); margin-right:auto; }
+  .drawing-head button { border:1px solid var(--green); background:var(--green); color:#fff; border-radius:8px; padding:7px 11px; cursor:pointer; }
+  .drawing-group { margin-top:9px; background:#fff; border:1px solid var(--line); border-radius:8px; padding:9px 10px; }
+  .drawing-group summary { cursor:pointer; font-size:13px; }
+  .drawing-version { display:grid; grid-template-columns:90px 80px 1fr auto; gap:8px; align-items:start; padding:8px 0; border-top:1px solid #edf1ef; font-size:12px; }
+  .drawing-version a { color:var(--green); font-weight:600; }
+  .drawing-meta { color:var(--dim); line-height:1.5; }
   .managebar { background:#fff; border:1px solid var(--line); border-radius:12px; padding:10px 12px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
   .managebar strong { color:var(--green); margin-right:auto; font-size:14px; }
   .managebar button,.manage-primary,.manage-secondary { border-radius:8px; padding:8px 12px; font-size:13px; cursor:pointer; }
@@ -447,7 +478,7 @@ function renderDashboardPage(tenantKey, canBudget, canContract) {
   #manageModal .space-option input { width:auto; margin:2px 0 0; padding:0; }
   #manageModal .actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
   #manageModal .hint { color:var(--dim); font-size:12px; line-height:1.6; margin-top:8px; }
-  @media (max-width:560px) { #manageModal .grid2,#manageModal .space-picker { grid-template-columns:1fr; gap:0; } }
+  @media (max-width:560px) { #manageModal .grid2,#manageModal .space-picker { grid-template-columns:1fr; gap:0; } .drawing-version { grid-template-columns:72px 1fr; } }
 </style>
 </head>
 <body>
@@ -480,6 +511,7 @@ function daysTo(d) {
 let summary = [];
 let currentProjectId = '';
 let currentSetup = { spaces: [], trades: [] };
+let currentDrawings = { configured:false, groups:[] };
 async function loadSummary() {
   const data = await api('summary');
   summary = data.cards;
@@ -533,12 +565,12 @@ async function openProject(id) {
     \`<button class="spacebtn" id="sb-\${s.id||'none'}" \${s.id?'onclick="loadPhotos(\\'' + s.id + '\\')"':''}>\${esc(s.name)}(\${s.count})</button>\`
   ).join('') : '<div class="empty">尚無照片</div>';
 
-  const sop = d.sopStages.map(stage => {
+  const sop = d.sopStages.map((stage, stageIndex) => {
     const done = stage.items.filter(it => d.sopState[it.id]).length;
     return \`<div class="tcard"><b>\${esc(stage.title)}</b> <span style="color:var(--dim)">\${done}/\${stage.items.length}</span>
       \${stage.items.map(it => \`<label style="display:block;margin-top:6px;font-size:13px">
         <input type="checkbox" \${d.sopState[it.id]?'checked':''} onchange="sopCheck('\${id}','\${it.id}',this.checked)"> \${esc(it.text)}
-      </label>\`).join('')}</div>\`;
+      </label>\`).join('')}\${stageIndex === 0 ? '<div id="drawingsArea" class="drawing-lib"><div class="empty">載入設計圖版本…</div></div>' : ''}</div>\`;
   }).join('');
 
   const meetings = d.meetings.length ? d.meetings.map(m => \`
@@ -571,13 +603,17 @@ async function openProject(id) {
     <h3>照片瀏覽(選空間看時間軸)</h3><div class="spaces">\${spacesBtns}</div>
     <div class="photos" id="photoArea"></div>\`;
   loadGantt(id).catch(() => {});
+  loadDrawings(id).catch((e) => {
+    const area = document.getElementById('drawingsArea');
+    if (area) area.innerHTML = '<div class="empty">設計圖版本載入失敗：' + esc(e.message) + '</div>';
+  });
 }
 function managerField(label, control, hint) {
   return '<label>' + esc(label) + control + (hint ? '<div class="hint">' + esc(hint) + '</div>' : '') + '</label>';
 }
-function managerActions() {
+function managerActions(label = '儲存至 Notion') {
   return '<div class="actions"><button type="button" class="manage-secondary" onclick="closeManager()">取消</button>'
-    + '<button id="manageSave" type="submit" class="manage-primary">儲存至 Notion</button></div>';
+    + '<button id="manageSave" type="submit" class="manage-primary">' + esc(label) + '</button></div>';
 }
 function openManager(kind) {
   if (!currentProjectId) return;
@@ -597,6 +633,17 @@ function openManager(kind) {
     html = '<h2>新增工種</h2><form id="managementForm" onsubmit="submitManager(event)">'
       + managerField('工種名稱 *','<input id="mName" maxlength="50" required placeholder="例如：空調">','新增後會成為此工程租戶所有案件可選用的工種。')
       + managerActions() + '</form>';
+  } else if (kind === 'drawing') {
+    const names = (currentDrawings.groups || []).map(g => '<option value="' + esc(g.name) + '"></option>').join('');
+    html = '<h2>上傳設計圖新版本</h2><form id="managementForm" onsubmit="submitManager(event)">'
+      + managerField('圖面名稱 *','<input id="mName" list="drawingNameList" maxlength="150" required placeholder="例如：全區平面配置圖"><datalist id="drawingNameList">' + names + '</datalist>','相同圖面請沿用同一名稱，系統會把歷史版本收在一起。')
+      + '<div class="grid2">'
+      + managerField('版本 *','<input id="mVersion" maxlength="80" required placeholder="例如：V3 或 2026-09-14">')
+      + managerField('狀態','<select id="mStatus"><option>草稿</option><option>送審</option><option>定版</option><option>發包版</option><option>變更版</option><option>作廢</option></select>')
+      + '</div>'
+      + managerField('選擇檔案 *','<input id="mFile" type="file" required accept=".pdf,.dwg,.dxf,.zip,.jpg,.jpeg,.png,.tif,.tiff,.skp,.rvt,.ifc">','檔案本體會直接串流儲存到 Google Drive；單檔上限 500 MB。')
+      + managerField('版本說明','<input id="mNote" maxlength="500" placeholder="例如：調整 3F 浴室隔間與門向">')
+      + managerActions('上傳至 Google Drive') + '</form>';
   } else if (kind === 'workItem') {
     const spaces = currentSetup.spaces.map(s => '<label class="space-option"><input type="checkbox" name="mSpace" value="' + esc(s.id) + '"><span>' + esc(s.name) + (s.zone ? '（' + esc(s.zone) + '）' : '') + '</span></label>').join('');
     const trades = currentSetup.trades.map(t => '<option value="' + esc(t) + '">' + esc(t) + '</option>').join('');
@@ -652,7 +699,23 @@ async function submitManager(event) {
   try {
     let path;
     let body;
-    if (kind === 'space') {
+    if (kind === 'drawing') {
+      const file = document.getElementById('mFile').files[0];
+      if (!file) throw new Error('請選擇設計圖檔案');
+      const params = new URLSearchParams({
+        tenant:TENANT, project:currentProjectId,
+        name:document.getElementById('mName').value,
+        version:document.getElementById('mVersion').value,
+        status:document.getElementById('mStatus').value,
+        note:document.getElementById('mNote').value,
+        filename:file.name,
+      });
+      const response = await fetch('/dashboard/api/drawings/upload?' + params, {
+        method:'POST', headers:{'Content-Type':file.type || 'application/octet-stream','X-AM-File-Size':String(file.size)}, body:file,
+      });
+      result = await response.json();
+      if (!response.ok) throw new Error(result.error || response.status);
+    } else if (kind === 'space') {
       path = 'spaces';
       body = { project:currentProjectId, name:document.getElementById('mName').value, zone:document.getElementById('mZone').value, type:document.getElementById('mType').value, alias:document.getElementById('mAlias').value };
     } else if (kind === 'trade') {
@@ -671,11 +734,13 @@ async function submitManager(event) {
   } catch (e) {
     alert('儲存失敗：' + e.message);
     save.disabled = false;
-    save.textContent = '儲存至 Notion';
+    save.textContent = kind === 'drawing' ? '上傳至 Google Drive' : '儲存至 Notion';
     return;
   }
   closeManager();
-  if (kind === 'workItem') {
+  if (kind === 'drawing') {
+    alert('設計圖已儲存到 Google Drive，版本紀錄已建立。');
+  } else if (kind === 'workItem') {
     alert('已為 ' + result.createdCount + ' 個空間建立工項並儲存至 Notion。' + (result.skippedCount ? '另有 ' + result.skippedCount + ' 個空間已有同名工項，已自動略過。' : ''));
   } else if (kind === 'workItemEdit') {
     alert('工項與時程已更新至 Notion。');
@@ -795,6 +860,33 @@ async function sopCheck(projectId, itemId, checked) {
     });
     if (!r.ok) throw new Error((await r.json()).error || r.status);
   } catch (e) { alert('勾核儲存失敗:' + e.message); }
+}
+function fileSize(bytes) {
+  const n = Number(bytes || 0);
+  if (n < 1024 * 1024) return Math.max(1, Math.round(n / 1024)) + ' KB';
+  return (n / 1024 / 1024).toFixed(1) + ' MB';
+}
+async function loadDrawings(projectId) {
+  const area = document.getElementById('drawingsArea');
+  if (!area) return;
+  const d = await api('drawings?project=' + encodeURIComponent(projectId));
+  if (currentProjectId !== projectId) return;
+  currentDrawings = d;
+  if (!d.configured) {
+    area.innerHTML = '<div class="drawing-head"><strong>📐 設計圖版本庫</strong></div><div class="empty">尚未設定「設計圖版本」資料庫，請先完成此功能的安裝設定。</div>';
+    return;
+  }
+  const groups = d.groups.length ? d.groups.map(g => '<details class="drawing-group" ' + (d.groups.length === 1 ? 'open' : '') + '>'
+    + '<summary><b>' + esc(g.name) + '</b> ・ ' + g.versionCount + ' 個版本 ・ 最新：' + esc(g.latest.version) + ' (' + esc(g.latest.status) + ')</summary>'
+    + g.versions.map((v, i) => '<div class="drawing-version">'
+      + '<b>' + (i === 0 ? '最新 ' : '') + esc(v.version) + '</b>'
+      + '<span class="chip">' + esc(v.status) + '</span>'
+      + '<div><a href="' + esc(v.driveUrl) + '" target="_blank">' + esc(v.originalFilename) + ' ↗</a>'
+      + '<div class="drawing-meta">' + esc((v.uploadedAt || '').replace('T',' ').slice(0,16)) + ' ・ ' + esc(v.uploader || '未記錄') + ' ・ ' + fileSize(v.size)
+      + (v.note ? '<br>' + esc(v.note) : '') + '</div></div>'
+      + '<a href="' + esc(v.driveUrl) + '" target="_blank">開啟</a></div>').join('')
+    + '</details>').join('') : '<div class="empty">尚無設計圖，請上傳第一個版本。</div>';
+  area.innerHTML = '<div class="drawing-head"><strong>📐 設計圖版本庫（Google Drive）</strong><button onclick="openManager(\\'drawing\\')">＋ 上傳新版本</button></div>' + groups;
 }
 async function loadPhotos(spaceId) {
   document.querySelectorAll('.spacebtn').forEach(b => b.classList.toggle('active', b.id === 'sb-' + spaceId));
