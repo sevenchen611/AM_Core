@@ -126,6 +126,7 @@ assert.equal(opened, 1);
 
 const markerIndex = (marker) => store.calls.findIndex(({ sql }) => sql.includes(marker));
 assert.ok(markerIndex('ca:observed') >= 0);
+assert.ok(markerIndex('ca:reconcile-origin-binding') >= 0);
 assert.ok(markerIndex('ca:observed') < markerIndex('ca:authorize'));
 for (const marker of ['ca:platform-discover', 'ca:platform-activating', 'ca:active', 'ca:event', 'ca:audit', 'ca:outbox']) {
   assert.ok(markerIndex(marker) >= 0, `${marker} was not called`);

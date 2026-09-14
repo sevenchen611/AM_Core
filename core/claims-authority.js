@@ -277,7 +277,8 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
     requireTenant(tenant);
     const currentMode = registryMode(tenant);
     if (currentMode === 'off') return { handled: false, mode: 'legacy' };
-    if (!binding?.id && !binding?.pageId) {
+    const liveBindingId = String(binding?.pageId || binding?.id || '');
+    if (!liveBindingId) {
       const groupLookup = codec.opaque(tenant, 'group', groupId);
       const registered = await tenantTx(tenant, (client) => client.query(
         '/* ca:resolve-group */ SELECT binding_ciphertext,finance_source_ref,finance_form_key,finance_group_reference FROM am_claims.groups WHERE tenant_id=$1 AND group_lookup=$2',
@@ -291,6 +292,15 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
         claimFormKey: row.finance_form_key,
         groupReference: row.finance_group_reference,
       };
+    }
+    if (isClaimsCommand(event.message?.text) && liveBindingId) {
+      const groupLookup = codec.opaque(tenant, 'group', groupId);
+      await tenantTx(tenant, (client) => client.query(
+        `/* ca:reconcile-origin-binding */ UPDATE am_claims.groups
+         SET binding_lookup=$3,binding_ciphertext=$4,last_error=NULL,updated_at=now()
+         WHERE tenant_id=$1 AND group_lookup=$2`,
+        [tenant.tenantId, groupLookup, codec.opaque(tenant, 'binding', liveBindingId), codec.encrypt(liveBindingId)],
+      ));
     }
     const userId = event?.source?.userId;
     const group = codec.opaque(tenant, 'group', groupId);

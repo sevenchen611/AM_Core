@@ -1,0 +1,38 @@
+{
+  "id": "AM-IMP-2026.0914.02",
+  "name": "HOZO claims origin-group isolation and LIFF OAuth recovery",
+  "type": "HOZO claims security and routing hotfix",
+  "portable": false,
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
+  "requiresDatabases": ["Existing AM Platform PostgreSQL claims authority database"],
+  "requiresEnv": [
+    "Existing HZ2_CLAIMS_LIFF_ID",
+    "Existing HZ2_FINANCE_CLAIMS_V3_RECIPIENT_BINDINGS_JSON for direct V3 group delivery",
+    "Existing HZ2_FINANCE_CLAIMS_V3_GROUP_ENTRY_SCOPES_JSON source scopes"
+  ],
+  "requiresScripts": [
+    "npm run dryrun:claims-authority",
+    "node tools/dryrun-claims-governance.mjs",
+    "node tools/dryrun-finance-v3-direct.mjs",
+    "node tools/dryrun-finance-v3-postgres-hotpath.mjs",
+    "node tools/check-upgrade-package.js AM-IMP-2026.0914.02"
+  ],
+  "dependencies": ["AM-IMP-2026.0914.01 HOZO claims group-to-form publishing and chooser"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Published selector replies use only the current LINE event reply token or its exact raw origin group; direct V3 queue delivery requires the origin group's own opaque recipient reference."
+  },
+  "definitionOfDone": [
+    "A claim chooser is delivered only to the exact LINE group that originated the command",
+    "Cross-group fallback is impossible when an origin group has no exact Finance scope",
+    "Existing incorrect stored group binding is reconciled from live routing on the next claim command",
+    "Selector token survives external-browser LINE OAuth only through a short-lived secure cookie",
+    "Legacy and V3 form selection remain applicant-bound and server-revalidated",
+    "Synthetic checks, package validation and production verification pass"
+  ],
+  "projectStatus": { "AM_PLATFORM:hozo-am-2-0": "Installed" },
+  "status": "Installed"
+}

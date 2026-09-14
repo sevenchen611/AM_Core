@@ -11,6 +11,7 @@ import { createClaimsAuthorityOutboxWorker } from '../../core/claims-authority-o
 const OPAQUE_REFERENCE = /^line-ref:v1:[0-9a-f-]{36}$/iu;
 const SAFE_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{1,159}$/u;
 const SELECTOR_TTL_MS = 10 * 60 * 1000;
+const SELECTOR_COOKIE = 'am_claims_form_selector';
 
 function parseJson(value, fallback) {
   try { return JSON.parse(String(value || '')); } catch { return fallback; }
@@ -70,6 +71,45 @@ function recipientRegistry(env) {
       && OPAQUE_REFERENCE.test(String(item.identityReference || ''))) {
       result.set(`${item.tenantKey}:${item.target}`, item.identityReference);
     }
+  }
+  return result;
+}
+
+function selectorSessionCookie(token, expiresAt) {
+  const maxAge = Math.max(0, Math.ceil((Number(expiresAt) - Date.now()) / 1000));
+  return `${SELECTOR_COOKIE}=${encodeURIComponent(String(token || ''))}; Max-Age=${maxAge}; Path=/claims/liff; HttpOnly; Secure; SameSite=Lax`;
+}
+
+function selectorMessage(url) {
+  return `HOZO 費用申請\n請先選擇這次要使用的請款單（僅限本次申請人使用）：\n${url}\n連結失效後，請回原群組重新輸入「請款」或「費用申請」。`;
+}
+
+async function deliverSelectorToOrigin(platform, input, url) {
+  const message = selectorMessage(url);
+  if (input.event?.replyToken) {
+    try { await platform.replyLineMessage(input.event.replyToken, message); return { channel: 'reply' }; } catch { /* exact-origin push fallback below */ }
+  }
+  if (!input.groupId) throw new Error('無法確認請款指令的來源群組。');
+  await platform.pushLineMessage(input.groupId, message, undefined, { retryKey: `claims-selector:${input.idempotencyKey}` });
+  return { channel: 'push' };
+}
+
+function groupRecipientRegistry(env) {
+  const bindings = parseJson(env.HZ2_FINANCE_CLAIMS_V3_RECIPIENT_BINDINGS_JSON, { bindings: [] });
+  const result = new Map();
+  const ambiguous = new Set();
+  for (const item of Array.isArray(bindings?.bindings) ? bindings.bindings : []) {
+    if (item?.type !== 'group_binding' || !SAFE_KEY.test(String(item.tenantKey || ''))
+      || !/^[CR][A-Za-z0-9_-]{20,100}$/u.test(String(item.target || ''))
+      || !OPAQUE_REFERENCE.test(String(item.identityReference || ''))) continue;
+    const key = `${item.tenantKey}:${item.target}`;
+    if (ambiguous.has(key)) continue;
+    if (result.has(key)) {
+      result.delete(key);
+      ambiguous.add(key);
+      continue;
+    }
+    result.set(key, String(item.identityReference));
   }
   return result;
 }
@@ -157,6 +197,7 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
   });
   const targets = targetRegistry(env);
   const recipients = recipientRegistry(env);
+  const groupRecipients = groupRecipientRegistry(env);
   const resolveApplicantReference = async ({ tenant, userId }) => recipients.get(`${tenant.key}:${userId}`)
     || deterministicApplicantReference(identityKey, tenant.key, userId);
   const v3 = createClaimsAuthorityV3Adapter({
@@ -188,7 +229,11 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
   };
   let authority;
   async function openClaim(input) {
-    if (!input.routing?.configured) return v3.openV3Claim(input);
+    if (!input.routing?.configured) {
+      const exactGroupReference = groupRecipients.get(`${input.tenant.key}:${input.groupId}`);
+      if (!exactGroupReference) throw new Error('此 LINE 群組尚未設定專屬請款投遞目標，為避免送錯群組，本次未建立連結。');
+      return v3.openV3Claim({ ...input, binding: { ...input.binding, groupReference: exactGroupReference } });
+    }
     const session = await authority.createFormSelectionSession({
       tenant: input.tenant,
       groupLookup: input.groupLookup,
@@ -201,22 +246,8 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
     if (!liffId) throw new Error('請款 LINE LIFF 尚未設定。');
     const url = new URL(`https://liff.line.me/${encodeURIComponent(liffId)}`);
     url.searchParams.set('selector', selectorToken(session));
-    const applicantReference = await resolveApplicantReference({ tenant: input.tenant, userId: input.userId });
-    const digest = crypto.createHash('sha256').update(`selector:${input.idempotencyKey}`).digest('hex');
-    const record = {
-      eventKey: `group-entry:${digest}`, jobKind: 'entry', tenantKey: input.tenant.key,
-      sourceId: input.binding.financeSourceId || input.binding.sourceId,
-      formKey: input.binding.claimFormKey || input.binding.formKey,
-      groupReference: input.binding.groupReference || input.binding.identityReference,
-      applicantReference, desiredState: 'active', keyword: '請款',
-      occurredAt: new Date(Number(input.event?.timestamp) || Date.now()).toISOString(),
-      membershipRequestId: `membership-${digest.slice(0, 40)}`,
-      entryRequestId: `entry-${digest.slice(0, 40)}`,
-      deliveryEventKey: `entry-invite-${digest.slice(0, 40)}`,
-      preparedEntry: { url: url.toString(), expiresAt: session.expiresAt },
-    };
-    const rows = await groupEntry.enqueue([record]);
-    return { queued: true, selector: true, eventKey: record.eventKey, replayed: rows[0]?.inserted === false };
+    await deliverSelectorToOrigin(platform, input, url.toString());
+    return { queued: false, delivered: true, selector: true, eventKey: input.idempotencyKey, replayed: false };
   }
   authority = createClaimsAuthority({
     store,
@@ -340,7 +371,7 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
     if (!parsed) return sendResponse(res, { status: 404, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }, body: JSON.stringify({ error: '請款連結已失效，請回群組重新輸入「請款」。' }) });
     try {
       const session = await authority.resolveFormSelection({ tenant: authorityTenant(tenant), sessionId: parsed.sessionId });
-      if (req.method === 'GET') return sendResponse(res, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-security-policy': "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.line-scdn.net; connect-src 'self' https://api.line.me; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'", 'x-content-type-options': 'nosniff' }, body: selectorHtml({ token, session, tenant }) });
+      if (req.method === 'GET') return sendResponse(res, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'set-cookie': selectorSessionCookie(token, parsed.expiresAt), 'referrer-policy': 'no-referrer', 'content-security-policy': "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.line-scdn.net; connect-src 'self' https://api.line.me; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'", 'x-content-type-options': 'nosniff' }, body: selectorHtml({ token, session, tenant }) });
       if (req.method !== 'POST') throw new Error('不支援的操作。');
       const chunks = []; let bytes = 0;
       for await (const chunk of req) { bytes += chunk.length; if (bytes > 64 * 1024) throw new Error('資料量過大。'); chunks.push(chunk); }
@@ -392,3 +423,5 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
     async runOutbox() { await migrationPromise; return worker.runOnce(); },
   };
 }
+
+export const __test = { deliverSelectorToOrigin, groupRecipientRegistry, selectorMessage, selectorSessionCookie };
