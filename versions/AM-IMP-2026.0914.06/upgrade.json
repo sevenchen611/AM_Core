@@ -3,10 +3,10 @@
   "name": "Construction Google Drive design drawing version library",
   "type": "AM Platform / Construction / Google Drive",
   "portable": true,
-  "status": "Ready",
+  "status": "Deployed",
   "createdAt": "2026-09-14",
   "dependsOn": ["AM-IMP-2026.0708.01", "AM-IMP-2026.0720.02"],
-  "installTargets": ["AM_PLATFORM:construction-enabled-tenants"],
+  "installTargets": ["AM_PLATFORM:engineering"],
   "scope": [
     "SOP stage-one design drawing upload UI",
     "Append-only Google Drive drawing versions",
@@ -51,6 +51,22 @@
     "Cross-project scope and cross-tenant access remain blocked",
     "No production IDs, files, project data, or credentials are stored in AMCore"
   ],
+  "deploymentEvidence": {
+    "pullRequest": 163,
+    "mergeCommit": "e2f326b84228cf1303dcd6a8baacf022ec059ae3",
+    "deployedMainCommit": "6e6723a3ce930439748f8f421e42c23f86734565",
+    "renderDeploy": "dep-dak02efqj5pc73fakrsg",
+    "verifiedAt": "2026-09-14",
+    "productionChecks": [
+      "Render deploy succeeded and is Live",
+      "Production health reports engineering notionConfigured, driveConfigured, and groupRoutingEnabled",
+      "Production health reports designDrawings in the engineering tenant data sources",
+      "Production health reports the construction module loaded for engineering",
+      "Engineering dashboard renders the Google Drive design drawing library inside SOP stage one",
+      "The new-version form exposes drawing name, version, status, file, note, and Google Drive upload action"
+    ]
+  },
+  "projectStatus": { "AM_PLATFORM:engineering": "Deployed" },
   "files": [
     "modules/construction/drawings.js",
     "modules/construction/dashboard.js",
