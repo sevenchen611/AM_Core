@@ -27,6 +27,11 @@ assert.deepEqual(__test.parseCommand('請款按鈕'), { kind: 'open', draftText:
 assert.deepEqual(__test.parseCommand('#請款 勞健保 4,627'), { kind: 'draft', draftText: '勞健保 4,627' });
 assert.deepEqual(__test.parseCommand('請款明細如下'), { kind: 'none' });
 
+assert.deepEqual(
+  __test.publicClaimError(new Error('Notion API failed: 404 {"code":"object_not_found","message":"Could not find page"}')),
+  { statusCode: 409, message: '此群組的請款設定已更新，請回群組重新輸入「請款」後再試。' },
+);
+
 const session = {
   externalSubmissionId: 'amc_hozo-am-2-0_submission',
   tenantKey: tenant.key,
@@ -35,6 +40,18 @@ const session = {
   sourceGroupName: '好住寓好 vs. 葉綠宿',
   requestedByName: 'Bonnie',
 };
+const generatedSession = __test.createSession({
+  tenant,
+  binding: {
+    pageId: session.bindingId,
+    groupId: 'C0123456789abcdef0123456789abcdef',
+    groupName: session.sourceGroupName,
+  },
+  event: { source: { userId: 'U0123456789abcdef0123456789abcdef' } },
+  senderName: 'Bonnie',
+});
+assert.equal(generatedSession.sourceGroupId, 'C0123456789abcdef0123456789abcdef');
+assert.equal(generatedSession.bindingId, session.bindingId);
 const payload = __test.normalizeClaimSubmission({
   type: 'labor_health_insurance',
   period: '2026-06',
