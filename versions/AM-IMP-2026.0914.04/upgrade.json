@@ -3,7 +3,7 @@
   "name": "Engineering LINE attachment Google Drive archive",
   "type": "AM Platform / Engineering / LINE attachments / Google Drive",
   "portable": true,
-  "status": "Ready",
+  "status": "Deployed",
   "createdAt": "2026-09-14",
   "dependsOn": ["AM-IMP-2026.0708.01"],
   "installTargets": ["AM_PLATFORM:engineering"],
@@ -44,7 +44,22 @@
     "Production canary attachment rows contain working Engineering Drive links",
     "No tenant data, files, IDs, or credentials are stored in AMCore"
   ],
-  "projectStatus": {"AM_PLATFORM:engineering": "Ready"},
+  "deploymentEvidence": {
+    "pullRequest": 158,
+    "commit": "1f9a266a52972cf201cdb9c709d416268d6c900f",
+    "renderDeploy": "dep-dajuh8gjo6nc73cokftg",
+    "verifiedAt": "2026-09-14",
+    "productionChecks": [
+      "Render auto-deploy reached Live in 29.8 seconds",
+      "Render checked out the exact merged main commit",
+      "custom-domain /health returned HTTP 200 with ok true",
+      "onrender-domain /health returned HTTP 200 with ok true",
+      "Engineering tenant reported runtimeEnabled, authorizationReady, notionConfigured, groupRoutingEnabled, and driveConfigured true",
+      "Engineering tenant loaded the collect module and exposed the attachments data source"
+    ],
+    "liveAttachmentCanary": "Deferred to the next genuine Engineering AM LINE attachment to avoid injecting a synthetic file into a production group"
+  },
+  "projectStatus": {"AM_PLATFORM:engineering": "Deployed"},
   "files": [
     "modules/collect/index.js", "modules/collect/README.md", "tenants/engineering.json",
     "tools/dryrun-collect-attachment-archive.mjs",

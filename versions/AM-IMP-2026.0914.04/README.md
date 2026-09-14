@@ -20,3 +20,12 @@ preservation decision.
 
 No LINE content, files, Drive IDs, Notion IDs, records, or credentials are stored
 in this package. Files missed before deployment are not automatically recovered.
+
+## Deployment
+
+Deployed to the production `am-platform` Render service on 2026-09-14 through
+PR #158. Render confirmed the exact merge commit
+`1f9a266a52972cf201cdb9c709d416268d6c900f` as Live, and both the custom and
+onrender health endpoints returned HTTP 200. A synthetic LINE attachment was not
+posted into a live Engineering AM group; the next genuine attachment is the
+production data-path canary.
