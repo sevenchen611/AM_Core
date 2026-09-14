@@ -29,8 +29,22 @@
     "Local verification and package checks pass"
   ],
   "projectStatus": {
-    "AM_PLATFORM:hozo-am-2-0": "Installed",
-    "HOZO_RENTAL:finance-claims": "Installed"
+    "AM_PLATFORM:hozo-am-2-0": "Deployed",
+    "HOZO_RENTAL:finance-claims": "Deployed"
   },
-  "status": "Installed"
+  "deploymentEvidence": {
+    "rentalPullRequest": 274,
+    "rentalCommit": "2a7209bfb9dec9bbebcc9681889366efc35e2d15",
+    "cloudflareActionsRun": 34850265948,
+    "amPlatformPullRequest": 156,
+    "amPlatformCommit": "8346f57bb0221405c9b6eaef241b67ab2b5d8db4",
+    "productionChecks": [
+      "https://rental-management-blueprint.pages.dev/finance-claims returned HTTP 200",
+      "Unauthenticated Rental personal-template API returned HTTP 401",
+      "https://am.hozorental.com/health returned HTTP 200",
+      "https://am-platform-2ymf.onrender.com/health returned HTTP 200",
+      "Protected legacy administrator preview displayed disabled named-template controls"
+    ]
+  },
+  "status": "Deployed"
 }
