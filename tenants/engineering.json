@@ -7,6 +7,11 @@
   "status": "AM Platform 已完成工程功能承接；正式上線以 LINE webhook 切換為準；沿用既有 Notion 頁與資料來源，不搬資料",
   "config": {
     "homeRoute": "/dashboard",
+    "attachments": {
+      "archiveAllLineGroupAttachmentsToDrive": true,
+      "driveRole": "source-of-truth",
+      "notionRole": "metadata-and-supported-preview"
+    },
     "portal": {
       "featureAliases": ["am-buildam"],
       "projectAliases": ["buildam"],

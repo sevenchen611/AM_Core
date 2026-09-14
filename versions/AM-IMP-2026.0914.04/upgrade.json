@@ -1,33 +1,70 @@
 {
   "id": "AM-IMP-2026.0914.04",
-  "name": "HOZO finance claim form version history and retired form visibility",
-  "type": "HOZO claims form governance",
-  "portable": false,
-  "installTargets": ["AM_PLATFORM:hozo-am-2-0", "RENTAL_MANAGEMENT:hozo-finance"],
-  "requiresDatabases": ["Existing AM Platform PostgreSQL claims authority database", "Existing Rental D1 finance claims database"],
-  "requiresEnv": ["Existing Rental claims bearer token", "Existing Finance Claims V3 schema flag"],
+  "name": "Engineering LINE attachment Google Drive archive",
+  "type": "AM Platform / Engineering / LINE attachments / Google Drive",
+  "portable": true,
+  "status": "Deployed",
+  "createdAt": "2026-09-14",
+  "dependsOn": ["AM-IMP-2026.0708.01"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Engineering AM LINE group attachment Drive source-of-truth policy",
+    "DWG and unsupported Notion format preservation",
+    "Large-file and video streaming",
+    "Notion metadata and supported-preview separation"
+  ],
+  "requiresDatabases": [
+    "Engineering tenant-local Messages data source",
+    "Engineering tenant-local Attachments data source"
+  ],
+  "requiresEnv": [
+    "ENG_ATTACHMENTS_DATA_SOURCE_ID", "ENG_DRIVE_ROOT_FOLDER_ID",
+    "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_OAUTH_REFRESH_TOKEN",
+    "LINE_CHANNEL_ACCESS_TOKEN", "NOTION_TOKEN"
+  ],
   "requiresScripts": [
-    "node tools/dryrun-claims-authority-admin.mjs",
+    "node tools/dryrun-collect-attachment-archive.mjs",
+    "node tools/dryrun-core.mjs",
     "node tools/check-upgrade-package.js AM-IMP-2026.0914.04",
-    "node scripts/finance-claims-v3-foundation.test.mjs",
-    "node scripts/finance-claims-v3-admin-api.test.mjs"
+    "node tools/audit-alignment.js"
   ],
-  "dependencies": ["AM-IMP-2026.0914.03 HOZO claims live group binding and failed-selector recovery"],
   "dataIsolation": {
-    "canCopyCode": true,
-    "canCopySchema": true,
-    "canCopyData": false,
-    "canCopySecrets": false,
-    "guard": "Finance owns immutable form versions and claim snapshots; AM reads only sanitized version metadata."
+    "canCopyCode": true, "canCopySchema": true, "canCopyData": false, "canCopySecrets": false,
+    "guard": "The policy is enabled only in tenants/engineering.json. Drive destinations and Notion rows come only from the resolved engineering tenant."
   },
-  "definitionOfDone": [
-    "Every legacy form has an immutable published v1 baseline",
-    "New legacy claims persist the exact form version and definition snapshot",
-    "Existing legacy claims remain unchanged and display an explicit inferred v1 marker",
-    "AM claim management displays current version and version history for every form",
-    "The unassigned shared-operating form is kept only under disabled form history",
-    "Package validation and relevant synthetic tests pass"
+  "changes": [
+    "Archive Engineering AM LINE group attachments to Google Drive",
+    "Stream DWG, unsupported formats, large files, and videos",
+    "Keep Notion as metadata and supported-preview storage",
+    "Preserve meeting-audio Drive archival without duplicate copies"
   ],
-  "projectStatus": { "AM_PLATFORM:hozo-am-2-0": "Ready", "RENTAL_MANAGEMENT:hozo-finance": "Ready" },
-  "status": "Ready"
+  "definitionOfDone": [
+    "DWG, PDF, and video dry runs pass",
+    "Core tenant isolation and package checks pass",
+    "Production canary attachment rows contain working Engineering Drive links",
+    "No tenant data, files, IDs, or credentials are stored in AMCore"
+  ],
+  "deploymentEvidence": {
+    "pullRequest": 158,
+    "commit": "1f9a266a52972cf201cdb9c709d416268d6c900f",
+    "renderDeploy": "dep-dajuh8gjo6nc73cokftg",
+    "verifiedAt": "2026-09-14",
+    "productionChecks": [
+      "Render auto-deploy reached Live in 29.8 seconds",
+      "Render checked out the exact merged main commit",
+      "custom-domain /health returned HTTP 200 with ok true",
+      "onrender-domain /health returned HTTP 200 with ok true",
+      "Engineering tenant reported runtimeEnabled, authorizationReady, notionConfigured, groupRoutingEnabled, and driveConfigured true",
+      "Engineering tenant loaded the collect module and exposed the attachments data source"
+    ],
+    "liveAttachmentCanary": "Deferred to the next genuine Engineering AM LINE attachment to avoid injecting a synthetic file into a production group"
+  },
+  "projectStatus": {"AM_PLATFORM:engineering": "Deployed"},
+  "files": [
+    "modules/collect/index.js", "modules/collect/README.md", "tenants/engineering.json",
+    "tools/dryrun-collect-attachment-archive.mjs",
+    "versions/AM-IMP-2026.0914.04/README.md", "versions/AM-IMP-2026.0914.04/INSTALL.md",
+    "versions/AM-IMP-2026.0914.04/VERIFY.md", "versions/AM-IMP-2026.0914.04/ROLLBACK.md",
+    "versions/AM-IMP-2026.0914.04/upgrade.json"
+  ]
 }

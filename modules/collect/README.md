@@ -2,7 +2,7 @@
 
 > 狀態:**已抽出**(BuildAM `src/server.js` 的「訊息落庫」段)。形狀比照 `modules/meetings/`。
 
-把每則 LINE 事件**落進當前租戶的 Notion 庫**:訊息進「訊息」庫、照片/檔案進「附件」庫(照片原圖另存 Drive)。
+把每則 LINE 事件**落進當前租戶的 Notion 庫**:訊息進「訊息」庫，照片/檔案/影片進「附件」庫。
 這是所有租戶的第一道收集層——**只收、不判**。AI 初判、確認佇列、會議整理都由後續模組接手。
 
 來源:BuildAM `src/server.js` 的 `handleEvent` + `storeAttachment`「訊息落庫」段,行為等同,重塑成模組形狀。
@@ -16,7 +16,7 @@
    已記過零成本。狀態以 **(租戶, 群組)** 為鍵(`memberSync` Map),跨租戶不污染。
 4. **訊息落庫** — 寫入 `ctx.tenant.dataSources.messages`,`掛載狀態=未掛載`;有綁定則掛「群組綁定」,
    非總管群且有專案則掛「專案」。
-5. **附件** — `image`/`file` → `platform.uploadFileToNotion` 進「附件」庫預覽;**照片**原圖另存
+5. **附件** — `image`/`file`/`video` →「附件」庫；租戶可開啟 `config.attachments.archiveAllLineGroupAttachmentsToDrive` 將 LINE 群組附件原檔全數存入 Google Drive。Notion 僅做資料列與受支援檔案預覽，不是原檔唯一留存點。會議音訊由 `meetings` 串流留存到 Drive，避免重複檔案。
    Drive `未歸檔/YYYY-MM-DD/`。**會議錄音跳過**(由 `meetings` 自存 Drive,避免大檔重複下載+上傳)。
 
 ## 不做什麼
@@ -50,7 +50,7 @@ async onMessage(ctx)    // 每則訊息落庫;寫完「回傳 false」→ 不短
 | 項目 | 行為 |
 |---|---|
 | 訊息庫欄位 | 訊息/內容/LINE 群組 ID/LINE 訊息 ID/發送者/時間/訊息類型/掛載狀態(未掛載)/群組綁定/專案 |
-| 訊息類型 | `text→文字 image→照片 file→檔案 sticker→貼圖`,其餘→`其他`(**含音檔**,與 BuildAM 同,不同於 `core/util` 的 `語音`) |
+| 訊息類型 | `text→文字 image→照片 file→檔案 video→影片 audio→音訊 sticker→貼圖`,其餘→`其他` |
 | 總管群 | 訊息不自動掛專案(留待佇列人工選) |
-| 附件 Drive | **只有照片**存 `未歸檔/日期`;純檔案僅進 Notion 附件(與 BuildAM 同) |
+| 附件 Drive | 預設只存照片；租戶開啟強制政策後，群組內照片、檔案與影片全數存 `未歸檔/日期`，會議音訊存 `會議錄音/日期` |
 | 會議錄音 | 不進附件流程 |

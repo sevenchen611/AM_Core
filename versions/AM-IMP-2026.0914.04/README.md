@@ -1,14 +1,31 @@
-# AM-IMP-2026.0914.04 — 請款表單停用顯示與版本歷史
+# AM-IMP-2026.0914.04 — Engineering LINE attachment Drive archive
 
-Status: `Ready`
+Google Drive becomes the source of truth for every binary attachment received
+in an active Engineering AM LINE group.
 
-讓請款單管理直接顯示每張表單的目前版本與版本歷史，並將沒有任何適用群組的
-「共同營業費用請款單」移入「已停用表單與歷史」，不再出現在一般可用表單清單。
+- Images, ordinary files, CAD files, archives, and videos are archived below
+  the engineering tenant Drive root in `未歸檔/YYYY-MM-DD/`.
+- Meeting audio keeps using `會議錄音/YYYY-MM-DD/` through the existing
+  large-file-safe stream path, avoiding duplicate files.
+- Unsupported Notion formats such as DWG, large files, and videos stream from
+  LINE directly into Drive without loading the entire file into memory.
+- Notion remains the attachment metadata and relation index. A preview is added
+  only when the extension and direct-upload size are supported.
+- The forced policy is group/room-only and is enabled only for Engineering AM.
 
-- Finance Claims 是表單版本與請款快照的唯一來源。
-- 三張舊版 AM LIFF 表單各建立不可變更的 published v1 基準版本。
-- 新請款保存送件當時的 form id、version no、definition hash 與完整定義快照。
-- 既有舊請款不改寫，以 `legacy_v1_inferred` 顯示其歷史基準版本。
-- V3 原有的 draft／publish／immutable version 規則保持不變。
+Previously, ordinary files depended on Notion upload success while Drive backup
+was limited to images. That produced filename-only rows such as
+`明義街套房cad20260812.dwg`. This package removes Notion support from the
+preservation decision.
 
-本版本不刪除表單或歷史請款，也不自動修改正式環境的群組發布設定。
+No LINE content, files, Drive IDs, Notion IDs, records, or credentials are stored
+in this package. Files missed before deployment are not automatically recovered.
+
+## Deployment
+
+Deployed to the production `am-platform` Render service on 2026-09-14 through
+PR #158. Render confirmed the exact merge commit
+`1f9a266a52972cf201cdb9c709d416268d6c900f` as Live, and both the custom and
+onrender health endpoints returned HTTP 200. A synthetic LINE attachment was not
+posted into a live Engineering AM group; the next genuine attachment is the
+production data-path canary.
