@@ -30,7 +30,13 @@
     "Zero-form, revoked member, changed assignment, expired link and cross-user access fail closed",
     "Synthetic checks, package validation and production verification pass"
   ],
-  "projectStatus": { "AM_PLATFORM:hozo-am-2-0": "Installed" },
-  "status": "Installed"
+  "deploymentEvidence": {
+    "pullRequest": 150,
+    "commit": "1b6c7e54882da308bba371f1db994e12584a8780",
+    "renderDeploy": "dep-dajog6gae00c73echq80",
+    "verifiedAt": "2026-09-14",
+    "productionChecks": ["Render Live", "HTTP /health 200", "four form assignment counts loaded", "six active LINE groups loaded in assignment dialog", "no group assignments changed during deployment verification"]
+  },
+  "projectStatus": { "AM_PLATFORM:hozo-am-2-0": "Deployed" },
+  "status": "Deployed"
 }
-
