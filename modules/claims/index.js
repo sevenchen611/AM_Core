@@ -13,6 +13,7 @@ let claimsAuthorityIntegration = null;
 
 const SESSION_TTL_MS = 15 * 60 * 1000;
 const LIFF_SESSION_COOKIE = 'am_claims_liff_session';
+const LIFF_SELECTOR_COOKIE = 'am_claims_form_selector';
 const EVENT_DEDUPE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_BODY_BYTES = 16 * 1024 * 1024;
 const COMMANDS = new Set(['請款', '費用申請', '我要請款', '請款按鈕', '開啟請款', '#請款']);
@@ -820,12 +821,15 @@ function liffTokenFromRequest(pathname, url, cookieHeader = '') {
   return isOauthCallback ? cleanText(cookieValue(cookieHeader, LIFF_SESSION_COOKIE), 400) : '';
 }
 
-function selectorTokenFromRequest(url) {
+function selectorTokenFromRequest(url, cookieHeader = '') {
   const direct = cleanText(url?.searchParams?.get('selector'), 400);
   if (direct) return direct;
   const state = String(url?.searchParams?.get('liff.state') || '');
   const params = new URLSearchParams(state.replace(/^\?/, '').split('#', 1)[0]);
-  return cleanText(params.get('selector'), 400);
+  const fromState = cleanText(params.get('selector'), 400);
+  if (fromState) return fromState;
+  const isOauthCallback = url?.searchParams?.has('code') && url?.searchParams?.has('state');
+  return isOauthCallback ? cleanText(cookieValue(cookieHeader, LIFF_SELECTOR_COOKIE), 400) : '';
 }
 
 function liffSessionCookie(session) {
@@ -838,7 +842,7 @@ function tenantForSession(session, tenants, fallback) {
 }
 
 async function handleLiff(req, res, { pathname, url, tenant = null, tenants = [] }) {
-  const selectorToken = selectorTokenFromRequest(url);
+  const selectorToken = selectorTokenFromRequest(url, req.headers?.cookie);
   if (selectorToken.startsWith('fs1.') && claimsAuthorityIntegration?.handleSelector) {
     const selectorTenant = (tenants || []).find((item) => item.key === 'hozo-am-2-0') || (tenant?.key === 'hozo-am-2-0' ? tenant : null);
     if (!selectorTenant) return sendJson(res, 404, { error: '請款服務未設定。' });
@@ -1342,6 +1346,7 @@ export const __test = {
   liffTokenFromRequest,
   liffHtml,
   liffSessionCookie,
+  selectorTokenFromRequest,
   rentalClaimError,
   uploadRentalClaimAttachment,
   initialStatusMessage,
