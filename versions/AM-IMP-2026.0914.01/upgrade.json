@@ -1,0 +1,36 @@
+{
+  "id": "AM-IMP-2026.0914.01",
+  "name": "HOZO claims group-to-form publishing and chooser",
+  "type": "HOZO claims administration and LINE entry routing",
+  "portable": false,
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
+  "requiresDatabases": ["Existing AM Platform PostgreSQL claims authority database"],
+  "requiresEnv": ["Existing HZ2_CLAIMS_LIFF_ID and Finance Claims V3 bridge configuration"],
+  "requiresScripts": [
+    "npm run dryrun:claims-authority",
+    "npm run dryrun:finance-v3-direct",
+    "tools/check-upgrade-package.js AM-IMP-2026.0914.01"
+  ],
+  "dependencies": [
+    "AM-IMP-2026.0912.01 Finance V3 self-service claims authority backend",
+    "AM-IMP-2026.0913.02 Claims form administrator previews"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Assignments use tenant-scoped opaque group lookups; selector sessions use opaque lookups and authenticated ciphertext already governed by forced RLS."
+  },
+  "definitionOfDone": [
+    "Each of four forms can be immediately published to an exact set of active LINE groups",
+    "Unconfigured groups preserve their current direct V3 behavior for safe canary rollout",
+    "Configured groups receive an applicant-bound short-lived chooser before any form opens",
+    "Legacy forms are locked to the selected mode and V3 remains server-revalidated",
+    "Zero-form, revoked member, changed assignment, expired link and cross-user access fail closed",
+    "Synthetic checks, package validation and production verification pass"
+  ],
+  "projectStatus": { "AM_PLATFORM:hozo-am-2-0": "Installed" },
+  "status": "Installed"
+}
+

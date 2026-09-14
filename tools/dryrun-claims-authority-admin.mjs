@@ -12,6 +12,8 @@ const authority = {
   assignGroup: async (input) => { calls.push(['assign', input]); return { ok: true }; },
   setMemberDenied: async (input) => { calls.push(['deny', input]); return { ok: true }; },
   setGroupState: async (input) => { calls.push(['state', input]); return { ok: true }; },
+  listFormGroups: async (input) => { calls.push(['form-groups', input]); return [{ group_lookup: 'a'.repeat(64), state: 'active', oa_state: 'present', assigned: true }]; },
+  publishFormGroups: async (input) => { calls.push(['publish-form-groups', input]); return { ok: true, assignedCount: input.groupLookups.length }; },
 };
 let mutationChecks = 0;
 let discoverySyncs = 0;
@@ -36,6 +38,9 @@ assert.match(page, /重新掃描已知群組/u);
 assert.match(page, /請款功能工具/u);
 assert.match(page, /請款單管理/u);
 assert.match(page, /開啟管理者預覽/u);
+assert.match(page, /設定適用群組/u);
+assert.match(page, /正式發布/u);
+assert.match(page, /沒有草稿狀態/u);
 assert.match(page, /href="https:\/\/rental\.example\.test\/finance-claims\.html\?adminPreview=employee_expense"/u);
 assert.deepEqual(CLAIM_FORM_INVENTORY.map((form) => form.key), [
   'legacy_social_insurance',
@@ -77,12 +82,21 @@ response = await handler(request('/claims-authority/api/targets'));
 assert.equal(JSON.parse(response.body).items[0].key, 'hozo-default');
 response = await handler(request('/claims-authority/api/members?groupLookup=' + 'a'.repeat(64)));
 assert.equal(response.status, 200);
+response = await handler(request('/claims-authority/api/forms/employee_expense/groups'));
+assert.equal(response.status, 200);
+assert.equal(JSON.parse(response.body).items[0].assigned, true);
+response = await handler(request('/claims-authority/api/forms/employee_expense/groups/publish', {
+  method: 'POST',
+  body: { groupLookups: ['a'.repeat(64)] },
+}));
+assert.equal(response.status, 200);
+assert.equal(JSON.parse(response.body).assignedCount, 1);
 response = await handler(request('/claims-authority/api/assign', {
   method: 'POST',
   body: { discoveryLookup: 'b'.repeat(64), targetKey: 'hozo-default' },
 }));
 assert.equal(response.status, 200);
-assert.equal(mutationChecks, 1);
+assert.equal(mutationChecks, 2);
 assert.ok(calls.some(([name]) => name === 'assign'));
 response = await handler(request('/claims-authority/api/discovery/sync', {
   method: 'POST',
@@ -90,7 +104,7 @@ response = await handler(request('/claims-authority/api/discovery/sync', {
 }));
 assert.equal(response.status, 200);
 assert.equal(JSON.parse(response.body).verified, 3);
-assert.equal(mutationChecks, 2);
+assert.equal(mutationChecks, 3);
 assert.equal(discoverySyncs, 1);
 
 const forbidden = createClaimsAuthorityAdminHandler({

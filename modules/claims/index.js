@@ -84,6 +84,19 @@ function init(injected) {
       groupEntry: localFinanceV3GroupEntry,
       receiver: localFinanceV3Receiver,
       renderFormPreview: renderLegacyClaimFormPreview,
+      claimsLiffId,
+      async verifyLiffUser({ tenant, accessToken, expectedUserId }) {
+        const profile = await lineProfileFromAccessToken(accessToken, claimsLiffChannelId(tenant));
+        return { ok: profile.userId === expectedUserId, displayName: profile.displayName };
+      },
+      async createLegacyFormLink({ tenant, selectorSessionId, formKey, bindingId, groupId, groupName, userId, userName }) {
+        const legacyType = { legacy_social_insurance: 'labor_health_insurance', legacy_shared_operating: 'shared_operating', legacy_other: 'other' }[formKey];
+        if (!legacyType) throw new Error('舊版請款單識別碼無效。');
+        const session = createSession({ tenant, binding: { pageId: bindingId, groupId, groupName }, event: { source: { userId } }, senderName: userName }, '');
+        session.allowedClaimTypes = [legacyType];
+        session.authoritySelection = { sessionId: selectorSessionId, formKey };
+        return liffLink(tenant, session);
+      },
     });
   } catch (error) {
     claimsAuthorityIntegration = { enabled: true, ready: false, error: error.message };
@@ -99,6 +112,7 @@ function localFinanceV3Env(env = process.env) {
   ];
   const scoped = { ...env, DATABASE_URL: env.HZ2_FINANCE_CLAIMS_V3_DATABASE_URL || '' };
   for (const name of names) scoped[`HOZO_FINANCE_CLAIMS_V3_${name}`] = env[`HZ2_FINANCE_CLAIMS_V3_${name}`] || '';
+  scoped.HOZO_FINANCE_CLAIMS_V3_SELECTOR_LIFF_ID = env.HZ2_CLAIMS_LIFF_ID || '';
   return scoped;
 }
 
@@ -411,7 +425,7 @@ async function verifiedActor(session, tenant, accessToken, binding) {
   if (!profile.userId || profile.userId !== session.requestedByUserId) {
     throw Object.assign(new Error('此請款連結僅限原送件人使用。'), { statusCode: 403 });
   }
-  if (!isAllowedSubmitter(tenant, session.bindingId, profile.userId, binding)) {
+  if (!session.authoritySelection && !isAllowedSubmitter(tenant, session.bindingId, profile.userId, binding)) {
     throw Object.assign(new Error('你的帳號已不具此群組的請款送件權限。'), { statusCode: 403 });
   }
   return profile;
@@ -440,6 +454,11 @@ function claimTypeOptions(tenant) {
     value,
     label: CLAIM_TYPE_LABELS.get(value) || value,
   }));
+}
+
+function sessionClaimTypeOptions(session, tenant) {
+  const allowed = Array.isArray(session?.allowedClaimTypes) ? new Set(session.allowedClaimTypes) : null;
+  return claimTypeOptions(tenant).filter((item) => !allowed || allowed.has(item.value));
 }
 
 function normalizeAttachments(value) {
@@ -475,7 +494,8 @@ function normalizeAttachmentUpload(value) {
 function normalizeClaimSubmission(body, session, tenant, actor) {
   const type = cleanText(body.type, 80);
   const period = validPeriod(body.period);
-  if (!claimTypes(tenant).has(type) || !period) throw Object.assign(new Error('請款類型或期間不正確。'), { statusCode: 400 });
+  const sessionTypes = new Set(sessionClaimTypeOptions(session, tenant).map((item) => item.value));
+  if (!sessionTypes.has(type) || !period) throw Object.assign(new Error('請款類型或期間不正確。'), { statusCode: 400 });
   if (!Array.isArray(body.lines) || body.lines.length < 1 || body.lines.length > 30) {
     throw Object.assign(new Error('至少需要一筆、至多 30 筆請款明細。'), { statusCode: 400 });
   }
@@ -723,7 +743,7 @@ function liffHtml(session, tenant, { previewType = '', backUrl = '/claims-author
     apiPath: `/claims/liff/${encodeURIComponent(makeSessionToken(session))}`,
     liffId: claimsLiffId(tenant),
     draftText: session.draftText,
-    claimTypes: claimTypeOptions(tenant),
+    claimTypes: sessionClaimTypeOptions(session, tenant),
     sourceGroupName: session.sourceGroupName,
     backUrl: '',
   };
@@ -800,6 +820,14 @@ function liffTokenFromRequest(pathname, url, cookieHeader = '') {
   return isOauthCallback ? cleanText(cookieValue(cookieHeader, LIFF_SESSION_COOKIE), 400) : '';
 }
 
+function selectorTokenFromRequest(url) {
+  const direct = cleanText(url?.searchParams?.get('selector'), 400);
+  if (direct) return direct;
+  const state = String(url?.searchParams?.get('liff.state') || '');
+  const params = new URLSearchParams(state.replace(/^\?/, '').split('#', 1)[0]);
+  return cleanText(params.get('selector'), 400);
+}
+
 function liffSessionCookie(session) {
   const maxAge = Math.max(0, Math.ceil((session.expiresAt - Date.now()) / 1000));
   return `${LIFF_SESSION_COOKIE}=${encodeURIComponent(makeSessionToken(session))}; Max-Age=${maxAge}; Path=/claims/liff; HttpOnly; Secure; SameSite=Lax`;
@@ -810,6 +838,12 @@ function tenantForSession(session, tenants, fallback) {
 }
 
 async function handleLiff(req, res, { pathname, url, tenant = null, tenants = [] }) {
+  const selectorToken = selectorTokenFromRequest(url);
+  if (selectorToken.startsWith('fs1.') && claimsAuthorityIntegration?.handleSelector) {
+    const selectorTenant = (tenants || []).find((item) => item.key === 'hozo-am-2-0') || (tenant?.key === 'hozo-am-2-0' ? tenant : null);
+    if (!selectorTenant) return sendJson(res, 404, { error: '請款服務未設定。' });
+    return claimsAuthorityIntegration.handleSelector(req, res, { tenant: selectorTenant, token: selectorToken });
+  }
   const token = liffTokenFromRequest(pathname, url, req.headers?.cookie);
   const session = sessionFromToken(token);
   if (!session) return sendJson(res, 404, { error: '請款連結已失效，請回到群組重新建立。' });
@@ -837,6 +871,9 @@ async function handleLiff(req, res, { pathname, url, tenant = null, tenants = []
     // Re-read the source binding at every protected action. A link created before a group is
     // disabled, loses the claims capability, or has its sender allowlist changed must fail closed.
     session.binding = await bindingForEvent(sessionTenant, session.bindingId);
+    if (session.authoritySelection) {
+      await claimsAuthorityIntegration?.verifyLegacySelection?.({ tenant: sessionTenant, ...session.authoritySelection });
+    }
     const actor = await verifiedActor(session, sessionTenant, body.liffAccessToken, session.binding);
     if (action === 'identify') return sendJson(res, 200, { ok: true, actor: { name: actor.displayName }, draftText: session.draftText });
     if (action === 'uploadAttachment') {

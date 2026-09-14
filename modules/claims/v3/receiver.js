@@ -523,8 +523,14 @@ function validTemplatePayload(templateKey, eventType, payload, env, nowMs) {
     const base = safeHttpsBase(env.HOZO_FINANCE_CLAIMS_V3_BRIDGE_BASE_URL); let url;
     try { url = new URL(payload.entryUrl); } catch { return false; }
     const expires = Date.parse(payload.expiresAt);
-    return Boolean(base && url.origin === base.origin && url.pathname === '/finance-claims' && !url.username && !url.password && !url.hash
-      && [...url.searchParams.keys()].length === 1 && url.searchParams.getAll('sourceHint').length === 1 && safeSourceHint(url.searchParams.get('sourceHint'))
+    const rentalEntry = base && url.origin === base.origin && url.pathname === '/finance-claims' && !url.username && !url.password && !url.hash
+      && [...url.searchParams.keys()].length === 1 && url.searchParams.getAll('sourceHint').length === 1 && safeSourceHint(url.searchParams.get('sourceHint'));
+    const selectorLiffId = String(env.HOZO_FINANCE_CLAIMS_V3_SELECTOR_LIFF_ID || '');
+    const selectorEntry = /^\d{6,}-[A-Za-z0-9_-]{4,}$/u.test(selectorLiffId)
+      && url.origin === 'https://liff.line.me' && url.pathname === `/${selectorLiffId}` && !url.username && !url.password && !url.hash
+      && [...url.searchParams.keys()].length === 1 && url.searchParams.getAll('selector').length === 1
+      && /^fs1\.[0-9a-f-]{36}\.\d+\.[A-Za-z0-9_-]{43}$/iu.test(url.searchParams.get('selector') || '');
+    return Boolean((rentalEntry || selectorEntry)
       && typeof payload.expiresAt === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(payload.expiresAt)
       && Number.isFinite(expires) && new Date(expires).toISOString() === payload.expiresAt && expires > nowMs && expires <= nowMs + MAX_SOURCE_HINT_AGE_SECONDS * 1000);
   }
@@ -556,7 +562,10 @@ function validTemplatePayload(templateKey, eventType, payload, env, nowMs) {
 }
 
 function renderTemplate(templateKey, payload) {
-  if (templateKey === 'claim_web_entry') return `HOZO 費用申請\n請使用以下短效連結開啟申請頁（僅限本次申請人使用）：\n${payload.entryUrl}\n連結失效後，請回原群組重新輸入「請款」或「費用申請」。`;
+  if (templateKey === 'claim_web_entry') {
+    const chooser = String(payload.entryUrl || '').startsWith('https://liff.line.me/');
+    return `HOZO 費用申請\n${chooser ? '請先選擇這次要使用的請款單' : '請使用以下短效連結開啟申請頁'}（僅限本次申請人使用）：\n${payload.entryUrl}\n連結失效後，請回原群組重新輸入「請款」或「費用申請」。`;
+  }
   if (templateKey === 'claim_web_entry_test') return `【測試】HOZO 費用申請\n請使用以下短效連結開啟申請頁（僅限本次申請人使用）：\n${payload.entryUrl}\n連結失效後，請回原群組重新輸入「請款」或「費用申請」。`;
   const amount = `${payload.currency} ${Number(payload.amountTotal).toLocaleString('zh-TW')}`;
   if (templateKey === 'claim_submitted') return `HOZO 費用申請已成立\n金額：${amount}\n狀態：等待審核`;
