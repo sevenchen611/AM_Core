@@ -1,0 +1,55 @@
+{
+  "id": "AM-IMP-2026.0914.04",
+  "name": "Engineering LINE attachment Google Drive archive",
+  "type": "AM Platform / Engineering / LINE attachments / Google Drive",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-09-14",
+  "dependsOn": ["AM-IMP-2026.0708.01"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Engineering AM LINE group attachment Drive source-of-truth policy",
+    "DWG and unsupported Notion format preservation",
+    "Large-file and video streaming",
+    "Notion metadata and supported-preview separation"
+  ],
+  "requiresDatabases": [
+    "Engineering tenant-local Messages data source",
+    "Engineering tenant-local Attachments data source"
+  ],
+  "requiresEnv": [
+    "ENG_ATTACHMENTS_DATA_SOURCE_ID", "ENG_DRIVE_ROOT_FOLDER_ID",
+    "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_OAUTH_REFRESH_TOKEN",
+    "LINE_CHANNEL_ACCESS_TOKEN", "NOTION_TOKEN"
+  ],
+  "requiresScripts": [
+    "node tools/dryrun-collect-attachment-archive.mjs",
+    "node tools/dryrun-core.mjs",
+    "node tools/check-upgrade-package.js AM-IMP-2026.0914.04",
+    "node tools/audit-alignment.js"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true, "canCopySchema": true, "canCopyData": false, "canCopySecrets": false,
+    "guard": "The policy is enabled only in tenants/engineering.json. Drive destinations and Notion rows come only from the resolved engineering tenant."
+  },
+  "changes": [
+    "Archive Engineering AM LINE group attachments to Google Drive",
+    "Stream DWG, unsupported formats, large files, and videos",
+    "Keep Notion as metadata and supported-preview storage",
+    "Preserve meeting-audio Drive archival without duplicate copies"
+  ],
+  "definitionOfDone": [
+    "DWG, PDF, and video dry runs pass",
+    "Core tenant isolation and package checks pass",
+    "Production canary attachment rows contain working Engineering Drive links",
+    "No tenant data, files, IDs, or credentials are stored in AMCore"
+  ],
+  "projectStatus": {"AM_PLATFORM:engineering": "Ready"},
+  "files": [
+    "modules/collect/index.js", "modules/collect/README.md", "tenants/engineering.json",
+    "tools/dryrun-collect-attachment-archive.mjs",
+    "versions/AM-IMP-2026.0914.04/README.md", "versions/AM-IMP-2026.0914.04/INSTALL.md",
+    "versions/AM-IMP-2026.0914.04/VERIFY.md", "versions/AM-IMP-2026.0914.04/ROLLBACK.md",
+    "versions/AM-IMP-2026.0914.04/upgrade.json"
+  ]
+}
