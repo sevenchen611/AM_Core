@@ -88,15 +88,32 @@ function init(injected) {
       claimsLiffId,
       async listFormHistory(tenant) {
         const v3TenantKey = cleanText(claimConfig(tenant).v3Direct?.tenantKey || tenant.key, 128);
-        const response = await fetch(`${claimsBaseUrl(tenant)}/api/integrations/finance/claims/form-history?tenantKey=${encodeURIComponent(v3TenantKey)}`, {
-          headers: { Authorization: `Bearer ${claimsRentalToken(tenant)}` },
-          signal: AbortSignal.timeout(12_000),
-        });
-        const result = await response.json().catch(() => ({}));
-        if (!response.ok || result.contractVersion !== 'finance-claim-form-history-v1' || !Array.isArray(result.forms)) {
-          throw new Error('無法取得請款表單版本歷史。');
+        const controller = new AbortController();
+        let timer;
+        try {
+          const timeout = new Promise((_, reject) => {
+            timer = setTimeout(() => {
+              controller.abort();
+              reject(new Error('請款表單版本歷史查詢逾時。'));
+            }, 5_000);
+          });
+          const request = fetch(`${claimsBaseUrl(tenant)}/api/integrations/finance/claims/form-history?tenantKey=${encodeURIComponent(v3TenantKey)}`, {
+            headers: { Authorization: `Bearer ${claimsRentalToken(tenant)}` },
+            signal: controller.signal,
+          }).then(async (response) => {
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok || result.contractVersion !== 'finance-claim-form-history-v1' || !Array.isArray(result.forms)) {
+              throw new Error('無法取得請款表單版本歷史。');
+            }
+            return { forms: result.forms };
+          });
+          return await Promise.race([request, timeout]);
+        } catch (error) {
+          platform?.logger?.warn?.(`Claims form history fallback activated (tenant=${tenant?.key || 'unknown'}): ${error.message}`);
+          return legacyFormHistoryBaseline();
+        } finally {
+          clearTimeout(timer);
         }
-        return { forms: result.forms };
       },
       async verifyLiffUser({ tenant, accessToken, expectedUserId }) {
         const profile = await lineProfileFromAccessToken(accessToken, claimsLiffChannelId(tenant));
@@ -147,6 +164,22 @@ function claimConfig(tenant) {
 
 function cleanText(value, max = 180) {
   return String(value || '').trim().replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, max);
+}
+
+function legacyFormHistoryBaseline() {
+  const published = (key) => ({
+    key,
+    currentVersionNo: 1,
+    versions: [{ versionNo: 1, status: '已發布唯讀', publishedAt: '', createdAt: '' }],
+  });
+  return {
+    forms: [
+      published('legacy_social_insurance'),
+      published('legacy_shared_operating'),
+      published('legacy_other'),
+      published('employee_expense'),
+    ],
+  };
 }
 
 function canonicalId(value) {
