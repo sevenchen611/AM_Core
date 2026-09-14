@@ -90,10 +90,21 @@ function init(injected) {
         const profile = await lineProfileFromAccessToken(accessToken, claimsLiffChannelId(tenant));
         return { ok: profile.userId === expectedUserId, displayName: profile.displayName };
       },
-      async createLegacyFormLink({ tenant, selectorSessionId, formKey, bindingId, groupId, groupName, userId, userName }) {
+      async createLegacyFormLink({ tenant, selectorSessionId, formKey, groupId, userId, userName }) {
         const legacyType = { legacy_social_insurance: 'labor_health_insurance', legacy_shared_operating: 'shared_operating', legacy_other: 'other' }[formKey];
         if (!legacyType) throw new Error('舊版請款單識別碼無效。');
-        const session = createSession({ tenant, binding: { pageId: bindingId, groupId, groupName }, event: { source: { userId } }, senderName: userName }, '');
+        // The authority registry is an encrypted routing cache, not the source of
+        // truth for the current Notion page. Resolve the exact LINE group again
+        // before committing the selector choice so a retired page ID cannot
+        // create a broken LIFF link and permanently lock the selector.
+        let liveBinding;
+        try {
+          liveBinding = await bindingForGroupEvent(tenant, groupId);
+        } catch (error) {
+          platform?.logger?.warn?.(`Claims selector binding validation failed (tenant=${tenant?.key || 'unknown'}): ${error.message}`);
+          throw Object.assign(new Error('此群組的請款設定已更新，請回群組重新輸入「請款」後再試。'), { statusCode: 409 });
+        }
+        const session = createSession({ tenant, binding: liveBinding, event: { source: { userId } }, senderName: userName }, '');
         session.allowedClaimTypes = [legacyType];
         session.authoritySelection = { sessionId: selectorSessionId, formKey };
         return liffLink(tenant, session);
@@ -294,6 +305,7 @@ function createSession(ctx, draftText = '') {
     tenantKey: ctx.tenant.key,
     tenantId: cleanText(ctx.tenant.tenantId, 100),
     bindingId: ctx.binding.pageId,
+    sourceGroupId: cleanText(ctx.binding.groupId, 128),
     sourceGroupName: sourceName(ctx),
     requestedByUserId: lineUserId(ctx),
     requestedByName: cleanText(ctx.senderName, 120),
@@ -874,7 +886,12 @@ async function handleLiff(req, res, { pathname, url, tenant = null, tenants = []
     }
     // Re-read the source binding at every protected action. A link created before a group is
     // disabled, loses the claims capability, or has its sender allowlist changed must fail closed.
-    session.binding = await bindingForEvent(sessionTenant, session.bindingId);
+    session.binding = session.authoritySelection && session.sourceGroupId
+      ? await bindingForGroupEvent(sessionTenant, session.sourceGroupId)
+      : await bindingForEvent(sessionTenant, session.bindingId);
+    // A group binding page may be replaced while the short-lived selector is
+    // open. Always carry the current canonical page into the submitted claim.
+    session.bindingId = session.binding.pageId;
     if (session.authoritySelection) {
       await claimsAuthorityIntegration?.verifyLegacySelection?.({ tenant: sessionTenant, ...session.authoritySelection });
     }
@@ -903,7 +920,8 @@ async function handleLiff(req, res, { pathname, url, tenant = null, tenants = []
     return sendJson(res, 201, { ok: true, claimId: result.claimId, claimNumber: result.claimNumber, status: result.status || 'submitted' });
   } catch (error) {
     platform?.logger?.warn?.(`Claims LIFF request failed: ${error.message}${error.detail ? ` (${error.detail})` : ''}`);
-    return sendJson(res, error.statusCode || 500, { error: error.message || '請款送出失敗。' });
+    const safe = publicClaimError(error);
+    return sendJson(res, safe.statusCode, { error: safe.message });
   }
 }
 
@@ -987,6 +1005,17 @@ async function bindingForGroupEvent(tenant, groupId) {
     throw Object.assign(new Error(pages.length ? 'Ambiguous claim binding.' : 'Claim binding not found.'), { statusCode: pages.length ? 409 : 404 });
   }
   return bindingForEvent(tenant, pages[0].id);
+}
+
+function publicClaimError(error) {
+  const message = String(error?.message || '');
+  if (/Notion API failed|object_not_found|Could not find page/iu.test(message)) {
+    return {
+      statusCode: 409,
+      message: '此群組的請款設定已更新，請回群組重新輸入「請款」後再試。',
+    };
+  }
+  return { statusCode: error?.statusCode || 500, message: message || '請款送出失敗。' };
 }
 
 function normalizeClaimEvent(body, tenant) {
@@ -1126,7 +1155,21 @@ async function fastTick({ tenant }) {
 async function preAckClaimsAuthorityEvent({ tenant, binding, event }) {
   if (!claimsAuthorityIntegration?.enabled) return { handled: false, intercepted: false };
   if (!claimsAuthorityIntegration.ready) throw new Error(claimsAuthorityIntegration.error || 'claims_authority_unavailable');
-  const result = await claimsAuthorityIntegration.handleLineEvent({ tenant, binding, event });
+  let currentBinding = binding;
+  const command = event?.type === 'message' && event?.message?.type === 'text'
+    ? parseCommand(event.message.text)
+    : { kind: 'none' };
+  if (!currentBinding && command.kind !== 'none') {
+    const groupId = event?.source?.groupId || event?.source?.roomId || '';
+    try {
+      currentBinding = await bindingForGroupEvent(tenant, groupId);
+    } catch (error) {
+      // Preserve authority discovery for genuinely unbound groups. Ambiguous,
+      // inaccessible, or otherwise invalid bindings still fail closed.
+      if (!(error?.statusCode === 404 && error?.message === 'Claim binding not found.')) throw error;
+    }
+  }
+  const result = await claimsAuthorityIntegration.handleLineEvent({ tenant, binding: currentBinding, event });
   return {
     ...result,
     intercepted: Boolean(result?.claim || result?.userMessage),
@@ -1347,6 +1390,7 @@ export const __test = {
   liffHtml,
   liffSessionCookie,
   selectorTokenFromRequest,
+  publicClaimError,
   rentalClaimError,
   uploadRentalClaimAttachment,
   initialStatusMessage,

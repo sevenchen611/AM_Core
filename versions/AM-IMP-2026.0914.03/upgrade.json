@@ -1,0 +1,35 @@
+{
+  "id": "AM-IMP-2026.0914.03",
+  "name": "HOZO claims live group binding and failed-selector recovery",
+  "type": "HOZO claims binding and selector hotfix",
+  "portable": false,
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
+  "requiresDatabases": ["Existing AM Platform PostgreSQL claims authority database", "Existing HOZO Notion group bindings data source"],
+  "requiresEnv": ["Existing HZ2_CLAIMS_LIFF_ID", "Existing HOZO Notion integration settings"],
+  "requiresScripts": [
+    "npm run dryrun:claims-authority",
+    "node tools/dryrun-claims.mjs",
+    "node tools/dryrun-claims-governance.mjs",
+    "node tools/dryrun-finance-v3-direct.mjs",
+    "node tools/dryrun-finance-v3-postgres-hotpath.mjs",
+    "node tools/check-upgrade-package.js AM-IMP-2026.0914.03"
+  ],
+  "dependencies": ["AM-IMP-2026.0914.02 HOZO claims origin-group isolation and LIFF OAuth recovery"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The canonical Notion binding is resolved only from the exact raw LINE source group ID and must be unique, active, claims-enabled, and tenant-local."
+  },
+  "definitionOfDone": [
+    "Claim commands reconcile authority routing with the exact live source-group binding",
+    "Legacy LIFF links are validated against the live binding before selector completion",
+    "A current binding page replaces a retired page ID during protected legacy actions",
+    "Raw Notion API errors are never exposed to claim applicants",
+    "Synthetic checks, package validation and production verification pass"
+  ],
+  "deploymentEvidence": null,
+  "projectStatus": { "AM_PLATFORM:hozo-am-2-0": "Ready" },
+  "status": "Ready"
+}
