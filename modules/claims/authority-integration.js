@@ -5,11 +5,12 @@ import { createClaimsAuthority } from '../../core/claims-authority.js';
 import { createClaimsAuthorityPostgresStore } from '../../core/claims-authority-postgres.js';
 import { createClaimsAuthorityRuntimeAdapter } from '../../core/claims-authority-runtime.js';
 import { createClaimsAuthorityV3Adapter } from '../../core/claims-authority-v3.js';
-import { createClaimsAuthorityAdminHandler, renderClaimsAuthorityAccessRecoveryPage } from '../../core/claims-authority-admin.js';
+import { CLAIM_FORM_INVENTORY, createClaimsAuthorityAdminHandler, renderClaimsAuthorityAccessRecoveryPage } from '../../core/claims-authority-admin.js';
 import { createClaimsAuthorityOutboxWorker } from '../../core/claims-authority-outbox.js';
 
 const OPAQUE_REFERENCE = /^line-ref:v1:[0-9a-f-]{36}$/iu;
 const SAFE_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{1,159}$/u;
+const SELECTOR_TTL_MS = 10 * 60 * 1000;
 
 function parseJson(value, fallback) {
   try { return JSON.parse(String(value || '')); } catch { return fallback; }
@@ -122,7 +123,7 @@ async function listKnownLineGroups(platform, tenant) {
   return [...new Map(groups.map((item) => [item.groupId, item])).values()];
 }
 
-export function createClaimsAuthorityIntegration({ env = process.env, platform, groupEntry, receiver, renderFormPreview } = {}) {
+export function createClaimsAuthorityIntegration({ env = process.env, platform, groupEntry, receiver, renderFormPreview, createLegacyFormLink, verifyLiffUser, claimsLiffId } = {}) {
   const enabled = env.HZ2_CLAIMS_AUTHORITY_ENABLED === 'true';
   if (!enabled) return { enabled: false, ready: false };
   const identityKey = String(env.HZ2_CLAIMS_AUTHORITY_IDENTITY_KEY || '');
@@ -146,13 +147,18 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
     workerPool: makePool(urls.worker, 'worker'),
   });
   const migrationPool = makePool(sharedDatabaseUrl || urls.platform, 'migration');
-  const migrationSql = fs.readFileSync(new URL('../../versions/AM-IMP-2026.0912.01/config/claims-authority-registry.sql', import.meta.url), 'utf8');
-  const migrationPromise = migrationPool.query(migrationSql).then(() => true).catch((error) => {
+  const migrationSql = [
+    '../../versions/AM-IMP-2026.0912.01/config/claims-authority-registry.sql',
+    '../../versions/AM-IMP-2026.0914.01/config/claims-group-form-routing.sql',
+  ].map((path) => fs.readFileSync(new URL(path, import.meta.url), 'utf8'));
+  const migrationPromise = migrationSql.reduce((chain, sql) => chain.then(() => migrationPool.query(sql)), Promise.resolve()).then(() => true).catch((error) => {
     platform?.logger?.warn?.(`Claims authority migration failed closed: ${error.message}`);
     throw error;
   });
   const targets = targetRegistry(env);
   const recipients = recipientRegistry(env);
+  const resolveApplicantReference = async ({ tenant, userId }) => recipients.get(`${tenant.key}:${userId}`)
+    || deterministicApplicantReference(identityKey, tenant.key, userId);
   const v3 = createClaimsAuthorityV3Adapter({
     groupEntry,
     async verifySource(input) {
@@ -162,21 +168,61 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
         && item.financeScope.groupReference === input.groupReference);
       return match ? { ok: true, sourceId: match.financeScope.sourceId } : { ok: false };
     },
-    async resolveApplicantReference({ tenant, userId }) {
-      return recipients.get(`${tenant.key}:${userId}`)
-        || deterministicApplicantReference(identityKey, tenant.key, userId);
-    },
+    resolveApplicantReference,
     async syncMembership(body) {
       const result = await receiver.bridgeMembership(body);
       if (result?.status !== 200) throw new Error('Finance V3 membership bridge rejected the member.');
       return result.body;
     },
   });
-  const authority = createClaimsAuthority({
+  const selectorSignature = (sessionId, expiresAt) => crypto.createHmac('sha256', identityKey)
+    .update(`form-selector:v1:${sessionId}:${expiresAt}`).digest('base64url');
+  const selectorToken = ({ sessionId, expiresAt }) => {
+    const ms = Date.parse(expiresAt);
+    return `fs1.${sessionId}.${ms}.${selectorSignature(sessionId, ms)}`;
+  };
+  const parseSelectorToken = (value) => {
+    const match = String(value || '').match(/^fs1\.([0-9a-f-]{36})\.(\d+)\.([A-Za-z0-9_-]{43})$/iu);
+    if (!match || Number(match[2]) <= Date.now() || !timingSafeText(match[3], selectorSignature(match[1], match[2]))) return null;
+    return { sessionId: match[1], expiresAt: Number(match[2]) };
+  };
+  let authority;
+  async function openClaim(input) {
+    if (!input.routing?.configured) return v3.openV3Claim(input);
+    const session = await authority.createFormSelectionSession({
+      tenant: input.tenant,
+      groupLookup: input.groupLookup,
+      memberLookup: input.memberLookup,
+      eventKey: input.idempotencyKey,
+      formKeys: input.routing.availableForms,
+      ttlMs: SELECTOR_TTL_MS,
+    });
+    const liffId = String(claimsLiffId?.(input.tenant) || '');
+    if (!liffId) throw new Error('請款 LINE LIFF 尚未設定。');
+    const url = new URL(`https://liff.line.me/${encodeURIComponent(liffId)}`);
+    url.searchParams.set('selector', selectorToken(session));
+    const applicantReference = await resolveApplicantReference({ tenant: input.tenant, userId: input.userId });
+    const digest = crypto.createHash('sha256').update(`selector:${input.idempotencyKey}`).digest('hex');
+    const record = {
+      eventKey: `group-entry:${digest}`, jobKind: 'entry', tenantKey: input.tenant.key,
+      sourceId: input.binding.financeSourceId || input.binding.sourceId,
+      formKey: input.binding.claimFormKey || input.binding.formKey,
+      groupReference: input.binding.groupReference || input.binding.identityReference,
+      applicantReference, desiredState: 'active', keyword: '請款',
+      occurredAt: new Date(Number(input.event?.timestamp) || Date.now()).toISOString(),
+      membershipRequestId: `membership-${digest.slice(0, 40)}`,
+      entryRequestId: `entry-${digest.slice(0, 40)}`,
+      deliveryEventKey: `entry-invite-${digest.slice(0, 40)}`,
+      preparedEntry: { url: url.toString(), expiresAt: session.expiresAt },
+    };
+    const rows = await groupEntry.enqueue([record]);
+    return { queued: true, selector: true, eventKey: record.eventKey, replayed: rows[0]?.inserted === false };
+  }
+  authority = createClaimsAuthority({
     store,
     identityKey,
     financeProvisioner: v3.financeProvisioner,
-    openV3Claim: v3.openV3Claim,
+    openV3Claim: openClaim,
     identityResolver: {
       resolveGroupName: ({ groupId }) => platform.resolveGroupName(groupId),
       resolveMemberName: ({ groupId, userId }) => platform.resolveGroupMemberName(groupId, userId),
@@ -274,11 +320,66 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
     return sendResponse(res, await handler(nodeRequest(req, context.url, parsedBody)));
   }
 
+  const escapeHtml = (value) => String(value || '').replace(/[&<>"']/gu, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+  const selectorHtml = ({ token, session, tenant }) => {
+    const forms = CLAIM_FORM_INVENTORY.filter((form) => session.formKeys.includes(form.key));
+    const data = JSON.stringify({ token, liffId: claimsLiffId?.(tenant) || '' }).replace(/</gu, '\\u003c');
+    const cards = forms.map((form) => `<button class="form-card" type="button" data-key="${form.key}"><span class="form-name">${escapeHtml(form.name)}</span><span class="form-description">${escapeHtml(form.description)}</span><span class="form-version">${escapeHtml(form.version)}</span></button>`).join('');
+    return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>選擇請款單</title><style>
+    :root{font-family:system-ui,"Noto Sans TC",sans-serif;color:#22302a;background:#f4f6f5}body{margin:0}main{max-width:680px;margin:auto;padding:24px 16px 48px}h1{font-size:24px;margin:0 0 7px}.muted{color:#68756f;line-height:1.6;margin:0 0 18px}.forms{display:grid;gap:12px}.form-card{width:100%;display:grid;gap:5px;text-align:left;padding:17px;border:1px solid #d8e2dd;border-radius:14px;background:#fff;color:inherit;cursor:pointer}.form-card:hover,.form-card:focus{border-color:#267348;box-shadow:0 0 0 2px #dcefe4}.form-card:disabled{opacity:.6;cursor:wait}.form-name{font-size:17px;font-weight:800}.form-description{font-size:14px;color:#68756f}.form-version{font-size:12px;color:#267348;font-weight:700}.status{margin:16px 0 0;font-size:14px;line-height:1.6}.error{color:#a13d34}.hidden{display:none}</style></head><body><main><h1>選擇請款單</h1><p class="muted">來源群組：${escapeHtml(session.groupName || 'HOZO 群組')}<br>請選擇這次申請要使用的表單。</p><p id="identity" class="status">正在驗證 LINE 身分…</p><section id="forms" class="forms hidden">${cards}</section><p id="result" class="status"></p><script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script><script>
+    const DATA=${data},identity=document.querySelector('#identity'),forms=document.querySelector('#forms'),result=document.querySelector('#result');let accessToken='';
+    async function api(action,extra={}){const response=await fetch(location.pathname+location.search,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action,selectorToken:DATA.token,liffAccessToken:accessToken,...extra})});const body=await response.json().catch(()=>({}));if(!response.ok)throw Error(body.error||'操作失敗');return body}
+    async function init(){try{if(!window.liff)throw Error('LINE 身分元件載入失敗，請回群組重新開啟。');await liff.init({liffId:DATA.liffId,withLoginOnExternalBrowser:true});if(!liff.isLoggedIn()){liff.login({redirectUri:location.href});return}accessToken=liff.getAccessToken?.()||'';if(!accessToken)throw Error('未取得 LINE 登入資訊，請回群組重新開啟。');await api('identify');identity.textContent='LINE 身分已驗證';forms.classList.remove('hidden')}catch(error){identity.className='status error';identity.textContent=error.message}}
+    document.querySelectorAll('[data-key]').forEach(button=>button.onclick=async()=>{document.querySelectorAll('[data-key]').forEach(item=>item.disabled=true);result.className='status';result.textContent='正在開啟正確的請款單…';try{const answer=await api('select',{formKey:button.dataset.key});location.assign(answer.url)}catch(error){result.className='status error';result.textContent=error.message;document.querySelectorAll('[data-key]').forEach(item=>item.disabled=false)}});init();
+    </script></main></body></html>`;
+  };
+
+  async function handleSelector(req, res, { tenant, token }) {
+    await migrationPromise;
+    const parsed = parseSelectorToken(token);
+    if (!parsed) return sendResponse(res, { status: 404, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }, body: JSON.stringify({ error: '請款連結已失效，請回群組重新輸入「請款」。' }) });
+    try {
+      const session = await authority.resolveFormSelection({ tenant: authorityTenant(tenant), sessionId: parsed.sessionId });
+      if (req.method === 'GET') return sendResponse(res, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-security-policy': "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.line-scdn.net; connect-src 'self' https://api.line.me; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'", 'x-content-type-options': 'nosniff' }, body: selectorHtml({ token, session, tenant }) });
+      if (req.method !== 'POST') throw new Error('不支援的操作。');
+      const chunks = []; let bytes = 0;
+      for await (const chunk of req) { bytes += chunk.length; if (bytes > 64 * 1024) throw new Error('資料量過大。'); chunks.push(chunk); }
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+      if (!timingSafeText(body.selectorToken, token)) throw new Error('請款連結驗證失敗。');
+      const actor = await verifyLiffUser?.({ tenant, accessToken: body.liffAccessToken, expectedUserId: session.userId, bindingId: session.bindingId });
+      if (!actor?.ok) throw new Error('此請款連結僅限原送件人使用。');
+      if (body.action === 'identify') return sendResponse(res, { status: 200, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }, body: JSON.stringify({ ok: true }) });
+      if (body.action !== 'select') throw new Error('不支援的操作。');
+      const selected = await authority.resolveFormSelection({ tenant: authorityTenant(tenant), sessionId: parsed.sessionId, formKey: body.formKey });
+      if (selected.resolvedUrl) return sendResponse(res, { status: 200, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }, body: JSON.stringify({ ok: true, url: selected.resolvedUrl, replayed: true }) });
+      let targetUrl = '';
+      if (String(body.formKey).startsWith('legacy_')) {
+        targetUrl = await createLegacyFormLink?.({ tenant, selectorSessionId: parsed.sessionId, formKey: body.formKey, bindingId: selected.bindingId, groupId: selected.groupId, groupName: selected.groupName, userId: selected.userId, userName: actor.displayName || '' });
+      } else if (body.formKey === 'employee_expense') {
+        const identityReference = await resolveApplicantReference({ tenant, userId: selected.userId });
+        const requestBase = `selector-${parsed.sessionId}`;
+        const membership = await receiver.bridgeMembership({ contractVersion: 'finance-claims-v3.am-bridge-v1', requestId: `${requestBase}-member`, tenantKey: tenant.key, sourceId: selected.sourceId, identityReference, desiredState: 'active', eventSequence: Math.max(1, Date.now()), effectiveAt: new Date().toISOString() });
+        if (membership?.status !== 200 || !membership.body?.matched || membership.body?.effectiveState !== 'active') throw new Error('V3 請款身分尚未啟用，請聯絡財務管理員。');
+        const entry = await receiver.bridgeWebEntry({ contractVersion: 'finance-claims-v3.am-bridge-v1', requestId: `${requestBase}-entry`, tenantKey: tenant.key, sourceId: selected.sourceId, formKey: selected.v3FormKey, identityReference });
+        if (entry?.status !== 200 || !entry.body?.url) throw new Error('V3 請款單目前無法開啟，請稍後再試。');
+        targetUrl = entry.body.url;
+      }
+      if (!targetUrl) throw new Error('請款單入口尚未設定。');
+      await authority.completeFormSelection({ tenant: authorityTenant(tenant), sessionId: parsed.sessionId, formKey: body.formKey, resolvedUrl: targetUrl });
+      return sendResponse(res, { status: 200, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }, body: JSON.stringify({ ok: true, url: targetUrl }) });
+    } catch (error) {
+      return sendResponse(res, { status: 400, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }, body: JSON.stringify({ error: String(error?.message || '操作失敗').slice(0, 240) }) });
+    }
+  }
+
   return {
     enabled: true,
     ready: true,
     authority,
     admin,
+    handleSelector,
+    isSelectorToken: (value) => Boolean(parseSelectorToken(value)),
+    verifyLegacySelection: ({ tenant, sessionId, formKey }) => authority.resolveFormSelection({ tenant: authorityTenant(tenant), sessionId, formKey }),
     async handleLineEvent({ tenant, binding, event }) {
       await migrationPromise;
       const enriched = binding ? (() => {

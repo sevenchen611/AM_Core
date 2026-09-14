@@ -181,7 +181,9 @@ function sameDurableRecord(row, record) {
     && row?.applicant_reference === record.applicantReference && row?.desired_state === record.desiredState
     && String(row?.keyword || '') === record.keyword && occurredAt === record.occurredAt
     && row?.membership_request_id === record.membershipRequestId && row?.entry_request_id === record.entryRequestId
-    && row?.delivery_event_key === record.deliveryEventKey;
+    && row?.delivery_event_key === record.deliveryEventKey
+    && (!record.preparedEntry || (row?.entry_url === record.preparedEntry.url
+      && new Date(row?.entry_expires_at).toISOString() === record.preparedEntry.expiresAt));
 }
 
 function routeEvent(event, config) {
@@ -442,7 +444,9 @@ export function createPostgresGroupEntryStore(databaseUrl, { pool: injectedPool 
 }
 
 async function enqueueRecordWithClient(client, record) {
-  let row = (await client.query(`INSERT INTO finance_claim_group_entry_queue_v3(event_key,job_kind,tenant_key,source_id,form_key,group_reference,applicant_reference,desired_state,keyword,occurred_at,membership_request_id,entry_request_id,delivery_event_key,status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,CASE WHEN $2='entry' THEN 'pending_entry' ELSE 'pending_membership' END) ON CONFLICT(event_key) DO NOTHING RETURNING *`, [record.eventKey, record.jobKind, record.tenantKey, record.sourceId, record.formKey, record.groupReference, record.applicantReference, record.desiredState, record.keyword, record.occurredAt, record.membershipRequestId, record.entryRequestId, record.deliveryEventKey])).rows[0];
+  const preparedUrl = String(record.preparedEntry?.url || '');
+  const preparedExpiresAt = String(record.preparedEntry?.expiresAt || '');
+  let row = (await client.query(`INSERT INTO finance_claim_group_entry_queue_v3(event_key,job_kind,tenant_key,source_id,form_key,group_reference,applicant_reference,desired_state,keyword,occurred_at,membership_request_id,entry_request_id,delivery_event_key,status,entry_url,entry_expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,CASE WHEN $14<>'' THEN 'pending_delivery' WHEN $2='entry' THEN 'pending_entry' ELSE 'pending_membership' END,$14,NULLIF($15,'')::timestamptz) ON CONFLICT(event_key) DO NOTHING RETURNING *`, [record.eventKey, record.jobKind, record.tenantKey, record.sourceId, record.formKey, record.groupReference, record.applicantReference, record.desiredState, record.keyword, record.occurredAt, record.membershipRequestId, record.entryRequestId, record.deliveryEventKey, preparedUrl, preparedExpiresAt])).rows[0];
   if (row?.job_kind === 'membership') {
     const sequence = (await client.query(`INSERT INTO finance_claim_group_membership_sequences_v3(tenant_key,source_id,applicant_reference,last_sequence) VALUES($1,$2,$3,1) ON CONFLICT(tenant_key,source_id,applicant_reference) DO UPDATE SET last_sequence=finance_claim_group_membership_sequences_v3.last_sequence+1,updated_at=now() RETURNING last_sequence`, [record.tenantKey, record.sourceId, record.applicantReference])).rows[0].last_sequence;
     row = (await client.query('UPDATE finance_claim_group_entry_queue_v3 SET membership_sequence=$2 WHERE event_key=$1 RETURNING *', [record.eventKey, sequence])).rows[0];

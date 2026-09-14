@@ -20,6 +20,7 @@ function localEnv() {
     HOZO_FINANCE_CLAIMS_V3_BRIDGE_BASE_URL: 'https://rental.example.test',
     HOZO_FINANCE_CLAIMS_V3_BRIDGE_MACHINE_TOKEN: 'bridge-machine-token-0000000000000000',
     HOZO_FINANCE_CLAIMS_V3_GROUP_ENTRY_EVENT_SECRET: 'group-entry-event-secret-at-least-32-chars',
+    HOZO_FINANCE_CLAIMS_V3_SELECTOR_LIFF_ID: '1234567890-SelectorApp',
     HOZO_FINANCE_CLAIMS_V3_RECIPIENT_BINDINGS_JSON: JSON.stringify({ bindings: [
       { identityReference: GROUP_REF, tenantKey: 'hozo', type: 'group_binding', target: GROUP },
       { identityReference: USER_REF, tenantKey: 'hozo', type: 'line_user', target: USER },
@@ -51,8 +52,8 @@ class MemoryStore {
       applicant_reference: record.applicantReference, desired_state: record.desiredState,
       keyword: record.keyword, occurred_at: record.occurredAt, membership_sequence: 1,
       membership_request_id: record.membershipRequestId, entry_request_id: record.entryRequestId,
-      delivery_event_key: record.deliveryEventKey, status: record.jobKind === 'entry' ? 'pending_entry' : 'pending_membership', attempts: 0,
-      available_at: clock, lease_token: null, entry_url: '', entry_expires_at: null,
+      delivery_event_key: record.deliveryEventKey, status: record.preparedEntry ? 'pending_delivery' : record.jobKind === 'entry' ? 'pending_entry' : 'pending_membership', attempts: 0,
+      available_at: clock, lease_token: null, entry_url: record.preparedEntry?.url || '', entry_expires_at: record.preparedEntry?.expiresAt || null,
       ack_reference: '', last_error: '',
     };
     this.rows.set(record.eventKey, row);
@@ -106,6 +107,7 @@ const mapped = claimsTest.localFinanceV3Env({
 assert.equal(mapped.DATABASE_URL, 'postgres://local-ledger');
 assert.equal(mapped.HOZO_FINANCE_CLAIMS_V3_ENABLED, 'true');
 assert.equal(mapped.HOZO_FINANCE_CLAIMS_V3_GROUP_ENTRY_ENABLED, 'true');
+assert.equal(mapped.HOZO_FINANCE_CLAIMS_V3_SELECTOR_LIFF_ID, '');
 assert.equal(mapped.LINE_CHANNEL_ACCESS_TOKEN, 'keep-global-oa-token');
 
 const originalEvent = message('evt-redelivery');
@@ -265,6 +267,27 @@ assert.equal(tenMinuteDelivery.status, 200);
 assert.equal(deliveredMessage.to, GROUP);
 assert.match(deliveredMessage.messages[0].text, /HOZO 費用申請/);
 assert.match(deliveredMessage.messages[0].text, /rental\.example\.test\/finance-claims/);
+
+const selectorUrl = `https://liff.line.me/${deliveryEnv.HOZO_FINANCE_CLAIMS_V3_SELECTOR_LIFF_ID}?selector=fs1.11111111-1111-4111-8111-111111111111.${NOW + 600_000}.${'a'.repeat(43)}`;
+const selectorDelivery = await deliveryReceiver.deliverEnvelope({
+  contractVersion: 'finance-claims-v3.group-entry-v1', eventKey: 'entry-invite-selector-delivery', eventType: 'claim_web_entry',
+  recipient: { type: 'group_binding', identityReference: GROUP_REF }, templateKey: 'claim_web_entry',
+  payload: { contractVersion: 'finance-claims-v3.group-entry-v1', eventKey: 'entry-invite-selector-delivery', eventType: 'claim_web_entry', entryUrl: selectorUrl, expiresAt: '2026-09-01T00:10:00.000Z' },
+}, { tenantKey: 'hozo' });
+assert.equal(selectorDelivery.status, 200);
+assert.match(deliveredMessage.messages[0].text, /先選擇這次要使用的請款單/u);
+assert.match(deliveredMessage.messages[0].text, /liff\.line\.me/u);
+
+const preparedStore = new MemoryStore(); let preparedWebEntries = 0;
+const preparedConsumer = createFinanceClaimsV3GroupEntryConsumer({ env: localEnv(), store: preparedStore, now: () => clock, autoDrain: false, client: {
+  ready: true, async syncMembership() { throw new Error('not expected'); }, async createWebEntry() { preparedWebEntries += 1; throw new Error('not expected'); },
+  async deliver() { return { kind: 'delivered', ackReference: 'line-ack:v1:77777777-7777-4777-8777-777777777777' }; }, async reconcile() { throw new Error('not expected'); },
+} });
+await preparedConsumer.init();
+await preparedConsumer.enqueue([{ eventKey: 'group-entry-prepared', jobKind: 'entry', tenantKey: 'hozo', sourceId: 'source-hozo-company-group', formKey: 'general_expense', groupReference: GROUP_REF, applicantReference: USER_REF, desiredState: 'active', keyword: '請款', occurredAt: new Date(NOW).toISOString(), membershipRequestId: 'membership-prepared', entryRequestId: 'entry-prepared', deliveryEventKey: 'entry-invite-prepared', preparedEntry: { url: selectorUrl, expiresAt: '2026-09-01T00:10:00.000Z' } }]);
+await preparedConsumer.drainOnce();
+assert.equal(preparedWebEntries, 0);
+assert.equal(preparedStore.rows.get('group-entry-prepared').status, 'delivered');
 
 const immediateStore = new MemoryStore();
 const immediateStages = [];

@@ -10,6 +10,8 @@ const PLATFORM_SCOPE = Object.freeze({
   key: 'platform',
 });
 const FIXED_KEY_ID = 'fixed-v1';
+const CLAIM_FORM_KEYS = Object.freeze(['legacy_social_insurance', 'legacy_shared_operating', 'legacy_other', 'employee_expense']);
+const CLAIM_FORM_KEY_SET = new Set(CLAIM_FORM_KEYS);
 
 export const isClaimsCommand = (text) => COMMAND.test(String(text || '').trim());
 export const redact = (value) => value
@@ -340,19 +342,29 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
         && row?.oa_state === 'present'
         && row?.member_state === 'observed'
         && !row?.manual_deny;
+      const routing = await client.query(
+        `/* ca:form-routing */ SELECT c.revision,f.form_key
+         FROM am_claims.group_form_configs c
+         LEFT JOIN am_claims.group_forms f ON f.tenant_id=c.tenant_id AND f.group_lookup=c.group_lookup
+         WHERE c.tenant_id=$1 AND c.group_lookup=$2 ORDER BY f.sort_order,f.form_key`,
+        [tenant.tenantId, group],
+      );
+      const configured = routing.rows?.length > 0;
+      const availableForms = configured ? routing.rows.map((item) => item.form_key).filter((key) => CLAIM_FORM_KEY_SET.has(key)) : [];
       return {
         handled: true,
         mode: currentMode,
         claim: {
-          ok: currentMode === 'shadow' || allowed,
+          ok: (currentMode === 'shadow' || allowed) && (!configured || availableForms.length > 0),
           allowed,
-          reason: allowed ? null : 'not_ready_or_denied',
+          reason: !allowed ? 'not_ready_or_denied' : configured && !availableForms.length ? 'no_forms_published' : null,
+          routing: { configured, revision: Number(routing.rows?.[0]?.revision || 0), availableForms },
         },
       };
     });
     if (outcome.duplicate) return outcome;
     if (outcome.claim?.ok && typeof openClaim === 'function') {
-      return { ...outcome, v3: await openClaim({ tenant, binding, event, groupId, userId, idempotencyKey: fingerprint }) };
+      return { ...outcome, v3: await openClaim({ tenant, binding, event, groupId, userId, groupLookup: group, memberLookup: member, idempotencyKey: fingerprint, routing: outcome.claim.routing }) };
     }
     return outcome;
   }
@@ -401,6 +413,138 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
     });
   }
 
+  function requireFormKey(formKey) {
+    if (!CLAIM_FORM_KEY_SET.has(String(formKey || ''))) throw new Error('請款單識別碼無效。');
+    return String(formKey);
+  }
+
+  async function listFormGroups({ tenant, actor, formKey }) {
+    requireRole(actor, READ);
+    const key = requireFormKey(formKey);
+    return tenantTx(tenant, async (client) => {
+      const result = await client.query(
+        `/* ca:list-form-groups */ SELECT g.group_lookup,g.group_name_ciphertext,g.state,g.oa_state,
+           (f.form_key IS NOT NULL) AS assigned,COALESCE(c.revision,0)::int AS routing_revision
+         FROM am_claims.groups g
+         LEFT JOIN am_claims.group_form_configs c ON c.tenant_id=g.tenant_id AND c.group_lookup=g.group_lookup
+         LEFT JOIN am_claims.group_forms f ON f.tenant_id=g.tenant_id AND f.group_lookup=g.group_lookup AND f.form_key=$2
+         WHERE g.tenant_id=$1 ORDER BY g.updated_at DESC`,
+        [tenant.tenantId, key],
+      );
+      await audit(client, tenant, 'form_groups_listed', null, actor, { formKey: key });
+      return (result.rows || []).map(({ group_name_ciphertext: encryptedName, ...row }) => ({
+        ...row,
+        display_name: encryptedName ? codec.decrypt(encryptedName) : '',
+      }));
+    });
+  }
+
+  async function publishFormGroups({ tenant, actor, formKey, groupLookups }) {
+    requireRole(actor, MANAGE);
+    const key = requireFormKey(formKey);
+    const selected = [...new Set((Array.isArray(groupLookups) ? groupLookups : []).map(String))];
+    if (selected.length > 500) throw new Error('一次最多設定 500 個群組。');
+    selected.forEach((lookup) => requireLookup(lookup, 'Group'));
+    return tenantTx(tenant, async (client) => {
+      const existing = await client.query('/* ca:form-groups-before */ SELECT group_lookup FROM am_claims.group_forms WHERE tenant_id=$1 AND form_key=$2 FOR UPDATE', [tenant.tenantId, key]);
+      const before = existing.rows.map((row) => String(row.group_lookup));
+      if (selected.length) {
+        const eligible = await client.query("/* ca:form-groups-eligible */ SELECT group_lookup FROM am_claims.groups WHERE tenant_id=$1 AND group_lookup=ANY($2::char(64)[]) AND state='active' AND oa_state='present'", [tenant.tenantId, selected]);
+        if (eligible.rows.length !== selected.length) throw new Error('只能發布給目前啟用且小幫手仍在群內的群組。');
+      }
+      const affected = [...new Set([...before, ...selected])];
+      for (const lookup of affected) {
+        await client.query(
+          `/* ca:publish-form-config */ INSERT INTO am_claims.group_form_configs(tenant_id,group_lookup,revision,published_by)
+           VALUES($1,$2,1,$3) ON CONFLICT(tenant_id,group_lookup) DO UPDATE
+           SET revision=am_claims.group_form_configs.revision+1,published_at=now(),published_by=EXCLUDED.published_by`,
+          [tenant.tenantId, lookup, actor?.subject || null],
+        );
+      }
+      await client.query('/* ca:replace-form-groups */ DELETE FROM am_claims.group_forms WHERE tenant_id=$1 AND form_key=$2', [tenant.tenantId, key]);
+      for (const lookup of selected) {
+        await client.query(
+          '/* ca:add-form-group */ INSERT INTO am_claims.group_forms(tenant_id,group_lookup,form_key,sort_order,published_by) VALUES($1,$2,$3,$4,$5)',
+          [tenant.tenantId, lookup, key, CLAIM_FORM_KEYS.indexOf(key), actor?.subject || null],
+        );
+      }
+      await audit(client, tenant, 'form_groups_published', null, actor, { formKey: key, before, after: selected, immediate: true });
+      return { ok: true, formKey: key, assignedCount: selected.length, affectedGroupCount: affected.length };
+    });
+  }
+
+  async function createFormSelectionSession({ tenant, groupLookup, memberLookup, eventKey, formKeys, ttlMs = 15 * 60 * 1000 }) {
+    requireLookup(groupLookup, 'Group');
+    requireLookup(memberLookup, 'Member');
+    const keys = [...new Set((formKeys || []).map(requireFormKey))];
+    if (!keys.length) throw new Error('此群組尚未發布可用的請款單。');
+    const sessionId = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + ttlMs).toISOString();
+    return tenantTx(tenant, async (client) => {
+      const result = await client.query(
+        `/* ca:create-form-session */ INSERT INTO am_claims.form_selection_sessions
+         (tenant_id,session_id,group_lookup,member_lookup,event_key,available_form_keys,expires_at)
+         VALUES($1,$2,$3,$4,$5,$6::jsonb,$7) ON CONFLICT(tenant_id,event_key) DO UPDATE SET event_key=EXCLUDED.event_key
+         RETURNING session_id,expires_at,available_form_keys`,
+        [tenant.tenantId, sessionId, groupLookup, memberLookup, eventKey, JSON.stringify(keys), expiresAt],
+      );
+      return { sessionId: result.rows[0].session_id, expiresAt: new Date(result.rows[0].expires_at).toISOString(), formKeys: result.rows[0].available_form_keys };
+    });
+  }
+
+  async function resolveFormSelection({ tenant, sessionId, formKey = '' }) {
+    if (!/^[0-9a-f-]{36}$/iu.test(String(sessionId || ''))) throw new Error('請款連結無效。');
+    const requestedKey = formKey ? requireFormKey(formKey) : '';
+    return tenantTx(tenant, async (client) => {
+      const result = await client.query(
+        `/* ca:resolve-form-session */ SELECT s.*,g.group_ciphertext,g.group_name_ciphertext,g.binding_ciphertext,
+           g.finance_source_ref,g.finance_form_key,g.finance_group_reference,m.member_ciphertext,m.manual_deny,m.state AS member_state,
+           g.state AS group_state,g.oa_state
+         FROM am_claims.form_selection_sessions s
+         JOIN am_claims.groups g ON g.tenant_id=s.tenant_id AND g.group_lookup=s.group_lookup
+         JOIN am_claims.members m ON m.tenant_id=s.tenant_id AND m.group_lookup=s.group_lookup AND m.member_lookup=s.member_lookup
+         WHERE s.tenant_id=$1 AND s.session_id=$2`,
+        [tenant.tenantId, sessionId],
+      );
+      const row = result.rows?.[0];
+      if (!row || Date.parse(row.expires_at) <= Date.now()) throw new Error('請款連結已失效，請回到群組重新輸入「請款」。');
+      if (row.group_state !== 'active' || row.oa_state !== 'present' || row.member_state !== 'observed' || row.manual_deny) throw new Error('目前沒有使用此請款連結的權限。');
+      const current = await client.query('/* ca:current-form-routing */ SELECT form_key FROM am_claims.group_forms WHERE tenant_id=$1 AND group_lookup=$2 ORDER BY sort_order,form_key', [tenant.tenantId, row.group_lookup]);
+      const available = current.rows.map((item) => item.form_key).filter((key) => row.available_form_keys.includes(key));
+      if (requestedKey && !available.includes(requestedKey)) throw new Error('這張請款單目前不適用此群組。');
+      if (requestedKey && row.selected_form_key && row.selected_form_key !== requestedKey) throw new Error('此連結已選擇其他請款單，請回群組重新開啟。');
+      return {
+        sessionId: row.session_id,
+        expiresAt: new Date(row.expires_at).toISOString(),
+        formKeys: available,
+        selectedFormKey: row.selected_form_key || '',
+        resolvedUrl: row.resolved_url || '',
+        groupId: codec.decrypt(row.group_ciphertext),
+        groupName: row.group_name_ciphertext ? codec.decrypt(row.group_name_ciphertext) : '',
+        bindingId: codec.decrypt(row.binding_ciphertext),
+        userId: codec.decrypt(row.member_ciphertext),
+        sourceId: row.finance_source_ref,
+        v3FormKey: row.finance_form_key,
+        groupReference: row.finance_group_reference,
+      };
+    });
+  }
+
+  async function completeFormSelection({ tenant, sessionId, formKey, resolvedUrl }) {
+    const key = requireFormKey(formKey);
+    return tenantTx(tenant, async (client) => {
+      const result = await client.query(
+        `/* ca:complete-form-session */ UPDATE am_claims.form_selection_sessions
+         SET selected_form_key=$3,resolved_url=$4,selected_at=COALESCE(selected_at,now())
+         WHERE tenant_id=$1 AND session_id=$2 AND (selected_form_key IS NULL OR selected_form_key=$3)
+         RETURNING session_id`,
+        [tenant.tenantId, sessionId, key, String(resolvedUrl || '').slice(0, 4096)],
+      );
+      if (!result.rows.length) throw new Error('此連結已選擇其他請款單，請回群組重新開啟。');
+      return { ok: true };
+    });
+  }
+
   return {
     discover,
     activate,
@@ -409,6 +553,11 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
     listGroups,
     listMembers,
     listUnassigned,
+    listFormGroups,
+    publishFormGroups,
+    createFormSelectionSession,
+    resolveFormSelection,
+    completeFormSelection,
     setGroupState,
     setMemberDenied,
     eventFingerprint,
