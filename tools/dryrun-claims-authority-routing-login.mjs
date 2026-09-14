@@ -62,10 +62,14 @@ assert.equal(claims.selectorTokenFromRequest(new URL(`https://example.test/claim
 assert.equal(claims.selectorTokenFromRequest(new URL(`https://example.test/claims/liff?liff.state=${encodeURIComponent(`?selector=${selectorToken}`)}`)), selectorToken);
 
 const legacyPreview = claims.liffHtml(null, null, { previewType: 'labor_health_insurance' });
-assert.match(legacyPreview, /儲存為我的範本/u);
+assert.match(legacyPreview, /儲存具名範本/u);
+assert.match(legacyPreview, /新增另一張/u);
+assert.match(legacyPreview, /套用選取範本/u);
+assert.match(legacyPreview, /刪除選取範本/u);
 assert.match(legacyPreview, /請補上本次請款月份、日期與附件/u);
-assert.match(legacyPreview, /action:'getTemplate'/u);
+assert.match(legacyPreview, /action:'listTemplates'/u);
 assert.match(legacyPreview, /action:'saveTemplate'/u);
+assert.match(legacyPreview, /action:'deleteTemplate'/u);
 const integrationSource = fs.readFileSync(new URL('../modules/claims/authority-integration.js', import.meta.url), 'utf8');
 assert.match(integrationSource, /bridgeMembership[\s\S]*startsWith\('legacy_'\)/u);
 assert.match(integrationSource, /identityReference[\s\S]*createLegacyFormLink/u);
