@@ -1,6 +1,6 @@
 # AM-IMP-2026.0914.02 — 請款來源群組隔離與 LIFF 登入恢復
 
-Status: `Installed` (production deployment pending)
+Status: `Deployed` (AM Platform `1d11b06`; Render `dep-dajqcldg1s2s73cmnhog`; verified 2026-09-14)
 
 修正請款單選擇功能的兩個正式環境問題：
 

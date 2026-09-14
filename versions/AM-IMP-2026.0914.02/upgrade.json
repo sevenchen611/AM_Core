@@ -33,6 +33,20 @@
     "Legacy and V3 form selection remain applicant-bound and server-revalidated",
     "Synthetic checks, package validation and production verification pass"
   ],
-  "projectStatus": { "AM_PLATFORM:hozo-am-2-0": "Installed" },
-  "status": "Installed"
+  "deploymentEvidence": {
+    "pullRequest": 152,
+    "commit": "1d11b06a3ee828bd044477a3ebb4fce878cbf5a6",
+    "renderDeploy": "dep-dajqcldg1s2s73cmnhog",
+    "verifiedAt": "2026-09-14",
+    "productionChecks": [
+      "Render Deploy succeeded and Live",
+      "Render checked out the exact merged main commit",
+      "custom-domain /health returned HTTP 200",
+      "onrender-domain /health returned HTTP 200",
+      "claims authority route returned the expected protected HTTP 401 without a portal session",
+      "startup log contained no claims authority initialization failure or runtime crash"
+    ]
+  },
+  "projectStatus": { "AM_PLATFORM:hozo-am-2-0": "Deployed" },
+  "status": "Deployed"
 }
