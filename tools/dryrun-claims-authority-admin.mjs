@@ -24,6 +24,7 @@ const handler = createClaimsAuthorityAdminHandler({
   resolveTarget: async () => ({ tenant, bindingId: 'binding', financeScope: {} }),
   verifyMutation: async () => { mutationChecks += 1; },
   syncDiscovery: async () => { discoverySyncs += 1; return { ok: true, scanned: 4, verified: 3 }; },
+  listFormHistory: async () => ({ forms: [{ key: 'legacy_other', currentVersionNo: 1, versions: [{ versionNo: 1, status: 'published' }] }] }),
   renderFormPreview: (formKey) => `<!doctype html><title>${formKey}</title><p>管理者預覽，不會送出</p>`,
 });
 
@@ -41,6 +42,8 @@ assert.match(page, /開啟管理者預覽/u);
 assert.match(page, /設定適用群組/u);
 assert.match(page, /正式發布/u);
 assert.match(page, /沒有草稿狀態/u);
+assert.match(page, /版本歷史/u);
+assert.match(page, /已停用表單與歷史/u);
 assert.match(page, /href="https:\/\/rental\.example\.test\/finance-claims\.html\?adminPreview=employee_expense"/u);
 assert.deepEqual(CLAIM_FORM_INVENTORY.map((form) => form.key), [
   'legacy_social_insurance',
@@ -85,6 +88,9 @@ assert.equal(response.status, 200);
 response = await handler(request('/claims-authority/api/forms/employee_expense/groups'));
 assert.equal(response.status, 200);
 assert.equal(JSON.parse(response.body).items[0].assigned, true);
+response = await handler(request('/claims-authority/api/forms/history'));
+assert.equal(response.status, 200);
+assert.equal(JSON.parse(response.body).forms[0].currentVersionNo, 1);
 response = await handler(request('/claims-authority/api/forms/employee_expense/groups/publish', {
   method: 'POST',
   body: { groupLookups: ['a'.repeat(64)] },

@@ -86,6 +86,18 @@ function init(injected) {
       receiver: localFinanceV3Receiver,
       renderFormPreview: renderLegacyClaimFormPreview,
       claimsLiffId,
+      async listFormHistory(tenant) {
+        const v3TenantKey = cleanText(claimConfig(tenant).v3Direct?.tenantKey || tenant.key, 128);
+        const response = await fetch(`${claimsBaseUrl(tenant)}/api/integrations/finance/claims/form-history?tenantKey=${encodeURIComponent(v3TenantKey)}`, {
+          headers: { Authorization: `Bearer ${claimsRentalToken(tenant)}` },
+          signal: AbortSignal.timeout(12_000),
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || result.contractVersion !== 'finance-claim-form-history-v1' || !Array.isArray(result.forms)) {
+          throw new Error('無法取得請款表單版本歷史。');
+        }
+        return { forms: result.forms };
+      },
       async verifyLiffUser({ tenant, accessToken, expectedUserId }) {
         const profile = await lineProfileFromAccessToken(accessToken, claimsLiffChannelId(tenant));
         return { ok: profile.userId === expectedUserId, displayName: profile.displayName };
@@ -536,6 +548,7 @@ function normalizeClaimSubmission(body, session, tenant, actor) {
   const note = cleanText(body.note, 1000);
   return {
     schemaVersion: 'am-claims-v1',
+    ...(session.authoritySelection ? { form: { key: session.authoritySelection.formKey, versionNo: 1 } } : {}),
     externalSubmissionId: session.externalSubmissionId,
     tenant: { key: session.tenantKey, uuid: session.tenantId },
     source: {

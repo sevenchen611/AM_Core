@@ -1,0 +1,33 @@
+{
+  "id": "AM-IMP-2026.0914.04",
+  "name": "HOZO finance claim form version history and retired form visibility",
+  "type": "HOZO claims form governance",
+  "portable": false,
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0", "RENTAL_MANAGEMENT:hozo-finance"],
+  "requiresDatabases": ["Existing AM Platform PostgreSQL claims authority database", "Existing Rental D1 finance claims database"],
+  "requiresEnv": ["Existing Rental claims bearer token", "Existing Finance Claims V3 schema flag"],
+  "requiresScripts": [
+    "node tools/dryrun-claims-authority-admin.mjs",
+    "node tools/check-upgrade-package.js AM-IMP-2026.0914.04",
+    "node scripts/finance-claims-v3-foundation.test.mjs",
+    "node scripts/finance-claims-v3-admin-api.test.mjs"
+  ],
+  "dependencies": ["AM-IMP-2026.0914.03 HOZO claims live group binding and failed-selector recovery"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Finance owns immutable form versions and claim snapshots; AM reads only sanitized version metadata."
+  },
+  "definitionOfDone": [
+    "Every legacy form has an immutable published v1 baseline",
+    "New legacy claims persist the exact form version and definition snapshot",
+    "Existing legacy claims remain unchanged and display an explicit inferred v1 marker",
+    "AM claim management displays current version and version history for every form",
+    "The unassigned shared-operating form is kept only under disabled form history",
+    "Package validation and relevant synthetic tests pass"
+  ],
+  "projectStatus": { "AM_PLATFORM:hozo-am-2-0": "Ready", "RENTAL_MANAGEMENT:hozo-finance": "Ready" },
+  "status": "Ready"
+}
