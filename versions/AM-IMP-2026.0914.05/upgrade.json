@@ -28,6 +28,6 @@
     "The unassigned shared-operating form is kept only under disabled form history",
     "Package validation and relevant synthetic tests pass"
   ],
-  "projectStatus": { "AM_PLATFORM:hozo-am-2-0": "Ready", "RENTAL_MANAGEMENT:hozo-finance": "Ready" },
-  "status": "Ready"
+  "projectStatus": { "AM_PLATFORM:hozo-am-2-0": "Deployed", "RENTAL_MANAGEMENT:hozo-finance": "Deployed" },
+  "status": "Deployed"
 }
