@@ -20,6 +20,7 @@ function makeStore({ denied = false } = {}) {
   const calls = [];
   const events = new Set();
   let discoveredCiphertext = '';
+  let observedMemberCiphertext = '';
   const client = {
     async query(sql, params = []) {
       calls.push({ sql, params });
@@ -31,6 +32,13 @@ function makeStore({ denied = false } = {}) {
       }
       if (sql.includes('ca:authorize')) {
         return { rows: [{ group_state: 'active', oa_state: 'present', member_state: 'observed', manual_deny: denied }] };
+      }
+      if (sql.includes('ca:observed')) {
+        observedMemberCiphertext = params[4];
+        return { rows: [] };
+      }
+      if (sql.includes('ca:resolve-notification-recipient')) {
+        return { rows: observedMemberCiphertext ? [{ member_ciphertext: observedMemberCiphertext, key_id: 'fixed-v1', manual_deny: denied }] : [] };
       }
       if (sql.includes('ca:platform-discover')) {
         discoveredCiphertext = params[1];
@@ -74,6 +82,7 @@ const authority = createClaimsAuthority({
       return { ok: true, sourceId: 'synthetic-source' };
     },
   },
+  applicantReferenceFactory: async () => 'line-ref:v1:11111111-1111-4111-8111-111111111111',
 });
 
 assert.equal(authority.fixedKeyId, 'fixed-v1');
@@ -115,6 +124,10 @@ const first = await authority.handleEvent({
 });
 assert.equal(first.claim.ok, true);
 assert.equal(opened, 1);
+assert.deepEqual(await authority.resolveNotificationRecipient({
+  tenantKey: tenantA.key,
+  identityReference: 'line-ref:v1:11111111-1111-4111-8111-111111111111',
+}), { tenantKey: tenantA.key, type: 'line_user', target: userId });
 const duplicate = await authority.handleEvent({
   tenant: tenantA,
   binding: { id: 'synthetic-binding' },
@@ -140,7 +153,11 @@ await authority.handleEvent({
 assert.ok(markerIndex('ca:leave') >= 0);
 
 const deniedStore = makeStore({ denied: true });
-const deniedAuthority = createClaimsAuthority({ store: deniedStore, identityKey: 'denied-fixed-key-material'.repeat(3) });
+const deniedAuthority = createClaimsAuthority({
+  store: deniedStore,
+  identityKey: 'denied-fixed-key-material'.repeat(3),
+  applicantReferenceFactory: async () => 'line-ref:v1:22222222-2222-4222-8222-222222222222',
+});
 let deniedOpen = 0;
 const denied = await deniedAuthority.handleEvent({
   tenant: tenantA,
@@ -151,6 +168,15 @@ const denied = await deniedAuthority.handleEvent({
 assert.equal(denied.claim.ok, false);
 assert.equal(denied.claim.reason, 'not_ready_or_denied');
 assert.equal(deniedOpen, 0);
+assert.equal(await deniedAuthority.resolveNotificationRecipient({
+  tenantKey: tenantA.key,
+  identityReference: 'line-ref:v1:22222222-2222-4222-8222-222222222222',
+}), null);
+assert.deepEqual(await deniedAuthority.resolveNotificationRecipient({
+  tenantKey: tenantA.key,
+  identityReference: 'line-ref:v1:22222222-2222-4222-8222-222222222222',
+  allowDenied: true,
+}), { tenantKey: tenantA.key, type: 'line_user', target: userId });
 
 const failureStore = makeStore();
 const failingAuthority = createClaimsAuthority({

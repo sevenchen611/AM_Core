@@ -190,6 +190,7 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
   const migrationSql = [
     '../../versions/AM-IMP-2026.0912.01/config/claims-authority-registry.sql',
     '../../versions/AM-IMP-2026.0914.01/config/claims-group-form-routing.sql',
+    '../../versions/AM-IMP-2026.0915.02/config/claims-member-auto-onboarding.sql',
   ].map((path) => fs.readFileSync(new URL(path, import.meta.url), 'utf8'));
   const migrationPromise = migrationSql.reduce((chain, sql) => chain.then(() => migrationPool.query(sql)), Promise.resolve()).then(() => true).catch((error) => {
     platform?.logger?.warn?.(`Claims authority migration failed closed: ${error.message}`);
@@ -254,11 +255,14 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
     identityKey,
     financeProvisioner: v3.financeProvisioner,
     openV3Claim: openClaim,
+    applicantReferenceFactory: resolveApplicantReference,
+    membershipSynchronizer: (body) => receiver.bridgeMembership(body),
     identityResolver: {
       resolveGroupName: ({ groupId }) => platform.resolveGroupName(groupId),
       resolveMemberName: ({ groupId, userId }) => platform.resolveGroupMemberName(groupId, userId),
     },
   });
+  receiver.setIdentityReferenceResolver?.((input) => authority.resolveNotificationRecipient(input));
   const mode = ['shadow', 'enforce'].includes(env.HZ2_CLAIMS_AUTHORITY_MODE) ? env.HZ2_CLAIMS_AUTHORITY_MODE : 'enforce';
   const authorityTenant = (tenant) => ({
     ...tenant,

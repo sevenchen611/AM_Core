@@ -54,8 +54,10 @@ export function createFinanceClaimsV3Receiver({
   fetchImpl = globalThis.fetch,
   store = null,
   now = () => Date.now(),
+  identityReferenceResolver = null,
 } = {}) {
   let activeStore = store;
+  let activeIdentityReferenceResolver = identityReferenceResolver;
   const trustedLocalRequests = new WeakSet();
 
   function receiverEnabled() {
@@ -126,7 +128,7 @@ export function createFinanceClaimsV3Receiver({
       if (!tenantKey) return sendJson(res, 400, errorBody('invalid_tenant_scope'));
       let body;
       try { body = await readJsonBody(req); } catch (error) { return sendJson(res, error.statusCode || 400, errorBody(error.code || 'invalid_json')); }
-      const parsed = parseDelivery(body, bindings, env, now());
+      const parsed = await parseDelivery(body, bindings, env, now(), activeIdentityReferenceResolver, tenantKey);
       if (!parsed.ok) return sendJson(res, parsed.status, errorBody(parsed.code));
       if (parsed.binding.tenantKey !== tenantKey) return sendJson(res, 400, errorBody('invalid_tenant_scope'));
       // Defence in depth at the durable boundary: an opaque reference, never a
@@ -180,7 +182,7 @@ export function createFinanceClaimsV3Receiver({
       if (!Number.isFinite(createdAt) || Date.now() - createdAt >= PROVIDER_RETRY_WINDOW_MS) {
         return sendJson(res, 409, errorBody('manual_reconciliation_required', { status: 'uncertain' }));
       }
-      const binding = bindings.byReference.get(row.recipient_reference);
+      const binding = await resolveRecipientBinding(bindings, row.recipient_reference, row.recipient_type, row.tenant_key, activeIdentityReferenceResolver);
       if (!binding || binding.tenantKey !== row.tenant_key || binding.type !== row.recipient_type || sha256(`${binding.tenantKey}:${binding.type}:${binding.target}`) !== row.target_hash) {
         return sendJson(res, 409, errorBody('recipient_binding_changed', { status: 'uncertain' }));
       }
@@ -206,11 +208,11 @@ export function createFinanceClaimsV3Receiver({
       const bindings = readBindings(env);
       if (!bindings.valid) return sendJson(res, 503, errorBody('recipient_bindings_unavailable'));
       try { body = await readJsonBody(req); } catch (error) { return sendJson(res, error.statusCode || 400, errorBody(error.code || 'invalid_json')); }
-      const parsed = parseBridge(body, kind, bindings);
+      const parsed = await parseBridge(body, kind, bindings, activeIdentityReferenceResolver);
       if (!parsed.ok) return sendJson(res, parsed.status, errorBody(parsed.code));
       upstreamBody = kind === 'membership'
-        ? { contractVersion: body.contractVersion, requestId: body.requestId, tenantKey: body.tenantKey, sourceId: body.sourceId, lineUserId: parsed.binding.target, desiredState: body.desiredState, eventSequence: body.eventSequence, effectiveAt: body.effectiveAt }
-        : { contractVersion: body.contractVersion, requestId: body.requestId, tenantKey: body.tenantKey, sourceId: body.sourceId, formKey: body.formKey, lineUserId: parsed.binding.target };
+        ? { contractVersion: body.contractVersion, requestId: body.requestId, tenantKey: body.tenantKey, sourceId: body.sourceId, identityReference: body.identityReference, lineUserId: parsed.binding.target, desiredState: body.desiredState, eventSequence: body.eventSequence, effectiveAt: body.effectiveAt }
+        : { contractVersion: body.contractVersion, requestId: body.requestId, tenantKey: body.tenantKey, sourceId: body.sourceId, formKey: body.formKey, identityReference: body.identityReference, lineUserId: parsed.binding.target };
     }
     const upstreamPath = `/api/integrations/finance/claims-v3/am-bridge/${kind === 'capability' ? 'capabilities' : kind === 'membership' ? 'memberships' : 'web-entry'}`;
     const upstreamUrl = new URL(upstreamPath, baseUrl);
@@ -311,6 +313,9 @@ export function createFinanceClaimsV3Receiver({
     bridgeWebEntry: (body) => invokeLocal({
       method: 'POST', pathname: '/control/finance/claims-v3/web-entry', body,
     }),
+    setIdentityReferenceResolver(resolver) {
+      activeIdentityReferenceResolver = typeof resolver === 'function' ? resolver : null;
+    },
   };
   if (env && typeof env === 'object') localServicesByEnv.set(env, service);
   return service;
@@ -461,7 +466,18 @@ async function dispatchClaim({ ledger, row, binding, fetchImpl, env, res, ackKin
   return sendJson(res, 200, deliveryAck(row.event_key, kind, providerReference));
 }
 
-function parseDelivery(body, bindings, env, nowMs) {
+async function resolveRecipientBinding(bindings, identityReference, expectedType, tenantKey, resolver, options = {}) {
+  const configured = bindings.byReference.get(identityReference);
+  if (configured) return configured;
+  if (expectedType !== 'line_user' || typeof resolver !== 'function') return null;
+  let resolved;
+  try { resolved = await resolver({ tenantKey, identityReference, allowDenied: options.allowDenied === true }); } catch { return null; }
+  if (!resolved || resolved.type !== 'line_user' || resolved.tenantKey !== tenantKey
+    || !bindings.tenants.has(resolved.tenantKey) || !validLineTarget(resolved.target, resolved.type)) return null;
+  return resolved;
+}
+
+async function parseDelivery(body, bindings, env, nowMs, resolver, tenantKey) {
   if (!exactObject(body, ['contractVersion', 'eventKey', 'eventType', 'recipient', 'templateKey', 'payload'])) return invalid('invalid_contract');
   if (!safeId(body.eventKey) || !safeId(body.eventType) || !safeId(body.templateKey)) return invalid('invalid_contract');
   const rule = TEMPLATE_RULES.get(body.templateKey);
@@ -469,21 +485,23 @@ function parseDelivery(body, bindings, env, nowMs) {
   if (!rule || body.contractVersion !== expectedContract) return invalid('invalid_contract');
   if (expectedContract === FINANCE_CLAIMS_V3_GROUP_ENTRY_CONTRACT && env.HOZO_FINANCE_CLAIMS_V3_GROUP_ENTRY_ENABLED !== 'true') return invalid('group_entry_disabled', 503);
   if (!exactObject(body.recipient, ['type', 'identityReference']) || !['group_binding', 'line_user'].includes(body.recipient.type) || !safeIdentityReference(body.recipient.identityReference)) return invalid('invalid_recipient');
-  const binding = bindings.byReference.get(body.recipient.identityReference);
+  const binding = await resolveRecipientBinding(bindings, body.recipient.identityReference, body.recipient.type, tenantKey, resolver);
   if (!binding || binding.type !== body.recipient.type || !bindings.tenants.has(binding.tenantKey)) return invalid('recipient_not_allowlisted', 409);
   if (rule.recipient !== body.recipient.type || !rule.events.has(body.eventType)) return invalid('template_not_allowlisted', 409);
   if (!validPayload(body.payload, body.eventKey, body.eventType, expectedContract) || !validTemplatePayload(body.templateKey, body.eventType, body.payload, env, nowMs)) return invalid('invalid_payload');
   return { ok: true, binding };
 }
 
-function parseBridge(body, kind, bindings) {
+async function parseBridge(body, kind, bindings, resolver) {
   const keys = kind === 'membership'
     ? ['contractVersion', 'requestId', 'tenantKey', 'sourceId', 'identityReference', 'desiredState', 'eventSequence', 'effectiveAt']
     : ['contractVersion', 'requestId', 'tenantKey', 'sourceId', 'formKey', 'identityReference'];
   if (!exactObject(body, keys) || body.contractVersion !== FINANCE_CLAIMS_V3_AM_BRIDGE_CONTRACT || !safeId(body.requestId) || !safeId(body.tenantKey) || !safeId(body.sourceId) || !safeIdentityReference(body.identityReference)) return invalid('invalid_bridge_contract');
   if (kind === 'membership' && (!['active', 'revoked'].includes(body.desiredState) || !Number.isSafeInteger(body.eventSequence) || body.eventSequence < 1 || !Number.isFinite(Date.parse(body.effectiveAt)))) return invalid('invalid_bridge_contract');
   if (kind === 'web_entry' && !safeId(body.formKey)) return invalid('invalid_bridge_contract');
-  const binding = bindings.byReference.get(body.identityReference);
+  const binding = await resolveRecipientBinding(bindings, body.identityReference, 'line_user', body.tenantKey, resolver, {
+    allowDenied: kind === 'membership' && body.desiredState === 'revoked',
+  });
   if (!binding || binding.type !== 'line_user' || binding.tenantKey !== body.tenantKey || !bindings.tenants.has(body.tenantKey)) return invalid('identity_not_allowlisted', 409);
   return { ok: true, binding };
 }
