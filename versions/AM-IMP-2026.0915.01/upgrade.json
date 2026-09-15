@@ -1,0 +1,48 @@
+{
+  "id": "AM-IMP-2026.0915.01",
+  "name": "Design drawing upload success-flow hotfix",
+  "type": "AM Platform / Construction / Hotfix",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-09-15",
+  "dependsOn": ["AM-IMP-2026.0914.06"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "scope": [
+    "Stop drawing uploads from falling through to the generic JSON management API",
+    "Preserve the successful HTTP 201 result and allow the dashboard to refresh"
+  ],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "node tools/dryrun-construction-drawings.mjs",
+    "node tools/check-upgrade-package.js AM-IMP-2026.0915.01",
+    "node tools/audit-alignment.js"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "The hotfix changes only browser control flow after the tenant-scoped binary upload endpoint returns. It does not change Drive or Notion targets."
+  },
+  "changes": [
+    "Guard the generic management API call so it runs only for non-drawing forms",
+    "Add a regression assertion for the post-upload control-flow guard"
+  ],
+  "definitionOfDone": [
+    "Drawing dry run and package validation pass",
+    "A successful drawing upload no longer shows the undefined.includes false failure",
+    "The project refreshes and displays the stored version",
+    "No existing Drive file or Notion version row is changed"
+  ],
+  "projectStatus": { "AM_PLATFORM:engineering": "Ready" },
+  "files": [
+    "modules/construction/dashboard.js",
+    "tools/dryrun-construction-drawings.mjs",
+    "versions/AM-IMP-2026.0915.01/README.md",
+    "versions/AM-IMP-2026.0915.01/INSTALL.md",
+    "versions/AM-IMP-2026.0915.01/VERIFY.md",
+    "versions/AM-IMP-2026.0915.01/ROLLBACK.md",
+    "versions/AM-IMP-2026.0915.01/upgrade.json"
+  ]
+}

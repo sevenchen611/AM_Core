@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { Readable } from 'node:stream';
 import { listDesignDrawings, uploadDesignDrawing, __test } from '../modules/construction/drawings.js';
 
@@ -71,4 +72,7 @@ await assert.rejects(() => uploadDesignDrawing(deps, {
   stream: Readable.from([]),
 }), /500 MB/);
 
-console.log('construction design drawings dry run: 12 assertions passed');
+const dashboardSource = fs.readFileSync(new URL('../modules/construction/dashboard.js', import.meta.url), 'utf8');
+assert.match(dashboardSource, /if \(kind !== 'drawing'\) result = await api\(path, \{ method:'POST', body \}\);/);
+
+console.log('construction design drawings dry run: 13 assertions passed');
