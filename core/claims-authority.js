@@ -92,7 +92,7 @@ function canonicalEventFingerprint({ tenant, groupLookup, memberLookup = '', eve
   return crypto.createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
 }
 
-export function createClaimsAuthority({ store, identityKey, financeProvisioner, openV3Claim, identityResolver } = {}) {
+export function createClaimsAuthority({ store, identityKey, financeProvisioner, openV3Claim, identityResolver, applicantReferenceFactory, membershipSynchronizer } = {}) {
   if (!store) throw new Error('Claims authority store is required.');
   const codec = createIdentityCodec(identityKey);
 
@@ -244,15 +244,40 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
     requireRole(actor, MANAGE);
     requireLookup(groupLookup, 'Group');
     requireLookup(memberLookup, 'Member');
-    return tenantTx(tenant, async (client) => {
+    const updated = await tenantTx(tenant, async (client) => {
       const result = await client.query(
-        '/* ca:deny-lookup */ UPDATE am_claims.members SET manual_deny=$4,updated_at=now() WHERE tenant_id=$1 AND group_lookup=$2 AND member_lookup=$3 RETURNING member_lookup',
+        `/* ca:deny-lookup */ WITH changed AS (
+           UPDATE am_claims.members SET manual_deny=$4,updated_at=now()
+           WHERE tenant_id=$1 AND group_lookup=$2 AND member_lookup=$3
+           RETURNING member_lookup,identity_reference
+         ) SELECT c.member_lookup,c.identity_reference,g.finance_source_ref
+           FROM changed c JOIN am_claims.groups g ON g.tenant_id=$1 AND g.group_lookup=$2`,
         [tenant.tenantId, groupLookup, memberLookup, Boolean(denied)],
       );
       if (!result.rows?.length) throw new Error('Claims authority member was not found.');
       await audit(client, tenant, denied ? 'member_denied' : 'member_allowed', memberLookup, actor, { group: groupLookup });
-      return { ok: true, denied: Boolean(denied) };
+      return result.rows[0];
     });
+    let financeSync = 'not_applicable';
+    if (updated.identity_reference && updated.finance_source_ref && typeof membershipSynchronizer === 'function') {
+      try {
+        const eventSequence = Date.now();
+        const result = await membershipSynchronizer({
+          contractVersion: 'finance-claims-v3.am-bridge-v1',
+          requestId: `member-policy-${crypto.randomUUID()}`,
+          tenantKey: tenant.key,
+          sourceId: updated.finance_source_ref,
+          identityReference: updated.identity_reference,
+          desiredState: denied ? 'revoked' : 'active',
+          eventSequence,
+          effectiveAt: new Date(eventSequence).toISOString(),
+        });
+        financeSync = result?.status === 200 && result.body?.effectiveState === (denied ? 'revoked' : 'active') ? 'applied' : 'pending';
+      } catch {
+        financeSync = 'pending';
+      }
+    }
+    return { ok: true, denied: Boolean(denied), financeSync };
   }
 
   async function setGroupState({ tenant, actor, groupLookup, state }) {
@@ -305,6 +330,8 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
     const userId = event?.source?.userId;
     const group = codec.opaque(tenant, 'group', groupId);
     const member = userId ? codec.opaque(tenant, 'member', userId) : '';
+    const identityReference = userId && typeof applicantReferenceFactory === 'function'
+      ? String(await applicantReferenceFactory({ tenant, userId }) || '') : '';
     const fingerprint = eventFingerprint(tenant, group, member, event);
     const outcome = await tenantTx(tenant, async (client) => {
       const accepted = await client.query(
@@ -335,8 +362,8 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
       if (event.type === 'message' && userId) {
         const memberDisplayName = await resolveOptionalName(identityResolver?.resolveMemberName, { groupId, userId, event });
         await client.query(
-          "/* ca:observed */ INSERT INTO am_claims.members (tenant_id,group_lookup,member_lookup,member_ciphertext,member_name_ciphertext,key_id,state,manual_deny,first_observed_at) VALUES ($1,$2,$3,$4,$5,$6,'observed',false,now()) ON CONFLICT (tenant_id,group_lookup,member_lookup) DO UPDATE SET member_name_ciphertext=COALESCE(EXCLUDED.member_name_ciphertext,am_claims.members.member_name_ciphertext),state=CASE WHEN am_claims.members.state='left' THEN 'observed' ELSE am_claims.members.state END,updated_at=now()",
-          [tenant.tenantId, group, member, codec.encrypt(userId), memberDisplayName ? codec.encrypt(memberDisplayName) : null, codec.keyId],
+          "/* ca:observed */ INSERT INTO am_claims.members (tenant_id,tenant_key,group_lookup,member_lookup,member_ciphertext,member_name_ciphertext,identity_reference,key_id,state,manual_deny,first_observed_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'observed',false,now()) ON CONFLICT (tenant_id,group_lookup,member_lookup) DO UPDATE SET tenant_key=EXCLUDED.tenant_key,identity_reference=EXCLUDED.identity_reference,member_name_ciphertext=COALESCE(EXCLUDED.member_name_ciphertext,am_claims.members.member_name_ciphertext),state=CASE WHEN am_claims.members.state='left' THEN 'observed' ELSE am_claims.members.state END,updated_at=now()",
+          [tenant.tenantId, tenant.key, group, member, codec.encrypt(userId), memberDisplayName ? codec.encrypt(memberDisplayName) : null, identityReference || null, codec.keyId],
         );
       }
       await outbox(client, tenant, `line:${fingerprint}`, `line_${event.type}`, group, { type: event.type });
@@ -420,6 +447,28 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
         ...row,
         display_name: encryptedName ? codec.decrypt(encryptedName) : '',
       }));
+    });
+  }
+
+  async function resolveNotificationRecipient({ tenantKey, identityReference, allowDenied = false }) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{1,159}$/u.test(String(tenantKey || ''))
+      || !/^line-ref:v1:[0-9a-f-]{36}$/iu.test(String(identityReference || ''))) return null;
+    return platformTx({ subject: 'claims-notification-router', roles: ['platform_owner'] }, async (client) => {
+      const result = await client.query(
+        `/* ca:resolve-notification-recipient */ SELECT m.member_ciphertext,m.key_id,m.manual_deny
+         FROM am_claims.members m
+         JOIN am_claims.groups g ON g.tenant_id=m.tenant_id AND g.group_lookup=m.group_lookup
+         WHERE m.tenant_key=$1 AND m.identity_reference=$2 AND m.state='observed'
+           AND g.state='active' AND g.oa_state='present'`,
+        [String(tenantKey), String(identityReference)],
+      );
+      if (!allowDenied && !(result.rows || []).some((row) => !row.manual_deny)) return null;
+      const targets = [...new Set((result.rows || []).map((row) => {
+        if (row.key_id !== codec.keyId) throw new Error('Claims notification recipient uses an unsupported fixed key.');
+        return codec.decrypt(row.member_ciphertext);
+      }))];
+      if (targets.length !== 1) return null;
+      return { tenantKey: String(tenantKey), type: 'line_user', target: targets[0] };
     });
   }
 
@@ -563,6 +612,7 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
     listGroups,
     listMembers,
     listUnassigned,
+    resolveNotificationRecipient,
     listFormGroups,
     publishFormGroups,
     createFormSelectionSession,

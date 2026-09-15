@@ -278,6 +278,27 @@ assert.equal(selectorDelivery.status, 200);
 assert.match(deliveredMessage.messages[0].text, /先選擇這次要使用的請款單/u);
 assert.match(deliveredMessage.messages[0].text, /liff\.line\.me/u);
 
+const dynamicUserReference = 'line-ref:v1:33333333-3333-4333-8333-333333333333';
+deliveryReceiver.setIdentityReferenceResolver(async ({ tenantKey, identityReference }) => (
+  tenantKey === 'hozo' && identityReference === dynamicUserReference
+    ? { tenantKey, type: 'line_user', target: USER }
+    : null
+));
+const dynamicUserDelivery = await deliveryReceiver.deliverEnvelope({
+  contractVersion: 'finance-claims-v3.approval-v1',
+  eventKey: 'dynamic-applicant-notification',
+  eventType: 'first_approval_pending',
+  recipient: { type: 'line_user', identityReference: dynamicUserReference },
+  templateKey: 'approval_pending',
+  payload: {
+    contractVersion: 'finance-claims-v3.approval-v1', eventKey: 'dynamic-applicant-notification',
+    eventType: 'first_approval_pending', claimId: 'claim-dynamic', revisionNo: 1,
+    amountTotal: 1200, currency: 'TWD', approvalStages: 1, stage: 1, needsOwnerAttention: false,
+  },
+}, { tenantKey: 'hozo' });
+assert.equal(dynamicUserDelivery.status, 200);
+assert.equal(deliveredMessage.to, USER);
+
 const preparedStore = new MemoryStore(); let preparedWebEntries = 0;
 const preparedConsumer = createFinanceClaimsV3GroupEntryConsumer({ env: localEnv(), store: preparedStore, now: () => clock, autoDrain: false, client: {
   ready: true, async syncMembership() { throw new Error('not expected'); }, async createWebEntry() { preparedWebEntries += 1; throw new Error('not expected'); },

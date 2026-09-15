@@ -68,7 +68,7 @@
       "enabled": true,
       "requireActiveBinding": true,
       "requireClaimCapability": true,
-      "requireNamedSubmitter": true,
+      "requireNamedSubmitter": false,
       "v3Direct": {
         "enabledEnv": "HZ2_FINANCE_CLAIMS_V3_GROUP_ENTRY_ENABLED",
         "databaseUrlEnv": "HZ2_FINANCE_CLAIMS_V3_DATABASE_URL",
@@ -77,7 +77,7 @@
         "formKey": "general_expense",
         "tenantKey": "hozo"
       },
-      "status": "已啟用；僅在群組綁定為啟用、群組啟用請款功能且送件人 LINE user ID 已列入白名單時才可送件。"
+      "status": "已啟用；已發布請款單的有效群組成員預設可送件，僅在請款功能管理中被個別停用時拒絕。首次使用可自動建立不含後台與員工權限的外部請款身分。"
     }
   }
 }
