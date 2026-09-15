@@ -3,7 +3,7 @@
   "name": "LINE group member claim auto-onboarding",
   "type": "HOZO claims identity and source authorization",
   "portable": false,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-09-15",
   "dependsOn": ["AM-IMP-2026.0914.07"],
   "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
@@ -29,7 +29,7 @@
     "Applicant notification routing survives runtime restart through the encrypted authority registry",
     "Legacy forms, V3, named templates, idempotency and individual denial remain compatible"
   ],
-  "projectStatus": { "AM_PLATFORM:hozo-am-2-0": "Installed" },
+  "projectStatus": { "AM_PLATFORM:hozo-am-2-0": "Deployed" },
   "files": [
     "core/claims-authority.js",
     "modules/claims/authority-integration.js",
