@@ -730,7 +730,10 @@ async function submitManager(event) {
       path = 'work-item-edit';
       body = { page:window.currentEditingWorkItem.id, project:currentProjectId, name:document.getElementById('mName').value, plannedStart:document.getElementById('mStart').value, plannedEnd:document.getElementById('mEnd').value, status:document.getElementById('mStatus').value };
     }
-    result = await api(path, { method:'POST', body });
+    // Drawing uploads already call their dedicated binary endpoint above. Do not
+    // fall through to the JSON management endpoint with an undefined path after
+    // the upload has succeeded.
+    if (kind !== 'drawing') result = await api(path, { method:'POST', body });
   } catch (e) {
     alert('儲存失敗：' + e.message);
     save.disabled = false;
