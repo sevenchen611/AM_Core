@@ -3,7 +3,7 @@
   "name": "Design drawing upload success-flow hotfix",
   "type": "AM Platform / Construction / Hotfix",
   "portable": true,
-  "status": "Ready",
+  "status": "Deployed",
   "createdAt": "2026-09-15",
   "dependsOn": ["AM-IMP-2026.0914.06"],
   "installTargets": ["AM_PLATFORM:engineering"],
@@ -35,7 +35,19 @@
     "The project refreshes and displays the stored version",
     "No existing Drive file or Notion version row is changed"
   ],
-  "projectStatus": { "AM_PLATFORM:engineering": "Ready" },
+  "deploymentEvidence": {
+    "pullRequest": 166,
+    "mergeCommit": "4ccdbc71d2fc3b4d45b2a3afe307ce78d87a0335",
+    "renderDeploy": "dep-dakl1c67bikc7398pnpg",
+    "verifiedAt": "2026-09-15",
+    "productionChecks": [
+      "Render deploy is Live on the merged hotfix commit",
+      "Production health returned ok with Engineering Notion, Drive, routing, designDrawings, and construction ready",
+      "Authenticated dashboard HTML contains the non-drawing guard",
+      "The pre-existing V1 PDF version is visible in the project drawing library after reload"
+    ]
+  },
+  "projectStatus": { "AM_PLATFORM:engineering": "Deployed" },
   "files": [
     "modules/construction/dashboard.js",
     "tools/dryrun-construction-drawings.mjs",
