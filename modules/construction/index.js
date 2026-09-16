@@ -28,6 +28,7 @@ import { listKnownTrades } from './trades.js';
 import { handleBudgetRequest } from './budget.js';
 import { handleContractsRequest } from './contracts.js';
 import { createContractSigningWebHandler } from './contract-signing-web.js';
+import { createContractPublicAttachmentReader } from './contract-line-attachments.js';
 import { createContractDraftReviewWebHandler } from './contract-draft-review-web.js';
 import { handleEngineeringContractPdfRender } from './contract-pdf-renderer.js';
 import { createContractOutboxWorker } from './contract-outbox.js';
@@ -249,11 +250,14 @@ async function publicContractSigningRoute(req, res, ctx) {
   try {
     const deps = fullDeps(tenant);
     const service = createRuntimeSigningService(deps);
+    const attachmentReader = createContractPublicAttachmentReader(deps);
     const handler = createContractSigningWebHandler({
       service,
       liffId: tenant.config?.contracts?.liffId,
       getRequestMeta: signingRequestMeta,
       resolveDocumentUrl: async () => '/contract-sign/api/document',
+      listAttachments: (opened) => attachmentReader.list(opened),
+      loadAttachment: (opened, input) => attachmentReader.load(opened, input),
       loadDocument: async (opened) => loadContractPdf(deps, opened, {
         signingState: opened.partyASigned ? await service.getSession(opened.sessionId) : null,
       }),

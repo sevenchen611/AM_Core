@@ -347,6 +347,7 @@ const jsonHeaders = { 'content-type': 'application/json' };
     projectId: 'project-001',
     documentHash,
     documentUrl: '/contract-sign/document/signing-session-001',
+    attachments: [],
     status: 'opened',
     expiresAt: '2026-09-04T01:00:00.000Z',
     idempotent: false,
