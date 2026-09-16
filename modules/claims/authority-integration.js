@@ -13,6 +13,14 @@ const SAFE_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{1,159}$/u;
 const SELECTOR_TTL_MS = 10 * 60 * 1000;
 const SELECTOR_COOKIE = 'am_claims_form_selector';
 
+function requiresFinanceMembership(claimMode, formKey) {
+  if (claimMode === 'external_claim_only') {
+    if (!String(formKey || '').startsWith('legacy_')) throw new Error('外部廠商群組僅可使用外部請款單。');
+    return false;
+  }
+  return true;
+}
+
 function parseJson(value, fallback) {
   try { return JSON.parse(String(value || '')); } catch { return fallback; }
 }
@@ -191,6 +199,7 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
     '../../versions/AM-IMP-2026.0912.01/config/claims-authority-registry.sql',
     '../../versions/AM-IMP-2026.0914.01/config/claims-group-form-routing.sql',
     '../../versions/AM-IMP-2026.0915.02/config/claims-member-auto-onboarding.sql',
+    '../../versions/AM-IMP-2026.0916.01/config/claims-group-modes.sql',
   ].map((path) => fs.readFileSync(new URL(path, import.meta.url), 'utf8'));
   const migrationPromise = migrationSql.reduce((chain, sql) => chain.then(() => migrationPool.query(sql)), Promise.resolve()).then(() => true).catch((error) => {
     platform?.logger?.warn?.(`Claims authority migration failed closed: ${error.message}`);
@@ -391,8 +400,10 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
       let targetUrl = '';
       const identityReference = await resolveApplicantReference({ tenant, userId: selected.userId });
       const requestBase = `selector-${parsed.sessionId}`;
-      const membership = await receiver.bridgeMembership({ contractVersion: 'finance-claims-v3.am-bridge-v1', requestId: `${requestBase}-member`, tenantKey: tenant.key, sourceId: selected.sourceId, identityReference, desiredState: 'active', eventSequence: Math.max(1, Date.now()), effectiveAt: new Date().toISOString() });
-      if (membership?.status !== 200 || !membership.body?.matched || membership.body?.effectiveState !== 'active') throw new Error('請款身分尚未啟用，請聯絡財務管理員。');
+      if (requiresFinanceMembership(selected.claimMode, body.formKey)) {
+        const membership = await receiver.bridgeMembership({ contractVersion: 'finance-claims-v3.am-bridge-v1', requestId: `${requestBase}-member`, tenantKey: tenant.key, sourceId: selected.sourceId, identityReference, desiredState: 'active', eventSequence: Math.max(1, Date.now()), effectiveAt: new Date().toISOString() });
+        if (membership?.status !== 200 || !membership.body?.matched || membership.body?.effectiveState !== 'active') throw new Error('內部 V3 請款身分尚未啟用，請聯絡財務管理員。');
+      }
       if (String(body.formKey).startsWith('legacy_')) {
         targetUrl = await createLegacyFormLink?.({ tenant, selectorSessionId: parsed.sessionId, formKey: body.formKey, sourceId: selected.sourceId, identityReference, bindingId: selected.bindingId, groupId: selected.groupId, groupName: selected.groupName, userId: selected.userId, userName: actor.displayName || '' });
       } else if (body.formKey === 'employee_expense') {
@@ -429,4 +440,4 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
   };
 }
 
-export const __test = { deliverSelectorToOrigin, groupRecipientRegistry, selectorMessage, selectorSessionCookie };
+export const __test = { deliverSelectorToOrigin, groupRecipientRegistry, requiresFinanceMembership, selectorMessage, selectorSessionCookie };
