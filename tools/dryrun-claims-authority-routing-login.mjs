@@ -71,7 +71,14 @@ assert.match(legacyPreview, /action:'listTemplates'/u);
 assert.match(legacyPreview, /action:'saveTemplate'/u);
 assert.match(legacyPreview, /action:'deleteTemplate'/u);
 const integrationSource = fs.readFileSync(new URL('../modules/claims/authority-integration.js', import.meta.url), 'utf8');
-assert.match(integrationSource, /bridgeMembership[\s\S]*startsWith\('legacy_'\)/u);
+assert.equal(integration.requiresFinanceMembership('external_claim_only', 'legacy_social_insurance'), false);
+assert.equal(integration.requiresFinanceMembership('internal_v3', 'employee_expense'), true);
+assert.throws(() => integration.requiresFinanceMembership('external_claim_only', 'employee_expense'), /外部廠商群組/u);
+assert.match(integrationSource, /requiresFinanceMembership\(selected\.claimMode[\s\S]*bridgeMembership/u);
 assert.match(integrationSource, /identityReference[\s\S]*createLegacyFormLink/u);
+
+const migrationSource = fs.readFileSync(new URL('../versions/AM-IMP-2026.0916.01/config/claims-group-modes.sql', import.meta.url), 'utf8');
+assert.match(migrationSource, /claim_mode IN \('external_claim_only','internal_v3'\)/u);
+assert.match(migrationSource, /claims_groups_platform_read[\s\S]*claims_members_platform_read/u);
 
 console.log('claims authority origin routing and LIFF OAuth recovery dry-run passed');

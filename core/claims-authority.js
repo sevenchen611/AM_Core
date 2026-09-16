@@ -12,6 +12,7 @@ const PLATFORM_SCOPE = Object.freeze({
 const FIXED_KEY_ID = 'fixed-v1';
 const CLAIM_FORM_KEYS = Object.freeze(['legacy_social_insurance', 'legacy_shared_operating', 'legacy_other', 'employee_expense']);
 const CLAIM_FORM_KEY_SET = new Set(CLAIM_FORM_KEYS);
+const GROUP_CLAIM_MODES = new Set(['external_claim_only', 'internal_v3']);
 
 export const isClaimsCommand = (text) => COMMAND.test(String(text || '').trim());
 export const redact = (value) => value
@@ -250,7 +251,7 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
            UPDATE am_claims.members SET manual_deny=$4,updated_at=now()
            WHERE tenant_id=$1 AND group_lookup=$2 AND member_lookup=$3
            RETURNING member_lookup,identity_reference
-         ) SELECT c.member_lookup,c.identity_reference,g.finance_source_ref
+         ) SELECT c.member_lookup,c.identity_reference,g.finance_source_ref,g.claim_mode
            FROM changed c JOIN am_claims.groups g ON g.tenant_id=$1 AND g.group_lookup=$2`,
         [tenant.tenantId, groupLookup, memberLookup, Boolean(denied)],
       );
@@ -259,7 +260,7 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
       return result.rows[0];
     });
     let financeSync = 'not_applicable';
-    if (updated.identity_reference && updated.finance_source_ref && typeof membershipSynchronizer === 'function') {
+    if (updated.claim_mode === 'internal_v3' && updated.identity_reference && updated.finance_source_ref && typeof membershipSynchronizer === 'function') {
       try {
         const eventSequence = Date.now();
         const result = await membershipSynchronizer({
@@ -291,6 +292,37 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
       );
       if (!result.rows?.length) throw new Error('Claims authority group was not found.');
       await audit(client, tenant, `group_${state}`, groupLookup, actor);
+      return result.rows[0];
+    });
+  }
+
+  async function setGroupClaimMode({ tenant, actor, groupLookup, claimMode }) {
+    requireRole(actor, MANAGE);
+    requireLookup(groupLookup, 'Group');
+    if (!GROUP_CLAIM_MODES.has(String(claimMode || ''))) throw new Error('請款群組模式無效。');
+    return tenantTx(tenant, async (client) => {
+      const result = await client.query(
+        '/* ca:set-group-claim-mode */ UPDATE am_claims.groups SET claim_mode=$3,updated_at=now() WHERE tenant_id=$1 AND group_lookup=$2 RETURNING group_lookup,claim_mode',
+        [tenant.tenantId, groupLookup, claimMode],
+      );
+      if (!result.rows?.length) throw new Error('Claims authority group was not found.');
+      let removedInternalForms = 0;
+      if (claimMode === 'external_claim_only') {
+        const removed = await client.query(
+          "/* ca:remove-internal-forms */ DELETE FROM am_claims.group_forms WHERE tenant_id=$1 AND group_lookup=$2 AND form_key='employee_expense' RETURNING form_key",
+          [tenant.tenantId, groupLookup],
+        );
+        removedInternalForms = removed.rows?.length || 0;
+        if (removedInternalForms) {
+          await client.query(
+            `/* ca:mode-form-config */ INSERT INTO am_claims.group_form_configs(tenant_id,group_lookup,revision,published_by)
+             VALUES($1,$2,1,$3) ON CONFLICT(tenant_id,group_lookup) DO UPDATE
+             SET revision=am_claims.group_form_configs.revision+1,published_at=now(),published_by=EXCLUDED.published_by`,
+            [tenant.tenantId, groupLookup, actor?.subject || null],
+          );
+        }
+      }
+      await audit(client, tenant, 'group_claim_mode_changed', groupLookup, actor, { claimMode, removedInternalForms });
       return result.rows[0];
     });
   }
@@ -371,7 +403,7 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
       if (!isClaimsCommand(event.message?.text)) return { handled: true, mode: currentMode };
       if (!userId) return { handled: true, mode: currentMode, claim: { ok: false, reason: 'identity_unavailable' } };
       const authorization = await client.query(
-        '/* ca:authorize */ SELECT g.state AS group_state,g.oa_state,m.state AS member_state,m.manual_deny FROM am_claims.groups g LEFT JOIN am_claims.members m ON m.tenant_id=g.tenant_id AND m.group_lookup=g.group_lookup AND m.member_lookup=$3 WHERE g.tenant_id=$1 AND g.group_lookup=$2',
+        '/* ca:authorize */ SELECT g.state AS group_state,g.oa_state,g.claim_mode,m.state AS member_state,m.manual_deny FROM am_claims.groups g LEFT JOIN am_claims.members m ON m.tenant_id=g.tenant_id AND m.group_lookup=g.group_lookup AND m.member_lookup=$3 WHERE g.tenant_id=$1 AND g.group_lookup=$2',
         [tenant.tenantId, group, member],
       );
       const row = authorization.rows?.[0];
@@ -395,7 +427,7 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
           ok: (currentMode === 'shadow' || allowed) && (!configured || availableForms.length > 0),
           allowed,
           reason: !allowed ? 'not_ready_or_denied' : configured && !availableForms.length ? 'no_forms_published' : null,
-          routing: { configured, revision: Number(routing.rows?.[0]?.revision || 0), availableForms },
+          routing: { configured, revision: Number(routing.rows?.[0]?.revision || 0), availableForms, claimMode: row?.claim_mode || 'internal_v3' },
         },
       };
     });
@@ -410,7 +442,7 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
     requireRole(actor, READ);
     return tenantTx(tenant, async (client) => {
       const result = await client.query(
-        '/* ca:list */ SELECT group_lookup,group_name_ciphertext,state,oa_state,finance_source_ref,last_error,discovered_at,updated_at FROM am_claims.groups WHERE tenant_id=$1 ORDER BY updated_at DESC',
+        '/* ca:list */ SELECT group_lookup,group_name_ciphertext,state,oa_state,claim_mode,finance_source_ref,last_error,discovered_at,updated_at FROM am_claims.groups WHERE tenant_id=$1 ORDER BY updated_at DESC',
         [tenant.tenantId],
       );
       await audit(client, tenant, 'groups_listed', null, actor);
@@ -482,7 +514,7 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
     const key = requireFormKey(formKey);
     return tenantTx(tenant, async (client) => {
       const result = await client.query(
-        `/* ca:list-form-groups */ SELECT g.group_lookup,g.group_name_ciphertext,g.state,g.oa_state,
+         `/* ca:list-form-groups */ SELECT g.group_lookup,g.group_name_ciphertext,g.state,g.oa_state,g.claim_mode,
            (f.form_key IS NOT NULL) AS assigned,COALESCE(c.revision,0)::int AS routing_revision
          FROM am_claims.groups g
          LEFT JOIN am_claims.group_form_configs c ON c.tenant_id=g.tenant_id AND c.group_lookup=g.group_lookup
@@ -508,8 +540,11 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
       const existing = await client.query('/* ca:form-groups-before */ SELECT group_lookup FROM am_claims.group_forms WHERE tenant_id=$1 AND form_key=$2 FOR UPDATE', [tenant.tenantId, key]);
       const before = existing.rows.map((row) => String(row.group_lookup));
       if (selected.length) {
-        const eligible = await client.query("/* ca:form-groups-eligible */ SELECT group_lookup FROM am_claims.groups WHERE tenant_id=$1 AND group_lookup=ANY($2::char(64)[]) AND state='active' AND oa_state='present'", [tenant.tenantId, selected]);
+        const eligible = await client.query("/* ca:form-groups-eligible */ SELECT group_lookup,claim_mode FROM am_claims.groups WHERE tenant_id=$1 AND group_lookup=ANY($2::char(64)[]) AND state='active' AND oa_state='present'", [tenant.tenantId, selected]);
         if (eligible.rows.length !== selected.length) throw new Error('只能發布給目前啟用且小幫手仍在群內的群組。');
+        if (key === 'employee_expense' && eligible.rows.some((row) => row.claim_mode !== 'internal_v3')) {
+          throw new Error('V3 標準版只能發布給「內部同仁－V3 請款」群組。');
+        }
       }
       const affected = [...new Set([...before, ...selected])];
       for (const lookup of affected) {
@@ -556,7 +591,7 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
     const requestedKey = formKey ? requireFormKey(formKey) : '';
     return tenantTx(tenant, async (client) => {
       const result = await client.query(
-        `/* ca:resolve-form-session */ SELECT s.*,g.group_ciphertext,g.group_name_ciphertext,g.binding_ciphertext,
+         `/* ca:resolve-form-session */ SELECT s.*,g.group_ciphertext,g.group_name_ciphertext,g.binding_ciphertext,g.claim_mode,
            g.finance_source_ref,g.finance_form_key,g.finance_group_reference,m.member_ciphertext,m.manual_deny,m.state AS member_state,
            g.state AS group_state,g.oa_state
          FROM am_claims.form_selection_sessions s
@@ -585,6 +620,7 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
         sourceId: row.finance_source_ref,
         v3FormKey: row.finance_form_key,
         groupReference: row.finance_group_reference,
+        claimMode: row.claim_mode || 'internal_v3',
       };
     });
   }
@@ -619,6 +655,7 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
     resolveFormSelection,
     completeFormSelection,
     setGroupState,
+    setGroupClaimMode,
     setMemberDenied,
     eventFingerprint,
     opaqueIdentity: codec.opaque,

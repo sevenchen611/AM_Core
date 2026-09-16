@@ -16,7 +16,7 @@ const claimsAdmin = { subject: 'synthetic-admin', roles: ['claims_access_admin']
 const groupId = 'C-synthetic-group';
 const userId = 'U-synthetic-user';
 
-function makeStore({ denied = false } = {}) {
+function makeStore({ denied = false, claimMode = 'internal_v3' } = {}) {
   const calls = [];
   const events = new Set();
   let discoveredCiphertext = '';
@@ -31,7 +31,7 @@ function makeStore({ denied = false } = {}) {
         return { rows: [{ event_key: params[1] }] };
       }
       if (sql.includes('ca:authorize')) {
-        return { rows: [{ group_state: 'active', oa_state: 'present', member_state: 'observed', manual_deny: denied }] };
+        return { rows: [{ group_state: 'active', oa_state: 'present', claim_mode: claimMode, member_state: 'observed', manual_deny: denied }] };
       }
       if (sql.includes('ca:observed')) {
         observedMemberCiphertext = params[4];
@@ -47,7 +47,9 @@ function makeStore({ denied = false } = {}) {
       if (sql.includes('ca:platform-claim')) {
         return { rows: [{ group_ciphertext: discoveredCiphertext, key_id: 'fixed-v1', state: 'unassigned' }] };
       }
-      if (sql.includes('ca:deny-lookup') || sql.includes('ca:set-group-state')) return { rows: [{ ok: true }] };
+      if (sql.includes('ca:deny-lookup')) return { rows: [{ member_lookup: params[2], identity_reference: 'line-ref:v1:11111111-1111-4111-8111-111111111111', finance_source_ref: 'synthetic-source', claim_mode: claimMode }] };
+      if (sql.includes('ca:set-group-state')) return { rows: [{ ok: true }] };
+      if (sql.includes('ca:set-group-claim-mode')) return { rows: [{ group_lookup: params[1], claim_mode: params[2] }] };
       return { rows: [] };
     },
   };
@@ -123,7 +125,31 @@ const first = await authority.handleEvent({
   },
 });
 assert.equal(first.claim.ok, true);
+assert.equal(first.claim.routing.claimMode, 'internal_v3');
 assert.equal(opened, 1);
+
+const groupLookup = authority.opaqueIdentity(tenantA, 'group', groupId);
+const changedMode = await authority.setGroupClaimMode({ tenant: tenantA, actor: claimsAdmin, groupLookup, claimMode: 'external_claim_only' });
+assert.equal(changedMode.claim_mode, 'external_claim_only');
+await assert.rejects(
+  authority.setGroupClaimMode({ tenant: tenantA, actor: claimsAdmin, groupLookup, claimMode: 'unsafe' }),
+  /群組模式無效/u,
+);
+
+let externalFinanceSyncs = 0;
+const externalAuthority = createClaimsAuthority({
+  store: makeStore({ claimMode: 'external_claim_only' }),
+  identityKey: 'external-fixed-key-material'.repeat(3),
+  membershipSynchronizer: async () => { externalFinanceSyncs += 1; },
+});
+await externalAuthority.setMemberDenied({
+  tenant: tenantA,
+  actor: claimsAdmin,
+  groupLookup: externalAuthority.opaqueIdentity(tenantA, 'group', groupId),
+  memberLookup: externalAuthority.opaqueIdentity(tenantA, 'member', userId),
+  denied: true,
+});
+assert.equal(externalFinanceSyncs, 0);
 assert.deepEqual(await authority.resolveNotificationRecipient({
   tenantKey: tenantA.key,
   identityReference: 'line-ref:v1:11111111-1111-4111-8111-111111111111',

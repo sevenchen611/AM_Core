@@ -12,6 +12,7 @@ const authority = {
   assignGroup: async (input) => { calls.push(['assign', input]); return { ok: true }; },
   setMemberDenied: async (input) => { calls.push(['deny', input]); return { ok: true }; },
   setGroupState: async (input) => { calls.push(['state', input]); return { ok: true }; },
+  setGroupClaimMode: async (input) => { calls.push(['mode', input]); return { ok: true, claim_mode: input.claimMode }; },
   listFormGroups: async (input) => { calls.push(['form-groups', input]); return [{ group_lookup: 'a'.repeat(64), state: 'active', oa_state: 'present', assigned: true }]; },
   publishFormGroups: async (input) => { calls.push(['publish-form-groups', input]); return { ok: true, assignedCount: input.groupLookups.length }; },
 };
@@ -38,6 +39,8 @@ assert.match(page, /綁定勾選群組/u);
 assert.match(page, /重新掃描已知群組/u);
 assert.match(page, /請款功能工具/u);
 assert.match(page, /請款單管理/u);
+assert.match(page, /外部廠商－單純請款/u);
+assert.match(page, /內部同仁－V3 請款/u);
 assert.match(page, /開啟管理者預覽/u);
 assert.match(page, /設定適用群組/u);
 assert.match(page, /正式發布/u);
@@ -97,12 +100,18 @@ response = await handler(request('/claims-authority/api/forms/employee_expense/g
 }));
 assert.equal(response.status, 200);
 assert.equal(JSON.parse(response.body).assignedCount, 1);
+response = await handler(request('/claims-authority/api/groups/mode', {
+  method: 'POST',
+  body: { groupLookup: 'a'.repeat(64), claimMode: 'external_claim_only' },
+}));
+assert.equal(response.status, 200);
+assert.ok(calls.some(([name]) => name === 'mode'));
 response = await handler(request('/claims-authority/api/assign', {
   method: 'POST',
   body: { discoveryLookup: 'b'.repeat(64), targetKey: 'hozo-default' },
 }));
 assert.equal(response.status, 200);
-assert.equal(mutationChecks, 2);
+assert.equal(mutationChecks, 3);
 assert.ok(calls.some(([name]) => name === 'assign'));
 response = await handler(request('/claims-authority/api/discovery/sync', {
   method: 'POST',
@@ -110,7 +119,7 @@ response = await handler(request('/claims-authority/api/discovery/sync', {
 }));
 assert.equal(response.status, 200);
 assert.equal(JSON.parse(response.body).verified, 3);
-assert.equal(mutationChecks, 3);
+assert.equal(mutationChecks, 4);
 assert.equal(discoverySyncs, 1);
 
 const forbidden = createClaimsAuthorityAdminHandler({

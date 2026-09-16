@@ -1,0 +1,43 @@
+{
+  "id": "AM-IMP-2026.0916.01",
+  "name": "External and internal claims group modes",
+  "type": "HOZO claims group authorization simplification",
+  "portable": false,
+  "status": "Installed",
+  "createdAt": "2026-09-16",
+  "dependsOn": ["AM-IMP-2026.0915.02"],
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
+  "requiresDatabases": ["Existing AM claims authority PostgreSQL database"],
+  "requiresEnv": ["Existing claims authority and Finance Claims V3 configuration"],
+  "requiresScripts": [
+    "npm run dryrun:claims-authority",
+    "node tools/check-upgrade-package.js AM-IMP-2026.0916.01",
+    "node tools/audit-alignment.js"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Group modes are tenant-scoped; raw LINE identities remain encrypted and production group assignments are not stored in this package."
+  },
+  "definitionOfDone": [
+    "Claims administrators can choose external claim-only or internal V3 mode per LINE group",
+    "External legacy-form applicants do not require Finance identity onboarding",
+    "Exact group, exact applicant, expiry and individual denial checks remain enforced",
+    "V3 forms cannot be published to external groups",
+    "Platform notification reads work with FORCE RLS without weakening tenant writes"
+  ],
+  "projectStatus": { "AM_PLATFORM:hozo-am-2-0": "Installed" },
+  "files": [
+    "core/claims-authority.js",
+    "core/claims-authority-admin.js",
+    "docs/tenants/hozo-am-2-0/project-improvement-manifest.md",
+    "docs/tenants/hozo-am-2-0/upgrades/AM-IMP-2026.0916.01-claims-group-modes.md",
+    "modules/claims/authority-integration.js",
+    "tools/dryrun-claims-authority.mjs",
+    "tools/dryrun-claims-authority-admin.mjs",
+    "tools/dryrun-claims-authority-routing-login.mjs",
+    "versions/AM-IMP-2026.0916.01/config/claims-group-modes.sql"
+  ]
+}
