@@ -22,3 +22,18 @@ Production deployment completed on 2026-09-16:
 
 The remaining canary is a real external applicant saving a named template and
 submitting a genuine claim; deployment verification did not create financial data.
+
+## Production schema correction
+
+The first production claim proved the canonical source correction, but also
+revealed that the additive external-template table had not been created because
+the existing database and runtime constant were both still at web schema v5.
+
+The correction completed on 2026-09-16:
+
+- Rental PR #284 merged as `2df8e0fac62d0c6181efafe375bbc17a0a0d91fa`.
+- Cloudflare Pages deployment run `35063163576` passed and deployed the exact main revision.
+- The runtime schema version is now v6 and has a regression test starting from a production-like v5 database without the external-template table.
+- The additive production schema was applied from migration 0081; read-only verification confirmed schema v6, the table present, and zero external templates before user testing.
+- The existing successful claim `CLM-202609-CL0EUW` remained in `waiting_review`.
+- AM PR #174 merged as `1143d358e7ad1118edff46dff79230911d56ae2e` and Render deployment `dep-dal3av0jo6nc73audaog` reached Live, adding a diagnostic message that distinguishes schema availability from user permission.
