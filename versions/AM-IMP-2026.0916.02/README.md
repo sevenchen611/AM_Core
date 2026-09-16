@@ -10,3 +10,8 @@ Finance V3 identity, source membership, administrator role, or bank-account
 permission. Template ownership is an irreversible hash of the applicant's
 opaque LINE reference and remains scoped to the exact tenant, source and form.
 
+The production follow-up raises Rental's Finance Claim Web schema from v5 to
+v6 so an existing database creates the additive external-template table. The
+upgrade path is covered from a production-like v5 fixture, not only a fresh
+database.
+
