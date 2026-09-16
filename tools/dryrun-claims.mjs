@@ -110,6 +110,12 @@ assert.equal(
   __test.rentalClaimError(400, { error: 'Claim line amounts must total the claim amount.' }).message,
   '請款資料未通過 Rental 驗證，請檢查明細與總額後重試。',
 );
+const templateSchemaError = __test.rentalClaimError(503, {
+  code: 'template_schema_unavailable',
+  error: 'Personal template storage schema is unavailable.',
+});
+assert.equal(templateSchemaError.message, '個人範本儲存空間正在升級，請稍後重新開啟請款單再試。');
+assert.match(templateSchemaError.detail, /code=template_schema_unavailable/);
 assert.equal(
   __test.rentalClaimError(503, { error: 'upstream unavailable' }).message,
   'Rental 請款服務暫時無法處理，請稍後重試。',
