@@ -119,7 +119,7 @@ function init(injected) {
         const profile = await lineProfileFromAccessToken(accessToken, claimsLiffChannelId(tenant));
         return { ok: profile.userId === expectedUserId, displayName: profile.displayName };
       },
-      async createLegacyFormLink({ tenant, selectorSessionId, formKey, sourceId, identityReference, groupId, userId, userName }) {
+      async createLegacyFormLink({ tenant, selectorSessionId, formKey, sourceId, groupReference, claimMode, identityReference, groupId, userId, userName }) {
         const legacyType = { legacy_social_insurance: 'labor_health_insurance', legacy_shared_operating: 'shared_operating', legacy_other: 'other' }[formKey];
         if (!legacyType) throw new Error('舊版請款單識別碼無效。');
         // The authority registry is an encrypted routing cache, not the source of
@@ -137,6 +137,8 @@ function init(injected) {
         session.allowedClaimTypes = [legacyType];
         session.authoritySelection = { sessionId: selectorSessionId, formKey };
         session.financeSourceId = cleanText(sourceId, 128);
+        session.financeGroupReference = cleanText(groupReference, 160);
+        session.claimMode = cleanText(claimMode, 40);
         session.applicantReference = cleanText(identityReference, 160);
         return liffLink(tenant, session);
       },
@@ -587,7 +589,9 @@ function normalizeClaimSubmission(body, session, tenant, actor) {
     externalSubmissionId: session.externalSubmissionId,
     tenant: { key: session.tenantKey, uuid: session.tenantId },
     source: {
-      groupBindingId: session.bindingId,
+      ...(session.financeSourceId ? { id: session.financeSourceId } : {}),
+      ...(session.financeGroupReference ? { groupReference: session.financeGroupReference } : {}),
+      groupBindingId: session.financeGroupReference || session.bindingId,
       groupNameSnapshot: session.sourceGroupName,
       actor: { reference: actor.userId, name: actor.displayName || session.requestedByName },
     },
@@ -664,7 +668,9 @@ async function rentalPersonalClaimTemplate(tenant, session, action, options = {}
         action,
         tenantKey: session.tenantKey,
         sourceId: session.financeSourceId,
+        groupReference: session.financeGroupReference,
         formKey: session.authoritySelection.formKey,
+        claimMode: session.claimMode,
         identityReference: session.applicantReference,
         ...(options.template === undefined ? {} : { template: options.template }),
         ...(options.templateId ? { templateId: options.templateId } : {}),
@@ -721,6 +727,8 @@ function rentalClaimError(status, result = {}) {
   let message = 'Rental 請款服務暫時無法處理，請稍後重試。';
   if (Number(status) === 403 && /no active finance claim source/i.test(downstreamError)) {
     message = '此群組尚未完成 Rental 請款來源設定，請聯絡財務管理員。';
+  } else if (Number(status) === 403 && /source scope mismatch|canonical source identity/i.test(downstreamError)) {
+    message = '此群組的請款來源識別不一致，請回群組重新開啟後再試。';
   } else if (Number(status) === 403 && /tenant identity does not match/i.test(downstreamError)) {
     message = '此群組的 Rental 租戶設定不一致，請聯絡財務管理員。';
   } else if (Number(status) === 403 && /personal template scope|template_scope_denied/i.test(downstreamError)) {
@@ -986,7 +994,16 @@ async function handleLiff(req, res, { pathname, url, tenant = null, tenants = []
     // open. Always carry the current canonical page into the submitted claim.
     session.bindingId = session.binding.pageId;
     if (session.authoritySelection) {
-      await claimsAuthorityIntegration?.verifyLegacySelection?.({ tenant: sessionTenant, ...session.authoritySelection });
+      const currentSelection = await claimsAuthorityIntegration?.verifyLegacySelection?.({ tenant: sessionTenant, ...session.authoritySelection });
+      const sourceId = cleanText(currentSelection?.sourceId, 128);
+      const groupReference = cleanText(currentSelection?.groupReference, 160);
+      const claimMode = cleanText(currentSelection?.claimMode, 40);
+      if (!sourceId || !groupReference || !['external_claim_only', 'internal_v3'].includes(claimMode)) {
+        throw Object.assign(new Error('此群組的請款來源設定不完整，請回群組重新開啟。'), { statusCode: 409 });
+      }
+      session.financeSourceId = sourceId;
+      session.financeGroupReference = groupReference;
+      session.claimMode = claimMode;
     }
     const actor = await verifiedActor(session, sessionTenant, body.liffAccessToken, session.binding);
     if (action === 'identify') return sendJson(res, 200, { ok: true, actor: { name: actor.displayName }, draftText: session.draftText });

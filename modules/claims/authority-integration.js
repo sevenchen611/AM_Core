@@ -405,7 +405,7 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
         if (membership?.status !== 200 || !membership.body?.matched || membership.body?.effectiveState !== 'active') throw new Error('內部 V3 請款身分尚未啟用，請聯絡財務管理員。');
       }
       if (String(body.formKey).startsWith('legacy_')) {
-        targetUrl = await createLegacyFormLink?.({ tenant, selectorSessionId: parsed.sessionId, formKey: body.formKey, sourceId: selected.sourceId, identityReference, bindingId: selected.bindingId, groupId: selected.groupId, groupName: selected.groupName, userId: selected.userId, userName: actor.displayName || '' });
+        targetUrl = await createLegacyFormLink?.({ tenant, selectorSessionId: parsed.sessionId, formKey: body.formKey, sourceId: selected.sourceId, groupReference: selected.groupReference, claimMode: selected.claimMode, identityReference, bindingId: selected.bindingId, groupId: selected.groupId, groupName: selected.groupName, userId: selected.userId, userName: actor.displayName || '' });
       } else if (body.formKey === 'employee_expense') {
         const entry = await receiver.bridgeWebEntry({ contractVersion: 'finance-claims-v3.am-bridge-v1', requestId: `${requestBase}-entry`, tenantKey: tenant.key, sourceId: selected.sourceId, formKey: selected.v3FormKey, identityReference });
         if (entry?.status !== 200 || !entry.body?.url) throw new Error('V3 請款單目前無法開啟，請稍後再試。');
