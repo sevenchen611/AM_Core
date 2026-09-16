@@ -722,8 +722,9 @@ async function uploadRentalClaimAttachment(tenant, externalClaimId, attachment) 
 }
 
 function rentalClaimError(status, result = {}) {
+  const downstreamCode = cleanText(result?.code, 120);
   const downstreamError = cleanText(result?.error || result?.message, 300);
-  const detail = `status=${Number(status) || 0}${downstreamError ? `; error=${downstreamError}` : ''}`;
+  const detail = `status=${Number(status) || 0}${downstreamCode ? `; code=${downstreamCode}` : ''}${downstreamError ? `; error=${downstreamError}` : ''}`;
   let message = 'Rental 請款服務暫時無法處理，請稍後重試。';
   if (Number(status) === 403 && /no active finance claim source/i.test(downstreamError)) {
     message = '此群組尚未完成 Rental 請款來源設定，請聯絡財務管理員。';
@@ -737,6 +738,8 @@ function rentalClaimError(status, result = {}) {
     message = '已有另一張範本使用這個名稱，請換一個名稱。';
   } else if (Number(status) === 409 && /template_limit_reached|personal template limit/i.test(downstreamError)) {
     message = '每種請款單最多可保存 20 張個人範本，請先刪除不再使用的範本。';
+  } else if (Number(status) === 503 && (downstreamCode === 'template_schema_unavailable' || /template storage schema/i.test(downstreamError))) {
+    message = '個人範本儲存空間正在升級，請稍後重新開啟請款單再試。';
   } else if (Number(status) === 400) {
     message = '請款資料未通過 Rental 驗證，請檢查明細與總額後重試。';
   }
