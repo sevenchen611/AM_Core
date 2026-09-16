@@ -75,7 +75,23 @@ assert.equal(integration.requiresFinanceMembership('external_claim_only', 'legac
 assert.equal(integration.requiresFinanceMembership('internal_v3', 'employee_expense'), true);
 assert.throws(() => integration.requiresFinanceMembership('external_claim_only', 'employee_expense'), /外部廠商群組/u);
 assert.match(integrationSource, /requiresFinanceMembership\(selected\.claimMode[\s\S]*bridgeMembership/u);
-assert.match(integrationSource, /identityReference[\s\S]*createLegacyFormLink/u);
+assert.match(integrationSource, /sourceId: selected\.sourceId, groupReference: selected\.groupReference, claimMode: selected\.claimMode/u);
+
+const externalPayload = claims.normalizeClaimSubmission({
+  type: 'labor_health_insurance',
+  period: '2026-09',
+  lines: [{ description: '勞保費', amount: 100 }],
+  totals: { requestedAmount: 100, companyExpenseAmount: 80, employeeRecoverableAmount: 20, currency: 'TWD' },
+}, {
+  tenantKey, tenantId: 'tenant-uuid', bindingId: 'notion-page-id', sourceGroupName: '外部廠商群組',
+  externalSubmissionId: 'submission-one', requestedByName: '申請人',
+  financeSourceId: 'source-partner', financeGroupReference: partnerReference,
+  authoritySelection: { formKey: 'legacy_social_insurance' },
+}, {}, { userId: 'U-synthetic', displayName: '申請人' });
+assert.equal(externalPayload.source.id, 'source-partner');
+assert.equal(externalPayload.source.groupReference, partnerReference);
+assert.equal(externalPayload.source.groupBindingId, partnerReference);
+assert.notEqual(externalPayload.source.groupBindingId, 'notion-page-id');
 
 const migrationSource = fs.readFileSync(new URL('../versions/AM-IMP-2026.0916.01/config/claims-group-modes.sql', import.meta.url), 'utf8');
 assert.match(migrationSource, /claim_mode IN \('external_claim_only','internal_v3'\)/u);

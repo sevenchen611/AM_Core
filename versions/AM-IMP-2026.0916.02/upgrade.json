@@ -1,0 +1,44 @@
+{
+  "id": "AM-IMP-2026.0916.02",
+  "name": "External claims canonical source and private templates",
+  "type": "HOZO external claims submission and template contract correction",
+  "portable": false,
+  "status": "Installed",
+  "createdAt": "2026-09-16",
+  "dependsOn": ["AM-IMP-2026.0916.01"],
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0", "Rental:production"],
+  "requiresDatabases": ["Existing AM claims authority PostgreSQL database", "Existing Rental Finance Claims D1 database"],
+  "requiresEnv": ["Existing claims authority and Rental integration configuration"],
+  "requiresScripts": [
+    "node tools/dryrun-claims-authority-routing-login.mjs",
+    "node tools/dryrun-claims.mjs",
+    "node tools/check-upgrade-package.js AM-IMP-2026.0916.02",
+    "node tools/audit-alignment.js"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "External template ownership uses only hashed opaque applicant references and exact tenant, source, form and group scope."
+  },
+  "definitionOfDone": [
+    "External legacy submissions use the canonical Rental source id and matching opaque group reference",
+    "External applicants can create, list, load and delete multiple named templates",
+    "External template access does not grant Finance V3 membership, administrator access or bank-account permissions",
+    "Internal V3 template behavior remains unchanged",
+    "Both AM and Rental contract tests pass before production rollout"
+  ],
+  "projectStatus": {
+    "AM_PLATFORM:hozo-am-2-0": "Installed",
+    "Rental:production": "Installed"
+  },
+  "files": [
+    "modules/claims/authority-integration.js",
+    "modules/claims/index.js",
+    "tools/dryrun-claims-authority-routing-login.mjs",
+    "docs/tenants/hozo-am-2-0/project-improvement-manifest.md",
+    "docs/tenants/hozo-am-2-0/upgrades/AM-IMP-2026.0916.02-external-claims-contract.md"
+  ]
+}
+
