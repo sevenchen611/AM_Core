@@ -3,7 +3,7 @@
   "name": "External claims canonical source and private templates",
   "type": "HOZO external claims submission and template contract correction",
   "portable": false,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-09-16",
   "dependsOn": ["AM-IMP-2026.0916.01"],
   "installTargets": ["AM_PLATFORM:hozo-am-2-0", "Rental:production"],
@@ -30,8 +30,8 @@
     "Both AM and Rental contract tests pass before production rollout"
   ],
   "projectStatus": {
-    "AM_PLATFORM:hozo-am-2-0": "Installed",
-    "Rental:production": "Installed"
+    "AM_PLATFORM:hozo-am-2-0": "Deployed",
+    "Rental:production": "Deployed"
   },
   "files": [
     "modules/claims/authority-integration.js",
@@ -41,4 +41,3 @@
     "docs/tenants/hozo-am-2-0/upgrades/AM-IMP-2026.0916.02-external-claims-contract.md"
   ]
 }
-
