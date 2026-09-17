@@ -1,6 +1,6 @@
 # AM-IMP-2026.0916.03 — Contract LINE files
 
-Status: Installed (local verification; not deployed).
+Status: Deployed (production rollout verified; Android device acceptance pending).
 
 User evidence: Engineering contract owners requested that quotation/drawing files already uploaded to the bound LINE group appear with internal review documents, allowing explicit retention/removal and contractor access to retained contract attachments.
 
@@ -14,4 +14,6 @@ Verification: dedicated attachment dry-run, workspace browser-script compilation
 
 Initial rollout: PR #176 merged as `767cbf593f72f6222b260e9d4add0b95e5e77486`. Render `am-platform` deploy `dep-dalsnrjbc2fs738d6aeg` became Live on 2026-09-17 at 19:16 Asia/Taipei; health passed. The authenticated Engineering workspace displayed the new candidate panel and group-scoped records. This read-only check found that AI-renamed photo slugs had lost their display extension; the follow-up recovers supported extensions from the preserved original Notion file name, without relabeling explicitly unsupported formats.
 
-Remaining: verify the original-name follow-up rollout; owner-approved Android LINE attachment viewing/download checks. Deployment verification and mobile device acceptance are recorded separately.
+Follow-up rollout: PR #177 merged as `c408e8d0c06df5821eb0545149af012e7b3d1399`. Render deploy `dep-dalspihsrm7s73d94t30` showed `Deploy succeeded | Live` and the service-live log at 2026-09-17 19:20:09 Asia/Taipei. Production health passed. A read-only refresh of the authenticated candidate panel verified restored supported photo extensions and selectable candidates, with no import, new contract version, deletion or LINE send. Original-name regression, workspace, workflow, signing web, package check and npm syntax check passed.
+
+Remaining: owner-approved Android LINE attachment viewing/download checks. Deployment verification and mobile device acceptance are recorded separately; desktop checks do not claim mobile acceptance.
