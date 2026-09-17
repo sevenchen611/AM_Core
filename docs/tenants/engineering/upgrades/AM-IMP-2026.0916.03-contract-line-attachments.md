@@ -12,4 +12,6 @@ No production contract data was modified, no files were deleted and no LINE mess
 
 Verification: dedicated attachment dry-run, workspace browser-script compilation, workflow route/capability tests, signing web, draft-review, management and scope tests pass. Package validation passes. Legacy alignment audit still depends on separately configured HOZO_AM/SevenAM checkout paths; this record is not a claim of complete legacy alignment.
 
-Remaining: reviewed deployment from main and read-only production verification; owner-approved Android LINE attachment viewing/download checks.
+Initial rollout: PR #176 merged as `767cbf593f72f6222b260e9d4add0b95e5e77486`. Render `am-platform` deploy `dep-dalsnrjbc2fs738d6aeg` became Live on 2026-09-17 at 19:16 Asia/Taipei; health passed. The authenticated Engineering workspace displayed the new candidate panel and group-scoped records. This read-only check found that AI-renamed photo slugs had lost their display extension; the follow-up recovers supported extensions from the preserved original Notion file name, without relabeling explicitly unsupported formats.
+
+Remaining: verify the original-name follow-up rollout; owner-approved Android LINE attachment viewing/download checks. Deployment verification and mobile device acceptance are recorded separately.

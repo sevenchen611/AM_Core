@@ -19,4 +19,8 @@ Tests cover tenant/project/group isolation, pagination, private Drive checks, un
 
 Public reads must bind to the authorized session's issued version, never the latest internal draft. A modified attachment must fail SHA-256 verification. Viewing an attachment alone must not enable signing consent.
 
-Production gate: verify the actual AM Platform service commit and live Engineering workspace, then test Android LINE PDF/image attachment viewing and external-browser Office/CAD download with an owner-approved sample. Do not claim mobile validation from desktop dry-runs.
+Deployment verification: verify the actual AM Platform service commit, health, and authenticated live Engineering workspace candidate list. Record these separately from device acceptance.
+
+Device acceptance follow-up: test Android LINE PDF/image attachment viewing and external-browser Office/CAD download with an owner-approved sample. A Deployed status records the verified production rollout, not completion of this device test. Do not claim mobile validation from desktop dry-runs.
+
+Include extensionless AI-renamed photos whose original Notion file name preserves a supported extension. An explicitly unsupported display extension must remain blocked.
