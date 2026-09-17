@@ -3,7 +3,7 @@
   "name": "Engineering contract LINE group file review and retained attachments",
   "type": "AM Platform / Engineering contract evidence",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-09-16",
   "dependsOn": ["AM-IMP-2026.0908.02"],
   "installTargets": ["AM_PLATFORM:engineering"],
@@ -26,7 +26,7 @@
     "Tenant, project, group, capability and stale-version tests pass",
     "Production commit, health and authenticated workspace verification are recorded before marking Deployed; Android LINE device acceptance is tracked separately"
   ],
-  "projectStatus": { "AM_PLATFORM:engineering": "Installed" },
+  "projectStatus": { "AM_PLATFORM:engineering": "Deployed" },
   "files": [
     "modules/construction/contract-line-attachments.js",
     "modules/construction/contract-workflow-api.js",
