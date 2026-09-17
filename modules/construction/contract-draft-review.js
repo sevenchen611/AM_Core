@@ -56,13 +56,13 @@ function mimeTypeFor(item) {
   return 'application/octet-stream';
 }
 
-function reviewAttachments(source) {
+function reviewAttachments(source, { includeInherited = false } = {}) {
   const pkg = packageFrom(source);
   const candidates = [
     pkg.contractBody ? { ...pkg.contractBody, category: 'contract_body' } : null,
     ...(Array.isArray(pkg.constructionDrawings) ? pkg.constructionDrawings.map((item) => ({ ...item, category: 'construction_drawing' })) : []),
     pkg.quotation ? { ...pkg.quotation, category: 'quotation' } : null,
-    ...(Array.isArray(pkg.attachments) ? pkg.attachments.filter((item) => item?.inherited !== true) : []),
+    ...(Array.isArray(pkg.attachments) ? pkg.attachments.filter((item) => includeInherited || item?.inherited !== true) : []),
   ].filter(Boolean);
   const seen = new Set();
   return candidates.flatMap((item) => {
@@ -475,7 +475,7 @@ export function createContractDraftReviewService(deps, options = {}) {
 
   async function loadInternalAttachment(context, input = {}) {
     const { version } = await loadInternalVersion(context, input);
-    const selected = reviewAttachments(version).find((item) => item.id === text(input.attachmentId));
+    const selected = reviewAttachments(version, { includeInherited: true }).find((item) => item.id === text(input.attachmentId));
     if (!selected) throw reviewError('DRAFT_REVIEW_ATTACHMENT_NOT_FOUND', '找不到這個附件。', 404);
     const buffer = await downloadVerifiedAttachment(deps, selected);
     return { buffer, fileId: selected.fileId, sha256: selected.sha256,

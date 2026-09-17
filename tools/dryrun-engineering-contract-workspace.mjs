@@ -68,6 +68,12 @@ assert.match(pageRes.body, /pkg\.constructionDrawings=\[\.\.\.\(pkg\.constructio
 assert.match(pageRes.body, /attachment-remove/);
 assert.match(pageRes.body, /\.attachment-remove\{[^}]*opacity:1/);
 assert.match(pageRes.body, /removeAttachmentInNextVersion/);
+assert.match(pageRes.body, /LINE 群組檔案待審查/);
+assert.match(pageRes.body, /data-line-attachment/);
+assert.match(pageRes.body, /line-attachments/);
+assert.match(pageRes.body, /將勾選檔案保留為下一版附件/);
+assert.match(pageRes.body, /未勾選的檔案不提供廠商/);
+assert.match(pageRes.body, /if\(WORKFLOW.detail.latestVersion\)loadLineAttachmentCandidates\(\)/);
 assert.match(pageRes.body, /attachmentExclusions:\[fileId\]/);
 assert.match(pageRes.body, /舊版本與 Drive 原始檔仍會保留/);
 assert.match(pageRes.body, /JSON\.parse\(JSON\.stringify\(previous\)\)/);

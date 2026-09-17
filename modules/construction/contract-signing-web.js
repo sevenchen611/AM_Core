@@ -10,6 +10,7 @@ export const CONTRACT_SIGNING_OPEN_PATH = '/contract-sign/api/open';
 export const CONTRACT_SIGNING_SUBMIT_PATH = '/contract-sign/api/submit';
 export const CONTRACT_SIGNING_PARTY_A_SUBMIT_PATH = '/contract-sign/api/submit-party-a';
 export const CONTRACT_SIGNING_DOCUMENT_PATH = '/contract-sign/api/document';
+export const CONTRACT_SIGNING_ATTACHMENT_PATH = '/contract-sign/api/attachment';
 export const CONTRACT_SIGNING_PDF_JS_PATH = '/contract-sign/assets/pdf-5.4.624.min.mjs';
 export const CONTRACT_SIGNING_PDF_WORKER_PATH = '/contract-sign/assets/pdf-worker-5.4.624.min.mjs';
 export const DEFAULT_CONTRACT_SIGNING_BODY_LIMIT = 9 * 1024 * 1024;
@@ -231,6 +232,7 @@ function publicOpenPayload(result, documentUrl) {
     projectId: String(result?.projectId || ''),
     documentHash: String(result?.documentHash || ''),
     documentUrl,
+    attachments: (Array.isArray(result?.attachments) ? result.attachments : []).map(({ id, name, category }) => ({ id: String(id), name: String(name), category: String(category || 'other') })),
     status: String(result?.status || ''),
     expiresAt: String(result?.expiresAt || ''),
     idempotent: result?.idempotent === true,
@@ -375,7 +377,7 @@ function idempotencyKey(role='party-b') {
   if(!value){ value=crypto.randomUUID ? crypto.randomUUID() : String(Date.now())+'-'+Math.random().toString(36).slice(2); sessionStorage.setItem(key,value); }
   return { key, value };
 }
-async function renderPdfInPage(bytes) {
+async function renderPdfInPage(bytes,label='完整合約 PDF') {
   const panel=byId('document-reader-panel');const pages=byId('document-pages');const status=byId('document-load-state');
   panel.hidden=false;pages.textContent='';status.textContent='正在載入安全 PDF 閱讀器…';
   const pdfjs=await import(PDF_JS_URL);pdfjs.GlobalWorkerOptions.workerSrc=PDF_WORKER_URL;
@@ -391,9 +393,30 @@ async function renderPdfInPage(bytes) {
     const context=canvas.getContext('2d',{alpha:false});
     await page.render({canvasContext:context,viewport,transform:ratio===1?null:[ratio,0,0,ratio,0,0]}).promise;
   }
-  status.textContent='✓ 完整合約 PDF 已載入，共 '+pdf.numPages+' 頁。';
+  status.textContent='✓ '+label+' 已載入，共 '+pdf.numPages+' 頁。';
 }
 function protectedExternalUrl(){return location.origin+location.pathname+'#token='+encodeURIComponent(state.token);}
+function renderContractAttachments(){const panel=byId('contract-attachments');panel.textContent='';const items=state.signing.attachments||[];panel.hidden=!items.length;if(!items.length)return;const title=document.createElement('h3');title.textContent='合約附件（原始檔）';panel.appendChild(title);for(const item of items){const button=document.createElement('button');button.type='button';button.className='document-button secondary';button.textContent='開啟／下載：'+item.name;button.onclick=()=>openContractAttachment(item,button);panel.appendChild(button);}}
+async function openContractAttachment(item,button){
+  if(state.documentLoading)return;state.documentLoading=true;button.disabled=true;
+  try{
+    const response=await fetch('${CONTRACT_SIGNING_ATTACHMENT_PATH}',{method:'POST',headers:{'Content-Type':'application/json'},cache:'no-store',referrerPolicy:'no-referrer',body:JSON.stringify({token:state.token,liffCredential:state.credential,attachmentId:item.id})});
+    if(!response.ok){const result=await response.json().catch(()=>({}));throw new Error(result.error?.message||result.error||'附件目前無法開啟');}
+    const bytes=await response.arrayBuffer();const type=response.headers.get('content-type');
+    if(type==='application/pdf'){
+      await renderPdfInPage(bytes,'附件：'+item.name);show('正在查看附件：'+item.name+'。這是附件，不會解鎖正式簽名。','ok');
+    }else if(type==='image/png'||type==='image/jpeg'){
+      const url=URL.createObjectURL(new Blob([bytes],{type}));const image=document.createElement('img');
+      image.alt=item.name;image.style.width='100%';image.onload=()=>URL.revokeObjectURL(url);image.onerror=()=>URL.revokeObjectURL(url);image.src=url;
+      byId('document-reader-panel').hidden=false;byId('document-pages').replaceChildren(image);byId('document-load-state').textContent='附件：'+item.name;
+      show('正在查看圖片附件；請另開完整合約詳閱後再簽名。','ok');
+    }else{
+      const url=URL.createObjectURL(new Blob([bytes],{type:type||'application/octet-stream'}));const link=document.createElement('a');
+      link.href=url;link.download=item.name;document.body.appendChild(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);
+      show('已嘗試下載附件；若 LINE 未提供下載，請按「在外部瀏覽器開啟簽署頁」再下載，並用對應閱讀器開啟。','ok');
+    }
+  }catch(error){show(error.message,'error');}finally{state.documentLoading=false;button.disabled=false;}
+}
 function openInExternalBrowser(){
   if(!state.token){show('簽署連結不完整，請回到工程 LINE 群組重新開啟。','error');return;}
   if(globalThis.liff?.isInClient?.()){liff.openWindow({url:protectedExternalUrl(),external:true});return;}
@@ -423,6 +446,7 @@ async function initialize() {
   if(!state.credential) throw new Error('無法取得 LINE 身分憑證，請重新登入。');
   const opened=await api('${CONTRACT_SIGNING_OPEN_PATH}',{token:state.token,liffCredential:state.credential});
   state.signing=opened.signing;
+  renderContractAttachments();
   byId('document-link').hidden=false;
   byId('external-browser').hidden=!liff.isInClient();
   if(state.signing.finalDocument){
@@ -553,6 +577,7 @@ h2{font-size:15px;margin:0 0 8px}.hint{font-size:13px;color:var(--dim);margin:0}
   <section class="card"><h2>安全驗證</h2><div id="message" class="message">頁面載入中…</div></section>
   <section class="card"><h2>合約確認</h2><p id="contract-state" class="hint">完成 LINE 身分與群組資格驗證後，才會開放合約文件。</p><div class="document-warning" id="document-warning">PDF 僅供閱讀，請勿在 PDF 閱讀器內使用畫筆簽名。請按下方按鈕，系統會直接在本頁顯示完整合約；詳閱後再於大簽名格完成正式簽署。</div><div class="document-actions"><button id="document-link" class="document-button" type="button" hidden>在本頁開啟完整合約 PDF</button><button id="external-browser" class="document-button secondary" type="button" hidden>在外部瀏覽器開啟簽署頁</button></div><p id="review-state" class="hint" aria-live="polite"></p><p id="review-lock-note" class="review-lock-note">請先完成安全驗證並在本頁開啟完整合約 PDF。</p></section>
   <section class="card document-reader" id="document-reader-panel" hidden><p id="document-load-state" class="document-load-state" aria-live="polite">準備載入完整合約 PDF…</p><div id="document-pages" class="document-pages"></div></section>
+  <section class="card document-actions" id="contract-attachments" hidden></section>
   <section class="card" id="sign-panel" hidden>
     <div class="inspection-banner" id="inspection-banner" hidden>簽署檢查模式（唯讀）：這裡與指定簽署人的版面相同，但你不能填寫、上傳、簽名或送出，也不會產生任何簽署紀錄。</div>
     <h2>乙方簽約資料</h2><p class="hint">以下三項會直接寫入電子簽署完成版合約，請依本人證件完整填寫。</p>
@@ -601,6 +626,8 @@ export function createContractSigningWebHandler(options = {}) {
   const resolveDocumentUrl = typeof options.resolveDocumentUrl === 'function' ? options.resolveDocumentUrl : null;
   const loadDocument = typeof options.loadDocument === 'function' ? options.loadDocument : null;
   if (typeof loadDocument !== 'function') throw new Error('contract signing web loadDocument is required');
+  const listAttachments = typeof options.listAttachments === 'function' ? options.listAttachments : async () => [];
+  const loadAttachment = typeof options.loadAttachment === 'function' ? options.loadAttachment : null;
   const bodyLimit = positiveInteger(options.bodyLimit, DEFAULT_CONTRACT_SIGNING_BODY_LIMIT, 'bodyLimit');
   const signatureLimit = positiveInteger(options.signatureLimit, DEFAULT_SIGNATURE_DATA_LIMIT, 'signatureLimit');
   const identityPhotoLimit = positiveInteger(options.identityPhotoLimit, DEFAULT_IDENTITY_PHOTO_LIMIT, 'identityPhotoLimit');
@@ -619,8 +646,9 @@ export function createContractSigningWebHandler(options = {}) {
     const isSubmit = route === CONTRACT_SIGNING_SUBMIT_PATH;
     const isPartyASubmit = route === CONTRACT_SIGNING_PARTY_A_SUBMIT_PATH;
     const isDocument = route === CONTRACT_SIGNING_DOCUMENT_PATH;
+    const isAttachment = route === CONTRACT_SIGNING_ATTACHMENT_PATH;
     const isPdfViewerAsset = PDF_VIEWER_ASSETS.has(route);
-    if (!isPage && !isOpen && !isSubmit && !isPartyASubmit && !isDocument && !isPdfViewerAsset) return false;
+    if (!isPage && !isOpen && !isSubmit && !isPartyASubmit && !isDocument && !isAttachment && !isPdfViewerAsset) return false;
     const nonce = randomBytes(16).toString('base64url');
     try {
       if (isPage) {
@@ -643,6 +671,17 @@ export function createContractSigningWebHandler(options = {}) {
       const token = requireText(body.token, 'token', 500);
       const liffCredential = requireText(body.liffCredential, 'liffCredential', 5000);
       const requestMeta = getRequestMeta(req);
+      if (isAttachment) {
+        if (!loadAttachment) throw error('ATTACHMENT_UNAVAILABLE', '附件讀取尚未設定。', 503);
+        const opened = await service.openSigningRequest({ token, liffCredential, requestMeta });
+        const attachment = await loadAttachment(opened, { attachmentId: requireText(body.attachmentId, 'attachmentId', 160) });
+        if (!Buffer.isBuffer(attachment?.buffer)) throw error('ATTACHMENT_STORAGE_FAILED', '附件目前無法開啟。', 502);
+        const name = String(attachment.fileName || 'attachment').replace(/[\r\n]/g, '').slice(0, 240);
+        res.writeHead(200, { ...contractSigningSecurityHeaders(), 'Content-Type': attachment.mimeType || 'application/octet-stream',
+          'Content-Length': String(attachment.buffer.length), 'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name)}` });
+        res.end(attachment.buffer);
+        return true;
+      }
       if (isDocument) {
         const opened = await service.openSigningRequest({ token, liffCredential, requestMeta });
         const document = await loadDocument(opened);
@@ -661,7 +700,7 @@ export function createContractSigningWebHandler(options = {}) {
       if (isOpen) {
         const opened = await service.openSigningRequest({ token, liffCredential, requestMeta });
         const documentUrl = await resolvePublicDocumentUrl(opened, resolveDocumentUrl);
-        sendJson(res, 200, { ok: true, signing: publicOpenPayload(opened, documentUrl) }, nonce);
+        sendJson(res, 200, { ok: true, signing: publicOpenPayload({ ...opened, attachments: await listAttachments(opened) }, documentUrl) }, nonce);
         return true;
       }
 

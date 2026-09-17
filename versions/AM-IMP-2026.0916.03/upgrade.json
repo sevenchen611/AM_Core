@@ -1,0 +1,41 @@
+{
+  "id": "AM-IMP-2026.0916.03",
+  "name": "Engineering contract LINE group file review and retained attachments",
+  "type": "AM Platform / Engineering contract evidence",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-16",
+  "dependsOn": ["AM-IMP-2026.0908.02"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": ["node tools/dryrun-engineering-contract-line-attachments.mjs"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Resolve candidates only from tenant-local messages in the authorized contract group; disclose retained originals only from a LINE-authorized session's issued package."
+  },
+  "definitionOfDone": [
+    "Reviewers see archived LINE file candidates and can preview originals",
+    "Explicit retained selections create an immutable next version with classifications and LINE provenance",
+    "Excluded files never automatically reappear and original files are never deleted",
+    "Contractors and verified group members can read the exact issued version's retained original attachments",
+    "Private Drive state and attachment hashes are checked on public reads",
+    "Tenant, project, group, capability and stale-version tests pass",
+    "Production and Android LINE verification are recorded before marking Deployed"
+  ],
+  "projectStatus": { "AM_PLATFORM:engineering": "Installed" },
+  "files": [
+    "modules/construction/contract-line-attachments.js",
+    "modules/construction/contract-workflow-api.js",
+    "modules/construction/contracts.js",
+    "modules/construction/contract-draft-review.js",
+    "modules/construction/contract-signing-web.js",
+    "modules/construction/index.js",
+    "tools/dryrun-engineering-contract-line-attachments.mjs",
+    "tools/dryrun-engineering-contract-workspace.mjs",
+    "tools/dryrun-engineering-contract-signing-web.mjs"
+  ]
+}

@@ -11,6 +11,7 @@ import { createContractArtifactService } from './contract-artifacts.js';
 import { createRuntimeSigningService, signingRequestMeta } from './contract-runtime.js';
 import { createContractDraftReviewService } from './contract-draft-review.js';
 import { createContractFinalArtifactReader } from './contract-final-artifact-reader.js';
+import { createContractLineAttachmentService } from './contract-line-attachments.js';
 
 export const CONTRACT_WORKFLOW_API_BASE = '/contracts/api/v2';
 
@@ -222,6 +223,14 @@ function routeFor(method, pathname) {
     return { operation: 'loadEvidenceReceipt', capability: 'view', finalArtifact: true, binary: true,
       contractId: decodeSegment(match[1]), versionId: decodeSegment(match[2]) };
   }
+  match = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/versions\/([^/]+)\/line-attachments(?:\/([^/]+))?$/);
+  if (match) {
+    const refs = { contractId: decodeSegment(match[1]), versionId: decodeSegment(match[2]), lineAttachments: true };
+    if (method === 'GET') return { ...refs, capability: 'view', operation: match[3] ? 'loadCandidate' : 'listCandidates',
+      ...(match[3] ? { attachmentId: decodeSegment(match[3]), binary: true } : {}) };
+    if (method === 'POST' && !match[3]) return { ...refs, capability: 'manage', operation: 'importCandidates', body: true };
+    return { methodNotAllowed: true, allow: match[3] ? 'GET' : 'GET, POST' };
+  }
   match = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/versions\/([^/]+)\/line-archives$/);
   if (match) {
     if (method === 'GET') return { operation: 'listLineArchives', capability: 'view', review: true,
@@ -318,6 +327,7 @@ export function createContractWorkflowApiHandler(deps) {
   let issuanceService;
   let reviewService;
   let finalArtifactService;
+  let lineAttachmentService;
   return async function handleContractWorkflowApi(req, res, pathname, url, authority) {
     const route = routeFor(String(req.method || 'GET').toUpperCase(), pathname);
     if (!route) return false;
@@ -332,7 +342,7 @@ export function createContractWorkflowApiHandler(deps) {
         requestMeta: signingRequestMeta(req),
       };
       requireCapability(authority, route.capability);
-      if (!route.issuance && !route.completion && !route.revocation && !route.review && !route.finalArtifact) {
+      if (!route.issuance && !route.completion && !route.revocation && !route.review && !route.finalArtifact && !route.lineAttachments) {
         service ||= createContractManagementService({
           store: deps.contractStore,
           ...(deps.contractClock ? { clock: deps.contractClock } : {}),
@@ -385,6 +395,7 @@ export function createContractWorkflowApiHandler(deps) {
       if (route.issuance) issuanceService ||= createContractIssuanceService(deps);
       if (route.review) reviewService ||= createContractDraftReviewService(deps);
       if (route.finalArtifact) finalArtifactService ||= createContractFinalArtifactReader(deps);
+      if (route.lineAttachments) lineAttachmentService ||= createContractLineAttachmentService(deps);
       const completionService = route.completion ? createContractCompletionService(deps, {
         artifactService: createContractArtifactService(deps),
         signingService: createRuntimeSigningService(deps),
@@ -403,7 +414,7 @@ export function createContractWorkflowApiHandler(deps) {
           });
         },
       } : null;
-      const target = route.revocation ? revocationService
+      const target = route.lineAttachments ? lineAttachmentService : route.revocation ? revocationService
         : (route.completion ? completionService
           : (route.issuance ? issuanceService
             : (route.review ? reviewService : (route.finalArtifact ? finalArtifactService : service))));
