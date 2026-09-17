@@ -1115,6 +1115,56 @@ test('rejects a stale atomic freeze conflict and a dishonest adapter result', as
   }), 'CONTRACT_STORE_ADAPTER_VIOLATION');
 });
 
+test('version amount controls draft validation, freeze, readiness and detail despite a stale master', async () => {
+  const { service, store, context } = createFixture();
+  seedDefaultContract(store, { amount: 125_000 });
+  const pkg = completePackage(80_000);
+  pkg.contractFields = { contractAmount: 80_000 };
+  const created = await service.createDraftVersion(context, { contractId: 'contract-1', documentPackage: pkg });
+  assert.equal(created.packageValidation.ok, true);
+  store.versions.get(created.version.id).status = 'approved';
+  const snapshot = copy(store.versions.get(created.version.id).contract_snapshot);
+  const detail = await service.getContractDetail(context, { contractId: 'contract-1' });
+  assert.equal(detail.latestVersion.packageValidation.ok, true);
+  assert.equal(detail.latestVersion.packageValidation.payment.totals.contractAmount, 80_000);
+  const frozen = await service.freezeVersion(context, { contractId: 'contract-1', versionId: created.version.id });
+  assert.equal(frozen.packageValidation.payment.totals.contractAmount, 80_000);
+  assert.deepEqual(store.versions.get(created.version.id).contract_snapshot, snapshot);
+  assert.equal(store.contracts.get('contract-1').amount, 125_000);
+  store.contracts.get('contract-1').amount = 140_000;
+  const readiness = await service.issueReadiness(context, { contractId: 'contract-1', versionId: created.version.id });
+  assert.equal(readiness.packageValidation.ok, true);
+  assert(!readiness.blockers.some((item) => item.code === 'PAYMENT_AMOUNT_TOTAL'));
+});
+
+test('genuine version payment mismatch stays blocked with exact localized totals', async () => {
+  const { service, store, context } = createFixture();
+  seedDefaultContract(store, { amount: 100_000 });
+  const pkg = completePackage(100_000);
+  pkg.contractFields = { contractAmount: 80_000 };
+  store.seedVersion({ id: 'mismatched', status: 'approved', documentPackage: pkg });
+  await assert.rejects(() => service.freezeVersion(context, { contractId: 'contract-1', versionId: 'mismatched' }), (error) => {
+    assert.equal(error.code, 'CONTRACT_PACKAGE_INCOMPLETE');
+    assert.match(error.message, /付款分期合計 100,000 元.*本版本合約總價 80,000 元/);
+    assert(error.details.errors.some((item) => item.code === 'PAYMENT_AMOUNT_TOTAL' && item.expected === 80_000));
+    return true;
+  });
+  const detail = await service.getContractDetail(context, { contractId: 'contract-1' });
+  assert.equal(detail.latestVersion.packageValidation.ok, false);
+  assert.match(detail.latestVersion.packageValidationMessage, /80,000/);
+  assert(!store.calls.some((item) => item.method === 'freezeVersion'));
+});
+
+test('legacy packages retain master fallback and explicit invalid version amounts never use fallback', async () => {
+  const pkg = completePackage(100_000);
+  assert.equal(validateContractPackage(pkg, { contractAmount: 100_000 }).ok, true);
+  assert.equal(validateContractPackage(pkg, { contractAmount: 80_000 }).ok, false);
+  for (const contractAmount of [null, '', ' ', false, [], {}, 0, -1, 'invalid', Infinity]) {
+    assert.equal(validateContractPackage({ ...pkg, contractFields: { contractAmount } }, { contractAmount: 100_000 }).ok, false);
+  }
+  assert.equal(validateContractPackage({ ...pkg, contractFields: { contractAmount: '100000.00' } }, { contractAmount: 80_000 }).ok, true);
+});
+
 let passed = 0;
 for (const { name, run } of tests) {
   try {

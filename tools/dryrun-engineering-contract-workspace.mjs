@@ -118,6 +118,14 @@ assert.doesNotMatch(pageRes.body, /localStorage/);
 const inlineScripts = [...pageRes.body.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
 assert.ok(inlineScripts.length > 0, 'contract workspace must include its browser script');
 for (const source of inlineScripts) new Function(source);
+const validationFunction = inlineScripts.join('\n').match(/function versionValidationHtml\(version\)\{[^\n]+\}/)?.[0];
+assert.ok(validationFunction);
+const validationHtml = new Function('money', 'esc', 'return (' + validationFunction + ')')(
+  (value) => '$' + Number(value).toLocaleString('en-US'),
+  (value) => String(value).replace(/</g, '&lt;').replace(/>/g, '&gt;'),
+);
+assert.match(validationHtml({ packageValidation: { ok: true, payment: { totals: { contractAmount: 80000, amount: 80000 } } } }), /本版本總價 \$80,000／付款合計 \$80,000/);
+assert.match(validationHtml({ packageValidation: { ok: false }, packageValidationMessage: '付款金額不一致\n<script>' }), /付款金額不一致<br>&lt;script&gt;/);
 
 const tenant = { key: 'engineering' };
 const access = {

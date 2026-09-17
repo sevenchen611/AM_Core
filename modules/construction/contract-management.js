@@ -17,6 +17,7 @@ import {
   requireServerActor,
   sha256Hex,
   validateContractPackage,
+  contractPackageValidationMessage,
 } from './contract-domain.js';
 
 const STORE_METHODS = Object.freeze([
@@ -671,11 +672,11 @@ function readinessBlockers(version, validation) {
     blockers.push({
       code: 'REQUIRED_CONTRACT_SECTION_MISSING',
       path: field,
-      message: `Required contract section is missing: ${field}.`,
+      message: contractPackageValidationMessage({ missing: [field] }),
       field,
     });
   }
-  for (const error of validation.errors) blockers.push(cloneValue(error));
+  for (const error of validation.errors) blockers.push({ ...cloneValue(error), message: contractPackageValidationMessage({ errors: [error] }) });
   for (const error of requiredAttachmentEvidenceErrors(validation)) blockers.push(cloneValue(error));
   const contractFields = packageFromVersion(version).contractFields;
   if (contractFields && typeof contractFields === 'object') {
@@ -1204,7 +1205,9 @@ export function createContractManagementService({ store, clock = () => new Date(
     }
     const versions = listed.map((value) => {
       const version = normalizeVersion(value);
-      return assertVersionBelongsToContract(version, contract);
+      assertVersionBelongsToContract(version, contract);
+      const packageValidation = validateContractPackage(packageFromVersion(version), { contractAmount: contractAmount(contract) });
+      return { ...version, packageValidation, packageValidationMessage: contractPackageValidationMessage(packageValidation) };
     }).sort((a, b) => b.versionNo - a.versionNo || b.createdAt.localeCompare(a.createdAt));
     const retrievedAt = nowIso(serviceClock);
     return freezeTree({

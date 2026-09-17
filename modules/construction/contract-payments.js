@@ -6,6 +6,7 @@
 // payment milestones remain the authority for every schedule item.
 
 import crypto from 'node:crypto';
+import { contractPackageAmount } from './contract-domain.js';
 
 export const PAYMENT_WORKFLOW_VERSION = 'engineering-contract-payment-control.v1';
 
@@ -176,7 +177,7 @@ function normalizeMilestone(value, version, contract) {
   const label = requiredText(first(source.label, source.name), 'milestoneLabel', '付款期別', 240);
   const scheduledAmount = Number(first(source.amount, source.scheduledAmount));
   const percentage = Number(first(source.percentage, source.ratio));
-  const contractAmount = Number(first(contract.amount, contract.contract_amount));
+  const contractAmount = Number(contractPackageAmount(versionPackage(version), first(contract.amount, contract.contract_amount)));
   const computedAmount = Number.isFinite(scheduledAmount) && scheduledAmount > 0
     ? scheduledAmount
     : (Number.isFinite(percentage) && percentage > 0 && Number.isFinite(contractAmount) && contractAmount > 0

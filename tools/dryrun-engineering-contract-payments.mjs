@@ -102,6 +102,13 @@ const schedule = derivePaymentSchedule(contractContext, submitter);
 assert.equal(schedule.milestones.length, 1);
 assert.equal(schedule.milestones[0].amount, 30000);
 assert.equal(schedule.versionFingerprint, hash);
+const revisedContext = structuredClone(contractContext);
+revisedContext.version.snapshot.documentPackage.contractFields = { contractAmount: 80000 };
+assert.equal(derivePaymentSchedule(revisedContext, submitter).milestones[0].amount, 24000);
+revisedContext.contract.amount = 150000;
+assert.equal(derivePaymentSchedule(revisedContext, submitter).milestones[0].amount, 24000);
+revisedContext.version.snapshot.documentPackage.paymentMilestones[0].amount = 20000;
+assert.equal(derivePaymentSchedule(revisedContext, submitter).milestones[0].amount, 20000);
 
 const service = createEngineeringContractPaymentService({
   store,
