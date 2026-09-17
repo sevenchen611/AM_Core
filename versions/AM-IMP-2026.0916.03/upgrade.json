@@ -24,7 +24,7 @@
     "Contractors and verified group members can read the exact issued version's retained original attachments",
     "Private Drive state and attachment hashes are checked on public reads",
     "Tenant, project, group, capability and stale-version tests pass",
-    "Production and Android LINE verification are recorded before marking Deployed"
+    "Production commit, health and authenticated workspace verification are recorded before marking Deployed; Android LINE device acceptance is tracked separately"
   ],
   "projectStatus": { "AM_PLATFORM:engineering": "Installed" },
   "files": [

@@ -59,6 +59,30 @@ function fixture() {
 const input = { contractId: 'contract-1', versionId: 'version-1' };
 {
   const f = fixture();
+  const request = f.deps.notionRequest;
+  f.deps.notionRequest = async (path, options) => {
+    const result = await request(path, options);
+    if (path.includes('/attachments/')) {
+      const photo = result.results[0];
+      photo.properties['檔案名稱'] = { rich_text: rich('現場照片_AI命名') };
+      photo.properties['檔案'] = { files: [{ name: 'line-original.jpeg' }] };
+      const unsafe = result.results.find((item) => item.id === 'unsafe');
+      unsafe.properties['檔案'] = { files: [{ name: 'misleading.pdf' }] };
+    }
+    return result;
+  };
+  const photo = (await f.service.listCandidates(context, input)).find((item) => item.id === 'attachment-1');
+  assert.equal(photo.name, '現場照片_AI命名.jpeg');
+  assert.equal(photo.mimeType, 'image/jpeg');
+  assert.equal(photo.available, true);
+  assert.equal((await f.service.listCandidates(context, input)).find((item) => item.id === 'unsafe').available, false);
+  const imported = await f.service.importCandidates(context, { ...input, selections: [{ id: photo.id, category: 'other' }] });
+  assert.equal(imported.version.documentPackage.attachments[0].name, photo.name);
+  const loaded = await f.service.loadCandidate(context, { ...input, attachmentId: photo.id });
+  assert.equal(loaded.mimeType, 'image/jpeg');
+}
+{
+  const f = fixture();
   const items = await f.service.listCandidates(context, input);
   assert.equal(items.length, 4); // deduplicated; foreign group/message excluded
   assert(items.every((item) => !('fileId' in item)));

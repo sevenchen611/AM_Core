@@ -20,6 +20,14 @@ function documents(version) {
   return [pkg.contractBody, ...(pkg.constructionDrawings || []), pkg.quotation, ...(pkg.attachments || [])].filter(Boolean);
 }
 function mimeFor(name) { return TYPES[text(name).split('.').pop().toLowerCase()] || ''; }
+function archivedName(props) {
+  const display = plain(props['檔案名稱']?.rich_text) || plain(props['附件項目']?.title) || 'LINE 附件';
+  // Photo vision replaces the display slug, but Notion's original file name is preserved.
+  // Only recover a missing extension; never relabel an explicitly unsupported file.
+  if (mimeFor(display) || /\.[A-Za-z0-9]+$/.test(display)) return display;
+  const original = (props['檔案']?.files || []).map((file) => text(file.name)).find((name) => mimeFor(name));
+  return original ? `${display}.${original.split('.').pop().toLowerCase()}` : display;
+}
 
 export function createContractLineAttachmentService(deps) {
   const management = createContractManagementService({ store: deps.contractStore });
@@ -68,7 +76,7 @@ export function createContractLineAttachmentService(deps) {
         const props = page.properties || {};
         const message = (props['訊息']?.relation || []).map((item) => byId.get(item.id)).find(Boolean);
         if (!message) continue;
-        const name = plain(props['檔案名稱']?.rich_text) || plain(props['附件項目']?.title) || 'LINE 附件';
+        const name = archivedName(props);
         const fileId = text(props['Drive 連結']?.url).match(/^https:\/\/drive\.google\.com\/file\/d\/([A-Za-z0-9_-]+)(?:\/|$)/)?.[1] || '';
         const identity = fileId || page.id;
         if (seen.has(identity)) continue;
