@@ -1,0 +1,17 @@
+{
+  "id": "AM-IMP-2026.0917.01",
+  "name": "Engineering contract saved version amount authority and validation visibility",
+  "type": "AM Platform / Engineering contract validation",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-17",
+  "dependsOn": ["AM-IMP-2026.0916.03"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": ["node tools/dryrun-engineering-contract-management.mjs"],
+  "dataIsolation": { "canCopyCode": true, "canCopySchema": true, "canCopyData": false, "canCopySecrets": false, "guard": "Keep authorized tenant/project/version boundaries and immutable saved snapshots; no production backfill or LINE send." },
+  "definitionOfDone": ["Saved version amounts govern payment validation and percentage-only schedules", "Legacy missing amounts retain fallback; explicit invalid amounts and real payment mismatches remain blocked", "Workspace displays server validation and exact localized mismatch totals", "Scoped regressions pass and production Render commit, health and authenticated workspace are verified"],
+  "projectStatus": { "AM_PLATFORM:engineering": "Installed" },
+  "files": ["modules/construction/contract-domain.js", "modules/construction/contract-management.js", "modules/construction/contract-payments.js", "modules/construction/contracts.js", "tools/dryrun-engineering-contract-management.mjs", "tools/dryrun-engineering-contract-payments.mjs", "tools/dryrun-engineering-contract-workspace.mjs"]
+}

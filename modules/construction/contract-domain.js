@@ -833,6 +833,28 @@ function normalizeAcceptanceCriteria(input) {
   return { criteria, errors };
 }
 
+export function contractPackageAmount(packageInput, fallbackAmount) {
+  const fields = packageInput?.contractFields;
+  return fields && Object.prototype.hasOwnProperty.call(fields, 'contractAmount')
+    ? fields.contractAmount : fallbackAmount;
+}
+
+export function contractPackageValidationMessage(result) {
+  const labels = { contractBody: '合約本文', constructionDrawings: '施工圖', quotation: '報價單', paymentMilestones: '付款條件', acceptanceCriteria: '驗收標準' };
+  const money = (value) => Number(value).toLocaleString('zh-TW');
+  const messages = (result.missing || []).map((field) => '尚未補齊：' + (labels[field] || field));
+  for (const error of result.errors || []) {
+    if (error.code === 'PAYMENT_AMOUNT_TOTAL') messages.push(`付款分期合計 ${money(error.total)} 元，與本版本合約總價 ${money(error.expected)} 元不一致。`);
+    else if (error.code === 'PAYMENT_PERCENTAGE_TOTAL') messages.push(`付款比例合計 ${money(error.total)}%，必須為 100%。`);
+    else if (error.code === 'PAYMENT_ALLOCATION_MISMATCH') messages.push(`付款期別 ${error.id} 金額 ${money(error.amount)} 元，與比例計算金額 ${money(error.expectedAmount)} 元不一致。`);
+    else if (['CONTRACT_AMOUNT_RANGE', 'VERSION_CONTRACT_AMOUNT_INVALID', 'INVALID_NUMBER'].includes(error.code)) messages.push('本版本合約總價或付款數字不合法，請填寫有效的正數金額。');
+    else if (error.code === 'PAYMENT_AMOUNT_INCOMPLETE') messages.push('使用分期金額時，每一期都必須填寫金額。');
+    else if (error.code === 'PAYMENT_PERCENTAGE_INCOMPLETE') messages.push('使用付款比例時，每一期都必須填寫比例。');
+    else messages.push(error.message);
+  }
+  return messages.join('\n');
+}
+
 export function validateContractPackage(packageInput, options = {}) {
   const source = packageInput && typeof packageInput === 'object' && !Array.isArray(packageInput)
     ? packageInput
@@ -860,7 +882,12 @@ export function validateContractPackage(packageInput, options = {}) {
 
   const paymentSource = Array.isArray(source.paymentMilestones) ? source.paymentMilestones : [];
   if (paymentSource.length === 0) missing.push('paymentMilestones');
-  const payment = validatePaymentMilestones(paymentSource, options);
+  const amount = contractPackageAmount(source, options.contractAmount);
+  const hasVersionAmount = source.contractFields && Object.prototype.hasOwnProperty.call(source.contractFields, 'contractAmount');
+  if (hasVersionAmount && (!['number', 'string'].includes(typeof amount) || String(amount).trim() === '')) {
+    errors.push(issue('VERSION_CONTRACT_AMOUNT_INVALID', 'contractFields.contractAmount', '本版本合約總價必須為有效正數。'));
+  }
+  const payment = validatePaymentMilestones(paymentSource, { ...options, contractAmount: amount });
   errors.push(...payment.errors);
 
   const acceptanceSource = Array.isArray(source.acceptanceCriteria)
@@ -886,7 +913,7 @@ export function assertContractPackageComplete(packageInput, options = {}) {
   if (!result.ok) {
     throw domainError(
       'CONTRACT_PACKAGE_INCOMPLETE',
-      'Contract package is incomplete or invalid.',
+      contractPackageValidationMessage(result) || '合約內容不完整或資料不合法。',
       { missing: result.missing, errors: result.errors },
       422,
     );

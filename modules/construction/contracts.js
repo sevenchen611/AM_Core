@@ -869,10 +869,11 @@ function versionMissing(version){
   const pkg=version?.documentPackage||version?.snapshot?.documentPackage||{};const missing=[];
   if(!pkg.contractBody)missing.push('合約本文');if(!(pkg.constructionDrawings||[]).length)missing.push('施工圖');if(!pkg.quotation)missing.push('報價單');if(!(pkg.paymentMilestones||[]).length)missing.push('付款條件');if(!(pkg.acceptanceCriteria||pkg.acceptanceStandards||[]).length)missing.push('驗收標準');return missing;
 }
+function versionValidationHtml(version){const v=version?.packageValidation;if(!v)return '';const totals=v.payment?.totals||{};return '<div class="readiness '+(v.ok?'ready':'')+'">'+(v.ok?'✓ 本版本內容驗證通過':'本版本內容驗證未通過')+(totals.contractAmount!=null?'；本版本總價 '+esc(money(totals.contractAmount))+(totals.amount>0?'／付款合計 '+esc(money(totals.amount)):'／依付款比例驗證'):'')+(!v.ok?'<br>'+esc(version.packageValidationMessage||'請檢查合約內容。').split(String.fromCharCode(10)).join('<br>'):'')+'</div>';}
 function versionHistoryHtml(detail){
   const versions=detail?.versions||[];if(!versions.length)return '<div class="empty">尚未建立任何版本</div>';
   return '<div class="version-list"><h3>版本歷程（舊版不會被覆寫）</h3><div class="twrap"><table><tr><th>版本</th><th>狀態</th><th>建立時間</th><th>內容完整度</th><th>Bundle SHA-256</th></tr>'
-    +versions.map((v,index)=>{const missing=versionMissing(v);return '<tr class="'+(index===0?'current':'')+'"><td><b>V'+v.versionNo+'</b>'+(index===0?'（目前）':'')+'</td><td>'+esc(workflowStatusLabel(v.status))+'</td><td>'+esc((v.createdAt||'').replace('T',' ').slice(0,16))+'</td><td>'+(missing.length?'<span class="version-missing">待補：'+esc(missing.join('、'))+'</span>':'✓ 五項完整')+'</td><td class="file-state">'+esc(v.attachmentManifestHash||'尚未產生')+'</td></tr>';}).join('')+'</table></div></div>';
+    +versions.map((v,index)=>{const missing=versionMissing(v);return '<tr class="'+(index===0?'current':'')+'"><td><b>V'+v.versionNo+'</b>'+(index===0?'（目前）':'')+'</td><td>'+esc(workflowStatusLabel(v.status))+'</td><td>'+esc((v.createdAt||'').replace('T',' ').slice(0,16))+'</td><td>'+(v.packageValidation?.ok===false?'<span class="version-missing">'+esc(v.packageValidationMessage||'內容驗證未通過')+'</span>':missing.length?'<span class="version-missing">待補：'+esc(missing.join('、'))+'</span>':'✓ 五項完整')+'</td><td class="file-state">'+esc(v.attachmentManifestHash||'尚未產生')+'</td></tr>';}).join('')+'</table></div></div>';
 }
 function versionComposerHtml(nextVersion){
   const source=WORKFLOW.revisionReview;const sourceHtml=source?'<div class="workflow-box revision-source"><h4>V'+esc(source.versionNo)+' 草約的修訂依據</h4><div class="hint">回覆人：'+esc(source.reviewerName||'未提供')+' ／ 回覆時間：'+esc((source.respondedAt||'').replace('T',' ').slice(0,16)||'未記錄')+'</div><div class="review-note">'+esc(source.responseNotes||'未提供其他說明')+'</div></div>':'';
@@ -951,7 +952,7 @@ function renderWorkflow(){
   if((!latest||WORKFLOW.creatingVersion)&&CAN_MANAGE){
     html+=versionComposerHtml((latest?.versionNo||0)+1);
   } else if(latest){
-    html+='<div class="workflow-grid"><div class="workflow-box"><h4>五項必要內容</h4><div class="hint">合約本文、施工圖、報價單、付款條件、驗收標準均封裝在此版本；凍結後不可修改。</div></div><div class="workflow-box"><h4>附件雜湊</h4><div class="file-state">'+esc(latest.attachmentManifestHash||latest.bundle_sha256||'尚未凍結')+'</div></div></div>'+contractDocumentsHtml(latest)+'<div class="workflow-actions">';
+    html+=versionValidationHtml(latest)+'<div class="workflow-grid"><div class="workflow-box"><h4>五項必要內容</h4><div class="hint">合約本文、施工圖、報價單、付款條件、驗收標準均封裝在此版本；凍結後不可修改。</div></div><div class="workflow-box"><h4>附件雜湊</h4><div class="file-state">'+esc(latest.attachmentManifestHash||latest.bundle_sha256||'尚未凍結')+'</div></div></div>'+contractDocumentsHtml(latest)+'<div class="workflow-actions">';
     if(CAN_MANAGE)html+='<button class="btn ghost" onclick="startNewVersion()">＋ 建立 V'+(latest.versionNo+1)+'</button>';
     if(status==='draft'&&CAN_MANAGE){const hasBody=!versionMissing(latest).includes('合約本文');if(hasBody&&WORKFLOW.row.groupId)html+='<button class="btn" onclick="workflowDraftReview()">產生草約並送 LINE 群組確認</button>';else html+='<span class="version-missing">草約至少需要合約本文，且合約必須綁定工程 LINE 群組。</span>';}
     if(status==='draft'&&CAN_MANAGE&&!versionMissing(latest).length)html+='<button class="btn" onclick="workflowTransition(\\'submit-review\\')">送交內部審查</button>';
