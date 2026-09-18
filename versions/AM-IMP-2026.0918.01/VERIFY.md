@@ -15,6 +15,9 @@ category and allowlisted SQLSTATE, never exception text, queries, IDs or secrets
 Connection timeout, network, authentication, TLS, SSL availability and local
 binding validation failures use separate static categories. No hostnames,
 passwords, certificate data or unclassified driver messages are returned.
+An allowlisted exception class and known runtime-module category/line can locate
+uncategorized failures without exception strings, absolute paths or stack dumps.
+Aggregate network/IPv6 errors and missing SCRAM password types stay redacted.
 The v2 contract includes mentionIdentityReference in the caller payload digest.
 Original sourceNotificationId is preserved; an already-bound v1 event changing
 to v2 returns source_notification_conflict rather than sending twice.

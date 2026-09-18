@@ -2,6 +2,14 @@
 
 Status: Deployed (recipient/delivery acceptance still pending).
 
+PR 185 main 7f968434de8aeafcb0ad998f552863c75c066be3 was verified on both
+formal URLs at 05:15:41Z. A post-rollout original retry still failed at the
+durable binding stage with an unclassified driver/runtime error; no receipts.
+The browser helper is unavailable, so exception class and allowlisted module/line
+categories provide protected diagnosis without stack dumps, private strings,
+absolute paths or credentials. This diagnostic follow-up is Installed pending
+formal verification; no bank actions or guard bypasses are involved.
+
 PR 184 main 7c581346d8c2813bd0fc572d3e9ce3458ddb998a was verified on both
 formal URLs at 05:10:31Z. Original retry failed at delivery_identity, after the
 reviewer resolved and textV2 assembled, before LINE push. Safe categories now

@@ -756,10 +756,12 @@ assert.equal(pushCalls.length,diagnosticPushCount);
 for (const [syntheticError, kind] of [
   [new Error('timeout exceeded when trying to connect'),'database_connection_timeout'],
   [Object.assign(new Error('private database host'),{code:'ENOTFOUND'}),'database_connection_failed'],
+  [new AggregateError([Object.assign(new Error('private IPv6 host'),{code:'ENETUNREACH'})]),'database_connection_failed'],
   [Object.assign(new Error('private password detail'),{code:'28P01'}),'database_authentication_failed'],
   [Object.assign(new Error('private constraint detail'),{code:'42P10'}),'database_query_rejected'],
   [Object.assign(new Error('private certificate'),{code:'SELF_SIGNED_CERT_IN_CHAIN'}),'database_tls_rejected'],
   [new Error('The server does not support SSL connections'),'database_ssl_unavailable'],
+  [new Error('SASL: SCRAM-SERVER-FIRST-MESSAGE: client password must be a string'),'database_authentication_failed'],
   [new Error('Invalid finance notification identity'),'invalid_event_binding'],
   [new Error('Unable to persist finance notification identity'),'durable_event_missing'],
 ]) {
@@ -772,4 +774,15 @@ for (const [syntheticError, kind] of [
   assert.equal(pushCalls.length,diagnosticPushCount);
 }
 testPlatform.operationalMemory.bindFinanceNotificationIdentity = originalBind;
-console.log('Company LINE push verification passed: v1/v2 scoped mention, immutable retries, actual receipt and static no-PII failure-stage diagnostics.');
+const originError = new TypeError('private exception '+MAGGIE_USER_ID);
+originError.stack = 'TypeError: private detail\n at async /private/deploy/node_modules/pg-pool/index.js:47:12\n at /private/deploy/core/operational-memory.js:143:20';
+testPlatform.operationalMemory.bindFinanceNotificationIdentity = async () => {throw originError;};
+res = await call(rentalFinanceRoute,{headers:{authorization:'Bearer rental-only-key'},body:referenceBody});
+assert.equal(res.payload.failureClass,'TypeError');
+assert.equal(res.payload.failureOrigin,'postgres_pool');
+assert.equal(res.payload.failureLine,47);
+assert.ok(!JSON.stringify(res.payload).includes('private'));
+assert.ok(!JSON.stringify(res.payload).includes(MAGGIE_USER_ID));
+assert.equal(pushCalls.length,diagnosticPushCount);
+testPlatform.operationalMemory.bindFinanceNotificationIdentity = originalBind;
+console.log('Company LINE push verification passed: actual receipt, immutable retries and allowlisted stage/class/origin diagnostics without private exceptions.');
