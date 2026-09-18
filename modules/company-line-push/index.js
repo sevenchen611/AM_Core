@@ -512,7 +512,7 @@ async function pushToGroup(req, res, ctx, {
   } catch (error) {
     const lineFailure = error.code === 'LINE_PUSH_FAILED' || error.code === 'LINE_PUSH_TIMEOUT';
     const protectedFailure = requireMention && !error.statusCode;
-    const sqlState = new Set(['42P01', '42703', '42501', '23502', '23503', '23505', '23514', '42804', '22P02', '28P01', '28000', '3D000', '53300', '57P01']).has(error.code) ? error.code : undefined;
+    const sqlState = new Set(['42P01', '42P10', '3F000', '42601', '42883', '42703', '42501', '23502', '23503', '23505', '23514', '42804', '22P02', '28P01', '28000', '3D000', '53300', '57P01']).has(error.code) ? error.code : undefined;
     const connectionTimeout = new Set(['timeout exceeded when trying to connect', 'Connection terminated due to connection timeout', 'connect ETIMEDOUT']).has(error.message);
     const networkFailure = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH']).has(error.code);
     const tlsFailure = new Set(['SELF_SIGNED_CERT_IN_CHAIN', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'CERT_HAS_EXPIRED']).has(error.code);

@@ -757,6 +757,7 @@ for (const [syntheticError, kind] of [
   [new Error('timeout exceeded when trying to connect'),'database_connection_timeout'],
   [Object.assign(new Error('private database host'),{code:'ENOTFOUND'}),'database_connection_failed'],
   [Object.assign(new Error('private password detail'),{code:'28P01'}),'database_authentication_failed'],
+  [Object.assign(new Error('private constraint detail'),{code:'42P10'}),'database_query_rejected'],
   [Object.assign(new Error('private certificate'),{code:'SELF_SIGNED_CERT_IN_CHAIN'}),'database_tls_rejected'],
   [new Error('The server does not support SSL connections'),'database_ssl_unavailable'],
   [new Error('Invalid finance notification identity'),'invalid_event_binding'],
