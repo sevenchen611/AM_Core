@@ -2,6 +2,16 @@
 
 Status: Deployed (recipient/delivery acceptance still pending).
 
+The next compatible receiver change accepts a v2 opaque reviewer reference.
+Production name-only retries returned member_name_not_found after PR 182
+(35f17792ee11c7cab9ca30e81d5e7295bad1bb09, formal health verified 04:54Z).
+This is a profile-label mismatch, not loss of the existing finance verification.
+The Rental producer must reuse its active approval policy's verified recipient;
+AM matches only that reference within the canonical group. Missing legacy fields
+require an existing explicit recipient binding; no name aliases or new grants.
+Consumer-first rollout and original source-event conflicts prevent duplicates.
+These follow-up changes remain Installed until the new formal commit is verified.
+
 The AM finance sender reads the existing exact-group encrypted claims member
 registry. It does not grant membership, copy personnel, infer nickname ownership,
 change notification payload identities, or perform bank actions. Existing failed

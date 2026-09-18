@@ -22,7 +22,12 @@ const member = {
 };
 let rows = [member];
 let queryCount = 0;
-const authority = createClaimsAuthority({ identityKey, store: {
+let configuredReference = '';
+const authority = createClaimsAuthority({ identityKey,
+  verifiedRecipientReferenceFactory: async (input) => {
+    assert.equal(input.tenant.key, tenant.key);
+    return input.userId === userId ? configuredReference : '';
+  }, store: {
   async transaction(scope, work) {
     assert.equal(scope.tenantId, tenant.tenantId);
     return work({ async query(sql, params) {
@@ -76,4 +81,26 @@ const before = queryCount;
 assert.equal(await authority.resolveGroupMention({ tenant, groupId: 'bad', mentionName: '測試覆核員' }), null);
 assert.equal(await resolve(''), null);
 assert.equal(queryCount, before);
+const referenceInput = { tenant, groupId, mentionName: '顯示姓名', mentionIdentityReference: member.identity_reference, diagnose: true };
+rows = [{ ...member, member_name_ciphertext: encrypt('不同 LINE 暱稱') }];
+assert.deepEqual(await authority.resolveGroupMention(referenceInput), { name: '顯示姓名', userId });
+rows = [{ ...member, member_name_ciphertext: null, tenant_key: null, identity_reference: null }];
+assert.deepEqual(await authority.resolveGroupMention(referenceInput), { resolved: false, reason: 'member_reference_not_found' });
+configuredReference = member.identity_reference;
+assert.deepEqual(await authority.resolveGroupMention(referenceInput), { name: '顯示姓名', userId });
+for (const [override, reason] of [
+  [{ tenant_key: 'another-tenant' }, 'member_tenant_mismatch'],
+  [{ identity_reference: 'line-ref:v1:22222222-2222-4222-8222-222222222222' }, 'member_reference_conflict'],
+  [{ state: 'left' }, 'member_not_present'],
+  [{ manual_deny: true }, 'member_denied'],
+  [{ oa_state: 'left' }, 'oa_not_present'],
+  [{ group_state: 'paused' }, 'group_not_active'],
+]) {
+  rows = [{ ...member, tenant_key: null, identity_reference: null, ...override }];
+  assert.deepEqual(await authority.resolveGroupMention(referenceInput), { resolved: false, reason });
+}
+rows = [{ ...member }, { ...member, state: 'left' }];
+assert.deepEqual(await authority.resolveGroupMention(referenceInput), { resolved: false, reason: 'member_reference_ambiguous' });
+rows = [{ ...member }];
+assert.deepEqual(await authority.resolveGroupMention({ ...referenceInput, mentionIdentityReference: 'bad' }), { resolved: false, reason: 'invalid_lookup_input' });
 console.log('Bank mention registry checks passed: encrypted exact-group membership, tenant scope, denial/state/identity/ambiguity guards, SELECT-only resolution.');

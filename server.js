@@ -256,6 +256,7 @@ const server = http.createServer(async (req, res) => {
       platform: 'am-core',
       build: GROUP_ONBOARDING_BUILD,
       financeMentionRegistry: 'claims-group-members-v1',
+      financeMentionReferenceContract: 'hozo-rental-finance-group-mention-v2',
       commit: /^[a-f0-9]{40}$/u.test(String(process.env.RENDER_GIT_COMMIT || '')) ? process.env.RENDER_GIT_COMMIT : null,
       lineConfigured: line.configured,
       driveConfigured: platform.driveConfigured,

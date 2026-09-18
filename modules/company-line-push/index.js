@@ -16,10 +16,11 @@ const FINANCE_REGISTRY_REASONS = new Set([
   'member_name_ambiguous', 'unsupported_identity_key', 'group_not_active',
   'oa_not_present', 'member_not_present', 'member_denied', 'member_tenant_mismatch',
   'member_reference_missing', 'group_identity_mismatch', 'invalid_member_identity',
+  'member_reference_not_found', 'member_reference_ambiguous', 'member_reference_conflict',
 ]);
 const FINANCE_BODY_FIELDS = new Set([
   'text', 'message', 'imageUrls', 'image_urls', 'dryRun', 'retryKey', 'timeoutMs', 'mentionName',
-  'sourceNotificationId',
+  'sourceNotificationId', 'mentionIdentityReference',
 ]);
 
 function init(injected) {
@@ -127,13 +128,14 @@ function canonicalGroupName(page) {
   return explicit || titleText(page);
 }
 
-function financeRetryKeyFor({ sourceNotificationId, text, mentionName, imageUrls }) {
+function financeRetryKeyFor({ sourceNotificationId, text, mentionName, imageUrls, mentionIdentityReference }) {
   const identity = JSON.stringify({
-    contract: 'hozo-rental-finance-group-mention-v1',
+    contract: mentionIdentityReference ? 'hozo-rental-finance-group-mention-v2' : 'hozo-rental-finance-group-mention-v1',
     sourceNotificationId,
     text,
     mentionName,
     imageUrls,
+    ...(mentionIdentityReference ? { mentionIdentityReference } : {}),
   });
   return `finance-notification:v1:${crypto.createHash('sha256').update(identity).digest('hex')}`;
 }
@@ -385,8 +387,12 @@ async function pushToGroup(req, res, ctx, {
         throw requestError(400, 'mention_not_in_text', 'Finance push text must contain mentionName.');
       }
       sourceNotificationId = validateSourceNotificationId(body.sourceNotificationId);
+      if (Object.hasOwn(body, 'mentionIdentityReference')
+        && !/^line-ref:v1:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(body.mentionIdentityReference)) {
+        throw requestError(400, 'invalid_mention_reference', 'Invalid mentionIdentityReference.');
+      }
       financeRetryKey = validateFinanceRetryKey(body.retryKey, {
-        sourceNotificationId, text, mentionName, imageUrls,
+        sourceNotificationId, text, mentionName, imageUrls, mentionIdentityReference: body.mentionIdentityReference,
       });
     }
     const target = await resolveGroup(ctx, { matcher, canonicalName, label });
@@ -396,6 +402,7 @@ async function pushToGroup(req, res, ctx, {
       }
       mention = await platform.resolveClaimsGroupMention({
         tenant: ctx.tenant, groupId: target.groupId, mentionName: body.mentionName,
+        mentionIdentityReference: body.mentionIdentityReference,
       });
       if (!mention || mention.name !== normalizedMemberName(body.mentionName)
         || !LINE_USER_ID_RE.test(String(mention.userId || ''))) {
