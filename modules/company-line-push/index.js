@@ -384,7 +384,18 @@ async function pushToGroup(req, res, ctx, {
       });
     }
     const target = await resolveGroup(ctx, { matcher, canonicalName, label });
-    if (requireMention) mention = resolveMentionFromBinding(target.page, body.mentionName);
+    if (requireMention) {
+      if (typeof platform?.resolveClaimsGroupMention !== 'function') {
+        throw requestError(503, 'claims_registry_unavailable', 'Claims group registry is unavailable.');
+      }
+      mention = await platform.resolveClaimsGroupMention({
+        tenant: ctx.tenant, groupId: target.groupId, mentionName: body.mentionName,
+      });
+      if (!mention || mention.name !== normalizedMemberName(body.mentionName)
+        || !LINE_USER_ID_RE.test(String(mention.userId || ''))) {
+        throw requestError(422, 'mention_not_resolved', 'Finance group mention could not be resolved in the claims group registry.');
+      }
+    }
     const deliveryRetryKey = requireMention
       ? financeDeliveryRetryKey(financeRetryKey, target, mention)
       : body.retryKey || crypto.randomUUID();

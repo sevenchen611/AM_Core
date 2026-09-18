@@ -49,6 +49,16 @@ const eventDedupe = new Map();
 
 function init(injected) {
   platform = injected;
+  // Install the fail-closed provider before initialization, even when authority
+  // configuration is absent/invalid. Finance must never silently use old maps.
+  platform.resolveClaimsGroupMention = async (input) => {
+    if (!claimsAuthorityIntegration?.ready || !claimsAuthorityIntegration.resolveGroupMention) {
+      throw Object.assign(new Error('Claims group registry is unavailable.'), {
+        statusCode: 503, code: 'claims_registry_unavailable',
+      });
+    }
+    return claimsAuthorityIntegration.resolveGroupMention(input);
+  };
   const env = localFinanceV3Env(process.env);
   const databaseUrl = String(env.DATABASE_URL || '').trim();
   const sharedPool = databaseUrl ? createFinanceClaimsV3Pool(databaseUrl, {

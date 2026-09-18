@@ -1,0 +1,28 @@
+name: Validate bank notification registry
+on:
+  pull_request:
+    paths:
+      - 'core/claims-authority.js'
+      - 'modules/claims/**'
+      - 'modules/company-line-push/**'
+      - 'tools/dryrun-claims-*.mjs'
+      - 'tools/verify-company-line-push.mjs'
+      - 'versions/AM-IMP-2026.0918.01/**'
+      - '.github/workflows/validate-bank-mention.yml'
+      - 'package*.json'
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run check
+      - run: npm run dryrun:claims-authority
+      - run: npm run verify:bank-mention
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.0918.01

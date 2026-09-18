@@ -423,6 +423,10 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
     enabled: true,
     ready: true,
     authority,
+    async resolveGroupMention(input) {
+      await migrationPromise;
+      return authority.resolveGroupMention(input);
+    },
     admin,
     handleSelector,
     isSelectorToken: (value) => Boolean(parseSelectorToken(value)),

@@ -69,12 +69,21 @@ value is `C` followed by exactly 32 hexadecimal characters. Missing, multiple,
 or malformed values fail closed; no other page text is searched for a group id.
 The caller cannot provide a LINE group id or LINE user id. `mentionName` is
 required and must occur in `text`. The endpoint resolves exactly one matching
-name from that one finance binding page's `成員對照` JSON and passes the
+name from the encrypted claims-management member registry scoped to that exact
+LINE group and tenant, rather than the old page's `成員對照` JSON, and passes the
 resolved identity to LINE as one `textV2` mention. A caller-written literal `@`
 immediately before the chosen name is removed, caller braces are escaped, and
 the normalized LINE `textV2` payload must remain within the 5,000 JavaScript
 UTF-16-code-unit limit. Oversized text is rejected before durable binding or
 provider access.
+
+The registered group must be active with the OA present. The unique member must
+be observed, not manually denied, and have an opaque LINE identity reference
+under the same tenant key. Names are matched exactly after NFKC/trim; nicknames
+are not guessed or equated with employee/admin accounts. Left/denied duplicate
+names still count as ambiguity. The registry is read without onboarding, grants,
+profile refreshes, or writes. Registry unavailability returns 503 with no legacy
+map fallback. No new group/member ID environment variables are needed.
 
 Missing, malformed, unknown, ambiguous, or invalid member mappings fail closed
 without sending. The response reports only the mention name and
