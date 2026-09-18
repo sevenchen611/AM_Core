@@ -12,6 +12,9 @@
 Code deployment is not proof of actual recipient binding or notification delivery.
 Unexpected protected failures expose only a fixed pipeline stage, fixed cause
 category and allowlisted SQLSTATE, never exception text, queries, IDs or secrets.
+Connection timeout, network, authentication, TLS, SSL availability and local
+binding validation failures use separate static categories. No hostnames,
+passwords, certificate data or unclassified driver messages are returned.
 The v2 contract includes mentionIdentityReference in the caller payload digest.
 Original sourceNotificationId is preserved; an already-bound v1 event changing
 to v2 returns source_notification_conflict rather than sending twice.

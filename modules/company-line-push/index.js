@@ -512,9 +512,19 @@ async function pushToGroup(req, res, ctx, {
   } catch (error) {
     const lineFailure = error.code === 'LINE_PUSH_FAILED' || error.code === 'LINE_PUSH_TIMEOUT';
     const protectedFailure = requireMention && !error.statusCode;
-    const sqlState = new Set(['42P01', '42703', '42501', '23502', '23503', '23505', '23514', '42804', '22P02']).has(error.code) ? error.code : undefined;
+    const sqlState = new Set(['42P01', '42703', '42501', '23502', '23503', '23505', '23514', '42804', '22P02', '28P01', '28000', '3D000', '53300', '57P01']).has(error.code) ? error.code : undefined;
+    const connectionTimeout = new Set(['timeout exceeded when trying to connect', 'Connection terminated due to connection timeout', 'connect ETIMEDOUT']).has(error.message);
+    const networkFailure = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH']).has(error.code);
+    const tlsFailure = new Set(['SELF_SIGNED_CERT_IN_CHAIN', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'CERT_HAS_EXPIRED']).has(error.code);
     const failureKind = error.message === 'Claims authority ciphertext key is unsupported.' ? 'ciphertext_format_invalid'
       : error.message === 'Claims authority ciphertext could not be authenticated.' ? 'ciphertext_authentication_failed'
+        : error.message === 'Invalid finance notification identity' ? 'invalid_event_binding'
+          : error.message === 'Unable to persist finance notification identity' ? 'durable_event_missing'
+            : connectionTimeout ? 'database_connection_timeout'
+              : networkFailure ? 'database_connection_failed'
+                : tlsFailure ? 'database_tls_rejected'
+                  : error.message === 'The server does not support SSL connections' ? 'database_ssl_unavailable'
+                    : ['28P01', '28000'].includes(sqlState) ? 'database_authentication_failed'
         : sqlState ? 'database_query_rejected' : 'unexpected_failure';
     return sendJson(res, error.statusCode || (lineFailure ? 502 : 500), {
       ok: false,
