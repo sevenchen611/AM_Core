@@ -2,6 +2,12 @@
 
 Status: Deployed (recipient/delivery acceptance still pending).
 
+PR 184 main 7c581346d8c2813bd0fc572d3e9ce3458ddb998a was verified on both
+formal URLs at 05:10:31Z. Original retry failed at delivery_identity, after the
+reviewer resolved and textV2 assembled, before LINE push. Safe categories now
+also distinguish driver connection/authentication/TLS/timeout and binding input
+errors; this follow-up is Installed until verified. No receipt is assumed.
+
 PR 183 receiver main d16ab93d5183f6b5979aa113175ec88670749f6b was verified
 on both formal health URLs at 05:02:57Z. The Rental producer PR 290 was deployed
 from c033c18756dc074a6bb7f1b635221e9ba49fcd0a by Actions at 05:05Z.
