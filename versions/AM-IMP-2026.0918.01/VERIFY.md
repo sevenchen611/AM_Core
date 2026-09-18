@@ -10,6 +10,8 @@
 - Verify payable amounts remain unpaid and bank review/release were not invoked.
 
 Code deployment is not proof of actual recipient binding or notification delivery.
+Unexpected protected failures expose only a fixed pipeline stage, fixed cause
+category and allowlisted SQLSTATE, never exception text, queries, IDs or secrets.
 The v2 contract includes mentionIdentityReference in the caller payload digest.
 Original sourceNotificationId is preserved; an already-bound v1 event changing
 to v2 returns source_notification_conflict rather than sending twice.

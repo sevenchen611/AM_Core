@@ -359,6 +359,7 @@ async function pushToGroup(req, res, ctx, {
   if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'Method not allowed.' });
   if (ctx.tenant?.key !== HOZO_TENANT_KEY) return sendJson(res, 404, { ok: false, error: 'Not found.' });
 
+  let financeFailureStage = 'payload';
   try {
     const body = await readJson(req);
     if (!body || Array.isArray(body) || typeof body !== 'object') {
@@ -395,8 +396,10 @@ async function pushToGroup(req, res, ctx, {
         sourceNotificationId, text, mentionName, imageUrls, mentionIdentityReference: body.mentionIdentityReference,
       });
     }
+    financeFailureStage = 'group_lookup';
     const target = await resolveGroup(ctx, { matcher, canonicalName, label });
     if (requireMention) {
+      financeFailureStage = 'recipient_registry';
       if (typeof platform?.resolveClaimsGroupMention !== 'function') {
         throw requestError(503, 'claims_registry_unavailable', 'Claims group registry is unavailable.');
       }
@@ -413,6 +416,7 @@ async function pushToGroup(req, res, ctx, {
     const deliveryRetryKey = requireMention
       ? financeDeliveryRetryKey(financeRetryKey, target, mention)
       : body.retryKey || crypto.randomUUID();
+    financeFailureStage = 'message_build';
     const financeMessage = requireMention ? financeMentionMessage(text, mention) : null;
     if (body.dryRun === true) {
       return sendJson(res, 200, {
@@ -426,6 +430,7 @@ async function pushToGroup(req, res, ctx, {
     }
     let financeBinding = null;
     if (requireMention) {
+      financeFailureStage = 'delivery_identity';
       const routeDigest = crypto.createHash('sha256')
         .update(JSON.stringify({ groupId: target.groupId, userId: mention.userId }))
         .digest('hex');
@@ -455,6 +460,7 @@ async function pushToGroup(req, res, ctx, {
 
     let receipt;
     try {
+      financeFailureStage = 'line_delivery';
       receipt = await platform.pushLineMessage(target.groupId, financeMessage || text, requireMention ? null : mention, {
         retryKey: deliveryRetryKey,
         timeoutMs: body.timeoutMs,
@@ -472,6 +478,7 @@ async function pushToGroup(req, res, ctx, {
       throw error;
     }
     if (requireMention) {
+      financeFailureStage = 'delivery_receipt';
       const status = Number(receipt?.status || 0);
       const requestId = safeProviderEvidence(receipt?.requestId);
       const acceptedRequestId = safeProviderEvidence(receipt?.acceptedRequestId);
@@ -505,10 +512,15 @@ async function pushToGroup(req, res, ctx, {
   } catch (error) {
     const lineFailure = error.code === 'LINE_PUSH_FAILED' || error.code === 'LINE_PUSH_TIMEOUT';
     const protectedFailure = requireMention && !error.statusCode;
+    const sqlState = new Set(['42P01', '42703', '42501', '23502', '23503', '23505', '23514', '42804', '22P02']).has(error.code) ? error.code : undefined;
+    const failureKind = error.message === 'Claims authority ciphertext key is unsupported.' ? 'ciphertext_format_invalid'
+      : error.message === 'Claims authority ciphertext could not be authenticated.' ? 'ciphertext_authentication_failed'
+        : sqlState ? 'database_query_rejected' : 'unexpected_failure';
     return sendJson(res, error.statusCode || (lineFailure ? 502 : 500), {
       ok: false,
       code: error.statusCode ? error.code : lineFailure ? 'line_push_failed' : protectedFailure ? 'finance_notification_failed' : error.code || undefined,
       error: lineFailure ? 'LINE push failed.' : protectedFailure ? 'Finance group notification failed.' : error.message,
+      ...(protectedFailure ? { failureStage: financeFailureStage, failureKind, ...(sqlState ? { sqlState } : {}) } : {}),
       detail: lineFailure && !requireMention ? error.message : undefined,
       lineStatus: error.lineStatus || undefined,
       requestId: !requireMention ? error.requestId || undefined : undefined,
