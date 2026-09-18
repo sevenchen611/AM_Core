@@ -6,7 +6,7 @@ Environment prefix: `HZ2`
 
 | Version | Status | Capability | Scope | Notes |
 | --- | --- | --- | --- | --- |
-| AM-IMP-2026.0918.01 | Installed | Bank draft review notification identity | Existing claims-management exact-group encrypted personnel registry | Offline regression complete; formal deployment and three real notification receipts remain to be verified. No bank review/release/payment changes. |
+| AM-IMP-2026.0918.01 | Deployed | Bank draft review notification identity | Existing claims-management exact-group encrypted personnel registry | PR 181 formal commit and health marker verified; original three actual delivery receipts remain pending. Static non-PII resolution reasons added; no bank action changes. |
 | AM-IMP-2026.0718.01 | Deployed | Operational memory | Raw evidence → events → project/task state → decisions/knowledge | Notion, Drive, 15 data sources and the shared PostgreSQL tenant row are live. PostgreSQL 18, separated runtime role, forced RLS and Render production health passed. |
 | AM-IMP-2026.0803.01 | Deployed | Full workflow activation | Formal tasks, reminders, queue, group admin, triage, meeting todo creation | HOZO AM 2.0 tenant authorization is enabled, full workflow modules are loaded, meeting tasks can reach review-and-create mode, and new HOZO AM 2.0 group onboarding defaults to active full-function binding. |
 | AM-IMP-2026.0803.02 | Deployed | Group name repair | LINE group-summary name resolution and same-tenant binding repair | Production health reports `group-name-repair-2026-08-03`; legacy onboarding no longer writes a fixed historical group name. |

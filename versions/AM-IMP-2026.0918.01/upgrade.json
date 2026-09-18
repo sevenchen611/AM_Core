@@ -3,7 +3,7 @@
   "name": "Bank draft notification claims personnel registry",
   "type": "HOZO claims notification identity integration",
   "portable": false,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-09-18",
   "dependsOn": ["AM-IMP-2026.0916.01"],
   "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
@@ -12,6 +12,6 @@
   "requiresScripts": ["npm run verify:bank-mention", "npm run dryrun:claims-authority"],
   "dataIsolation": { "canCopyCode": true, "canCopySchema": false, "canCopyData": false, "canCopySecrets": false, "guard": "Exact tenant and canonical LINE group membership, encrypted identity, active states and denial guards" },
   "definitionOfDone": ["Notification uses existing claims member registry", "No stale-map fallback or identity guessing", "Delivery requires durable provider receipt", "Formal deployment and original three sent timestamps verified"],
-  "projectStatus": { "AM_PLATFORM:hozo-am-2-0": "Installed" },
+  "projectStatus": { "AM_PLATFORM:hozo-am-2-0": "Deployed" },
   "files": ["core/claims-authority.js", "modules/claims/index.js", "modules/claims/authority-integration.js", "modules/company-line-push/index.js", "tools/dryrun-claims-bank-mention.mjs", "tools/verify-company-line-push.mjs"]
 }
