@@ -514,7 +514,9 @@ async function pushToGroup(req, res, ctx, {
     const protectedFailure = requireMention && !error.statusCode;
     const sqlState = new Set(['42P01', '42P10', '3F000', '42601', '42883', '42703', '42501', '23502', '23503', '23505', '23514', '42804', '22P02', '28P01', '28000', '3D000', '53300', '57P01']).has(error.code) ? error.code : undefined;
     const connectionTimeout = new Set(['timeout exceeded when trying to connect', 'Connection terminated due to connection timeout', 'connect ETIMEDOUT']).has(error.message);
-    const networkFailure = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH']).has(error.code);
+    const driverCodes = [error.code, error.cause?.code, ...(Array.isArray(error.errors) ? error.errors.map((item) => item?.code) : [])];
+    const networkCodes = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH', 'ENOTCONN', 'EPIPE', 'ERR_SOCKET_CLOSED']);
+    const networkFailure = driverCodes.some((code) => networkCodes.has(code));
     const tlsFailure = new Set(['SELF_SIGNED_CERT_IN_CHAIN', 'DEPTH_ZERO_SELF_SIGNED_CERT', 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', 'CERT_HAS_EXPIRED']).has(error.code);
     const failureKind = error.message === 'Claims authority ciphertext key is unsupported.' ? 'ciphertext_format_invalid'
       : error.message === 'Claims authority ciphertext could not be authenticated.' ? 'ciphertext_authentication_failed'
@@ -524,13 +526,25 @@ async function pushToGroup(req, res, ctx, {
               : networkFailure ? 'database_connection_failed'
                 : tlsFailure ? 'database_tls_rejected'
                   : error.message === 'The server does not support SSL connections' ? 'database_ssl_unavailable'
-                    : ['28P01', '28000'].includes(sqlState) ? 'database_authentication_failed'
+                    : ['28P01', '28000'].includes(sqlState)
+                      || error.message === 'SASL: SCRAM-SERVER-FIRST-MESSAGE: client password must be a string' ? 'database_authentication_failed'
         : sqlState ? 'database_query_rejected' : 'unexpected_failure';
+    const failureClass = new Set(['Error', 'TypeError', 'ReferenceError', 'AggregateError']).has(error.name) ? error.name : 'Error';
+    const originFrame = String(error.stack || '').match(/(?:^|[ /\\(])(core\/operational-memory\.js|node_modules\/pg-pool\/index\.js|node_modules\/pg\/lib\/client\.js|modules\/company-line-push\/index\.js):(\d{1,4}):\d+/u);
+    const originNames = {
+      'core/operational-memory.js': 'operational_memory',
+      'node_modules/pg-pool/index.js': 'postgres_pool',
+      'node_modules/pg/lib/client.js': 'postgres_client',
+      'modules/company-line-push/index.js': 'finance_sender',
+    };
+    const failureOrigin = originFrame ? originNames[originFrame[1]] : 'unknown';
+    const failureLine = originFrame && Number(originFrame[2]) > 0 ? Number(originFrame[2]) : undefined;
     return sendJson(res, error.statusCode || (lineFailure ? 502 : 500), {
       ok: false,
       code: error.statusCode ? error.code : lineFailure ? 'line_push_failed' : protectedFailure ? 'finance_notification_failed' : error.code || undefined,
       error: lineFailure ? 'LINE push failed.' : protectedFailure ? 'Finance group notification failed.' : error.message,
-      ...(protectedFailure ? { failureStage: financeFailureStage, failureKind, ...(sqlState ? { sqlState } : {}) } : {}),
+      ...(protectedFailure ? { failureStage: financeFailureStage, failureKind, failureClass, failureOrigin,
+        ...(failureLine ? { failureLine } : {}), ...(sqlState ? { sqlState } : {}) } : {}),
       detail: lineFailure && !requireMention ? error.message : undefined,
       lineStatus: error.lineStatus || undefined,
       requestId: !requireMention ? error.requestId || undefined : undefined,
