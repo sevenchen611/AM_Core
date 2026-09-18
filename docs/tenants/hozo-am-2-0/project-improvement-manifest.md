@@ -1,5 +1,9 @@
 # HOZO AM 2.0 — Project Improvement Manifest
 
+AM-IMP-2026.0918.02: Installed — dedicated bank reconciliation exception events;
+PR #187. Root Platform tenant adapter only, verified reviewer reference, true
+mention and immutable receipts; main/Render deployment evidence pending.
+
 Tenant key: `hozo-am-2-0`  
 Tenant UUID: `a72c78d7-5035-4e6e-8caf-9ec4d58c914f`  
 Environment prefix: `HZ2`
