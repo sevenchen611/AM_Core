@@ -506,11 +506,12 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
 
   // Read the same encrypted, group-scoped member registry shown in claims admin.
   // No profile-name aliases, cross-group identity search, grants, or data writes.
-  async function resolveGroupMention({ tenant, groupId, mentionName }) {
+  async function resolveGroupMention({ tenant, groupId, mentionName, diagnose = false }) {
     requireTenant(tenant);
+    const unresolved = (reason) => diagnose ? { resolved: false, reason } : null;
     const name = String(mentionName || '').normalize('NFKC').trim();
     if (!/^C[a-f0-9]{32}$/iu.test(String(groupId || '')) || !name || name.length > 80
-      || /[\u0000-\u001f\u007f]/u.test(name)) return null;
+      || /[\u0000-\u001f\u007f]/u.test(name)) return unresolved('invalid_lookup_input');
     const groupLookup = codec.opaque(tenant, 'group', groupId);
     return tenantTx(tenant, async (client) => {
       const result = await client.query(
@@ -523,20 +524,24 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
         [tenant.tenantId, groupLookup],
       );
       const rows = result.rows || [];
+      if (!rows.length) return unresolved('group_or_members_missing');
       // Include denied/left names in ambiguity checks: do not pick another person
       // merely because one of two identically named people is currently denied.
       const matches = rows.filter((row) => row.member_name_ciphertext
         && codec.decrypt(row.member_name_ciphertext).normalize('NFKC').trim() === name);
-      if (matches.length !== 1) return null;
+      if (!matches.length) return unresolved('member_name_not_found');
+      if (matches.length !== 1) return unresolved('member_name_ambiguous');
       const row = matches[0];
-      if (row.group_key_id !== codec.keyId || row.key_id !== codec.keyId
-        || row.group_state !== 'active' || row.oa_state !== 'present'
-        || row.state !== 'observed' || row.manual_deny !== false
-        || row.tenant_key !== tenant.key
-        || !/^line-ref:v1:[0-9a-f-]{36}$/iu.test(String(row.identity_reference || ''))
-        || codec.decrypt(row.group_ciphertext) !== groupId) return null;
+      if (row.group_key_id !== codec.keyId || row.key_id !== codec.keyId) return unresolved('unsupported_identity_key');
+      if (row.group_state !== 'active') return unresolved('group_not_active');
+      if (row.oa_state !== 'present') return unresolved('oa_not_present');
+      if (row.state !== 'observed') return unresolved('member_not_present');
+      if (row.manual_deny !== false) return unresolved('member_denied');
+      if (row.tenant_key !== tenant.key) return unresolved('member_tenant_mismatch');
+      if (!/^line-ref:v1:[0-9a-f-]{36}$/iu.test(String(row.identity_reference || ''))) return unresolved('member_reference_missing');
+      if (codec.decrypt(row.group_ciphertext) !== groupId) return unresolved('group_identity_mismatch');
       const userId = codec.decrypt(row.member_ciphertext);
-      if (!/^U[a-f0-9]{32}$/iu.test(userId)) return null;
+      if (!/^U[a-f0-9]{32}$/iu.test(userId)) return unresolved('invalid_member_identity');
       return { name, userId };
     });
   }

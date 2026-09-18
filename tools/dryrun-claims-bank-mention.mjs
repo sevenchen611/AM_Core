@@ -55,6 +55,21 @@ rows = [{ ...member, member_name_ciphertext: encrypt('不同姓名') }];
 assert.equal(await resolve(), null, 'No nickname/full-name guessing.');
 rows = [];
 assert.equal(await resolve(), null);
+assert.deepEqual(await authority.resolveGroupMention({ tenant, groupId, mentionName: '測試覆核員', diagnose: true }), { resolved: false, reason: 'group_or_members_missing' });
+for (const [override, reason] of [
+  [{ member_name_ciphertext: encrypt('其他人') }, 'member_name_not_found'],
+  [{ group_state: 'paused' }, 'group_not_active'],
+  [{ oa_state: 'left' }, 'oa_not_present'],
+  [{ state: 'left' }, 'member_not_present'],
+  [{ manual_deny: true }, 'member_denied'],
+  [{ tenant_key: null }, 'member_tenant_mismatch'],
+  [{ identity_reference: null }, 'member_reference_missing'],
+]) {
+  rows = [{ ...member, ...override }];
+  const result = await authority.resolveGroupMention({ tenant, groupId, mentionName: '測試覆核員', diagnose: true });
+  assert.deepEqual(result, { resolved: false, reason });
+  assert.ok(!JSON.stringify(result).includes(userId));
+}
 rows = [{ ...member, member_name_ciphertext: 'invalid-ciphertext' }];
 await assert.rejects(resolve(), /ciphertext/u);
 const before = queryCount;

@@ -1,6 +1,6 @@
 # Bank notification mention registry
 
-Status: Installed (offline verification only).
+Status: Deployed (recipient/delivery acceptance still pending).
 
 The AM finance sender reads the existing exact-group encrypted claims member
 registry. It does not grant membership, copy personnel, infer nickname ownership,
@@ -8,8 +8,13 @@ change notification payload identities, or perform bank actions. Existing failed
 notices can retry unchanged when the unique recipient resolves. Missing identities
 remain failures; actual delivery requires provider acceptance and durable receipt.
 
-Production main SHA, deployment and original three notification receipts remain
-pending and must not be represented as verified until observed.
+PR 181 merged as f4b0e649a2d2be48d5992a54ff2377302b891620. Both formal service
+health URLs verified that exact commit and claims-group-members-v1 at
+2026-09-18T04:49Z; LINE and HOZO claims were enabled. The original three notices
+still have empty sent timestamps, and a post-deploy automatic retry returned
+mention_not_resolved. Bank confirmations remain complete, reviews zero and
+amounts paid zero. Static allowlisted resolution reason diagnostics are added
+without weakening any guard or exposing member names/LINE identities.
 
 Offline checks passed: bank mention registry, existing finance sender delivery
 guards, all eight claims-authority dry runs, syntax and upgrade package validation.

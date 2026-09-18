@@ -425,7 +425,7 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
     authority,
     async resolveGroupMention(input) {
       await migrationPromise;
-      return authority.resolveGroupMention(input);
+      return authority.resolveGroupMention({ ...input, diagnose: true });
     },
     admin,
     handleSelector,

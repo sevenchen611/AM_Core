@@ -670,6 +670,22 @@ res = await call(rentalFinanceRoute, {
 assert.equal(res.status, 422);
 assert.equal(pushCalls.length, registryPushCount);
 delete testPlatform.resolveClaimsGroupMention;
+testPlatform.resolveClaimsGroupMention = async () => ({ resolved: false, reason: 'member_reference_missing' });
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' },
+  body: financeBody('@陸昱晴 registry safe reason'),
+});
+assert.equal(res.status, 422);
+assert.match(res.payload.error, /member_reference_missing/u);
+assert.equal(pushCalls.length, registryPushCount);
+testPlatform.resolveClaimsGroupMention = async () => ({ resolved: false, reason: MAGGIE_USER_ID });
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' },
+  body: financeBody('@陸昱晴 registry reason redacted'),
+});
+assert.equal(res.status, 422);
+assert.ok(!JSON.stringify(res.payload).includes(MAGGIE_USER_ID));
+delete testPlatform.resolveClaimsGroupMention;
 res = await call(rentalFinanceRoute, {
   headers: { authorization: 'Bearer rental-only-key' },
   body: financeBody('@陸昱晴 registry unavailable'),
