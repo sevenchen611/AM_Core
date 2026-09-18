@@ -26,3 +26,4 @@ jobs:
       - run: npm run dryrun:claims-authority
       - run: npm run verify:bank-mention
       - run: node tools/check-upgrade-package.js AM-IMP-2026.0918.01
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.0918.02

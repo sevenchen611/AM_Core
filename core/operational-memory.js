@@ -244,7 +244,7 @@ export function createOperationalMemory({ env = process.env, logger = console, p
     const result = await withTenant(tenant, async (client, config) => {
       await ensureTenant(client, config);
       const inputPayload = {
-        contract: 'hozo-rental-finance-group-mention-v1',
+        contract: sourceNotificationId.startsWith('bank-reconciliation-notification:') ? 'hozo-bank-reconciliation-notification-v1' : 'hozo-rental-finance-group-mention-v1',
         payloadDigest,
         routeDigest,
         providerRetryKey,
