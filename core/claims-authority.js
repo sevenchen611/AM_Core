@@ -504,6 +504,43 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
     });
   }
 
+  // Read the same encrypted, group-scoped member registry shown in claims admin.
+  // No profile-name aliases, cross-group identity search, grants, or data writes.
+  async function resolveGroupMention({ tenant, groupId, mentionName }) {
+    requireTenant(tenant);
+    const name = String(mentionName || '').normalize('NFKC').trim();
+    if (!/^C[a-f0-9]{32}$/iu.test(String(groupId || '')) || !name || name.length > 80
+      || /[\u0000-\u001f\u007f]/u.test(name)) return null;
+    const groupLookup = codec.opaque(tenant, 'group', groupId);
+    return tenantTx(tenant, async (client) => {
+      const result = await client.query(
+        `/* ca:resolve-group-mention */ SELECT g.group_ciphertext,g.key_id AS group_key_id,
+           g.state AS group_state,g.oa_state,m.member_ciphertext,m.member_name_ciphertext,
+           m.key_id,m.state,m.manual_deny,m.tenant_key,m.identity_reference
+         FROM am_claims.groups g JOIN am_claims.members m
+           ON m.tenant_id=g.tenant_id AND m.group_lookup=g.group_lookup
+         WHERE g.tenant_id=$1 AND g.group_lookup=$2`,
+        [tenant.tenantId, groupLookup],
+      );
+      const rows = result.rows || [];
+      // Include denied/left names in ambiguity checks: do not pick another person
+      // merely because one of two identically named people is currently denied.
+      const matches = rows.filter((row) => row.member_name_ciphertext
+        && codec.decrypt(row.member_name_ciphertext).normalize('NFKC').trim() === name);
+      if (matches.length !== 1) return null;
+      const row = matches[0];
+      if (row.group_key_id !== codec.keyId || row.key_id !== codec.keyId
+        || row.group_state !== 'active' || row.oa_state !== 'present'
+        || row.state !== 'observed' || row.manual_deny !== false
+        || row.tenant_key !== tenant.key
+        || !/^line-ref:v1:[0-9a-f-]{36}$/iu.test(String(row.identity_reference || ''))
+        || codec.decrypt(row.group_ciphertext) !== groupId) return null;
+      const userId = codec.decrypt(row.member_ciphertext);
+      if (!/^U[a-f0-9]{32}$/iu.test(userId)) return null;
+      return { name, userId };
+    });
+  }
+
   function requireFormKey(formKey) {
     if (!CLAIM_FORM_KEY_SET.has(String(formKey || ''))) throw new Error('請款單識別碼無效。');
     return String(formKey);
@@ -649,6 +686,7 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
     listMembers,
     listUnassigned,
     resolveNotificationRecipient,
+    resolveGroupMention,
     listFormGroups,
     publishFormGroups,
     createFormSelectionSession,

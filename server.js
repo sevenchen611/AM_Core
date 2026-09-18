@@ -255,6 +255,8 @@ const server = http.createServer(async (req, res) => {
       ok: true,
       platform: 'am-core',
       build: GROUP_ONBOARDING_BUILD,
+      financeMentionRegistry: 'claims-group-members-v1',
+      commit: /^[a-f0-9]{40}$/u.test(String(process.env.RENDER_GIT_COMMIT || '')) ? process.env.RENDER_GIT_COMMIT : null,
       lineConfigured: line.configured,
       driveConfigured: platform.driveConfigured,
       llm: { available: llm.available, chain: llm.backends },

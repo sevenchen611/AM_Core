@@ -92,7 +92,7 @@ const notificationIdentityCalls = [];
 const notionCalls = [];
 let notificationIdentityStoreAvailable = true;
 let nowMs = Date.now();
-companyLinePush.init({
+const testPlatform = {
   queueAccessKey: 'platform-control-key',
   portalServiceToken: 'portal-service-token',
   rentalCompanyGroupPushKey: 'company-only-key',
@@ -128,7 +128,14 @@ companyLinePush.init({
     markFinanceNotificationManual: async (_tenant, id) => { notificationIdentities.get(id).status = 'manual'; return { ok: true }; },
     markFinanceNotificationDelivered: async (_tenant, id) => { notificationIdentities.get(id).status = 'delivered'; return { ok: true }; },
   },
-});
+};
+// Legacy map fixtures emulate registry outcomes for the existing delivery suite;
+// the dedicated authority suite independently tests encrypted PostgreSQL rows.
+testPlatform.resolveClaimsGroupMention = async ({ groupId, mentionName }) => {
+  const page = bindingResults.find((item) => __test.extractLineGroupId(item) === groupId);
+  return page ? __test.resolveMentionFromBinding(page, mentionName) : null;
+};
+companyLinePush.init(testPlatform);
 
 const rentalRoute = companyLinePush.routes.find((route) => route.prefix === '/control/hozo/rental/company-group/push');
 const rentalFinanceRoute = companyLinePush.routes.find((route) => route.prefix === '/control/hozo/rental/finance-group/push');
@@ -643,4 +650,32 @@ assert.ok(!JSON.stringify(res.payload).includes(MAGGIE_USER_ID));
 assert.equal(pushCalls.length, pushCountAfterProviderFailure);
 assert.equal(notificationIdentityCalls.length, identityCallCountBeforeDryRun);
 
-console.log('Company LINE push verification passed: finance mention identity is binding-scoped, fail-closed, non-leaking, and passed to LINE textV2 delivery.');
+// Registered members, not stale Notion member maps, determine the actual mention.
+testPlatform.resolveClaimsGroupMention = async () => ({ name: '陸昱晴', userId: MAGGIE_USER_ID });
+bindingResults = [groupBinding('HOZO 財務群組', HOZO_FINANCE_GROUP_ID, {})];
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' },
+  body: financeBody('@陸昱晴 registry member success'),
+});
+assert.equal(res.status, 200);
+assert.equal(res.payload.mention.delivered, true);
+assert.equal(pushCalls.at(-1).text.substitution.who.mentionee.userId, MAGGIE_USER_ID);
+const registryPushCount = pushCalls.length;
+testPlatform.resolveClaimsGroupMention = async () => null;
+bindingResults = [groupBinding('HOZO 財務群組', HOZO_FINANCE_GROUP_ID, { '陸昱晴': MAGGIE_USER_ID })];
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' },
+  body: financeBody('@陸昱晴 registry refuses stale map'),
+});
+assert.equal(res.status, 422);
+assert.equal(pushCalls.length, registryPushCount);
+delete testPlatform.resolveClaimsGroupMention;
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' },
+  body: financeBody('@陸昱晴 registry unavailable'),
+});
+assert.equal(res.status, 503);
+assert.equal(res.payload.code, 'claims_registry_unavailable');
+assert.equal(pushCalls.length, registryPushCount);
+
+console.log('Company LINE push verification passed: claims-registry scoped mention, no stale-map fallback, durable retries, and actual LINE receipt required.');
