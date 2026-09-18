@@ -10,4 +10,9 @@
 - Verify payable amounts remain unpaid and bank review/release were not invoked.
 
 Code deployment is not proof of actual recipient binding or notification delivery.
+The v2 contract includes mentionIdentityReference in the caller payload digest.
+Original sourceNotificationId is preserved; an already-bound v1 event changing
+to v2 returns source_notification_conflict rather than sending twice.
+Verify different LINE nicknames resolve only by the verified reference, and
+missing, ambiguous, denied, left, wrong-tenant or conflicting identities fail.
 Missing/ambiguous exact reviewer identity must remain blocked, not marked delivered.

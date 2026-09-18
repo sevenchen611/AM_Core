@@ -44,6 +44,7 @@ function financeBody(text, extras = {}) {
     retryKey: Object.hasOwn(extras, 'retryKey') ? extras.retryKey : __test.financeRetryKeyFor({
       sourceNotificationId: String(sourceNotificationId).trim().toLowerCase(),
       text: String(text).trim(), mentionName: String(mentionName).normalize('NFKC').trim(), imageUrls,
+      mentionIdentityReference: extras.mentionIdentityReference,
     }),
   };
 }
@@ -694,4 +695,43 @@ assert.equal(res.status, 503);
 assert.equal(res.payload.code, 'claims_registry_unavailable');
 assert.equal(pushCalls.length, registryPushCount);
 
-console.log('Company LINE push verification passed: claims-registry scoped mention, no stale-map fallback, durable retries, and actual LINE receipt required.');
+const reviewerReference = 'line-ref:v1:11111111-1111-4111-8111-111111111111';
+testPlatform.resolveClaimsGroupMention = async (input) => {
+  assert.equal(input.mentionIdentityReference, reviewerReference);
+  assert.equal(input.groupId, HOZO_FINANCE_GROUP_ID);
+  return { name: '陸昱晴', userId: MAGGIE_USER_ID };
+};
+const referenceBody = financeBody('@陸昱晴 verified opaque reviewer', { mentionIdentityReference: reviewerReference });
+assert.notEqual(referenceBody.retryKey, financeBody(referenceBody.text).retryKey);
+assert.notEqual(referenceBody.retryKey, financeBody(referenceBody.text, {
+  mentionIdentityReference: 'line-ref:v1:22222222-2222-4222-8222-222222222222',
+}).retryKey);
+res = await call(rentalFinanceRoute, { headers: { authorization: 'Bearer rental-only-key' }, body: referenceBody });
+assert.equal(res.status, 200);
+assert.equal(res.payload.mention.delivered, true);
+assert.equal(pushCalls.at(-1).text.substitution.who.mentionee.userId, MAGGIE_USER_ID);
+const referencePushCount = pushCalls.length;
+res = await call(rentalFinanceRoute, { headers: { authorization: 'Bearer rental-only-key' }, body: referenceBody });
+assert.equal(res.payload.replayed, true);
+assert.equal(pushCalls.length, referencePushCount);
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' },
+  body: financeBody(completedNotification.text, { sourceNotificationId: completedNotification.sourceNotificationId, mentionIdentityReference: reviewerReference }),
+});
+assert.equal(res.status, 409, 'Changing an already bound source event to v2 must not duplicate delivery.');
+assert.equal(res.payload.code, 'source_notification_conflict');
+assert.equal(pushCalls.length, referencePushCount);
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' },
+  body: { ...referenceBody, mentionIdentityReference: 'bad' },
+});
+assert.equal(res.status, 400);
+assert.equal(res.payload.code, 'invalid_mention_reference');
+res = await call(rentalFinanceRoute, {
+  headers: { authorization: 'Bearer rental-only-key' },
+  body: { ...referenceBody, mentionIdentityReference: 'line-ref:v1:22222222-2222-4222-8222-222222222222' },
+});
+assert.equal(res.status, 409);
+assert.equal(res.payload.code, 'idempotency_key_mismatch');
+assert.equal(pushCalls.length, referencePushCount);
+console.log('Company LINE push verification passed: v1/v2 scoped mention, identity/content-bound retries, source conflicts and actual LINE receipt required.');

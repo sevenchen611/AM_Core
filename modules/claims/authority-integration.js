@@ -74,10 +74,16 @@ function targetRegistry(env) {
 function recipientRegistry(env) {
   const parsed = parseJson(env.HZ2_FINANCE_CLAIMS_V3_RECIPIENT_BINDINGS_JSON, { bindings: [] });
   const result = new Map();
+  const ambiguous = new Set();
   for (const item of Array.isArray(parsed?.bindings) ? parsed.bindings : []) {
     if (item?.type === 'line_user' && String(item.target || '').startsWith('U')
       && OPAQUE_REFERENCE.test(String(item.identityReference || ''))) {
-      result.set(`${item.tenantKey}:${item.target}`, item.identityReference);
+      const key = `${item.tenantKey}:${item.target}`;
+      if (ambiguous.has(key)) continue;
+      if (result.has(key) && result.get(key) !== item.identityReference) {
+        result.delete(key);
+        ambiguous.add(key);
+      } else result.set(key, item.identityReference);
     }
   }
   return result;
@@ -265,6 +271,7 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
     financeProvisioner: v3.financeProvisioner,
     openV3Claim: openClaim,
     applicantReferenceFactory: resolveApplicantReference,
+    verifiedRecipientReferenceFactory: async ({ tenant, userId }) => recipients.get(`${tenant.key}:${userId}`) || '',
     membershipSynchronizer: (body) => receiver.bridgeMembership(body),
     identityResolver: {
       resolveGroupName: ({ groupId }) => platform.resolveGroupName(groupId),
