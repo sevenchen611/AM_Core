@@ -9,7 +9,7 @@ const LINE_USER_ID_RE = /^U[a-f0-9]{32}$/i;
 const HOZO_TENANT_KEY = 'hozo-am-2-0';
 const FINANCE_GROUP_CANONICAL_NAME = 'HOZO \u8ca1\u52d9\u7fa4\u7d44';
 const FINANCE_RETRY_KEY_RE = /^finance-notification:v1:[a-f0-9]{64}$/;
-const FINANCE_SOURCE_NOTIFICATION_ID_RE = /^bank-draft-notification:v1:[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
+const FINANCE_SOURCE_NOTIFICATION_ID_RE = /^(?:bank-draft-notification|bank-reconciliation-notification):v1:[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const FINANCE_PROVIDER_RETRY_WINDOW_MS = 23 * 60 * 60 * 1000;
 const FINANCE_REGISTRY_REASONS = new Set([
   'invalid_lookup_input', 'group_or_members_missing', 'member_name_not_found',
@@ -388,6 +388,9 @@ async function pushToGroup(req, res, ctx, {
         throw requestError(400, 'mention_not_in_text', 'Finance push text must contain mentionName.');
       }
       sourceNotificationId = validateSourceNotificationId(body.sourceNotificationId);
+      if (sourceNotificationId.startsWith('bank-reconciliation-notification:') && (!body.mentionIdentityReference || imageUrls.length)) {
+        throw requestError(400, 'invalid_reconciliation_contract', 'Bank reconciliation requires a verified recipient reference and text-only content.');
+      }
       if (Object.hasOwn(body, 'mentionIdentityReference')
         && !/^line-ref:v1:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u.test(body.mentionIdentityReference)) {
         throw requestError(400, 'invalid_mention_reference', 'Invalid mentionIdentityReference.');

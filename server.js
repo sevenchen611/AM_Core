@@ -257,6 +257,7 @@ const server = http.createServer(async (req, res) => {
       build: GROUP_ONBOARDING_BUILD,
       financeMentionRegistry: 'claims-group-members-v1',
       financeMentionReferenceContract: 'hozo-rental-finance-group-mention-v2',
+      bankReconciliationNotificationContract: 'hozo-bank-reconciliation-notification-v1',
       commit: /^[a-f0-9]{40}$/u.test(String(process.env.RENDER_GIT_COMMIT || '')) ? process.env.RENDER_GIT_COMMIT : null,
       lineConfigured: line.configured,
       driveConfigured: platform.driveConfigured,

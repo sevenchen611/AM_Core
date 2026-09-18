@@ -1,5 +1,16 @@
 # HOZO Company Line Push
 
+## Bank reconciliation event v1
+
+The existing restricted finance endpoint also accepts the dedicated source namespace
+`bank-reconciliation-notification:v1:<UUID>`. It is an exception-review event,
+not a payment-draft event, and never creates a payable or executes a payment.
+The caller must supply a verified `mentionIdentityReference`, no images, and the
+same immutable mention-v2 content hash contract. Routing, registry verification,
+durable replay and provider evidence checks are shared with finance delivery.
+Provider acceptance does not mean the reviewer has read or resolved the issue.
+
+
 This module exposes machine-only APIs for sending text to the HOZO company LINE group.
 
 ## Control API
