@@ -2,6 +2,15 @@
 
 Status: Deployed (recipient/delivery acceptance still pending).
 
+PR 183 receiver main d16ab93d5183f6b5979aa113175ec88670749f6b was verified
+on both formal health URLs at 05:02:57Z. The Rental producer PR 290 was deployed
+from c033c18756dc074a6bb7f1b635221e9ba49fcd0a by Actions at 05:05Z.
+Post-rollout original retries changed from name lookup failure to the protected
+generic finance_notification_failed. Static stage/category/allowlisted SQLSTATE
+diagnostics distinguish registry, durable binding and provider/receipt failures
+without any exception text or weakening delivery guards. Three receipts remain
+unconfirmed; this diagnostic follow-up is Installed pending formal verification.
+
 The next compatible receiver change accepts a v2 opaque reviewer reference.
 Production name-only retries returned member_name_not_found after PR 182
 (35f17792ee11c7cab9ca30e81d5e7295bad1bb09, formal health verified 04:54Z).

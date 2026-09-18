@@ -734,4 +734,23 @@ res = await call(rentalFinanceRoute, {
 assert.equal(res.status, 409);
 assert.equal(res.payload.code, 'idempotency_key_mismatch');
 assert.equal(pushCalls.length, referencePushCount);
-console.log('Company LINE push verification passed: v1/v2 scoped mention, identity/content-bound retries, source conflicts and actual LINE receipt required.');
+const diagnosticPushCount = pushCalls.length;
+testPlatform.resolveClaimsGroupMention = async () => { throw new Error('Claims authority ciphertext could not be authenticated.'); };
+res = await call(rentalFinanceRoute, { headers: { authorization: 'Bearer rental-only-key' }, body: referenceBody });
+assert.equal(res.status,500);
+assert.equal(res.payload.failureStage,'recipient_registry');
+assert.equal(res.payload.failureKind,'ciphertext_authentication_failed');
+testPlatform.resolveClaimsGroupMention = async () => ({name:'陸昱晴',userId:MAGGIE_USER_ID});
+const originalBind = testPlatform.operationalMemory.bindFinanceNotificationIdentity;
+testPlatform.operationalMemory.bindFinanceNotificationIdentity = async () => {
+  throw Object.assign(new Error('synthetic private detail '+MAGGIE_USER_ID),{code:'42703'});
+};
+res = await call(rentalFinanceRoute, { headers: { authorization: 'Bearer rental-only-key' }, body: referenceBody });
+assert.equal(res.payload.failureStage,'delivery_identity');
+assert.equal(res.payload.failureKind,'database_query_rejected');
+assert.equal(res.payload.sqlState,'42703');
+assert.ok(!JSON.stringify(res.payload).includes(MAGGIE_USER_ID));
+assert.ok(!JSON.stringify(res.payload).includes('synthetic private detail'));
+testPlatform.operationalMemory.bindFinanceNotificationIdentity = originalBind;
+assert.equal(pushCalls.length,diagnosticPushCount);
+console.log('Company LINE push verification passed: v1/v2 scoped mention, immutable retries, actual receipt and static no-PII failure-stage diagnostics.');
