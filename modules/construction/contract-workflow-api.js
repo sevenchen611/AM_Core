@@ -12,6 +12,7 @@ import { createRuntimeSigningService, signingRequestMeta } from './contract-runt
 import { createContractDraftReviewService } from './contract-draft-review.js';
 import { createContractFinalArtifactReader } from './contract-final-artifact-reader.js';
 import { createContractLineAttachmentService } from './contract-line-attachments.js';
+import { createContractProjectDrawingService } from './contract-project-drawings.js';
 
 export const CONTRACT_WORKFLOW_API_BASE = '/contracts/api/v2';
 
@@ -138,6 +139,7 @@ function bindPathReference(input, field, value) {
     versionId: ['versionId', 'version_id'],
     sessionId: ['sessionId', 'externalSessionId'],
     attachmentId: ['attachmentId', 'attachment_id'],
+    drawingId: ['drawingId', 'drawing_id'],
     archiveId: ['archiveId', 'archive_id'],
   };
   const aliases = aliasesByField[field] || [field];
@@ -198,6 +200,17 @@ function routeFor(method, pathname) {
   match = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/versions$/);
   if (method === 'POST' && match) {
     return { operation: 'createDraftVersion', capability: 'manage', body: true, contractId: decodeSegment(match[1]) };
+  }
+  match = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/project-drawings(?:\/([^/]+))?$/);
+  if (match) {
+    if (method !== 'GET') return { methodNotAllowed: true, allow: 'GET' };
+    return {
+      operation: match[2] ? 'loadCandidate' : 'listCandidates',
+      capability: 'view',
+      projectDrawings: true,
+      contractId: decodeSegment(match[1]),
+      ...(match[2] ? { drawingId: decodeSegment(match[2]), binary: true } : {}),
+    };
   }
   match = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/draft-reviews$/);
   if (method === 'GET' && match) {
@@ -328,6 +341,7 @@ export function createContractWorkflowApiHandler(deps) {
   let reviewService;
   let finalArtifactService;
   let lineAttachmentService;
+  let projectDrawingService;
   return async function handleContractWorkflowApi(req, res, pathname, url, authority) {
     const route = routeFor(String(req.method || 'GET').toUpperCase(), pathname);
     if (!route) return false;
@@ -342,7 +356,7 @@ export function createContractWorkflowApiHandler(deps) {
         requestMeta: signingRequestMeta(req),
       };
       requireCapability(authority, route.capability);
-      if (!route.issuance && !route.completion && !route.revocation && !route.review && !route.finalArtifact && !route.lineAttachments) {
+      if (!route.issuance && !route.completion && !route.revocation && !route.review && !route.finalArtifact && !route.lineAttachments && !route.projectDrawings) {
         service ||= createContractManagementService({
           store: deps.contractStore,
           ...(deps.contractClock ? { clock: deps.contractClock } : {}),
@@ -391,11 +405,34 @@ export function createContractWorkflowApiHandler(deps) {
       if (route.versionId) bindPathReference(input, 'versionId', route.versionId);
       if (route.sessionId) bindPathReference(input, 'sessionId', route.sessionId);
       if (route.attachmentId) bindPathReference(input, 'attachmentId', route.attachmentId);
+      if (route.drawingId) bindPathReference(input, 'drawingId', route.drawingId);
       if (route.archiveId) bindPathReference(input, 'archiveId', route.archiveId);
+      if (route.operation === 'createDraftVersion' && Object.prototype.hasOwnProperty.call(input, 'projectDrawingSelections')) {
+        projectDrawingService ||= createContractProjectDrawingService(deps);
+        const resolved = await projectDrawingService.resolveSelections(context, {
+          contractId: input.contractId,
+          selections: input.projectDrawingSelections,
+          sourceVersionId: input.sourceVersionId,
+          documentPackage: input.documentPackage,
+        });
+        input.documentPackage = resolved.documentPackage;
+        input.snapshot = {
+          ...(input.snapshot && typeof input.snapshot === 'object' && !Array.isArray(input.snapshot) ? input.snapshot : {}),
+          documentPackage: resolved.documentPackage,
+          projectDrawingSelection: {
+            source: 'engineering_phase_1_drawing_library',
+            actor: context.actor,
+            drawings: resolved.evidence,
+          },
+        };
+        delete input.projectDrawingSelections;
+        delete input.sourceVersionId;
+      }
       if (route.issuance) issuanceService ||= createContractIssuanceService(deps);
       if (route.review) reviewService ||= createContractDraftReviewService(deps);
       if (route.finalArtifact) finalArtifactService ||= createContractFinalArtifactReader(deps);
       if (route.lineAttachments) lineAttachmentService ||= createContractLineAttachmentService(deps);
+      if (route.projectDrawings) projectDrawingService ||= createContractProjectDrawingService(deps);
       const completionService = route.completion ? createContractCompletionService(deps, {
         artifactService: createContractArtifactService(deps),
         signingService: createRuntimeSigningService(deps),
@@ -414,10 +451,11 @@ export function createContractWorkflowApiHandler(deps) {
           });
         },
       } : null;
-      const target = route.lineAttachments ? lineAttachmentService : route.revocation ? revocationService
+      const target = route.projectDrawings ? projectDrawingService
+        : (route.lineAttachments ? lineAttachmentService : route.revocation ? revocationService
         : (route.completion ? completionService
           : (route.issuance ? issuanceService
-            : (route.review ? reviewService : (route.finalArtifact ? finalArtifactService : service))));
+            : (route.review ? reviewService : (route.finalArtifact ? finalArtifactService : service)))));
       const data = await target[route.operation](context, input);
       if (route.binary) sendBinary(res, data);
       else sendJson(res, 200, { ok: true, data });

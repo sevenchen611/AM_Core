@@ -13,6 +13,7 @@
     "dryrun:personal-line": "node tools/dryrun-personal-line-routing.mjs",
     "dryrun:engineering": "node tools/dryrun-engineering-convergence.mjs",
     "dryrun:contract-review": "node tools/dryrun-engineering-contract-draft-review.mjs",
+    "dryrun:contract-project-drawings": "node tools/dryrun-engineering-contract-project-drawings.mjs",
     "dryrun:task-card": "node tools/dryrun-task-card.mjs",
     "dryrun:groups": "node tools/dryrun-groups.mjs",
     "dryrun:finance-v3-direct": "node tools/dryrun-finance-v3-direct.mjs",
