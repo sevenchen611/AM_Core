@@ -64,8 +64,9 @@ export async function listDesignDrawings(deps, projectId) {
   });
   // Keep a local relation check in addition to the Notion filter so a stale or
   // overly broad upstream response can never leak another project's drawings.
-  const versions = pages.filter((page) => (page.properties?.['專案']?.relation || [])
-    .some((relation) => sameId(relation.id, projectId))).map(parseDrawing)
+  const versions = pages.filter((page) => !page.archived && !page.in_trash
+    && (page.properties?.['專案']?.relation || [])
+      .some((relation) => sameId(relation.id, projectId))).map(parseDrawing)
     .sort((a, b) => String(b.uploadedAt).localeCompare(String(a.uploadedAt)));
   const grouped = new Map();
   for (const version of versions) {

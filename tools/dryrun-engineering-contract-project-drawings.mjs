@@ -60,6 +60,7 @@ function fixture() {
           drawing('drawing-void', 'project-1', { status: '作廢', fileName: '已作廢.pdf', fileId: 'drive-void' }),
           drawing('drawing-large', 'project-1', { fileName: '超大圖.pdf', fileId: 'drive-large', size: 26 * 1024 * 1024 }),
           drawing('foreign', 'project-2', { fileName: '別案圖.pdf', fileId: 'drive-foreign' }),
+          { ...drawing('archived', 'project-1', { fileName: '已封存.pdf', fileId: 'drive-archived' }), archived: true },
         ] };
       }
       throw new Error(`unexpected Notion request ${path}`);
