@@ -3,7 +3,7 @@
   "name": "Engineering contract selection from Phase 1 drawing library",
   "type": "AM Platform / Engineering contract evidence",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-09-19",
   "dependsOn": ["AM-IMP-2026.0915.01", "AM-IMP-2026.0916.03"],
   "installTargets": ["AM_PLATFORM:engineering"],
@@ -26,7 +26,7 @@
     "Scope, privacy, provenance, snapshot, API, generated-browser-script and regression tests pass",
     "Production commit, Render health and authenticated read-only workspace verification are recorded before marking Deployed"
   ],
-  "projectStatus": { "AM_PLATFORM:engineering": "Installed" },
+  "projectStatus": { "AM_PLATFORM:engineering": "Deployed" },
   "files": [
     "modules/construction/contract-project-drawings.js",
     "modules/construction/contract-workflow-api.js",
