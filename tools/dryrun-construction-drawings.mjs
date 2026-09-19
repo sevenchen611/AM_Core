@@ -30,11 +30,13 @@ const deps = {
     if (pathname === '/v1/pages' && options.method === 'POST') return { id: 'drawing-page-v2' };
     if (pathname.endsWith('/query')) return { results: [
       { id: 'v1', created_time: '2026-09-13T09:00:00Z', properties: {
+        '專案': { relation: [{ id: 'project-1' }] },
         '圖面': { title: [{ plain_text: '全區平面圖' }] }, '版本': { rich_text: [{ plain_text: 'V1' }] },
         '狀態': { select: { name: '草稿' } }, 'Drive 連結': { url: 'https://drive/v1' },
         '上傳時間': { date: { start: '2026-09-13T09:00:00Z' } },
       } },
       { id: 'v2', created_time: '2026-09-14T09:00:00Z', properties: {
+        '專案': { relation: [{ id: 'project-1' }] },
         '圖面': { title: [{ plain_text: '全區平面圖' }] }, '版本': { rich_text: [{ plain_text: 'V2' }] },
         '狀態': { select: { name: '定版' } }, 'Drive 連結': { url: 'https://drive/v2' },
         '上傳時間': { date: { start: '2026-09-14T09:00:00Z' } },

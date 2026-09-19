@@ -1,7 +1,7 @@
 // 工程設計圖版本庫：檔案本體只存 Google Drive，Notion 僅保存可稽核的版本索引。
 // Drive 路徑：<tenant root>/設計圖/<project>/<drawing name>/<timestamp>_<version>_<original filename>
 
-import { plain, pageName, queryAll } from './common.js';
+import { plain, pageName, queryAll, sameId } from './common.js';
 
 const MAX_DRAWING_BYTES = 500 * 1024 * 1024;
 const ALLOWED_STATUSES = new Set(['草稿', '送審', '定版', '發包版', '變更版', '作廢']);
@@ -62,7 +62,11 @@ export async function listDesignDrawings(deps, projectId) {
   const pages = await queryAll(deps, dataSourceId, {
     property: '專案', relation: { contains: projectId },
   });
-  const versions = pages.map(parseDrawing)
+  // Keep a local relation check in addition to the Notion filter so a stale or
+  // overly broad upstream response can never leak another project's drawings.
+  const versions = pages.filter((page) => !page.archived && !page.in_trash
+    && (page.properties?.['專案']?.relation || [])
+      .some((relation) => sameId(relation.id, projectId))).map(parseDrawing)
     .sort((a, b) => String(b.uploadedAt).localeCompare(String(a.uploadedAt)));
   const grouped = new Map();
   for (const version of versions) {

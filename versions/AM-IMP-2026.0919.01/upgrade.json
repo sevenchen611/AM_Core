@@ -1,0 +1,40 @@
+{
+  "id": "AM-IMP-2026.0919.01",
+  "name": "Engineering contract selection from Phase 1 drawing library",
+  "type": "AM Platform / Engineering contract evidence",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-19",
+  "dependsOn": ["AM-IMP-2026.0915.01", "AM-IMP-2026.0916.03"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": ["npm run dryrun:contract-project-drawings"],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Resolve every drawing version from the authorized contract's tenant-local project and Phase 1 drawing index; never accept browser-supplied storage metadata."
+  },
+  "definitionOfDone": [
+    "Contract V1 and next-version editors expose a same-project Phase 1 drawing picker with preview metadata and multi-select",
+    "The server rechecks tenant, project scope, private Drive state, size and supported format before saving",
+    "Saved contract versions contain immutable file name, MIME type, size, SHA-256, source project, stage and drawing-version evidence",
+    "Original drawing files are referenced in place and never moved, copied, overwritten or deleted",
+    "Existing direct upload, carried-document, removal and frozen-version behavior remains available",
+    "Scope, privacy, provenance, snapshot, API, generated-browser-script and regression tests pass",
+    "Production commit, Render health and authenticated read-only workspace verification are recorded before marking Deployed"
+  ],
+  "projectStatus": { "AM_PLATFORM:engineering": "Installed" },
+  "files": [
+    "modules/construction/contract-project-drawings.js",
+    "modules/construction/contract-workflow-api.js",
+    "modules/construction/contracts.js",
+    "modules/construction/drawings.js",
+    "modules/construction/README.md",
+    "tools/dryrun-engineering-contract-project-drawings.mjs",
+    "tools/dryrun-construction-drawings.mjs",
+    "package.json"
+  ]
+}
