@@ -89,6 +89,7 @@ const authority = createClaimsAuthority({
 
 assert.equal(authority.fixedKeyId, 'fixed-v1');
 assert.equal(isClaimsCommand('請款'), true);
+assert.equal(isClaimsCommand('費用申請'), true);
 assert.equal(isClaimsCommand('請款 abc'), false);
 assert.notEqual(authority.opaqueIdentity(tenantA, 'group', groupId), authority.opaqueIdentity(tenantB, 'group', groupId));
 assert.notEqual(authority.opaqueIdentity(tenantA, 'group', groupId), authority.opaqueIdentity(tenantA, 'member', groupId));

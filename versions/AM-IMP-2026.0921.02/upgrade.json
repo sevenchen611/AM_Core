@@ -1,0 +1,44 @@
+{
+  "id": "AM-IMP-2026.0921.02",
+  "name": "External claims authority-only legacy routing",
+  "type": "HOZO external vendor claim routing correction",
+  "portable": false,
+  "status": "Ready",
+  "createdAt": "2026-09-21",
+  "dependsOn": ["AM-IMP-2026.0916.02"],
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "npm run dryrun:claims-authority",
+    "node tools/dryrun-claims.mjs",
+    "npm run check",
+    "node tools/check-upgrade-package.js AM-IMP-2026.0921.02",
+    "node tools/audit-alignment.js"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": false,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "External legacy claims use the existing tenant-scoped authority registry, applicant-bound selector and opaque Rental source references; no production identity is stored in the package."
+  },
+  "definitionOfDone": [
+    "External claim-only groups can open and use published legacy forms without a duplicate Notion group binding",
+    "Every protected legacy action revalidates the authority session and original LINE applicant",
+    "Internal and non-authority legacy flows retain live Notion binding checks",
+    "The documented claims command aliases route through claims authority",
+    "Claims regression tests and production health pass"
+  ],
+  "projectStatus": {
+    "AM_PLATFORM:hozo-am-2-0": "Ready"
+  },
+  "files": [
+    "core/claims-authority.js",
+    "modules/claims/index.js",
+    "tools/dryrun-claims-authority.mjs",
+    "tools/dryrun-claims-authority-routing-login.mjs",
+    "docs/tenants/hozo-am-2-0/project-improvement-manifest.md",
+    "docs/tenants/hozo-am-2-0/upgrades/AM-IMP-2026.0921.02-external-claims-authority-routing.md"
+  ]
+}
