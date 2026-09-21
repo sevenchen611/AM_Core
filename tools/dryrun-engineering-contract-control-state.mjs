@@ -26,6 +26,19 @@ for (const item of fixture.cases) {
   }
 }
 
+const snakeCaseSession = reduceEngineeringContractControlState({
+  version: { contract_snapshot: { documentPackage: { partyAProfileSnapshot: { profileType: 'individual' } } } },
+  signingBundle: { session: {
+    external_session_id: 'session-snake-case',
+    status: 'signed',
+    party_a_signer_line_user_id: 'party-a',
+    partyASubmission: { receivedAt: '2026-09-21T05:53:00.000Z' },
+    submission: { receivedAt: '2026-09-21T06:57:00.000Z' },
+  } },
+});
+assert.equal(snakeCaseSession.signingSessionId, 'session-snake-case');
+assert.equal(snakeCaseSession.stage, 'awaiting_internal_confirmation');
+
 // The reducer must not leak protected token, evidence-ref, identity document,
 // IP or user-agent fields even when a raw store bundle contains them.
 const redacted = reduceEngineeringContractControlState({

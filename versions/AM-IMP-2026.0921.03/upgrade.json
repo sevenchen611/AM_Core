@@ -1,0 +1,40 @@
+{
+  "id": "AM-IMP-2026.0921.03",
+  "name": "Engineering contract workspace signing-state parity",
+  "type": "AM Platform / Engineering contract control UI",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-21",
+  "dependsOn": ["AM-IMP-2026.0903.02", "AM-IMP-2026.0908.01"],
+  "installTargets": ["AM_PLATFORM:engineering"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "node tools/dryrun-engineering-contract-control-state.mjs",
+    "node tools/dryrun-engineering-contract-control-center.mjs",
+    "node tools/dryrun-engineering-contract-workspace.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Use only the tenant-scoped PostgreSQL contract control projection; never mutate signing evidence or infer completion from Notion status."
+  },
+  "definitionOfDone": [
+    "Workspace loads authoritative control state before rendering signing actions",
+    "Both-signed contracts expose the internal confirmation button even when the overview cache is stale",
+    "Completed Party A signatures suppress the obsolete signer-assignment panel",
+    "Snake-case production session identifiers are preserved in the control projection",
+    "No contract, signer, LINE message or immutable evidence is mutated during deployment verification"
+  ],
+  "projectStatus": { "AM_PLATFORM:engineering": "Installed" },
+  "files": [
+    "modules/construction/contract-control-state.js",
+    "modules/construction/contract-control-center.js",
+    "modules/construction/contracts.js",
+    "tools/dryrun-engineering-contract-control-state.mjs",
+    "tools/dryrun-engineering-contract-control-center.mjs",
+    "tools/dryrun-engineering-contract-workspace.mjs"
+  ]
+}
