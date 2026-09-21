@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { createContractFinalArtifactReader } from '../modules/construction/contract-final-artifact-reader.js';
 import { handleContractWorkflowApiRequest, __test as apiTest } from '../modules/construction/contract-workflow-api.js';
 
@@ -8,10 +9,14 @@ const versionId = '22222222-2222-4222-8222-222222222222';
 const tenant = { key: 'engineering-test' };
 const signedPdf = Buffer.from('%PDF-1.7\nverified signed contract');
 const receipt = Buffer.from(JSON.stringify({ schemaVersion: 'test-receipt', completed: true }));
+const identityFront = Buffer.from('clear identity front image');
+const identityBack = Buffer.from('clear identity back image');
 const digest = (buffer) => crypto.createHash('sha256').update(buffer).digest('hex');
 const files = {
   'private-signed-pdf': signedPdf,
   'private-evidence-receipt': receipt,
+  'private-identity-front': identityFront,
+  'private-identity-back': identityBack,
 };
 
 const contract = {
@@ -33,10 +38,22 @@ const version = {
 const bundle = {
   contract: { id: contractId },
   version: { id: versionId },
-  session: { externalSessionId: 'session-completed', versionId, status: 'completed' },
+  session: {
+    externalSessionId: 'session-completed', versionId, status: 'completed',
+    submission: {
+      identityDocuments: {
+        front: { ref: 'private-identity-front', hash: digest(identityFront), contentType: 'image/jpeg' },
+        back: { ref: 'private-identity-back', hash: digest(identityBack), contentType: 'image/jpeg' },
+      },
+    },
+  },
   artifacts: [
     { artifact_kind: 'signed_pdf', drive_file_id: 'private-signed-pdf', sha256: digest(signedPdf) },
     { artifact_kind: 'evidence_receipt', drive_file_id: 'private-evidence-receipt', sha256: digest(receipt) },
+    {
+      artifact_kind: 'identity_document_front', drive_file_id: 'private-identity-front',
+      sha256: digest(identityFront), metadata: { contentType: 'image/jpeg' },
+    },
   ],
 };
 const store = {
@@ -50,7 +67,9 @@ const deps = {
   actor: 'contract-admin',
   contractStore: store,
   async auditDrivePrivate(fileId) { return { private: Object.hasOwn(files, fileId) }; },
-  async downloadFromDrive(fileId) { return { buffer: files[fileId] }; },
+  async downloadFromDrive(fileId) {
+    return { buffer: files[fileId], ...(fileId.includes('identity') ? { mimeType: 'image/jpeg' } : {}) };
+  },
 };
 const context = { tenant, actor: 'contract-admin', scope: new Set(['project-demolition']) };
 const reader = createContractFinalArtifactReader(deps);
@@ -65,6 +84,16 @@ const receiptResult = await reader.loadEvidenceReceipt(context, { contractId, ve
 assert.deepEqual(receiptResult.buffer, receipt);
 assert.equal(receiptResult.mimeType, 'application/json; charset=utf-8');
 assert.equal(receiptResult.fileName, 'HZ-CT-001-evidence-receipt.json');
+
+const frontResult = await reader.loadIdentityDocumentFront(context, { contractId, versionId });
+assert.deepEqual(frontResult.buffer, identityFront);
+assert.equal(frontResult.mimeType, 'image/jpeg');
+assert.equal(frontResult.fileName, 'HZ-CT-001-identity-front.jpg');
+
+const backResult = await reader.loadIdentityDocumentBack(context, { contractId, versionId });
+assert.deepEqual(backResult.buffer, identityBack, 'existing completed contracts use immutable signing-session evidence');
+assert.equal(backResult.mimeType, 'image/jpeg');
+assert.equal(backResult.fileName, 'HZ-CT-001-identity-back.jpg');
 
 await assert.rejects(
   () => reader.loadSignedPdf({ ...context, scope: new Set(['another-project']) }, { contractId, versionId }),
@@ -87,6 +116,13 @@ assert.equal(pdfRoute.finalArtifact, true);
 const receiptRoute = apiTest.routeFor('GET', `/contracts/api/v2/contracts/${contractId}/versions/${versionId}/evidence-receipt`);
 assert.equal(receiptRoute.operation, 'loadEvidenceReceipt');
 assert.equal(receiptRoute.finalArtifact, true);
+const frontRoute = apiTest.routeFor('GET', `/contracts/api/v2/contracts/${contractId}/versions/${versionId}/identity-document-front`);
+assert.equal(frontRoute.operation, 'loadIdentityDocumentFront');
+assert.equal(frontRoute.capability, 'view');
+assert.equal(frontRoute.binary, true);
+assert.equal(frontRoute.finalArtifact, true);
+const backRoute = apiTest.routeFor('GET', `/contracts/api/v2/contracts/${contractId}/versions/${versionId}/identity-document-back`);
+assert.equal(backRoute.operation, 'loadIdentityDocumentBack');
 
 function response() {
   return {
@@ -110,6 +146,17 @@ assert.equal(binaryResponse.headers['content-type'], 'application/pdf');
 assert.equal(binaryResponse.headers['cache-control'], 'private, no-store, max-age=0');
 assert.deepEqual(binaryResponse.body, signedPdf);
 
+const identityPath = `/contracts/api/v2/contracts/${contractId}/versions/${versionId}/identity-document-front`;
+const identityResponse = response();
+await handleContractWorkflowApiRequest(
+  { method: 'GET' }, identityResponse, identityPath, new URL(`https://example.test${identityPath}`), deps,
+  { scope: context.scope, capabilities: { view: true } },
+);
+assert.equal(identityResponse.status, 200);
+assert.equal(identityResponse.headers['content-type'], 'image/jpeg');
+assert.equal(identityResponse.headers['cache-control'], 'private, no-store, max-age=0');
+assert.deepEqual(identityResponse.body, identityFront);
+
 const deniedResponse = response();
 await handleContractWorkflowApiRequest(
   { method: 'GET' }, deniedResponse, pathname, new URL(`https://example.test${pathname}`), deps,
@@ -117,5 +164,9 @@ await handleContractWorkflowApiRequest(
 );
 assert.equal(deniedResponse.status, 403);
 assert.equal(JSON.parse(deniedResponse.body.toString()).error.code, 'CONTRACT_CAPABILITY_REQUIRED');
+
+const workspaceSource = readFileSync(new URL('../modules/construction/contracts.js', import.meta.url), 'utf8');
+assert.match(workspaceSource, /開啟簽約人身分證正面原圖/);
+assert.match(workspaceSource, /identity-document-back/);
 
 console.log('dryrun-engineering-contract-final-artifacts: OK');

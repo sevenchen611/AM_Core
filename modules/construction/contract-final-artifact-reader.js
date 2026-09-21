@@ -12,6 +12,18 @@ const ARTIFACTS = Object.freeze({
     suffix: 'evidence-receipt.json',
     maxBytes: 2 * 1024 * 1024,
   }),
+  identity_document_front: Object.freeze({
+    mimeTypes: Object.freeze(['image/jpeg', 'image/png']),
+    suffix: 'identity-front',
+    maxBytes: 8 * 1024 * 1024,
+    identitySide: 'front',
+  }),
+  identity_document_back: Object.freeze({
+    mimeTypes: Object.freeze(['image/jpeg', 'image/png']),
+    suffix: 'identity-back',
+    maxBytes: 8 * 1024 * 1024,
+    identitySide: 'back',
+  }),
 });
 
 function readerError(code, message, statusCode = 400, details = {}) {
@@ -114,8 +126,12 @@ export function createContractFinalArtifactReader(deps = {}) {
 
     const artifact = (Array.isArray(bundle.artifacts) ? bundle.artifacts : [])
       .find((item) => artifactKind(item) === kind);
-    const fileId = artifactFileId(artifact);
-    const expectedHash = artifactHash(artifact);
+    const legacyIdentity = spec.identitySide
+      ? bundle?.session?.submission?.identityDocuments?.[spec.identitySide]
+      : null;
+    const fileId = artifactFileId(artifact) || text(first(legacyIdentity?.ref, legacyIdentity?.driveFileId), 240);
+    const expectedHash = artifactHash(artifact)
+      || text(first(legacyIdentity?.hash, legacyIdentity?.sha256), 64).toLowerCase();
     if (!fileId || !/^[a-f0-9]{64}$/.test(expectedHash)) {
       throw readerError('CONTRACT_FINAL_ARTIFACT_MISSING', '最終歸檔紀錄不完整，請由資料管理者核對。', 404);
     }
@@ -131,11 +147,19 @@ export function createContractFinalArtifactReader(deps = {}) {
     if (!sameHash(actualHash, expectedHash)) {
       throw readerError('CONTRACT_FINAL_ARTIFACT_HASH_MISMATCH', '最終合約檔案雜湊驗證失敗，禁止開啟。', 409);
     }
+    const downloadedMime = text(first(downloaded?.mimeType, downloaded?.contentType), 120).toLowerCase();
+    const recordedMime = text(first(artifact?.metadata?.contentType, artifact?.metadata?.mimeType,
+      legacyIdentity?.contentType, legacyIdentity?.mimeType), 120).toLowerCase();
+    const mimeType = spec.mimeType || (spec.mimeTypes?.includes(downloadedMime) ? downloadedMime : recordedMime);
+    if (spec.mimeTypes && !spec.mimeTypes.includes(mimeType)) {
+      throw readerError('CONTRACT_FINAL_ARTIFACT_TYPE_MISMATCH', '身分證附件格式驗證失敗，禁止開啟。', 409);
+    }
+    const extension = mimeType === 'image/png' ? '.png' : mimeType === 'image/jpeg' ? '.jpg' : '';
 
     return {
       buffer,
-      mimeType: spec.mimeType,
-      fileName: `${safeFileStem(first(contract.contractNumber, contract.contract_number, contract.id))}-${spec.suffix}`,
+      mimeType,
+      fileName: `${safeFileStem(first(contract.contractNumber, contract.contract_number, contract.id))}-${spec.suffix}${extension}`,
       sha256: actualHash,
     };
   }
@@ -143,6 +167,8 @@ export function createContractFinalArtifactReader(deps = {}) {
   return Object.freeze({
     loadSignedPdf: (context, input = {}) => load(context, input, 'signed_pdf'),
     loadEvidenceReceipt: (context, input = {}) => load(context, input, 'evidence_receipt'),
+    loadIdentityDocumentFront: (context, input = {}) => load(context, input, 'identity_document_front'),
+    loadIdentityDocumentBack: (context, input = {}) => load(context, input, 'identity_document_back'),
   });
 }
 

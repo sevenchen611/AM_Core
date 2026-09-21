@@ -236,6 +236,12 @@ function routeFor(method, pathname) {
     return { operation: 'loadEvidenceReceipt', capability: 'view', finalArtifact: true, binary: true,
       contractId: decodeSegment(match[1]), versionId: decodeSegment(match[2]) };
   }
+  match = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/versions\/([^/]+)\/identity-document-(front|back)$/);
+  if (method === 'GET' && match) {
+    return { operation: match[3] === 'front' ? 'loadIdentityDocumentFront' : 'loadIdentityDocumentBack',
+      capability: 'view', finalArtifact: true, binary: true,
+      contractId: decodeSegment(match[1]), versionId: decodeSegment(match[2]) };
+  }
   match = pathname.match(/^\/contracts\/api\/v2\/contracts\/([^/]+)\/versions\/([^/]+)\/line-attachments(?:\/([^/]+))?$/);
   if (match) {
     const refs = { contractId: decodeSegment(match[1]), versionId: decodeSegment(match[2]), lineAttachments: true };
