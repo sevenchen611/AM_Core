@@ -3,7 +3,7 @@
   "name": "Engineering contract workspace signing-state parity",
   "type": "AM Platform / Engineering contract control UI",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-09-21",
   "dependsOn": ["AM-IMP-2026.0903.02", "AM-IMP-2026.0908.01"],
   "installTargets": ["AM_PLATFORM:engineering"],
@@ -28,7 +28,7 @@
     "Snake-case production session identifiers are preserved in the control projection",
     "No contract, signer, LINE message or immutable evidence is mutated during deployment verification"
   ],
-  "projectStatus": { "AM_PLATFORM:engineering": "Installed" },
+  "projectStatus": { "AM_PLATFORM:engineering": "Deployed" },
   "files": [
     "modules/construction/contract-control-state.js",
     "modules/construction/contract-control-center.js",
