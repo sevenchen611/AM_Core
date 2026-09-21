@@ -71,6 +71,26 @@ assert.equal(payload.claim.totals.requestedAmount, 4627);
 assert.equal(payload.claim.lines.length, 2);
 assert.equal(JSON.stringify(payload).includes('groupId'), false);
 assert.equal(JSON.stringify(payload).includes('data:application/pdf'), false);
+
+const externalDeductionPayload = __test.normalizeClaimSubmission({
+  type: 'other',
+  period: '2026-08',
+  lines: [
+    { description: '5月預借金額', amount: 100000 },
+    { description: '7月份水費扣抵', amount: -3056 },
+    { description: '6、7月份水費扣抵', amount: -48522 },
+    { description: '其他費用', amount: 22180 },
+  ],
+  totals: { requestedAmount: 70602, currency: 'TWD' },
+}, { ...session, claimMode: 'external_claim_only' }, tenant, { userId: 'U0123456789abcdef0123456789abcdef', displayName: 'Bonnie' });
+assert.equal(externalDeductionPayload.claim.totals.requestedAmount, 70602);
+assert.equal(externalDeductionPayload.claim.lines[1].amount, -3056);
+assert.equal(externalDeductionPayload.source.claimMode, 'external_claim_only');
+assert.throws(() => __test.normalizeClaimSubmission({
+  type: 'other', period: '2026-08',
+  lines: [{ description: '不允許的內部負數', amount: -1 }],
+  totals: { requestedAmount: 1, currency: 'TWD' },
+}, session, tenant, { userId: 'U0123456789abcdef0123456789abcdef' }), /第 1 筆/);
 const uploadPayload = __test.normalizeAttachmentUpload({
   id: 'att-2',
   name: 'receipt.pdf',

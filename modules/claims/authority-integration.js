@@ -11,6 +11,7 @@ import { createClaimsAuthorityOutboxWorker } from '../../core/claims-authority-o
 const OPAQUE_REFERENCE = /^line-ref:v1:[0-9a-f-]{36}$/iu;
 const SAFE_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{1,159}$/u;
 const SELECTOR_TTL_MS = 10 * 60 * 1000;
+const EXTERNAL_SELECTOR_TTL_MS = 2 * 60 * 60 * 1000;
 const SELECTOR_COOKIE = 'am_claims_form_selector';
 
 function requiresFinanceMembership(claimMode, formKey) {
@@ -256,7 +257,7 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
       memberLookup: input.memberLookup,
       eventKey: input.idempotencyKey,
       formKeys: input.routing.availableForms,
-      ttlMs: SELECTOR_TTL_MS,
+      ttlMs: input.routing.claimMode === 'external_claim_only' ? EXTERNAL_SELECTOR_TTL_MS : SELECTOR_TTL_MS,
     });
     const liffId = String(claimsLiffId?.(input.tenant) || '');
     if (!liffId) throw new Error('請款 LINE LIFF 尚未設定。');
