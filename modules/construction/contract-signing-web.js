@@ -592,7 +592,7 @@ h2{font-size:15px;margin:0 0 8px}.hint{font-size:13px;color:var(--dim);margin:0}
       <div class="identity-upload"><label for="identity-front">身分證正面</label><input id="identity-front" type="file" accept="image/jpeg,image/png" capture="environment"><div id="identity-front-state" class="identity-state">尚未選擇</div></div>
       <div class="identity-upload"><label for="identity-back">身分證反面</label><input id="identity-back" type="file" accept="image/jpeg,image/png" capture="environment"><div id="identity-back-state" class="identity-state">尚未選擇</div></div>
     </div>
-    <div class="privacy-note">證件影像僅供本工程合約的當事人身分確認、履約管理及爭議處理，儲存在工程 AM 私有簽署證據區，不會出現在草約頁、LINE 訊息或合約 PDF 內。若不同意電子提供，請聯繫工程人員改採書面核驗方式。</div>
+    <div class="privacy-note">證件影像僅供本工程合約的當事人身分確認、履約管理及爭議處理，儲存在工程 AM 私有簽署證據區；不會出現在草約頁或 LINE 訊息。完成簽署後，影像會納入受保護的最終合約證據，僅限具合約查看權限的內部人員檢視。若不同意電子提供，請聯繫工程人員改採書面核驗方式。</div>
     <h2 class="signature-heading">正式簽名</h2><div class="signature-instruction">請直接在下面整個大格內簽名，不必對準 PDF 裡的小框，也不要在 PDF 閱讀器的畫筆工具中簽名。</div><p class="hint">簽名只會提交至受保護的工程 AM 儲存空間，並自動帶入合約及本票。</p>
     <div class="signature-wrap"><div class="signature-inspection-label" id="signature-inspection-label" hidden>對方要在這個大框內直接簽名</div><canvas id="signature" aria-label="大尺寸正式簽名區"></canvas></div>
     <div class="actions"><button class="button" id="clear-signature" type="button">清除並重新簽名</button></div>

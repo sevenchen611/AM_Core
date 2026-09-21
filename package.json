@@ -14,6 +14,7 @@
     "dryrun:engineering": "node tools/dryrun-engineering-convergence.mjs",
     "dryrun:contract-review": "node tools/dryrun-engineering-contract-draft-review.mjs",
     "dryrun:contract-project-drawings": "node tools/dryrun-engineering-contract-project-drawings.mjs",
+    "dryrun:contract-identity-attachments": "node tools/dryrun-engineering-contract-final-artifacts.mjs",
     "dryrun:task-card": "node tools/dryrun-task-card.mjs",
     "dryrun:groups": "node tools/dryrun-groups.mjs",
     "dryrun:finance-v3-direct": "node tools/dryrun-finance-v3-direct.mjs",

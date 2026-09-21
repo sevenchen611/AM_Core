@@ -1,0 +1,45 @@
+{
+  "id": "AM-IMP-2026.0921.01",
+  "name": "Engineering contract signer identity attachments",
+  "type": "AM Platform / Engineering contract privacy evidence",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-21",
+  "dependsOn": [
+    "AM-IMP-2026.0828.01"
+  ],
+  "installTargets": [
+    "AM_PLATFORM:engineering"
+  ],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "npm run dryrun:contract-identity-attachments"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Resolve identity files only from the authorized completed signing session; enforce tenant/project scope, private Drive state, image allowlist and SHA-256 before streaming."
+  },
+  "definitionOfDone": [
+    "Completed contracts show separate original-size front/back identity-card links beside the final signed PDF",
+    "Existing completed contracts work without re-signing, re-uploading, copying or mutating evidence",
+    "Server enforces view capability, tenant/project scope, completed-session relation, Drive privacy, JPEG/PNG allowlist and SHA-256",
+    "Responses are private/no-store and never expose Drive ids or public URLs",
+    "Artifact, route, generated workspace and regression tests pass",
+    "Production health and authenticated read-only verification are recorded before marking Deployed"
+  ],
+  "projectStatus": {
+    "AM_PLATFORM:engineering": "Installed"
+  },
+  "files": [
+    "modules/construction/contract-final-artifact-reader.js",
+    "modules/construction/contract-workflow-api.js",
+    "modules/construction/contracts.js",
+    "modules/construction/contract-signing-web.js",
+    "tools/dryrun-engineering-contract-final-artifacts.mjs",
+    "package.json"
+  ]
+}
