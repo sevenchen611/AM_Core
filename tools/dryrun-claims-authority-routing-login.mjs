@@ -77,6 +77,41 @@ assert.throws(() => integration.requiresFinanceMembership('external_claim_only',
 assert.match(integrationSource, /requiresFinanceMembership\(selected\.claimMode[\s\S]*bridgeMembership/u);
 assert.match(integrationSource, /sourceId: selected\.sourceId, groupReference: selected\.groupReference, claimMode: selected\.claimMode/u);
 
+let notionBindingLoads = 0;
+const externalSelection = {
+  bindingId: '22222222-2222-4222-8222-222222222222',
+  groupId: partnerGroup,
+  groupName: '外部廠商群組',
+  claimMode: 'external_claim_only',
+};
+const externalBinding = await claims.authorityLegacyBinding({ key: tenantKey }, externalSelection, async () => {
+  notionBindingLoads += 1;
+  throw new Error('external authority flow must not load Notion');
+});
+assert.deepEqual(externalBinding, {
+  pageId: externalSelection.bindingId,
+  groupId: partnerGroup,
+  groupName: '外部廠商群組',
+});
+assert.equal(notionBindingLoads, 0);
+
+const internalBinding = await claims.authorityLegacyBinding({ key: tenantKey }, {
+  ...externalSelection,
+  claimMode: 'internal_v3',
+}, async (tenant, groupId) => {
+  notionBindingLoads += 1;
+  assert.equal(tenant.key, tenantKey);
+  assert.equal(groupId, partnerGroup);
+  return { pageId: 'live-notion-page', groupId, groupName: '內部請款群組' };
+});
+assert.equal(notionBindingLoads, 1);
+assert.equal(internalBinding.pageId, 'live-notion-page');
+await assert.rejects(
+  claims.authorityLegacyBinding({ key: tenantKey }, { ...externalSelection, claimMode: 'unknown' }),
+  /請款模式無效/u,
+);
+assert.doesNotMatch(claims.preAckClaimsAuthorityEvent.toString(), /bindingForGroupEvent/u);
+
 const externalPayload = claims.normalizeClaimSubmission({
   type: 'labor_health_insurance',
   period: '2026-09',

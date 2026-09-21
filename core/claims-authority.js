@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-const COMMAND = /^(?:#?請款|我要請款|開啟請款|請款按鈕)$/u;
+const COMMAND = /^(?:#?請款|我要請款|開啟請款|請款按鈕|費用申請)$/u;
 const MANAGE = new Set(['platform_owner', 'claims_access_admin']);
 const READ = new Set([...MANAGE, 'operator', 'auditor']);
 const PLATFORM_ONLY = new Set(['platform_owner']);
