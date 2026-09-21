@@ -3,7 +3,7 @@
   "name": "External claims authority-only legacy routing",
   "type": "HOZO external vendor claim routing correction",
   "portable": false,
-  "status": "Ready",
+  "status": "Deployed",
   "createdAt": "2026-09-21",
   "dependsOn": ["AM-IMP-2026.0916.02"],
   "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
@@ -31,7 +31,7 @@
     "Claims regression tests and production health pass"
   ],
   "projectStatus": {
-    "AM_PLATFORM:hozo-am-2-0": "Ready"
+    "AM_PLATFORM:hozo-am-2-0": "Deployed"
   },
   "files": [
     "core/claims-authority.js",
