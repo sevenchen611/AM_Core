@@ -68,6 +68,7 @@ const model = await service.list({ tenant, scope: new Set(['project-demolition',
 assert.equal(model.contracts.length, 3);
 const demolition = model.contracts.find((contract) => contract.contractId === 'contract-1');
 assert.equal(demolition.workflowStatus, 'awaiting_internal_confirmation');
+assert.equal(demolition.signingSessionId, 'session-1');
 assert.equal(demolition.partyA.label, '甲方已簽署');
 assert.equal(demolition.partyB.label, '乙方已簽署');
 assert.ok(demolition.queueKeys.includes('pending_internal_confirmation'));
@@ -81,6 +82,7 @@ const archived = await service.detail({ tenant, scope: new Set(['project-demolit
 const archivedSummary = model.contracts.find((contract) => contract.contractId === 'contract-3');
 assert.equal(Object.hasOwn(archivedSummary.partyA, 'signedIp'), false, 'bulk summary must not expose full IP evidence');
 assert.equal(archived.contract.workflowStatus, 'archived');
+assert.equal(archived.contract.signingSessionId, 'session-3');
 assert.equal(archived.contract.overallStatus, '簽署與歸檔完成');
 assert.equal(archived.contract.partyA.label, '甲方已簽署');
 assert.equal(archived.contract.partyB.label, '乙方已簽署');

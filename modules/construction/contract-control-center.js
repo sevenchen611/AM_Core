@@ -367,6 +367,7 @@ function contractPresentation(raw, version, bundle, state, additionalIssues = []
     acceptanceStatus: acceptance.label,
     dataHealth: health.label,
     health: { status: health.status, label: health.label },
+    signingSessionId: text(state.signingSessionId, 160),
     lastEventAt: state.timestamps?.lastEventAt || '',
     queueKeys: queueKeys(state, payment, acceptance),
     blockers: health.issues.map((item) => text(item.message || item.label, 400)).filter(Boolean),
