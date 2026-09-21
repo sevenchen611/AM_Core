@@ -12,6 +12,7 @@ let localFinanceV3InitPromise = null;
 let claimsAuthorityIntegration = null;
 
 const SESSION_TTL_MS = 15 * 60 * 1000;
+const EXTERNAL_SESSION_TTL_MS = 2 * 60 * 60 * 1000;
 const LIFF_SESSION_COOKIE = 'am_claims_liff_session';
 const LIFF_SELECTOR_COOKIE = 'am_claims_form_selector';
 const EVENT_DEDUPE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -144,7 +145,11 @@ function init(injected) {
           platform?.logger?.warn?.(`Claims selector binding validation failed (tenant=${tenant?.key || 'unknown'}): ${error.message}`);
           throw Object.assign(new Error('此群組的請款設定已更新，請回群組重新輸入「請款」後再試。'), { statusCode: 409 });
         }
-        const session = createSession({ tenant, binding: liveBinding, event: { source: { userId } }, senderName: userName }, '');
+        const session = createSession(
+          { tenant, binding: liveBinding, event: { source: { userId } }, senderName: userName },
+          '',
+          claimMode === 'external_claim_only' ? EXTERNAL_SESSION_TTL_MS : SESSION_TTL_MS,
+        );
         session.allowedClaimTypes = [legacyType];
         session.authoritySelection = { sessionId: selectorSessionId, formKey };
         session.financeSourceId = cleanText(sourceId, 128);
@@ -354,13 +359,13 @@ function parseCommand(value) {
   return { kind: 'none' };
 }
 
-function createSession(ctx, draftText = '') {
+function createSession(ctx, draftText = '', ttlMs = SESSION_TTL_MS) {
   cleanupMemory();
   const id = crypto.randomBytes(16).toString('hex');
   const now = Date.now();
   const session = {
     id,
-    expiresAt: now + SESSION_TTL_MS,
+    expiresAt: now + ttlMs,
     externalSubmissionId: `amc_${ctx.tenant.key}_${crypto.randomUUID()}`,
     tenantKey: ctx.tenant.key,
     tenantId: cleanText(ctx.tenant.tenantId, 100),
@@ -510,6 +515,12 @@ function amount(value) {
   return Math.round(n * 100) / 100;
 }
 
+function signedAmount(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || Math.round(n * 100) !== n * 100) return null;
+  return Math.round(n * 100) / 100;
+}
+
 function validPeriod(value) {
   return /^\d{4}-(0[1-9]|1[0-2])$/.test(String(value || '')) ? String(value) : '';
 }
@@ -572,12 +583,15 @@ function normalizeClaimSubmission(body, session, tenant, actor) {
   if (!Array.isArray(body.lines) || body.lines.length < 1 || body.lines.length > 30) {
     throw Object.assign(new Error('至少需要一筆、至多 30 筆請款明細。'), { statusCode: 400 });
   }
-  const lines = body.lines.map((line) => {
+  const allowDeductions = session.claimMode === 'external_claim_only' && type === 'other';
+  const lines = body.lines.map((line, index) => {
     if (!line || typeof line !== 'object' || Array.isArray(line)) throw Object.assign(new Error('請款明細格式不正確。'), { statusCode: 400 });
     const description = cleanText(line.description, 500);
-    const amountValue = amount(line.amount);
+    const amountValue = allowDeductions ? signedAmount(line.amount) : amount(line.amount);
     const employeeReference = cleanText(line.employeeReference, 160);
-    if (!description || amountValue === null || amountValue <= 0) throw Object.assign(new Error('請款明細格式不正確。'), { statusCode: 400 });
+    if (!description || amountValue === null || (allowDeductions ? amountValue === 0 : amountValue <= 0)) {
+      throw Object.assign(new Error(`第 ${index + 1} 筆請款明細的說明或金額不正確。`), { statusCode: 400 });
+    }
     return { description, amount: amountValue, ...(employeeReference ? { employeeReference } : {}) };
   });
   const expectedTotal = Math.round(lines.reduce((total, line) => total + line.amount, 0) * 100) / 100;
@@ -604,6 +618,7 @@ function normalizeClaimSubmission(body, session, tenant, actor) {
       ...(session.financeGroupReference ? { groupReference: session.financeGroupReference } : {}),
       groupBindingId: session.financeGroupReference || session.bindingId,
       groupNameSnapshot: session.sourceGroupName,
+      ...(session.claimMode ? { claimMode: session.claimMode } : {}),
       actor: { reference: actor.userId, name: actor.displayName || session.requestedByName },
     },
     claim: {
@@ -758,7 +773,7 @@ function rentalClaimError(status, result = {}) {
 }
 
 function money(value, currency = 'TWD') {
-  const amountValue = amount(value);
+  const amountValue = signedAmount(value);
   if (amountValue === null) return '';
   const label = String(currency || 'TWD').toUpperCase() === 'TWD' ? 'NT$' : `${String(currency || '').toUpperCase()} `;
   return `${label}${new Intl.NumberFormat('zh-TW', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amountValue)}`;
