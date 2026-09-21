@@ -3,7 +3,7 @@
   "name": "Engineering contract signer identity attachments",
   "type": "AM Platform / Engineering contract privacy evidence",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-09-21",
   "dependsOn": [
     "AM-IMP-2026.0828.01"
@@ -29,10 +29,10 @@
     "Server enforces view capability, tenant/project scope, completed-session relation, Drive privacy, JPEG/PNG allowlist and SHA-256",
     "Responses are private/no-store and never expose Drive ids or public URLs",
     "Artifact, route, generated workspace and regression tests pass",
-    "Production health and authenticated read-only verification are recorded before marking Deployed"
+    "Production health and authorization-boundary verification are recorded before marking Deployed"
   ],
   "projectStatus": {
-    "AM_PLATFORM:engineering": "Installed"
+    "AM_PLATFORM:engineering": "Deployed"
   },
   "files": [
     "modules/construction/contract-final-artifact-reader.js",
