@@ -13,8 +13,8 @@ const tenantB = {
 };
 const owner = { subject: 'synthetic-owner', roles: ['platform_owner'] };
 const claimsAdmin = { subject: 'synthetic-admin', roles: ['claims_access_admin'] };
-const groupId = 'C-synthetic-group';
-const userId = 'U-synthetic-user';
+const groupId = `C${'a'.repeat(32)}`;
+const userId = `U${'b'.repeat(32)}`;
 
 function makeStore({ denied = false, claimMode = 'internal_v3' } = {}) {
   const calls = [];
@@ -39,6 +39,9 @@ function makeStore({ denied = false, claimMode = 'internal_v3' } = {}) {
       }
       if (sql.includes('ca:resolve-notification-recipient')) {
         return { rows: observedMemberCiphertext ? [{ member_ciphertext: observedMemberCiphertext, key_id: 'fixed-v1', manual_deny: denied }] : [] };
+      }
+      if (sql.includes('ca:resolve-group-notification-target')) {
+        return { rows: discoveredCiphertext ? [{ group_ciphertext: discoveredCiphertext, key_id: 'fixed-v1', state: 'active', oa_state: 'present' }] : [] };
       }
       if (sql.includes('ca:platform-discover')) {
         discoveredCiphertext = params[1];
@@ -155,6 +158,12 @@ assert.deepEqual(await authority.resolveNotificationRecipient({
   tenantKey: tenantA.key,
   identityReference: 'line-ref:v1:11111111-1111-4111-8111-111111111111',
 }), { tenantKey: tenantA.key, type: 'line_user', target: userId });
+const originGroupReference = `line-group-ref:v1:${groupLookup}`;
+assert.deepEqual(await authority.resolveGroupNotificationTarget({
+  tenant: tenantA,
+  groupReference: originGroupReference,
+}), { tenantKey: tenantA.key, type: 'group_binding', target: groupId });
+assert.equal(await authority.resolveGroupNotificationTarget({ tenant: tenantA, groupReference: 'invalid' }), null);
 const duplicate = await authority.handleEvent({
   tenant: tenantA,
   binding: { id: 'synthetic-binding' },

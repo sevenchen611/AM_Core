@@ -18,6 +18,7 @@ const LIFF_SELECTOR_COOKIE = 'am_claims_form_selector';
 const EVENT_DEDUPE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_BODY_BYTES = 16 * 1024 * 1024;
 const CLAIM_GROUP_REFERENCE = /^line-ref:v1:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
+const CLAIM_ORIGIN_GROUP_REFERENCE = /^line-group-ref:v1:[0-9a-f]{64}$/u;
 const COMMANDS = new Set(['請款', '費用申請', '我要請款', '請款按鈕', '開啟請款', '#請款']);
 const EVENT_STATUSES = new Set([
   'submitted', 'supplement_requested', 'approved', 'rejected', 'awaiting_payment',
@@ -131,7 +132,7 @@ function init(injected) {
         const profile = await lineProfileFromAccessToken(accessToken, claimsLiffChannelId(tenant));
         return { ok: profile.userId === expectedUserId, displayName: profile.displayName };
       },
-      async createLegacyFormLink({ tenant, selectorSessionId, formKey, sourceId, groupReference, claimMode, identityReference, bindingId, groupId, groupName, userId, userName }) {
+      async createLegacyFormLink({ tenant, selectorSessionId, formKey, sourceId, groupReference, originGroupReference, claimMode, identityReference, bindingId, groupId, groupName, userId, userName }) {
         const legacyType = { legacy_social_insurance: 'labor_health_insurance', legacy_shared_operating: 'shared_operating', legacy_other: 'other' }[formKey];
         if (!legacyType) throw new Error('舊版請款單識別碼無效。');
         // External vendor groups are governed by the claims authority registry and
@@ -155,6 +156,8 @@ function init(injected) {
         session.authoritySelection = { sessionId: selectorSessionId, formKey };
         session.financeSourceId = cleanText(sourceId, 128);
         session.financeGroupReference = cleanText(groupReference, 160);
+        session.originGroupReference = CLAIM_ORIGIN_GROUP_REFERENCE.test(String(originGroupReference || '')) ? originGroupReference : '';
+        if (!session.originGroupReference) throw new Error('來源群組識別無效，請回群組重新開啟。');
         session.claimMode = cleanText(claimMode, 40);
         session.applicantReference = cleanText(identityReference, 160);
         return liffLink(tenant, session);
@@ -617,7 +620,8 @@ function normalizeClaimSubmission(body, session, tenant, actor) {
     source: {
       ...(session.financeSourceId ? { id: session.financeSourceId } : {}),
       ...(session.financeGroupReference ? { groupReference: session.financeGroupReference } : {}),
-      groupBindingId: session.financeGroupReference || session.bindingId,
+      ...(session.originGroupReference ? { originGroupReference: session.originGroupReference } : {}),
+      groupBindingId: session.originGroupReference || session.financeGroupReference || session.bindingId,
       groupNameSnapshot: session.sourceGroupName,
       ...(session.claimMode ? { claimMode: session.claimMode } : {}),
       actor: { reference: actor.userId, name: actor.displayName || session.requestedByName },
@@ -1019,8 +1023,10 @@ async function handleLiff(req, res, { pathname, url, tenant = null, tenants = []
       const currentSelection = await claimsAuthorityIntegration?.verifyLegacySelection?.({ tenant: sessionTenant, ...session.authoritySelection });
       const sourceId = cleanText(currentSelection?.sourceId, 128);
       const groupReference = cleanText(currentSelection?.groupReference, 160);
+      const originGroupReference = cleanText(currentSelection?.originGroupReference, 160);
       const claimMode = cleanText(currentSelection?.claimMode, 40);
-      if (!sourceId || !groupReference || !['external_claim_only', 'internal_v3'].includes(claimMode)) {
+      if (!sourceId || !groupReference || !CLAIM_ORIGIN_GROUP_REFERENCE.test(originGroupReference)
+        || !['external_claim_only', 'internal_v3'].includes(claimMode)) {
         throw Object.assign(new Error('此群組的請款來源設定不完整，請回群組重新開啟。'), { statusCode: 409 });
       }
       if (session.claimMode && session.claimMode !== claimMode) {
@@ -1030,6 +1036,7 @@ async function handleLiff(req, res, { pathname, url, tenant = null, tenants = []
       session.bindingId = session.binding.pageId;
       session.financeSourceId = sourceId;
       session.financeGroupReference = groupReference;
+      session.originGroupReference = originGroupReference;
       session.claimMode = claimMode;
     } else {
       // Non-authority legacy links continue to use the live Notion binding and
@@ -1199,7 +1206,8 @@ function normalizeClaimEvent(body, tenant) {
   const tenantKey = cleanText(body.tenantKey, 120);
   const tenantId = cleanText(body.tenantId, 120);
   const rawBindingId = cleanText(body.bindingId, 160);
-  const bindingId = CLAIM_GROUP_REFERENCE.test(rawBindingId) ? rawBindingId : canonicalId(rawBindingId);
+  const bindingId = CLAIM_GROUP_REFERENCE.test(rawBindingId) || CLAIM_ORIGIN_GROUP_REFERENCE.test(rawBindingId)
+    ? rawBindingId : canonicalId(rawBindingId);
   const status = cleanText(body.status, 80);
   const claimId = cleanText(body.claimId, 160);
   const claimNumber = cleanText(body.claimNumber, 120);
@@ -1214,7 +1222,7 @@ function normalizeClaimEvent(body, tenant) {
   const expectedDisbursementDate = cleanText(body.expectedDisbursementDate, 10);
   const expectedDisbursementTimestamp = Date.parse(`${expectedDisbursementDate}T00:00:00Z`);
   if (!/^[A-Za-z0-9:_-]{8,160}$/.test(eventId) || tenantKey !== tenant.key || tenantId !== cleanText(tenant.tenantId, 120)
-    || (!/^[a-f0-9]{32}$/.test(bindingId) && !CLAIM_GROUP_REFERENCE.test(bindingId)) || !EVENT_STATUSES.has(status) || !claimId || !claimNumber
+    || (!/^[a-f0-9]{32}$/.test(bindingId) && !CLAIM_GROUP_REFERENCE.test(bindingId) && !CLAIM_ORIGIN_GROUP_REFERENCE.test(bindingId)) || !EVENT_STATUSES.has(status) || !claimId || !claimNumber
     || amountValue === null || currency !== 'TWD' || (occurredAt && Number.isNaN(Date.parse(occurredAt))) || (paidAt && Number.isNaN(Date.parse(paidAt)))
     || (expectedDisbursementDate && (!/^\d{4}-\d{2}-\d{2}$/.test(expectedDisbursementDate)
       || Number.isNaN(expectedDisbursementTimestamp)
@@ -1251,7 +1259,7 @@ function eventMessage(event) {
 }
 
 async function bindingForClaimEvent(tenant, bindingId) {
-  if (!CLAIM_GROUP_REFERENCE.test(bindingId)) return bindingForEvent(tenant, bindingId);
+  if (!CLAIM_GROUP_REFERENCE.test(bindingId) && !CLAIM_ORIGIN_GROUP_REFERENCE.test(bindingId)) return bindingForEvent(tenant, bindingId);
   const resolved = await claimsAuthorityIntegration?.resolveGroupReference?.({ tenant, groupReference: bindingId });
   if (!resolved?.groupId) {
     throw Object.assign(new Error('Claim group reference could not be resolved.'), { statusCode: 409 });

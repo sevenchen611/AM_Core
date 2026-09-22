@@ -504,6 +504,26 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
     });
   }
 
+  async function resolveGroupNotificationTarget({ tenant, groupReference }) {
+    requireTenant(tenant);
+    const match = /^line-group-ref:v1:([a-f0-9]{64})$/u.exec(String(groupReference || ''));
+    if (!match) return null;
+    return tenantTx(tenant, async (client) => {
+      const result = await client.query(
+        `/* ca:resolve-group-notification-target */ SELECT group_ciphertext,key_id,state,oa_state
+         FROM am_claims.groups WHERE tenant_id=$1 AND group_lookup=$2`,
+        [tenant.tenantId, match[1]],
+      );
+      if ((result.rows || []).length !== 1) return null;
+      const row = result.rows[0];
+      if (row.state !== 'active' || row.oa_state !== 'present') return null;
+      if (row.key_id !== codec.keyId) throw new Error('Claims group notification target uses an unsupported fixed key.');
+      const target = codec.decrypt(row.group_ciphertext);
+      if (!/^C[a-f0-9]{32}$/iu.test(target)) return null;
+      return { tenantKey: tenant.key, type: 'group_binding', target };
+    });
+  }
+
   // Read the same encrypted, group-scoped member registry shown in claims admin.
   // No profile-name aliases, cross-group identity search, grants, or data writes.
   async function resolveGroupMention({ tenant, groupId, mentionName, mentionIdentityReference, diagnose = false }) {
@@ -672,6 +692,7 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
         formKeys: available,
         selectedFormKey: row.selected_form_key || '',
         resolvedUrl: row.resolved_url || '',
+        groupLookup: row.group_lookup,
         groupId: codec.decrypt(row.group_ciphertext),
         groupName: row.group_name_ciphertext ? codec.decrypt(row.group_name_ciphertext) : '',
         bindingId: codec.decrypt(row.binding_ciphertext),
@@ -708,6 +729,7 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
     listMembers,
     listUnassigned,
     resolveNotificationRecipient,
+    resolveGroupNotificationTarget,
     resolveGroupMention,
     listFormGroups,
     publishFormGroups,

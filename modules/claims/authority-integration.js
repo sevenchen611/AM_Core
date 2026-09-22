@@ -9,6 +9,7 @@ import { CLAIM_FORM_INVENTORY, createClaimsAuthorityAdminHandler, renderClaimsAu
 import { createClaimsAuthorityOutboxWorker } from '../../core/claims-authority-outbox.js';
 
 const OPAQUE_REFERENCE = /^line-ref:v1:[0-9a-f-]{36}$/iu;
+const ORIGIN_GROUP_REFERENCE = /^line-group-ref:v1:[0-9a-f]{64}$/u;
 const SAFE_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{1,159}$/u;
 const SELECTOR_TTL_MS = 10 * 60 * 1000;
 const EXTERNAL_SELECTOR_TTL_MS = 2 * 60 * 60 * 1000;
@@ -30,6 +31,11 @@ function timingSafeText(left, right) {
   const a = Buffer.from(String(left || ''));
   const b = Buffer.from(String(right || ''));
   return a.length > 0 && a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function originGroupReference(groupLookup) {
+  const lookup = String(groupLookup || '').toLowerCase();
+  return /^[0-9a-f]{64}$/u.test(lookup) ? `line-group-ref:v1:${lookup}` : '';
 }
 
 function targetRegistry(env) {
@@ -428,7 +434,9 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
         if (membership?.status !== 200 || !membership.body?.matched || membership.body?.effectiveState !== 'active') throw new Error('內部 V3 請款身分尚未啟用，請聯絡財務管理員。');
       }
       if (String(body.formKey).startsWith('legacy_')) {
-        targetUrl = await createLegacyFormLink?.({ tenant, selectorSessionId: parsed.sessionId, formKey: body.formKey, sourceId: selected.sourceId, groupReference: selected.groupReference, claimMode: selected.claimMode, identityReference, bindingId: selected.bindingId, groupId: selected.groupId, groupName: selected.groupName, userId: selected.userId, userName: actor.displayName || '' });
+        const actualOriginReference = originGroupReference(selected.groupLookup);
+        if (!actualOriginReference) throw new Error('來源群組識別無效，請回群組重新開啟。');
+        targetUrl = await createLegacyFormLink?.({ tenant, selectorSessionId: parsed.sessionId, formKey: body.formKey, sourceId: selected.sourceId, groupReference: selected.groupReference, originGroupReference: actualOriginReference, claimMode: selected.claimMode, identityReference, bindingId: selected.bindingId, groupId: selected.groupId, groupName: selected.groupName, userId: selected.userId, userName: actor.displayName || '' });
       } else if (body.formKey === 'employee_expense') {
         const entry = await receiver.bridgeWebEntry({ contractVersion: 'finance-claims-v3.am-bridge-v1', requestId: `${requestBase}-entry`, tenantKey: tenant.key, sourceId: selected.sourceId, formKey: selected.v3FormKey, identityReference });
         if (entry?.status !== 200 || !entry.body?.url) throw new Error('V3 請款單目前無法開啟，請稍後再試。');
@@ -452,13 +460,20 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
     },
     async resolveGroupReference({ tenant, groupReference }) {
       await migrationPromise;
+      if (ORIGIN_GROUP_REFERENCE.test(String(groupReference || ''))) {
+        const resolved = await authority.resolveGroupNotificationTarget({ tenant: authorityTenant(tenant), groupReference });
+        return resolved?.target ? { groupId: resolved.target, groupReference } : null;
+      }
       const groupId = groupRecipientTarget(groupRecipients, tenant?.key, groupReference);
       return groupId ? { groupId, groupReference } : null;
     },
     admin,
     handleSelector,
     isSelectorToken: (value) => Boolean(parseSelectorToken(value)),
-    verifyLegacySelection: ({ tenant, sessionId, formKey }) => authority.resolveFormSelection({ tenant: authorityTenant(tenant), sessionId, formKey }),
+    async verifyLegacySelection({ tenant, sessionId, formKey }) {
+      const selection = await authority.resolveFormSelection({ tenant: authorityTenant(tenant), sessionId, formKey });
+      return { ...selection, originGroupReference: originGroupReference(selection.groupLookup) };
+    },
     async handleLineEvent({ tenant, binding, event }) {
       await migrationPromise;
       const enriched = binding ? (() => {
@@ -472,4 +487,4 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
   };
 }
 
-export const __test = { deliverSelectorToOrigin, groupRecipientRegistry, groupRecipientTarget, requiresFinanceMembership, selectorMessage, selectorSessionCookie };
+export const __test = { deliverSelectorToOrigin, groupRecipientRegistry, groupRecipientTarget, originGroupReference, requiresFinanceMembership, selectorMessage, selectorSessionCookie };
