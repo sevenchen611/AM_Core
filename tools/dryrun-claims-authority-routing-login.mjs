@@ -35,6 +35,9 @@ const ambiguousTargets = new Map([
   [`${tenantKey}:${partnerGroup}`, financeReference],
 ]);
 assert.equal(integration.groupRecipientTarget(ambiguousTargets, tenantKey, financeReference), '');
+const originGroupReference = `line-group-ref:v1:${'c'.repeat(64)}`;
+assert.equal(integration.originGroupReference('C'.repeat(64)), originGroupReference);
+assert.equal(integration.originGroupReference('invalid'), '');
 
 const replyCalls = [];
 const pushCalls = [];
@@ -83,7 +86,7 @@ assert.equal(integration.requiresFinanceMembership('external_claim_only', 'legac
 assert.equal(integration.requiresFinanceMembership('internal_v3', 'employee_expense'), true);
 assert.throws(() => integration.requiresFinanceMembership('external_claim_only', 'employee_expense'), /外部廠商群組/u);
 assert.match(integrationSource, /requiresFinanceMembership\(selected\.claimMode[\s\S]*bridgeMembership/u);
-assert.match(integrationSource, /sourceId: selected\.sourceId, groupReference: selected\.groupReference, claimMode: selected\.claimMode/u);
+assert.match(integrationSource, /sourceId: selected\.sourceId, groupReference: selected\.groupReference, originGroupReference: actualOriginReference, claimMode: selected\.claimMode/u);
 
 let notionBindingLoads = 0;
 const externalSelection = {
@@ -129,11 +132,13 @@ const externalPayload = claims.normalizeClaimSubmission({
   tenantKey, tenantId: 'tenant-uuid', bindingId: 'notion-page-id', sourceGroupName: '外部廠商群組',
   externalSubmissionId: 'submission-one', requestedByName: '申請人',
   financeSourceId: 'source-partner', financeGroupReference: partnerReference,
+  originGroupReference,
   authoritySelection: { formKey: 'legacy_social_insurance' },
 }, {}, { userId: 'U-synthetic', displayName: '申請人' });
 assert.equal(externalPayload.source.id, 'source-partner');
 assert.equal(externalPayload.source.groupReference, partnerReference);
-assert.equal(externalPayload.source.groupBindingId, partnerReference);
+assert.equal(externalPayload.source.originGroupReference, originGroupReference);
+assert.equal(externalPayload.source.groupBindingId, originGroupReference);
 assert.notEqual(externalPayload.source.groupBindingId, 'notion-page-id');
 
 const migrationSource = fs.readFileSync(new URL('../versions/AM-IMP-2026.0916.01/config/claims-group-modes.sql', import.meta.url), 'utf8');

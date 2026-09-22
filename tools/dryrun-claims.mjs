@@ -72,6 +72,22 @@ assert.equal(payload.claim.lines.length, 2);
 assert.equal(JSON.stringify(payload).includes('groupId'), false);
 assert.equal(JSON.stringify(payload).includes('data:application/pdf'), false);
 
+const originGroupReference = `line-group-ref:v1:${'a'.repeat(64)}`;
+const authorityPayload = __test.normalizeClaimSubmission({
+  type: 'labor_health_insurance', period: '2026-06',
+  lines: [{ description: '公司負擔', amount: 100 }],
+  totals: { requestedAmount: 100, currency: 'TWD' }, attachments: [],
+}, {
+  ...session,
+  financeSourceId: 'source-synthetic',
+  financeGroupReference: 'line-ref:v1:44444444-4444-4444-8444-444444444444',
+  originGroupReference,
+}, tenant, { userId: 'U0123456789abcdef0123456789abcdef', displayName: 'Bonnie' });
+assert.equal(authorityPayload.source.groupReference, 'line-ref:v1:44444444-4444-4444-8444-444444444444');
+assert.equal(authorityPayload.source.originGroupReference, originGroupReference);
+assert.equal(authorityPayload.source.groupBindingId, originGroupReference);
+assert.equal(JSON.stringify(authorityPayload).includes('groupId'), false);
+
 const externalDeductionPayload = __test.normalizeClaimSubmission({
   type: 'other',
   period: '2026-08',
@@ -195,6 +211,12 @@ const rejectedEvent = __test.normalizeClaimEvent({
 assert.equal(rejectedEvent.bindingId, 'line-ref:v1:33333333-3333-4333-8333-333333333333');
 assert.match(__test.eventMessage(rejectedEvent), /狀態：已退回/);
 assert.match(__test.eventMessage(rejectedEvent), /退回說明：請修正服務月份後重新建立請款單。/);
+const originRejectedEvent = __test.normalizeClaimEvent({
+  ...rejectedEvent,
+  eventId: 'evt_claim_origin_returned',
+  bindingId: originGroupReference,
+}, tenant);
+assert.equal(originRejectedEvent.bindingId, originGroupReference);
 const bankReviewEvent = __test.normalizeClaimEvent({
   eventId: 'bank-review-claim-001-12345678', tenantKey: tenant.key, tenantId: tenant.tenantId,
   bindingId: session.bindingId, claimId: 'claim-001', claimNumber: 'CLM-202606-0001',

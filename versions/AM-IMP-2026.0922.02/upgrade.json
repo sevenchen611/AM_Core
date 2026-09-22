@@ -1,0 +1,39 @@
+{
+  "id": "AM-IMP-2026.0922.02",
+  "name": "Claim origin group return routing",
+  "type": "AM Platform / Finance claim notification",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-22",
+  "dependsOn": ["AM-IMP-2026.0922.01"],
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "node tools/dryrun-claims.mjs",
+    "node tools/dryrun-claims-authority.mjs",
+    "node tools/dryrun-claims-authority-routing-login.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Persist and resolve only the tenant-scoped opaque actual-origin reference; never expose or guess a raw LINE group ID."
+  },
+  "definitionOfDone": [
+    "A legacy claim records the actual LINE origin separately from its accounting source",
+    "Return events resolve the immutable origin reference through Claims Authority",
+    "Inactive, missing, malformed, or mismatched recipients fail closed",
+    "Older claims retain the previous source-group fallback"
+  ],
+  "projectStatus": { "AM_PLATFORM:hozo-am-2-0": "Installed" },
+  "files": [
+    "core/claims-authority.js",
+    "modules/claims/authority-integration.js",
+    "modules/claims/index.js",
+    "tools/dryrun-claims.mjs",
+    "tools/dryrun-claims-authority.mjs",
+    "tools/dryrun-claims-authority-routing-login.mjs"
+  ]
+}
