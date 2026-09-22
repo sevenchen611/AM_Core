@@ -129,6 +129,21 @@ function groupRecipientRegistry(env) {
   return result;
 }
 
+function groupRecipientTarget(registry, tenantKey, groupReference) {
+  const tenant = String(tenantKey || '');
+  const reference = String(groupReference || '');
+  if (!SAFE_KEY.test(tenant) || !OPAQUE_REFERENCE.test(reference)) return '';
+  const prefix = `${tenant}:`;
+  let target = '';
+  for (const [key, candidateReference] of registry || []) {
+    if (!key.startsWith(prefix) || candidateReference !== reference) continue;
+    const candidate = key.slice(prefix.length);
+    if (target && target !== candidate) return '';
+    target = candidate;
+  }
+  return target;
+}
+
 function deterministicApplicantReference(identityKey, tenantKey, userId) {
   const bytes = crypto.createHmac('sha256', identityKey).update(`applicant:${tenantKey}:${userId}`).digest().subarray(0, 16);
   bytes[6] = (bytes[6] & 0x0f) | 0x40;
@@ -435,6 +450,11 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
       await migrationPromise;
       return authority.resolveGroupMention({ ...input, diagnose: true });
     },
+    async resolveGroupReference({ tenant, groupReference }) {
+      await migrationPromise;
+      const groupId = groupRecipientTarget(groupRecipients, tenant?.key, groupReference);
+      return groupId ? { groupId, groupReference } : null;
+    },
     admin,
     handleSelector,
     isSelectorToken: (value) => Boolean(parseSelectorToken(value)),
@@ -452,4 +472,4 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
   };
 }
 
-export const __test = { deliverSelectorToOrigin, groupRecipientRegistry, requiresFinanceMembership, selectorMessage, selectorSessionCookie };
+export const __test = { deliverSelectorToOrigin, groupRecipientRegistry, groupRecipientTarget, requiresFinanceMembership, selectorMessage, selectorSessionCookie };

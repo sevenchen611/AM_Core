@@ -10,6 +10,7 @@ Environment prefix: `HZ2`
 
 | Version | Status | Capability | Scope | Notes |
 | --- | --- | --- | --- | --- |
+| AM-IMP-2026.0922.01 | Installed | Legacy claim return group notice | Resolve the exact opaque source-group reference and include the reviewer return reason | Runtime and dry-run coverage are installed in AM Platform source. Production status remains pending until the coordinated Rental sender and AM receiver commits are deployed and the queued return event is delivered. |
 | AM-IMP-2026.0921.02 | Deployed | External claims authority-only legacy routing | External vendor selector, legacy LIFF protected actions and claims command aliases | PR #192 merged as `7c680f2`; Render `dep-daoe2h8jo6nc73a8m5f0` is Live and production health passed. External groups no longer depend on a duplicate Notion binding; internal legacy Notion checks and all authority revocation controls remain unchanged. |
 | AM-IMP-2026.0918.01 | Deployed | Bank draft review notification identity | Existing claims-management exact-group encrypted personnel registry | PR 181 formal commit and health marker verified; original three actual delivery receipts remain pending. Static non-PII resolution reasons added; no bank action changes. |
 | AM-IMP-2026.0718.01 | Deployed | Operational memory | Raw evidence → events → project/task state → decisions/knowledge | Notion, Drive, 15 data sources and the shared PostgreSQL tenant row are live. PostgreSQL 18, separated runtime role, forced RLS and Render production health passed. |

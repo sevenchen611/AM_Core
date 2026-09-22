@@ -1,0 +1,36 @@
+{
+  "id": "AM-IMP-2026.0922.01",
+  "name": "Legacy claim return group notice",
+  "type": "AM Platform / Finance claim notification",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-09-22",
+  "dependsOn": ["AM-IMP-2026.0921.02"],
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
+  "requiresDatabases": [],
+  "requiresEnv": ["HZ2_FINANCE_CLAIMS_V3_RECIPIENT_BINDINGS_JSON"],
+  "requiresScripts": [
+    "node tools/dryrun-claims.mjs",
+    "node tools/dryrun-claims-authority-routing-login.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "guard": "Resolve only one exact tenant-scoped opaque group reference; never expose raw LINE identifiers or fall back to another group."
+  },
+  "definitionOfDone": [
+    "Legacy claim events accept a registered opaque group reference",
+    "Ambiguous or unknown group references fail closed",
+    "Rejected and supplement-requested messages include the bounded reviewer reason",
+    "Coordinated Rental retry delivers the existing durable event exactly once"
+  ],
+  "projectStatus": { "AM_PLATFORM:hozo-am-2-0": "Installed" },
+  "files": [
+    "modules/claims/index.js",
+    "modules/claims/authority-integration.js",
+    "tools/dryrun-claims.mjs",
+    "tools/dryrun-claims-authority-routing-login.mjs"
+  ]
+}

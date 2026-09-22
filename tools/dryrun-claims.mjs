@@ -186,6 +186,15 @@ const event = __test.normalizeClaimEvent({
 }, tenant);
 assert.equal(event.status, 'paid');
 assert.match(__test.eventMessage(event), /CLM-202606-0001/);
+const rejectedEvent = __test.normalizeClaimEvent({
+  eventId: 'evt_claim_202609_returned', tenantKey: tenant.key, tenantId: tenant.tenantId,
+  bindingId: 'line-ref:v1:33333333-3333-4333-8333-333333333333',
+  claimId: 'claim-returned', claimNumber: 'CLM-SYNTHETIC-RETURN', status: 'rejected',
+  amount: 1200, currency: 'TWD', reason: '請修正服務月份後重新建立請款單。',
+}, tenant);
+assert.equal(rejectedEvent.bindingId, 'line-ref:v1:33333333-3333-4333-8333-333333333333');
+assert.match(__test.eventMessage(rejectedEvent), /狀態：已退回/);
+assert.match(__test.eventMessage(rejectedEvent), /退回說明：請修正服務月份後重新建立請款單。/);
 const bankReviewEvent = __test.normalizeClaimEvent({
   eventId: 'bank-review-claim-001-12345678', tenantKey: tenant.key, tenantId: tenant.tenantId,
   bindingId: session.bindingId, claimId: 'claim-001', claimNumber: 'CLM-202606-0001',

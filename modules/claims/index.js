@@ -17,6 +17,7 @@ const LIFF_SESSION_COOKIE = 'am_claims_liff_session';
 const LIFF_SELECTOR_COOKIE = 'am_claims_form_selector';
 const EVENT_DEDUPE_TTL_MS = 24 * 60 * 60 * 1000;
 const MAX_BODY_BYTES = 16 * 1024 * 1024;
+const CLAIM_GROUP_REFERENCE = /^line-ref:v1:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const COMMANDS = new Set(['請款', '費用申請', '我要請款', '請款按鈕', '開啟請款', '#請款']);
 const EVENT_STATUSES = new Set([
   'submitted', 'supplement_requested', 'approved', 'rejected', 'awaiting_payment',
@@ -25,7 +26,7 @@ const EVENT_STATUSES = new Set([
 const SAFE_EVENT_FIELDS = new Set([
   'eventId', 'tenantKey', 'tenantId', 'bindingId', 'claimId', 'claimNumber', 'status',
   'amount', 'currency', 'occurredAt', 'reasonCode', 'paymentReference', 'paidAt',
-  'claimTitle', 'expectedDisbursementDate',
+  'claimTitle', 'expectedDisbursementDate', 'reason',
 ]);
 const CLAIM_TYPE_LABELS = new Map([
   ['labor_health_insurance', '勞健保費用'],
@@ -1197,7 +1198,8 @@ function normalizeClaimEvent(body, tenant) {
   const eventId = cleanText(body.eventId, 160);
   const tenantKey = cleanText(body.tenantKey, 120);
   const tenantId = cleanText(body.tenantId, 120);
-  const bindingId = canonicalId(body.bindingId);
+  const rawBindingId = cleanText(body.bindingId, 160);
+  const bindingId = CLAIM_GROUP_REFERENCE.test(rawBindingId) ? rawBindingId : canonicalId(rawBindingId);
   const status = cleanText(body.status, 80);
   const claimId = cleanText(body.claimId, 160);
   const claimNumber = cleanText(body.claimNumber, 120);
@@ -1207,11 +1209,12 @@ function normalizeClaimEvent(body, tenant) {
   const paidAt = cleanText(body.paidAt, 64);
   const paymentReference = cleanText(body.paymentReference, 80);
   const reasonCode = cleanText(body.reasonCode, 80);
+  const reason = cleanText(body.reason, 1600);
   const claimTitle = cleanText(body.claimTitle, 240);
   const expectedDisbursementDate = cleanText(body.expectedDisbursementDate, 10);
   const expectedDisbursementTimestamp = Date.parse(`${expectedDisbursementDate}T00:00:00Z`);
   if (!/^[A-Za-z0-9:_-]{8,160}$/.test(eventId) || tenantKey !== tenant.key || tenantId !== cleanText(tenant.tenantId, 120)
-    || !/^[a-f0-9]{32}$/.test(bindingId) || !EVENT_STATUSES.has(status) || !claimId || !claimNumber
+    || (!/^[a-f0-9]{32}$/.test(bindingId) && !CLAIM_GROUP_REFERENCE.test(bindingId)) || !EVENT_STATUSES.has(status) || !claimId || !claimNumber
     || amountValue === null || currency !== 'TWD' || (occurredAt && Number.isNaN(Date.parse(occurredAt))) || (paidAt && Number.isNaN(Date.parse(paidAt)))
     || (expectedDisbursementDate && (!/^\d{4}-\d{2}-\d{2}$/.test(expectedDisbursementDate)
       || Number.isNaN(expectedDisbursementTimestamp)
@@ -1220,7 +1223,7 @@ function normalizeClaimEvent(body, tenant) {
   }
   return {
     eventId, tenantKey, tenantId, bindingId, claimId, claimNumber, status,
-    amount: amountValue, currency, occurredAt, paidAt, paymentReference, reasonCode,
+    amount: amountValue, currency, occurredAt, paidAt, paymentReference, reasonCode, reason,
     claimTitle, expectedDisbursementDate,
   };
 }
@@ -1229,11 +1232,14 @@ function eventMessage(event) {
   const subject = `請款單 ${event.claimNumber}`;
   const value = money(event.amount, event.currency);
   const suffix = value ? `\n金額：${value}` : '';
+  const reason = cleanText(event.reason, 1600);
+  const returnReason = reason ? `\n退回說明：${reason}` : '';
+  const supplementReason = reason ? `\n補件說明：${reason}` : '';
   const templates = {
     submitted: `${subject} 已送出\n狀態：待核准${suffix}`,
-    supplement_requested: `${subject} 需要補件\n狀態：待補件${suffix}`,
+    supplement_requested: `${subject} 需要補件\n狀態：待補件${supplementReason}${suffix}`,
     approved: `${subject} 已核准\n狀態：待付款${suffix}`,
-    rejected: `${subject} 未核准\n狀態：已退回${suffix}`,
+    rejected: `${subject} 未核准\n狀態：已退回${returnReason}${suffix}`,
     awaiting_payment: `${subject} 已列入應付款\n狀態：待付款${suffix}`,
     payment_processing: `${subject} 正在付款處理\n狀態：付款處理中${suffix}`,
     bank_review_approved: `${subject} 網銀審核已通過\n名目：${event.claimTitle || '未填寫'}\n審核通過金額：${value}\n預計放款：${event.expectedDisbursementDate || '尚未排定（待銀行最終放行後，以網銀實際入帳時間為準）'}\n狀態：審核完成，尚未放行\n提醒：本通知不代表款項已實際放行或入帳。`,
@@ -1242,6 +1248,15 @@ function eventMessage(event) {
     cancelled: `${subject} 已取消\n狀態：已取消${suffix}`,
   };
   return templates[event.status] || `${subject} 狀態已更新${suffix}`;
+}
+
+async function bindingForClaimEvent(tenant, bindingId) {
+  if (!CLAIM_GROUP_REFERENCE.test(bindingId)) return bindingForEvent(tenant, bindingId);
+  const resolved = await claimsAuthorityIntegration?.resolveGroupReference?.({ tenant, groupReference: bindingId });
+  if (!resolved?.groupId) {
+    throw Object.assign(new Error('Claim group reference could not be resolved.'), { statusCode: 409 });
+  }
+  return { pageId: bindingId, groupId: resolved.groupId, groupReference: bindingId };
 }
 
 async function handleClaimEvent(req, res, { tenant }) {
@@ -1253,7 +1268,7 @@ async function handleClaimEvent(req, res, { tenant }) {
     const event = normalizeClaimEvent(await readJson(req), tenant);
     const key = `${tenant.key}:${event.bindingId}:${event.eventId}`;
     if (eventDedupe.has(key)) return sendJson(res, 200, { ok: true, duplicate: true });
-    const binding = await bindingForEvent(tenant, event.bindingId);
+    const binding = await bindingForClaimEvent(tenant, event.bindingId);
     const receipt = await platform.pushLineMessage(binding.groupId, eventMessage(event), undefined, { retryKey: event.eventId });
     eventDedupe.set(key, Date.now() + EVENT_DEDUPE_TTL_MS);
     return sendJson(res, 200, {
