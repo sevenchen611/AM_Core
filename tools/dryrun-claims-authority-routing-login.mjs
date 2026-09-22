@@ -20,6 +20,9 @@ assert.equal(recipients.get(`${tenantKey}:${financeGroup}`), financeReference);
 assert.equal(recipients.get(`${tenantKey}:${partnerGroup}`), partnerReference);
 assert.notEqual(recipients.get(`${tenantKey}:${financeGroup}`), recipients.get(`${tenantKey}:${partnerGroup}`));
 assert.equal(recipients.has(`${tenantKey}:C${'c'.repeat(32)}`), false);
+assert.equal(integration.groupRecipientTarget(recipients, tenantKey, financeReference), financeGroup);
+assert.equal(integration.groupRecipientTarget(recipients, tenantKey, partnerReference), partnerGroup);
+assert.equal(integration.groupRecipientTarget(recipients, 'another-tenant', financeReference), '');
 const ambiguousRecipients = integration.groupRecipientRegistry({
   HZ2_FINANCE_CLAIMS_V3_RECIPIENT_BINDINGS_JSON: JSON.stringify({ bindings: [
     { tenantKey, type: 'group_binding', target: financeGroup, identityReference: financeReference },
@@ -27,6 +30,11 @@ const ambiguousRecipients = integration.groupRecipientRegistry({
   ] }),
 });
 assert.equal(ambiguousRecipients.has(`${tenantKey}:${financeGroup}`), false);
+const ambiguousTargets = new Map([
+  [`${tenantKey}:${financeGroup}`, financeReference],
+  [`${tenantKey}:${partnerGroup}`, financeReference],
+]);
+assert.equal(integration.groupRecipientTarget(ambiguousTargets, tenantKey, financeReference), '');
 
 const replyCalls = [];
 const pushCalls = [];
