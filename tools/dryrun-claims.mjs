@@ -61,6 +61,7 @@ const payload = __test.normalizeClaimSubmission({
   ],
   totals: { requestedAmount: 4627, companyExpenseAmount: 3776, employeeRecoverableAmount: 851, currency: 'TWD' },
   dueDate: '2026-07-10',
+  bankFeeBearer: 'payee',
   note: '請於到期日前完成付款。',
   attachments: [{ id: 'att-1', name: '2026-06-insurance.pdf', contentType: 'application/pdf', size: 1024 }],
 }, session, tenant, { userId: 'U0123456789abcdef0123456789abcdef', displayName: 'Bonnie' });
@@ -69,6 +70,7 @@ assert.equal(payload.source.groupBindingId, session.bindingId);
 assert.equal(payload.source.actor.reference, 'U0123456789abcdef0123456789abcdef');
 assert.equal(payload.claim.totals.requestedAmount, 4627);
 assert.equal(payload.claim.lines.length, 2);
+assert.equal(payload.claim.bankFeeBearer, 'payee');
 assert.equal(JSON.stringify(payload).includes('groupId'), false);
 assert.equal(JSON.stringify(payload).includes('data:application/pdf'), false);
 
