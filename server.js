@@ -412,6 +412,30 @@ const server = http.createServer(async (req, res) => {
             continue;
           }
         }
+        if (groupId && event?.type === 'message' && event.message?.type === 'text' && event.message.quotedMessageId
+          && financeClaimsTenant && platform.rentalFinanceGroupPushKey
+          && await platform.operationalMemory.isBankFinanceQuotedMessage(financeClaimsTenant,event.message.quotedMessageId)) {
+          const { tenant } = await router.resolveGroupBinding(groupId);
+          if (tenant?.key === 'hozo-am-2-0') {
+            const rentalBase = String(process.env.HOZO_RENTAL_BASE_URL || 'https://rental.hozorental.com').replace(/\/+$/, '');
+            const forwarded = await fetch(`${rentalBase}/api/integrations/finance/bank-line-reply`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json', authorization: `Bearer ${platform.rentalFinanceGroupPushKey}` },
+              body: JSON.stringify({
+                eventId: event.webhookEventId || event.message.id,
+                messageId: event.message.id,
+                quotedMessageId: event.message.quotedMessageId,
+                groupId,
+                userId: event.source?.userId || '',
+                text: event.message.text,
+              }),
+              signal: AbortSignal.timeout(15000),
+            });
+            if (!forwarded.ok) throw new Error(`bank_line_reply_forward_${forwarded.status}`);
+            const result = await forwarded.json();
+            if (result.handled) { financeInterceptedEvents.add(event); continue; }
+          }
+        }
         const financeCandidate = (event?.type === 'message'
           && event.message?.type === 'text'
           && ['請款', '費用申請'].includes(String(event.message.text || '').trim()))

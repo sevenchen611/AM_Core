@@ -279,6 +279,7 @@ export function createOperationalMemory({ env = process.env, logger = console, p
           )),
         replayed: inserted.rowCount === 0,
         delivered: row.status === 'succeeded' && output.deliveryEvidence === 'verified',
+        messageIds: Array.isArray(output.messageIds) ? output.messageIds : [],
         manual: ['dead_letter', 'cancelled'].includes(row.status),
         legacyUnverified,
         createdAt: row.created_at,
@@ -287,14 +288,14 @@ export function createOperationalMemory({ env = process.env, logger = console, p
     return result.skipped ? { ok: false, skipped: result.skipped } : { ok: true, ...result.value };
   }
 
-  async function updateFinanceNotification(tenant, sourceNotificationId, { status, deliveryStatus, reason = '', evidenceDigest = '' }) {
+  async function updateFinanceNotification(tenant, sourceNotificationId, { status, deliveryStatus, reason = '', evidenceDigest = '', messageIds = [] }) {
     const id = safeText(sourceNotificationId, 240);
     if (!id || !['retry', 'dead_letter', 'succeeded'].includes(status)) throw new Error('Invalid finance notification update');
     if (evidenceDigest && !/^[a-f0-9]{64}$/.test(evidenceDigest)) throw new Error('Invalid finance delivery evidence digest');
     const result = await withTenant(tenant, async (client, config) => {
       await ensureTenant(client, config);
       const output = status === 'succeeded'
-        ? { deliveryEvidence: 'verified', evidenceDigest }
+        ? { deliveryEvidence: 'verified', evidenceDigest, messageIds }
         : {};
       const updated = await client.query(
         `UPDATE am_memory.processing_jobs
@@ -327,9 +328,24 @@ export function createOperationalMemory({ env = process.env, logger = console, p
   const markFinanceNotificationManual = (tenant, sourceNotificationId, reason) => updateFinanceNotification(
     tenant, sourceNotificationId, { status: 'dead_letter', deliveryStatus: 'manual', reason },
   );
-  const markFinanceNotificationDelivered = (tenant, sourceNotificationId, evidenceDigest) => updateFinanceNotification(
-    tenant, sourceNotificationId, { status: 'succeeded', deliveryStatus: 'delivered', evidenceDigest },
+  const markFinanceNotificationDelivered = (tenant, sourceNotificationId, evidenceDigest, messageIds = []) => updateFinanceNotification(
+    tenant, sourceNotificationId, { status: 'succeeded', deliveryStatus: 'delivered', evidenceDigest, messageIds },
   );
+
+  async function isBankFinanceQuotedMessage(tenant, messageId) {
+    const id=safeText(messageId,100);
+    if(!id)return false;
+    const result=await withTenant(tenant,async(client,config)=>{
+      await ensureTenant(client,config);
+      const found=await client.query(`SELECT 1 FROM am_memory.processing_jobs
+        WHERE tenant_id=$1 AND job_kind='finance-line-notification'
+          AND input_payload ->> 'contract'='hozo-bank-reconciliation-notification-v1'
+          AND output_payload -> 'messageIds' ? $2 LIMIT 1`,[config.tenantId,id]);
+      return found.rowCount>0;
+    });
+    if(result.skipped)throw new Error('Bank finance quote registry unavailable');
+    return result.value;
+  }
 
   async function leaseProcessingJobs(tenant, input = {}) {
     const jobKind = safeText(input.jobKind, 120);
@@ -857,6 +873,7 @@ export function createOperationalMemory({ env = process.env, logger = console, p
     markFinanceNotificationUncertain,
     markFinanceNotificationManual,
     markFinanceNotificationDelivered,
+    isBankFinanceQuotedMessage,
     leaseProcessingJobs,
     settleProcessingJob,
     settingsForTenant: (tenant) => tenantConfig(tenant, env),

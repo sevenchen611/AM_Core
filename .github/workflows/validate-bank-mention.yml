@@ -2,11 +2,14 @@ name: Validate bank notification registry
 on:
   pull_request:
     paths:
+      - 'server.js'
+      - 'core/operational-memory.js'
       - 'core/claims-authority.js'
       - 'modules/claims/**'
       - 'modules/company-line-push/**'
       - 'tools/dryrun-claims-*.mjs'
       - 'tools/verify-company-line-push.mjs'
+      - 'tools/dryrun-processing-jobs-store.mjs'
       - 'versions/AM-IMP-2026.0918.01/**'
       - '.github/workflows/validate-bank-mention.yml'
       - 'package*.json'
@@ -25,5 +28,6 @@ jobs:
       - run: npm run check
       - run: npm run dryrun:claims-authority
       - run: npm run verify:bank-mention
+      - run: npm run dryrun:processing-jobs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.0918.01
       - run: node tools/check-upgrade-package.js AM-IMP-2026.0918.02

@@ -56,6 +56,12 @@ const client = {
       const row = financeIdentities.get(key);
       return { rows: row ? [{ status: row.status, output_payload: row.output_payload }] : [] };
     }
+    if (normalized.startsWith('SELECT 1 FROM am_memory.processing_jobs') && normalized.includes("'hozo-bank-reconciliation-notification-v1'")) {
+      const found=[...financeIdentities.entries()].some(([key,row])=>key.startsWith(`${params[0]}:`)
+        && row.input_payload.contract==='hozo-bank-reconciliation-notification-v1'
+        && row.output_payload.messageIds?.includes(params[1]));
+      return { rows:found?[{ '?column?':1 }]:[], rowCount:found?1:0 };
+    }
     if (normalized.startsWith('INSERT INTO am_memory.processing_jobs') && normalized.includes('completed_at')) {
       const key = `${params[0]}:${params[1]}:${params[2]}`;
       if (identities.has(key)) return { rows: [], rowCount: 0 };
@@ -165,6 +171,12 @@ const deliveredFinance = await memory.markFinanceNotificationDelivered(
 assert.deepEqual(deliveredFinance, { ok: true });
 const deliveredReplay = await memory.bindFinanceNotificationIdentity(tenant, financeInput);
 assert.equal(deliveredReplay.delivered, true);
+const reconciliationInput={...financeInput,sourceNotificationId:'bank-reconciliation-notification:v1:44444444-4444-4444-8444-444444444444'};
+await memory.bindFinanceNotificationIdentity(tenant,reconciliationInput);
+await memory.markFinanceNotificationDelivered(tenant,reconciliationInput.sourceNotificationId,'a'.repeat(64),['line-bank-message-1']);
+assert.deepEqual((await memory.bindFinanceNotificationIdentity(tenant,reconciliationInput)).messageIds,['line-bank-message-1']);
+assert.equal(await memory.isBankFinanceQuotedMessage(tenant,'line-bank-message-1'),true);
+assert.equal(await memory.isBankFinanceQuotedMessage(tenant,'line-other-message'),false);
 
 const unverifiedSucceededInput = {
   sourceNotificationId: 'bank-draft-notification:v1:33333333-3333-4333-8333-333333333333',

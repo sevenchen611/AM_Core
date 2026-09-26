@@ -9,6 +9,17 @@ The caller must supply a verified `mentionIdentityReference`, no images, and the
 same immutable mention-v2 content hash contract. Routing, registry verification,
 durable replay and provider evidence checks are shared with finance delivery.
 Provider acceptance does not mean the reviewer has read or resolved the issue.
+For this namespace only, the authenticated response includes `reconciliationDelivery`
+with the actual LINE `messageId`, finance `groupId`, and verified reviewer
+`reviewerUserId`. The durable delivery record retains the message ID for exact
+replay. Rental uses it to bind a quoted reply to one issue; a push without a
+message ID requires manual recovery and cannot be guessed from timing.
+
+The signed LINE webhook checks whether `quotedMessageId` belongs to this
+namespace before forwarding a text reply to Rental's restricted
+`/api/integrations/finance/bank-line-reply` endpoint with the same dedicated
+service credential. Rental independently checks the quoted message, group,
+reviewer user ID, issue version and reconciliation guards.
 
 
 This module exposes machine-only APIs for sending text to the HOZO company LINE group.
@@ -98,7 +109,8 @@ map fallback. No new group/member ID environment variables are needed.
 
 Missing, malformed, unknown, ambiguous, or invalid member mappings fail closed
 without sending. The response reports only the mention name and
-resolved/delivered booleans; it never returns the LINE user id. Callers must
+resolved/delivered booleans for bank drafts; the dedicated reconciliation
+namespace also returns the restricted delivery mapping described above. Callers must
 record every non-2xx response as a notification failure and must not mark the
 notice as delivered unless `ok`, `mention.resolved`, and `mention.delivered` are
 all true.
@@ -131,5 +143,6 @@ LINE sender hashes that seed to the provider UUID retry header. Delivery is
 verified only by LINE HTTP 200 with a nonempty valid `x-line-request-id`, or by
 LINE HTTP 409 with a nonempty valid accepted-request id for the same provider
 retry key. HTTP 202/204, malformed evidence, timeouts, and transport ambiguity
-remain uncertain. Finance responses and logs never expose provider evidence or
-LINE identities.
+remain uncertain. Finance logs never expose provider evidence or LINE identities;
+only the dedicated, bearer-protected reconciliation response includes the
+routing identities required for quoted-reply authorization.
