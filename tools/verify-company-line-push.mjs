@@ -120,14 +120,14 @@ const testPlatform = {
           || existing.providerRetryKey !== input.providerRetryKey)))) {
         return { ok: true, conflict: true, replayed: true };
       }
-      if (existing) return { ok: true, conflict: false, replayed: true, delivered: existing.status === 'delivered', manual: existing.status === 'manual', legacyUnverified: existing.status === 'legacy', createdAt: existing.createdAt };
+      if (existing) return { ok: true, conflict: false, replayed: true, delivered: existing.status === 'delivered', messageIds: existing.messageIds || [], manual: existing.status === 'manual', legacyUnverified: existing.status === 'legacy', createdAt: existing.createdAt };
       const row = { ...input, status: 'pending', createdAt: new Date(nowMs).toISOString() };
       notificationIdentities.set(input.sourceNotificationId, row);
       return { ok: true, conflict: false, replayed: false, delivered: false, manual: false, legacyUnverified: false, createdAt: row.createdAt };
     },
     markFinanceNotificationUncertain: async (_tenant, id) => { notificationIdentities.get(id).status = 'uncertain'; return { ok: true }; },
     markFinanceNotificationManual: async (_tenant, id) => { notificationIdentities.get(id).status = 'manual'; return { ok: true }; },
-    markFinanceNotificationDelivered: async (_tenant, id) => { notificationIdentities.get(id).status = 'delivered'; return { ok: true }; },
+    markFinanceNotificationDelivered: async (_tenant, id, _digest, messageIds) => { notificationIdentities.get(id).status = 'delivered'; notificationIdentities.get(id).messageIds = messageIds; return { ok: true }; },
   },
 };
 // Legacy map fixtures emulate registry outcomes for the existing delivery suite;
@@ -790,7 +790,7 @@ console.log('Company LINE push verification passed: actual receipt, immutable re
 bindingResults = [groupBinding('HOZO 財務群組',HOZO_FINANCE_GROUP_ID,{'陸昱晴':MAGGIE_USER_ID})];
 bindingPageResolver = () => ({results:bindingResults});
 pushFailure = null;
-pushReceipt = {status:200,requestId:'reconciliation-receipt'};
+pushReceipt = {status:200,requestId:'reconciliation-receipt',messageIds:['line-reconciliation-message-1']};
 notificationIdentityStoreAvailable = true;
 testPlatform.resolveClaimsGroupMention = async () => ({name:'陸昱晴',userId:MAGGIE_USER_ID});
 const reconciliationId = 'bank-reconciliation-notification:v1:12121212-1212-4212-8212-121212121212';
@@ -804,9 +804,11 @@ const reconciliationBody = financeBody('@陸昱晴 reconciliation review',{sourc
 res = await call(rentalFinanceRoute,{headers:{authorization:'Bearer rental-only-key'},body:reconciliationBody});
 assert.equal(res.status,200);
 assert.equal(res.payload.mention.delivered,true);
+assert.deepEqual(res.payload.reconciliationDelivery,{messageId:'line-reconciliation-message-1',groupId:HOZO_FINANCE_GROUP_ID,reviewerUserId:MAGGIE_USER_ID});
 assert.equal(pushCalls.length,beforeReconciliation+1);
 res = await call(rentalFinanceRoute,{headers:{authorization:'Bearer rental-only-key'},body:reconciliationBody});
 assert.equal(res.payload.replayed,true);
+assert.equal(res.payload.reconciliationDelivery.messageId,'line-reconciliation-message-1');
 assert.equal(pushCalls.length,beforeReconciliation+1);
 res = await call(rentalFinanceRoute,{headers:{authorization:'Bearer rental-only-key'},body:financeBody('@陸昱晴 changed reconciliation review',{sourceNotificationId:reconciliationId,mentionIdentityReference:reconciliationRef})});
 assert.equal(res.status,409);

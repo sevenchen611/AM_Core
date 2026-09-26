@@ -451,6 +451,7 @@ async function pushToGroup(req, res, ctx, {
           imageCount: imageUrls.length,
           target: { name: target.name || `HOZO ${label} group`, maskedId: maskLineId(target.groupId) },
           mention: { name: mention.name, resolved: true, delivered: true },
+          ...(sourceNotificationId.startsWith('bank-reconciliation-notification:') ? { reconciliationDelivery: { messageId: financeBinding.messageIds?.[0] || '', groupId: target.groupId, reviewerUserId: mention.userId } } : {}),
         });
       }
       const createdAt = Date.parse(financeBinding.createdAt);
@@ -495,6 +496,7 @@ async function pushToGroup(req, res, ctx, {
         ctx.tenant,
         sourceNotificationId,
         evidenceDigest,
+        receipt.messageIds || [],
       );
       if (!marked?.ok) throw requestError(503, 'idempotency_store_unavailable', 'Finance notification delivery store is unavailable.');
     }
@@ -504,6 +506,7 @@ async function pushToGroup(req, res, ctx, {
       imageCount: imageUrls.length,
       target: { name: target.name || `HOZO ${label} group`, maskedId: maskLineId(target.groupId) },
       ...(mention ? { mention: { name: mention.name, resolved: true, delivered: true } } : {}),
+      ...(sourceNotificationId.startsWith('bank-reconciliation-notification:') ? { reconciliationDelivery: { messageId: receipt.messageIds?.[0] || '', groupId: target.groupId, reviewerUserId: mention.userId } } : {}),
       ...(!requireMention ? { line: {
         status: receipt.status,
         requestId: receipt.requestId || '',
