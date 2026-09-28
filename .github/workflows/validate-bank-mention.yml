@@ -4,6 +4,11 @@ on:
     paths:
       - 'server.js'
       - 'core/operational-memory.js'
+      - 'core/bank-line-reply-intake.js'
+      - 'modules/operational-memory/**'
+      - 'modules/collect/**'
+      - 'tools/verify-bank-line-reply-intake.mjs'
+      - 'versions/AM-IMP-2026.0928.01/**'
       - 'core/claims-authority.js'
       - 'modules/claims/**'
       - 'modules/company-line-push/**'
@@ -29,5 +34,7 @@ jobs:
       - run: npm run dryrun:claims-authority
       - run: npm run verify:bank-mention
       - run: npm run dryrun:processing-jobs
+      - run: node --experimental-vm-modules tools/verify-bank-line-reply-intake.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.0928.01
       - run: node tools/check-upgrade-package.js AM-IMP-2026.0918.01
       - run: node tools/check-upgrade-package.js AM-IMP-2026.0918.02

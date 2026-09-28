@@ -196,7 +196,7 @@ function financeMentionMessage(text, mention) {
 }
 
 async function bindFinanceNotificationIdentity(ctx, {
-  sourceNotificationId, retryKey, routeDigest, providerRetryKey,
+  sourceNotificationId, retryKey, routeDigest, providerRetryKey, groupId,
 }) {
   const store = platform?.operationalMemory;
   if (!store || typeof store.bindFinanceNotificationIdentity !== 'function') {
@@ -207,6 +207,7 @@ async function bindFinanceNotificationIdentity(ctx, {
     payloadDigest: retryKey.slice(-64),
     routeDigest,
     providerRetryKey,
+    groupId,
   });
   if (!binding?.ok) {
     throw requestError(503, 'idempotency_store_unavailable', 'Finance notification identity store is unavailable.');
@@ -442,6 +443,7 @@ async function pushToGroup(req, res, ctx, {
         retryKey: financeRetryKey,
         routeDigest,
         providerRetryKey: deliveryRetryKey,
+        groupId: target.groupId,
       });
       if (financeBinding.delivered) {
         return sendJson(res, 200, {

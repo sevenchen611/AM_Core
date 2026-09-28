@@ -1,0 +1,14 @@
+{
+  "id": "AM-IMP-2026.0928.01",
+  "name": "Durable quoted bank reply intake",
+  "type": "HOZO tenant root runtime adapter",
+  "portable": false,
+  "status": "Installed",
+  "requiresDatabases": ["Existing tenant-isolated AM operational memory processing_jobs"],
+  "requiresEnv": ["Existing operational memory connection and finance push key"],
+  "requiresScripts": ["node --experimental-vm-modules tools/verify-bank-line-reply-intake.mjs"],
+  "installTargets": ["AM_PLATFORM:hozo-am-2-0"],
+  "dataIsolation": {"canCopyData": false, "canCopySecrets": false, "guard": "Signed webhook, tenant-scoped notification registry, source group ownership, Rental reviewer validation"},
+  "definitionOfDone": ["Full reply saved before HTTP 200", "Timeout and restart recovery verified", "Duplicate reply cannot reconcile twice", "Production main SHA and receiver saved contract verified"],
+  "files": ["server.js", "core/bank-line-reply-intake.js", "core/operational-memory.js", "modules/company-line-push/index.js", "modules/collect/index.js", "modules/operational-memory/index.js", "tools/verify-bank-line-reply-intake.mjs"]
+}
