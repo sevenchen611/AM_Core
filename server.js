@@ -5,6 +5,7 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { bootstrap } from './core/bootstrap.js';
+import { createBankLineReplyIntake } from './core/bank-line-reply-intake.js';
 import { routeDirectLineEvent } from './core/direct-line.js';
 import { createAccessDirectory } from './core/access-directory.js';
 import { safePortalHandoffLocation } from './core/portal-handoff.js';
@@ -34,6 +35,11 @@ const routes = dispatcher.collectRoutes();
 const financeClaimsModule = modules.get('claims') || null;
 const financeClaimsTenant = tenants.find((tenant) => tenant.key === 'hozo-am-2-0') || null;
 const financeInterceptedEvents = new WeakSet();
+const bankLineReplyIntake = createBankLineReplyIntake({
+  tenant: financeClaimsTenant, memory: platform.operationalMemory, router,
+  pushKey: platform.rentalFinanceGroupPushKey,
+  rentalBase: process.env.HOZO_RENTAL_BASE_URL || 'https://rental.hozorental.com', logger,
+});
 
 const html = (value) => String(value || '').replace(/[&<>"']/g, (c) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -398,9 +404,17 @@ const server = http.createServer(async (req, res) => {
       logger.error('Unable to parse LINE webhook body:', error);
       return sendJson(res, 400, { error: 'Invalid JSON' });
     }
+    const bankReplyReceipts = [];
     try {
       for (const event of body.events || []) {
         const groupId = event?.source?.groupId || event?.source?.roomId || '';
+        // Persist the full quote before authority intercepts or remote accounting work.
+        const bankReceipt = await bankLineReplyIntake.receive(event);
+        if (bankReceipt) {
+          financeInterceptedEvents.add(event);
+          if (!bankReceipt.replayed && event.replyToken) bankReplyReceipts.push(event.replyToken);
+          continue;
+        }
         if (groupId && typeof financeClaimsModule?.preAckClaimsAuthorityEvent === 'function') {
           const authorityResult = await financeClaimsModule.preAckClaimsAuthorityEvent({
             tenant: financeClaimsTenant,
@@ -410,30 +424,6 @@ const server = http.createServer(async (req, res) => {
           if (authorityResult?.intercepted) {
             financeInterceptedEvents.add(event);
             continue;
-          }
-        }
-        if (groupId && event?.type === 'message' && event.message?.type === 'text' && event.message.quotedMessageId
-          && financeClaimsTenant && platform.rentalFinanceGroupPushKey
-          && await platform.operationalMemory.isBankFinanceQuotedMessage(financeClaimsTenant,event.message.quotedMessageId)) {
-          const { tenant } = await router.resolveGroupBinding(groupId);
-          if (tenant?.key === 'hozo-am-2-0') {
-            const rentalBase = String(process.env.HOZO_RENTAL_BASE_URL || 'https://rental.hozorental.com').replace(/\/+$/, '');
-            const forwarded = await fetch(`${rentalBase}/api/integrations/finance/bank-line-reply`, {
-              method: 'POST',
-              headers: { 'content-type': 'application/json', authorization: `Bearer ${platform.rentalFinanceGroupPushKey}` },
-              body: JSON.stringify({
-                eventId: event.webhookEventId || event.message.id,
-                messageId: event.message.id,
-                quotedMessageId: event.message.quotedMessageId,
-                groupId,
-                userId: event.source?.userId || '',
-                text: event.message.text,
-              }),
-              signal: AbortSignal.timeout(15000),
-            });
-            if (!forwarded.ok) throw new Error(`bank_line_reply_forward_${forwarded.status}`);
-            const result = await forwarded.json();
-            if (result.handled) { financeInterceptedEvents.add(event); continue; }
           }
         }
         const financeCandidate = (event?.type === 'message'
@@ -460,6 +450,11 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 503, { error: 'Finance claim intake is temporarily unavailable.' });
     }
     sendText(res, 200, 'OK'); // 先回 200,事件背景處理(比照 BuildAM)
+    for (const token of bankReplyReceipts) {
+      line.replyLineMessage(token, '已收到回覆並保存，正在處理核對；處理結果會另行通知。')
+        .catch(() => logger.warn('Bank reply receipt notification failed; saved reply retained.'));
+    }
+    bankLineReplyIntake.drain().catch((error) => logger.warn('Bank reply queue unavailable:', error.message));
     Promise.all((body.events || []).map((event) => handleEvent(event)))
       .catch((error) => logger.error('Unable to process LINE webhook events:', error));
     return;
@@ -534,6 +529,7 @@ tickTimer.unref?.();
 // Durable short-latency jobs must not wait for the 10-minute patrol. Individual
 // modules still guard against overlapping work and lease rows in PostgreSQL.
 const fastTickTimer = setInterval(() => {
+  bankLineReplyIntake.drain().catch((error) => logger.warn('Bank reply queue unavailable:', error.message));
   dispatcher.runFastTicks().catch((error) => logger.warn('Fast scheduled tick failed:', error.message));
 }, 5 * 1000);
 fastTickTimer.unref?.();

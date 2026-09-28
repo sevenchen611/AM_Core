@@ -274,12 +274,15 @@ async function handleMemoryRoute(req, res, ctx) {
     ['候選決策', counts.candidate_decisions || 0], ['候選知識', counts.candidate_knowledge || 0],
   ];
   const rows = (snapshot.recent || []).map((item) => `<tr><td>${esc(item.event_time || '')}</td><td>${esc(item.event_type)}</td><td>${esc(item.event_summary)}</td><td>${esc(item.evidence_excerpt || '')}</td><td>${Math.round(Number(item.confidence || 0) * 100)}%</td></tr>`).join('');
+  const replyLabels = { queued: '已收到，待處理', leased: '處理中', retry: '等待重試', succeeded: '已記錄處理結果', dead_letter: '需人工查核' };
+  const replyRows = (snapshot.bankReplies || []).map((item) => `<tr><td>${esc(item.input_payload?.payload?.timestamp ? new Date(item.input_payload.payload.timestamp).toISOString() : item.created_at)}</td><td>${esc(item.input_payload?.payload?.text)}</td><td>${esc(replyLabels[item.status] || item.status)}</td><td>${esc(item.output_payload?.result || item.last_error?.code || '')}</td></tr>`).join('');
   const html = `<!doctype html><html lang="zh-Hant"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Operational Memory｜${esc(ctx.tenant.displayName)}</title>
   <style>body{font-family:system-ui,'Noto Sans TC',sans-serif;margin:24px;background:#f4f7f5;color:#1f3128}.head{display:flex;justify-content:space-between;align-items:center}.badge{padding:5px 10px;border-radius:999px;background:#fff3cd}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:18px 0}.card{background:white;padding:16px;border-radius:12px;border:1px solid #dfe8e2}.num{font-size:28px;font-weight:700;color:#287c50}table{width:100%;border-collapse:collapse;background:white}th,td{padding:9px;border:1px solid #dfe8e2;text-align:left;vertical-align:top}th{background:#eaf3ed}.note{padding:12px;background:white;border-left:4px solid #d5a100;margin:12px 0}</style>
   <body><div class="head"><div><h1>${esc(ctx.tenant.displayName)} Operational Memory</h1><p>AM-IMP-2026.0718.01 · PostgreSQL canonical core</p></div><span class="badge">${esc(status.mode)} / query ${esc(status.queryMode)}</span></div>
   ${!status.configured ? '<div class="note">Runtime 已安裝，但尚未設定 AM_MEMORY_DATABASE_URL，因此目前不會寫入或抽取。</div>' : ''}
   ${error ? `<div class="note">資料庫尚未完成 migration：${esc(error)}</div>` : ''}
   <div class="cards">${cards.map(([label, value]) => `<div class="card"><div>${esc(label)}</div><div class="num">${esc(value)}</div></div>`).join('')}</div>
+  ${ctx.tenant.key === 'hozo-am-2-0' ? `<h2>銀行對帳 LINE 回覆</h2><p>已收到回覆與已完成核對是不同狀態；處理失敗的原文會保留。</p><div style="overflow:auto"><table><thead><tr><th>回覆時間</th><th>原文</th><th>接收狀態</th><th>處理結果</th></tr></thead><tbody>${replyRows || '<tr><td colspan="4">尚無回覆。</td></tr>'}</tbody></table></div>` : ''}
   <h2>最近候選事件與直接證據</h2><table><thead><tr><th>時間</th><th>類型</th><th>摘要</th><th>來源節錄</th><th>信心</th></tr></thead><tbody>${rows || '<tr><td colspan="5">尚無事件。</td></tr>'}</tbody></table></body></html>`;
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
   return res.end(html);

@@ -122,6 +122,7 @@ async function onMessage(ctx) {
     '掛載狀態': { select: { name: '未掛載' } },
   };
   if (binding) {
+    if (tenant.key === 'hozo-am-2-0' && message.quotedMessageId) properties['回覆訊息 ID'] = { rich_text: [textItem(String(message.quotedMessageId))] };
     if (binding.pageId) properties['群組綁定'] = { relation: [{ id: binding.pageId }] };
     // 總管群跨專案:訊息先不掛專案,留待佇列人工選「哪個專案」(與 BuildAM 一致)
     if (binding.projectPageId && !isMaster) {

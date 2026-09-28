@@ -66,6 +66,7 @@ function sanitizedEnvelope(ctx) {
   const message = ctx?.message || {};
   return {
     type: event.type || 'message',
+    webhookEventId: event.webhookEventId || null,
     timestamp: event.timestamp || null,
     source: {
       type: event.source?.type || null,
@@ -75,6 +76,7 @@ function sanitizedEnvelope(ctx) {
     },
     message: {
       id: message.id || null,
+      quotedMessageId: message.quotedMessageId || null,
       type: message.type || null,
       text: message.type === 'text' ? safeText(message.text, 20000) : null,
       fileName: safeText(message.fileName, 500) || null,
@@ -177,11 +179,11 @@ export function createOperationalMemory({ env = process.env, logger = console, p
       : {};
     const result = await withTenant(tenant, async (client, config) => {
       await ensureTenant(client, config);
-      await client.query(
+      const inserted = await client.query(
         `INSERT INTO am_memory.processing_jobs
            (tenant_id, job_kind, idempotency_key, status, max_attempts, input_payload)
          VALUES ($1, $2, $3, 'queued', $4, $5::jsonb)
-         ON CONFLICT (tenant_id, job_kind, idempotency_key) DO NOTHING`,
+         ON CONFLICT (tenant_id, job_kind, idempotency_key) DO NOTHING RETURNING job_id`,
         [config.tenantId, jobKind, idempotencyKey, maxAttempts, JSON.stringify(inputPayload)],
       );
       const selected = await client.query(
@@ -192,7 +194,7 @@ export function createOperationalMemory({ env = process.env, logger = console, p
         [config.tenantId, jobKind, idempotencyKey],
       );
       if (!selected.rows[0]) throw new Error('Unable to persist processing job');
-      return selected.rows[0];
+      return { ...selected.rows[0], replayed: inserted.rowCount === 0 };
     });
     return result.skipped ? { ok: false, skipped: result.skipped } : { ok: true, job: result.value };
   }
@@ -247,6 +249,7 @@ export function createOperationalMemory({ env = process.env, logger = console, p
         contract: sourceNotificationId.startsWith('bank-reconciliation-notification:') ? 'hozo-bank-reconciliation-notification-v1' : 'hozo-rental-finance-group-mention-v1',
         payloadDigest,
         routeDigest,
+        groupId: safeText(input.groupId, 100),
         providerRetryKey,
         deliveryStatus: 'pending',
       };
@@ -347,6 +350,20 @@ export function createOperationalMemory({ env = process.env, logger = console, p
     return result.value;
   }
 
+  async function bankFinanceQuoteOwnership(tenant, messageId, groupId, userId) {
+    const result = await withTenant(tenant, async (client, config) => {
+      const found = await client.query(`SELECT input_payload FROM am_memory.processing_jobs
+        WHERE tenant_id=$1 AND job_kind='finance-line-notification'
+          AND input_payload ->> 'contract'='hozo-bank-reconciliation-notification-v1'
+          AND output_payload -> 'messageIds' ? $2 LIMIT 1`, [config.tenantId, safeText(messageId,100)]);
+      const stored = found.rows[0]?.input_payload;
+      const legacyDigest = sha256(JSON.stringify({ groupId, userId }));
+      return { known: Boolean(stored), groupVerified: Boolean(stored && (stored.groupId ? stored.groupId === groupId : stored.routeDigest === legacyDigest)) };
+    });
+    if (result.skipped) throw new Error('Bank finance quote registry unavailable');
+    return result.value;
+  }
+
   async function leaseProcessingJobs(tenant, input = {}) {
     const jobKind = safeText(input.jobKind, 120);
     if (!jobKind) throw new Error('Processing job kind is required');
@@ -411,8 +428,9 @@ export function createOperationalMemory({ env = process.env, logger = console, p
                   THEN clock_timestamp() ELSE NULL END,
                 updated_at = clock_timestamp()
           WHERE tenant_id = $1 AND job_id = $2 AND status = 'leased'
+            AND ($7::text = '' OR lease_owner = $7)
          RETURNING job_id, status, attempt_count, max_attempts`,
-        [config.tenantId, jobId, status, retryDelaySeconds, JSON.stringify(outputPayload), JSON.stringify(errorPayload)],
+        [config.tenantId, jobId, status, retryDelaySeconds, JSON.stringify(outputPayload), JSON.stringify(errorPayload), safeText(input.leaseOwner,180)],
       );
       return updated.rows[0] || null;
     });
@@ -831,7 +849,10 @@ export function createOperationalMemory({ env = process.env, logger = console, p
           ORDER BY e.event_time DESC, e.created_at DESC LIMIT 30`,
         [config.tenantId],
       );
-      return { counts: counts.rows[0], recent: recent.rows };
+      const bankReplies = await client.query(`SELECT status, attempt_count, created_at, updated_at,
+        input_payload, output_payload, last_error FROM am_memory.processing_jobs
+        WHERE tenant_id=$1 AND job_kind='bank-line-reply' ORDER BY created_at DESC LIMIT 50`, [config.tenantId]);
+      return { counts: counts.rows[0], recent: recent.rows, bankReplies: bankReplies.rows };
     });
     return result.skipped ? { counts: {}, recent: [], skipped: result.skipped } : result.value;
   }
@@ -874,6 +895,7 @@ export function createOperationalMemory({ env = process.env, logger = console, p
     markFinanceNotificationManual,
     markFinanceNotificationDelivered,
     isBankFinanceQuotedMessage,
+    bankFinanceQuoteOwnership,
     leaseProcessingJobs,
     settleProcessingJob,
     settingsForTenant: (tenant) => tenantConfig(tenant, env),
