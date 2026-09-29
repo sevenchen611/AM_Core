@@ -1,0 +1,17 @@
+{
+  "id":"AM-IMP-2026.0929.04",
+  "name":"Owner-confirmed personal LINE group bindings",
+  "type":"Core / LINE / API",
+  "portable":true,
+  "status":"Ready",
+  "createdAt":"2026-09-29",
+  "installTargets":["AM_PLATFORM"],
+  "requiresPackages":["AM-IMP-2026.0929.03"],
+  "requiresDatabases":["Deployment-owned PostgreSQL line_io and line_bindings schemas"],
+  "requiresEnv":["AMCORE_LINE_BINDINGS_ENABLED","Separate bindings:write manager key","allowPersonalBindings transport target"],
+  "requiresScripts":["node tools/install-line-bindings.mjs","node --test tools/test-line-bindings.mjs","node tools/check-upgrade-package.js AM-IMP-2026.0929.04"],
+  "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+  "definitionOfDone":["Owner confirmation and atomic replacement verified","Personal sender/recipient/history isolation verified","Existing static IO and directory regressions pass","Deployment and UOF native authorization verified separately"],
+  "projectStatus":{"AM_PLATFORM":"Ready"},
+  "files":["core/line-io/index.js","core/line-io/store.js","core/line-io/bindings.js","core/line-io/binding-store.js","server.js","tools/install-line-bindings.mjs","tools/test-line-bindings.mjs",".github/workflows/validate-bank-mention.yml","versions/AM-IMP-2026.0929.04/README.md","versions/AM-IMP-2026.0929.04/INSTALL.md","versions/AM-IMP-2026.0929.04/VERIFY.md","versions/AM-IMP-2026.0929.04/ROLLBACK.md","versions/AM-IMP-2026.0929.04/API.md","versions/AM-IMP-2026.0929.04/upgrade.json","versions/AM-IMP-2026.0929.04/schemas/line-bindings.sql"]
+}
