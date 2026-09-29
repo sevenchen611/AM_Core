@@ -233,6 +233,11 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
     platform?.logger?.warn?.(`Claims authority migration failed closed: ${error.message}`);
     throw error;
   });
+  // Startup intentionally continues when the finance database is unavailable;
+  // callers still await this rejected promise and fail closed. Observe the
+  // rejection now so Node does not terminate the entire platform before a
+  // route or scheduler has a chance to handle the unavailable authority.
+  migrationPromise.catch(() => {});
   const targets = targetRegistry(env);
   const recipients = recipientRegistry(env);
   const groupRecipients = groupRecipientRegistry(env);
