@@ -269,7 +269,7 @@ const server = http.createServer(async (req, res) => {
       bankReconciliationNotificationContract: 'hozo-bank-reconciliation-notification-v1',
       commit: /^[a-f0-9]{40}$/u.test(String(process.env.RENDER_GIT_COMMIT || '')) ? process.env.RENDER_GIT_COMMIT : null,
       lineConfigured: line.configured,
-      lineIo: { enabled: lineIo.enabled, directoryEnabled:Boolean(lineIo.directoryEnabled),bindingsEnabled:Boolean(lineIo.bindingsEnabled), contract: 'line-group-io-v1', version: lineIo.bindingsEnabled ? '1.3.0' : '1.2.0' },
+      lineIo: { enabled: lineIo.enabled, directoryEnabled:Boolean(lineIo.directoryEnabled),bindingsEnabled:Boolean(lineIo.bindingsEnabled), reviewCardsEnabled:lineIo.enabled, contract: 'line-group-io-v1', version: lineIo.bindingsEnabled ? '1.4.0' : '1.2.0' },
       driveConfigured: platform.driveConfigured,
       llm: { available: llm.available, chain: llm.backends },
       tenants: tenants.map((t) => ({

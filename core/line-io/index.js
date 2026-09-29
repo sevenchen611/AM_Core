@@ -5,6 +5,7 @@ import { lineIoDatabaseConfig } from './database.js';
 import { createDirectory } from './directory.js';
 import { createDirectoryStore } from './directory-store.js';
 import { createBindings } from './bindings.js';
+import { buildReviewCards } from './cards.js';
 
 const PREFIX = '/api/v1/line';
 const SCOPES = new Set(['groups:read', 'events:read', 'messages:write', 'directory:read', 'bindings:write']);
@@ -223,13 +224,15 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
         let body;
         try { body = JSON.parse(raw); } catch { throw ioError(400, 'invalid_json'); }
         if (!body || typeof body !== 'object' || Array.isArray(body)
-          || Object.keys(body).some((k) => !['groupId', 'text', 'notifyUserId','actions'].includes(k))
+          || Object.keys(body).some((k) => !['groupId', 'text', 'notifyUserId','actions','cards'].includes(k))
           || typeof body.text !== 'string' || !body.text.trim() || body.text.length > 4900) throw ioError(400, 'invalid_message');
         if (Object.hasOwn(body, 'notifyUserId') && body.notifyUserId !== null
           && (typeof body.notifyUserId !== 'string' || !/^U[0-9a-f]{32}$/i.test(body.notifyUserId))) {
           throw ioError(400, 'invalid_notify_user');
         }
         if (!client.groupIds.includes(body.groupId)) throw ioError(403, 'group_denied');
+        if (body.cards !== undefined && (!client.allowPersonalBindings || body.actions !== undefined)) throw ioError(400,'invalid_cards');
+        const cardMessage = body.cards === undefined ? null : buildReviewCards(body.cards, body.text);
         if(body.actions!==undefined && (!client.allowPersonalBindings || !Array.isArray(body.actions) || body.actions.length<1 || body.actions.length>3
           ||body.actions.some(a=>!a||typeof a.label!=='string'||!a.label.trim()||a.label.length>20||typeof a.data!=='string'||!a.data||a.data.length>300||Object.keys(a).some(k=>!['label','data'].includes(k))))) throw ioError(400,'invalid_actions');
         // Omission keeps v1 defaults; explicit null sends a group report without @.
@@ -240,7 +243,9 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
         if (!/^[a-zA-Z0-9_.:-]{1,128}$/.test(key)) throw ioError(400, 'idempotency_key_required');
         await resolve(client.tenantKey, body.groupId, true);
         const identity = { tenantKey: client.tenantKey, clientId: client.id, key };
-        const reserved = await store.reserve({ ...identity, hash: hash(JSON.stringify(body.actions===undefined ? [body.groupId, body.text, notifyUserId] : [body.groupId,body.text,notifyUserId,body.actions])).toString('hex') });
+        const payloadIdentity = body.cards !== undefined ? [body.groupId,body.text,notifyUserId,{cards:body.cards}]
+          : body.actions===undefined ? [body.groupId,body.text,notifyUserId] : [body.groupId,body.text,notifyUserId,body.actions];
+        const reserved = await store.reserve({ ...identity, hash: hash(JSON.stringify(payloadIdentity)).toString('hex') });
         if (reserved.result) {
           sendJson(res, 200, { ...reserved.result, replayed: true });
         } else {
@@ -256,8 +261,8 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
             // Group authorization is unchanged. Each supplied recipient must be
             // verifiable in that group before a new push is attempted.
             const message = notifyUserId ? { type: 'textV2', text: '{who}',
-              substitution: { who: { type: 'mention', mentionee: { type: 'user', userId: notifyUserId } } } } : body.text;
-            const extra=notifyUserId ? [{type:'text',text:body.text}] : [];
+              substitution: { who: { type: 'mention', mentionee: { type: 'user', userId: notifyUserId } } } } : (cardMessage || body.text);
+            const extra=notifyUserId ? [cardMessage || {type:'text',text:body.text}] : [];
             if(body.actions) extra.push({type:'flex',altText:'UOF 操作確認',contents:{type:'bubble',body:{type:'box',layout:'vertical',contents:[{type:'text',text:'請確認上方的案件清單、操作及原因。按鈕僅限本人使用，逾期請重新發起。',wrap:true}]},footer:{type:'box',layout:'vertical',contents:body.actions.map(a=>({type:'button',action:{type:'postback',label:a.label,data:a.data}}))}}});
             delivery = await line.pushLineMessage(body.groupId, message, undefined, { retryKey: reserved.retryKey, timeoutMs: 8000,
               additionalMessages:extra });

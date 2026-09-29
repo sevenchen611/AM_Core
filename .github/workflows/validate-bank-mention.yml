@@ -14,6 +14,7 @@ on:
       - 'tools/install-line-bindings.mjs'
       - 'tools/check-upgrade-package.js'
       - 'versions/AM-IMP-2026.0929.04/**'
+      - 'versions/AM-IMP-2026.0929.05/**'
       - 'versions/AM-IMP-2026.0929.01/**'
       - 'versions/AM-IMP-2026.0929.02/**'
       - 'versions/AM-IMP-2026.0929.03/**'
@@ -51,6 +52,7 @@ jobs:
       - run: node --test tools/test-line-directory.mjs
       - run: node --test tools/test-line-bindings.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.0929.04
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.0929.05
       - run: node tools/test-line-io-sql.mjs "$PWD/node_modules/@electric-sql/pglite/dist/index.js"
       - run: node tools/check-upgrade-package.js AM-IMP-2026.0929.01
       - run: node tools/check-upgrade-package.js AM-IMP-2026.0929.02

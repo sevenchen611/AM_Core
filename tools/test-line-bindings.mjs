@@ -6,6 +6,7 @@ import {PGlite} from '@electric-sql/pglite';
 import {createBindingStore} from '../core/line-io/binding-store.js';
 import {createLineIoStore} from '../core/line-io/store.js';
 import {createLineIo} from '../core/line-io/index.js';
+import {buildReviewCards} from '../core/line-io/cards.js';
 
 const group=`C${'a'.repeat(32)}`,other=`C${'b'.repeat(32)}`,legacy=`C${'c'.repeat(32)}`;
 const user=`U${'a'.repeat(32)}`,intruder=`U${'b'.repeat(32)}`;
@@ -86,6 +87,32 @@ test('confirmation postbacks use durable idempotency; changed payloads and forei
   assert.equal((await h.request('/messages',{method:'POST',key:ioKey,body})).body.replayed,true);assert.equal(h.pushes.length,1);
   assert.equal((await h.request('/messages',{method:'POST',key:ioKey,body:{...body,actions:[{label:'Different',data:'other'}]}})).status,409);
   assert.equal((await h.request('/messages',{method:'POST',key:ioKey,body:{...body,notifyUserId:intruder}})).status,403);
+});
+
+test('review cards use one native carousel; idempotency covers layout and actions',async t=>{
+  const h=await harness(t);await h.bind();
+  const card={eyebrow:'UOF · 待簽',title:'TEST-1',subtitle:'Synthetic form',fields:[{label:'申請人',value:'測試使用者'}],body:'內容\n第二行',
+    actions:[{label:'查看內容',data:'uof.open.test'},{label:'開啟原表單',uri:'https://example.test/form'},{label:'尚未開放',disabled:true}]};
+  const body={groupId:group,text:'待簽卡片',notifyUserId:user,cards:[card,card]};
+  assert.equal((await h.request('/messages',{method:'POST',key:ioKey,body})).status,200);
+  const messages=h.pushes[0][3].additionalMessages;
+  assert.equal(messages.length,1);assert.equal(messages[0].type,'flex');assert.equal(messages[0].contents.type,'carousel');
+  const bubble=messages[0].contents.contents[0];
+  assert.equal(bubble.header.contents[1].text,'TEST-1');
+  assert.equal(bubble.footer.contents[0].action.data,'uof.open.test');
+  assert.equal(bubble.footer.contents[2].action,undefined);
+  assert.equal((await h.request('/messages',{method:'POST',key:ioKey,body})).body.replayed,true);
+  assert.equal((await h.request('/messages',{method:'POST',key:ioKey,body:{...body,cards:[{...card,title:'Changed'}]}})).status,409);
+  assert.equal(h.pushes.length,1);
+  for(const cards of [[],Array(7).fill(card),[{...card,body:'x'.repeat(3001)}],[{...card,actions:[{label:'bad',uri:'javascript:alert(1)'}]}],
+    [{...card,actions:[{label:'bad',uri:'https://user:password@example.test/'}]}],[{...card,actions:[{label:'bad',data:'x',disabled:true}]}],
+    [{...card,type:'raw-flex'}]]) {
+    assert.equal((await h.request('/messages',{method:'POST',key:ioKey,idempotency:'invalid',body:{...body,cards}})).status,400);
+  }
+  assert.equal((await h.request('/messages',{method:'POST',key:ioKey,body:{...body,notifyUserId:intruder}})).status,403);
+  assert.equal((await h.request('/messages',{method:'POST',key:ioKey,body:{...body,actions:[{label:'no',data:'x'}]}})).status,400);
+  assert.equal(h.pushes.length,1);
+  assert.throws(()=>buildReviewCards(Array(6).fill({...card,body:'漢'.repeat(3000),fields:Array(12).fill({label:'欄',value:'漢'.repeat(500)})}),'large'),/cards_too_large/);
 });
 
 test('expired codes, legacy groups, rates and competing owners cannot bind',async t=>{
