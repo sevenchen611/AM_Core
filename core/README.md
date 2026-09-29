@@ -38,3 +38,7 @@
 ## 驗證
 
 `node tools/dryrun-core.mjs`(不需真憑證):兩租戶各發一則 → 分別落各自訊息庫、守衛擋越界。契約見 `../modules/README.md`。
+
+## LINE input/output gateway
+
+Opt-in `core/line-io` adds bearer scoped group events and idempotent report delivery to the existing signed webhook. Install package AM-IMP-2026.0929.01; production keys and source messages stay in deployment configuration and PostgreSQL.

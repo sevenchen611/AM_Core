@@ -5,6 +5,7 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
 import { bootstrap } from './core/bootstrap.js';
+import { createLineIo, readLineIoBody } from './core/line-io/index.js';
 import { createBankLineReplyIntake } from './core/bank-line-reply-intake.js';
 import { routeDirectLineEvent } from './core/direct-line.js';
 import { createAccessDirectory } from './core/access-directory.js';
@@ -23,6 +24,7 @@ import {
 
 const ctx = await bootstrap(process.env);
 const { tenants, line, router, dispatcher, portal, modules, platform, llm, logger } = ctx;
+const lineIo = await createLineIo({ tenants, line, router, logger });
 const queueAccessKey = process.env.AMCORE_QUEUE_ACCESS_KEY || '';
 const portalServiceToken = process.env.AMCORE_PORTAL_SERVICE_TOKEN || '';
 
@@ -242,6 +244,7 @@ async function maybeHandleGroupOnboardingCommand(event, groupId, resolved = {}) 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const pathname = url.pathname.replace(/\/+$/, '') || '/';
+  if (await lineIo.handle(req, res, url)) return;
   // LINE opens a LIFF deep link at its registered endpoint and carries the
   // requested page in liff.state. Route only known public LIFF paths before
   // the normal portal home handler, otherwise a claims form becomes a login
@@ -266,6 +269,7 @@ const server = http.createServer(async (req, res) => {
       bankReconciliationNotificationContract: 'hozo-bank-reconciliation-notification-v1',
       commit: /^[a-f0-9]{40}$/u.test(String(process.env.RENDER_GIT_COMMIT || '')) ? process.env.RENDER_GIT_COMMIT : null,
       lineConfigured: line.configured,
+      lineIo: { enabled: lineIo.enabled, contract: 'line-group-io-v1' },
       driveConfigured: platform.driveConfigured,
       llm: { available: llm.available, chain: llm.backends },
       tenants: tenants.map((t) => ({
@@ -393,7 +397,9 @@ const server = http.createServer(async (req, res) => {
 
   // ── LINE webhook(唯一入口)──
   if (req.method === 'POST' && pathname === '/webhook/line') {
-    const rawBody = await readBody(req);
+    let rawBody;
+    try { rawBody = await readLineIoBody(req, 1024 * 1024); }
+    catch (error) { return sendJson(res, error.status || 400, { error: 'Invalid webhook body' }); }
     if (!line.isValidSignature(rawBody, req.headers['x-line-signature'])) {
       return sendJson(res, 401, { error: 'Invalid signature' });
     }
@@ -405,8 +411,14 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 400, { error: 'Invalid JSON' });
     }
     const bankReplyReceipts = [];
+    if (!Array.isArray(body?.events) || body.events.some((e) => !e || typeof e !== 'object' || Array.isArray(e))) {
+      return sendJson(res, 400, { error: 'Invalid events' });
+    }
+    try { await lineIo.capture(body.events); }
+    catch { return sendJson(res, 503, { error: 'LINE I/O intake is temporarily unavailable.' }); }
     try {
       for (const event of body.events || []) {
+        if (lineIo.owns(event)) continue;
         const groupId = event?.source?.groupId || event?.source?.roomId || '';
         // Persist the full quote before authority intercepts or remote accounting work.
         const bankReceipt = await bankLineReplyIntake.receive(event);
@@ -496,6 +508,7 @@ const server = http.createServer(async (req, res) => {
 
 // 收到一則事件 → 解析租戶/綁定 → 交分派器。未綁定 = 不落庫、不回話(照 BuildAM)。
 async function handleEvent(event) {
+  if (lineIo.owns(event)) return;
   if (financeInterceptedEvents.has(event)) return;
   const direct = await routeDirectLineEvent({
     event,
