@@ -39,7 +39,7 @@
     "Production activation is separately verified before any Deployed status"
   ],
   "projectStatus": {
-    "AM_PLATFORM": "Ready"
+    "AM_PLATFORM:green-hotel": "Deployed"
   },
   "files": [
     "server.js",
