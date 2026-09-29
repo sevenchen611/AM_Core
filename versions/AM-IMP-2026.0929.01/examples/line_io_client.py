@@ -9,6 +9,9 @@ from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 
+_DEFAULT_NOTIFY = object()
+
+
 class LineIO:
     def __init__(self, base_url=None, api_key=None):
         self.base_url = (base_url or os.environ["LINE_IO_BASE_URL"]).rstrip("/")
@@ -37,10 +40,13 @@ class LineIO:
     def events(self, after="0", limit=100):
         return self._request("GET", "/events?" + urlencode({"after": after, "limit": limit}))
 
-    def send_text(self, group_id, text, idempotency_key):
+    def send_text(self, group_id, text, idempotency_key, notify_user_id=_DEFAULT_NOTIFY):
         if not idempotency_key:
             raise ValueError("A stable idempotency key is required")
-        return self._request("POST", "/messages", {"groupId": group_id, "text": text}, idempotency_key)
+        body = {"groupId": group_id, "text": text}
+        if notify_user_id is not _DEFAULT_NOTIFY:
+            body["notifyUserId"] = notify_user_id
+        return self._request("POST", "/messages", body, idempotency_key)
 
 
 # Usage in your daily program (explicit calls; no automatic approvals):

@@ -104,4 +104,8 @@ LINE 官方依據：[Webhook 驗簽](https://developers.line.biz/en/docs/messagi
 
 ## 固定人員窗口
 
-Client 可設定 `inputUserIds` 白名單；message/postback 只對該清單保存及提供，unsend 等系統事件仍保存。`notifyUserId` 固定發送時的 @收件人，由服務設定而非呼叫端指定；同一次 LINE push 包含一則 @提醒及一則報告文字。這是群組通知，不是私訊，群內其他成員仍可看到報告。`transportOnly=true` 的群組不交給既有 AM 會議／任務／財務指令處理。直聊不在本套件範圍。
+Client 可設定 `inputUserIds` 白名單；message/postback 只對該清單保存及提供，unsend 等系統事件仍保存。安裝 AM-IMP-2026.0929.02 後，POST 的 `notifyUserId` 可指定每次發送的 @收件人；省略沿用 client 設定，null 不 @；同一次 LINE push 包含一則 @提醒及一則報告文字。這是群組通知，不是私訊，群內其他成員仍可看到報告。`transportOnly=true` 的群組不交給既有 AM 會議／任務／財務指令處理。直聊不在本套件範圍。
+
+## 通知人參數（API 1.1.0）
+
+發送 body 可包含 `notifyUserId`：有效 U 開頭的 32 位 hex user ID、且需可驗證為目標群成員。省略採用設定的預設通知人，明確 null 則取消 @。同一個 Idempotency-Key 更換通知人會回 409；通知人格式错误回 400，非群成員回 403，查核暫時失敗回 503。詳細升級說明見 AM-IMP-2026.0929.02。

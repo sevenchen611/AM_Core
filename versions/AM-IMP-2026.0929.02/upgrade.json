@@ -1,0 +1,17 @@
+{
+  "id": "AM-IMP-2026.0929.02",
+  "name": "Per-request LINE group notification recipient",
+  "type": "Core / LINE / API",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-09-29",
+  "installTargets": ["AM_PLATFORM"],
+  "requiresPackages": ["AM-IMP-2026.0929.01"],
+  "requiresDatabases": ["Existing deployment-owned LINE I/O storage"],
+  "requiresEnv": ["Existing LINE I/O client configuration and credentials"],
+  "requiresScripts": ["node --test tools/test-line-io.mjs", "node tools/check-upgrade-package.js AM-IMP-2026.0929.02"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": ["Dynamic recipient and backward compatibility verified", "Membership failure prevents sending", "Recipient is included in idempotency identity", "Production verification recorded separately"],
+  "projectStatus": {"AM_PLATFORM:green-hotel": "Installed"},
+  "files": ["server.js", "core/line.js", "core/line-io/index.js", "tools/test-line-io.mjs", ".github/workflows/validate-bank-mention.yml", "versions/AM-IMP-2026.0929.01/openapi.json", "versions/AM-IMP-2026.0929.01/examples/line_io_client.py", "versions/AM-IMP-2026.0929.02/README.md", "versions/AM-IMP-2026.0929.02/INSTALL.md", "versions/AM-IMP-2026.0929.02/VERIFY.md", "versions/AM-IMP-2026.0929.02/ROLLBACK.md", "versions/AM-IMP-2026.0929.02/upgrade.json"]
+}

@@ -6,8 +6,10 @@ on:
       - 'core/operational-memory.js'
       - 'core/bank-line-reply-intake.js'
       - 'core/line-io/**'
+      - 'core/line.js'
       - 'tools/test-line-io*.mjs'
       - 'versions/AM-IMP-2026.0929.01/**'
+      - 'versions/AM-IMP-2026.0929.02/**'
       - 'modules/operational-memory/**'
       - 'modules/collect/**'
       - 'tools/verify-bank-line-reply-intake.mjs'
@@ -41,6 +43,7 @@ jobs:
       - run: node --test tools/test-line-io.mjs
       - run: node tools/test-line-io-sql.mjs "$PWD/node_modules/@electric-sql/pglite/dist/index.js"
       - run: node tools/check-upgrade-package.js AM-IMP-2026.0929.01
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.0929.02
       - run: node tools/check-upgrade-package.js AM-IMP-2026.0928.01
       - run: node tools/check-upgrade-package.js AM-IMP-2026.0918.01
       - run: node tools/check-upgrade-package.js AM-IMP-2026.0918.02

@@ -29,10 +29,11 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
     }
   }
 
-  async function lineGet(pathname) {
+  async function lineGet(pathname, { timeoutMs } = {}) {
     if (!channelAccessToken) throw new Error('LINE_CHANNEL_ACCESS_TOKEN is not set.');
     const response = await fetch(`https://api.line.me${pathname}`, {
       headers: { Authorization: `Bearer ${channelAccessToken}` },
+      ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
     });
     if (!response.ok) {
       const body = await response.text();
@@ -108,9 +109,9 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
     return [...new Set(ids)];
   }
 
-  async function resolveGroupMemberName(groupId, userId) {
+  async function resolveGroupMemberName(groupId, userId, options) {
     if (!groupId || !userId) return 'LINE 使用者';
-    const profile = await lineGet(`/v2/bot/group/${encodeURIComponent(groupId)}/member/${encodeURIComponent(userId)}`);
+    const profile = await lineGet(`/v2/bot/group/${encodeURIComponent(groupId)}/member/${encodeURIComponent(userId)}`, options);
     return profile.displayName || 'LINE 使用者';
   }
 

@@ -163,30 +163,44 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
         let body;
         try { body = JSON.parse(raw); } catch { throw ioError(400, 'invalid_json'); }
         if (!body || typeof body !== 'object' || Array.isArray(body)
-          || Object.keys(body).some((k) => !['groupId', 'text'].includes(k))
+          || Object.keys(body).some((k) => !['groupId', 'text', 'notifyUserId'].includes(k))
           || typeof body.text !== 'string' || !body.text.trim() || body.text.length > 4900) throw ioError(400, 'invalid_message');
+        if (Object.hasOwn(body, 'notifyUserId') && body.notifyUserId !== null
+          && (typeof body.notifyUserId !== 'string' || !/^U[0-9a-f]{32}$/i.test(body.notifyUserId))) {
+          throw ioError(400, 'invalid_notify_user');
+        }
         if (!client.groupIds.includes(body.groupId)) throw ioError(403, 'group_denied');
+        // Omission keeps v1 defaults; explicit null sends a group report without @.
+        const notifyUserId = Object.hasOwn(body, 'notifyUserId') ? body.notifyUserId : client.notifyUserId;
         const key = String(req.headers['idempotency-key'] || '');
         if (!/^[a-zA-Z0-9_.:-]{1,128}$/.test(key)) throw ioError(400, 'idempotency_key_required');
         await resolve(client.tenantKey, body.groupId, true);
         const identity = { tenantKey: client.tenantKey, clientId: client.id, key };
-        const reserved = await store.reserve({ ...identity, hash: hash(JSON.stringify([body.groupId, body.text, client.notifyUserId])).toString('hex') });
+        const reserved = await store.reserve({ ...identity, hash: hash(JSON.stringify([body.groupId, body.text, notifyUserId])).toString('hex') });
         if (reserved.result) {
           sendJson(res, 200, { ...reserved.result, replayed: true });
         } else {
           let delivery;
           try {
-            // Mention is an operator-owned recipient. Caller cannot override it.
-            // textV2 substitution prevents arbitrary text from changing recipient.
-            const message = client.notifyUserId ? { type: 'textV2', text: '{who}',
-              substitution: { who: { type: 'mention', mentionee: { type: 'user', userId: client.notifyUserId } } } } : body.text;
+            if (notifyUserId) {
+              try { await line.resolveGroupMemberName(body.groupId, notifyUserId, { timeoutMs: 5000 }); }
+              catch (error) {
+                throw ioError(error.lineStatus === 404 ? 403 : 503,
+                  error.lineStatus === 404 ? 'notify_user_unavailable' : 'notify_lookup_unavailable');
+              }
+            }
+            // Group authorization is unchanged. Each supplied recipient must be
+            // verifiable in that group before a new push is attempted.
+            const message = notifyUserId ? { type: 'textV2', text: '{who}',
+              substitution: { who: { type: 'mention', mentionee: { type: 'user', userId: notifyUserId } } } } : body.text;
             delivery = await line.pushLineMessage(body.groupId, message, undefined, { retryKey: reserved.retryKey, timeoutMs: 8000,
-              additionalMessages: client.notifyUserId ? [{ type: 'text', text: body.text }] : [] });
+              additionalMessages: notifyUserId ? [{ type: 'text', text: body.text }] : [] });
           } catch (error) {
             await store.finish({ ...identity, attempt: reserved.attempt, result: null });
+            if (error.status) throw error;
             throw ioError(502, 'line_send_failed');
           }
-          const result = { status: 'accepted', groupId: body.groupId, notifyUserId: client.notifyUserId, idempotencyKey: key,
+          const result = { status: 'accepted', groupId: body.groupId, notifyUserId, idempotencyKey: key,
             requestId: delivery.acceptedRequestId || delivery.requestId,
             messageIds: delivery.messageIds, replayed: Boolean(delivery.replayed) };
           await store.finish({ ...identity, attempt: reserved.attempt, result });
