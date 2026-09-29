@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "LINE Group Input / Output API",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "Server-side scoped API. Deployment base URL is configured by the operator; no production endpoint is asserted by this specification."
   },
   "security": [
@@ -320,6 +320,12 @@
                     "minLength": 1,
                     "maxLength": 4900,
                     "description": "Nonblank text. Runtime uses a conservative 4900 UTF-16 code unit limit; long reports must be explicitly split."
+                  },
+                  "notifyUserId": {
+                    "type": "string",
+                    "nullable": true,
+                    "pattern": "^U[0-9a-fA-F]{32}$",
+                    "description": "Optional per-request @recipient verified as a member of the authorized group. Omit for configured default; null disables @. Recipient is part of idempotency identity."
                   }
                 }
               }
@@ -483,7 +489,8 @@
           },
           "notifyUserId": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "Configured default recipient; POST notifyUserId may override it."
           }
         }
       },
@@ -556,6 +563,11 @@
           },
           "replayed": {
             "type": "boolean"
+          },
+          "notifyUserId": {
+            "type": "string",
+            "nullable": true,
+            "description": "Effective @recipient, or null for group text without @."
           }
         }
       }

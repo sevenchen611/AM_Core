@@ -51,8 +51,15 @@ async function harness(t, options = {}) {
   let bindingStatus = '啟用';
   let failPush = false;
   let holdPush;
+  let memberFailure;
   const pushes = [];
+  const memberLookups = [];
   const line = { ...createLine({ channelAccessToken: 'synthetic-token', channelSecret: secret }),
+    resolveGroupMemberName: async (...args) => {
+      memberLookups.push(args);
+      if (memberFailure) throw memberFailure;
+      return 'Synthetic member';
+    },
     pushLineMessage: async (...args) => {
       pushes.push(args);
       if (holdPush) await holdPush;
@@ -92,7 +99,8 @@ async function harness(t, options = {}) {
     return fetch(`${base}/webhook/line`, { method: 'POST', body,
       headers: { 'x-line-signature': signed ? crypto.createHmac('sha256', secret).update(body).digest('base64') : 'wrong' } });
   };
-  return { store, gateway, request, send, event, webhook, pushes, base,
+  return { store, gateway, request, send, event, webhook, pushes, memberLookups, base,
+    setMemberFailure: (value) => { memberFailure = value; },
     setOwner: (value) => { owner = value; }, setBindingStatus: (value) => { bindingStatus = value; },
     setFailPush: (value) => { failPush = value; }, setHoldPush: (value) => { holdPush = value; } };
 }
@@ -217,7 +225,7 @@ test('send validation, duplicate suppression, conflict, failure retry UUID and c
 });
 
 const allowedUser = 'U' + 'a'.repeat(32);
-test('transport client exposes only allowed user inputs and fixes group mention recipient', async (t) => {
+test('transport client keeps allowed inputs and default group mention recipient', async (t) => {
   const scopedEnv = { ...env, AMCORE_LINE_IO_CLIENTS_JSON: JSON.stringify([{ ...config[0], inputUserIds: [allowedUser], notifyUserId: allowedUser, transportOnly: true }]) };
   const h = await harness(t, { env: scopedEnv });
   const source = { type: 'group', groupId: groupA, userId: allowedUser };
@@ -234,4 +242,62 @@ test('transport client exposes only allowed user inputs and fixes group mention 
   assert.equal(h.pushes[0][1].substitution.who.mentionee.userId, allowedUser);
   assert.deepEqual(h.pushes[0][3].additionalMessages, [{type:'text',text:'{literal} report'}]);
   assert.equal((await h.request('/messages', {method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':'override'},body:JSON.stringify({groupId:groupA,text:'report',notifyUserId:'other'})})).status,400);
+});
+
+
+test('per-request notifyUserId overrides default, null skips @, and recipient changes conflict', async (t) => {
+  const h = await harness(t, {env:{...env, AMCORE_LINE_IO_CLIENTS_JSON:JSON.stringify([{...config[0],notifyUserId:allowedUser}])}});
+  const otherUser = 'U' + 'b'.repeat(32);
+  const send = (key, recipient, include=true) => h.request('/messages', {method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':key},body:JSON.stringify({groupId:groupA,text:'Report',...(include?{notifyUserId:recipient}:{})})});
+  const first = await send('dynamic', otherUser);
+  assert.equal(first.status, 200);
+  assert.equal(first.body.notifyUserId, otherUser);
+  assert.deepEqual(h.memberLookups[0], [groupA, otherUser, {timeoutMs:5000}]);
+  assert.equal(h.pushes[0][1].substitution.who.mentionee.userId, otherUser);
+  assert.equal((await send('dynamic', otherUser)).body.replayed,true);
+  assert.equal(h.memberLookups.length, 1);
+  assert.equal((await send('dynamic', allowedUser)).status,409);
+  const fallback = await send('legacy', undefined, false);
+  assert.equal(fallback.body.notifyUserId, allowedUser);
+  assert.equal((await send('legacy', allowedUser)).body.replayed,true);
+  const plain = await send('plain', null);
+  assert.equal(plain.status,200);
+  assert.equal(plain.body.notifyUserId,null);
+  assert.equal(h.pushes.at(-1)[1], 'Report');
+  assert.deepEqual(h.pushes.at(-1)[3].additionalMessages, []);
+  assert.equal((await send('plain', undefined, false)).status,409);
+  assert.equal(h.pushes.length,3);
+});
+
+test('invalid recipients and unverified members never send; transient lookup can retry', async (t) => {
+  const h = await harness(t);
+  const send = (key, id, groupId=groupA) => h.request('/messages',{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':key},body:JSON.stringify({groupId,text:'Report',notifyUserId:id})});
+  for (const id of ['', '陳聖文', 'line-id', 'U123', 123, [], {}]) {
+    const bad = await send('invalid',id); assert.equal(bad.status,400); assert.equal(bad.body.error,'invalid_notify_user');
+  }
+  assert.equal(h.memberLookups.length,0);
+  assert.equal((await send('denied',allowedUser,groupB)).status,403);
+  assert.equal(h.memberLookups.length,0);
+  h.setMemberFailure(Object.assign(new Error('private profile detail'),{lineStatus:404}));
+  const absent = await send('missing',allowedUser);
+  assert.equal(absent.status,403); assert.equal(absent.body.error,'notify_user_unavailable');
+  h.setMemberFailure(Object.assign(new Error('private token'),{lineStatus:429}));
+  const busy = await send('retry-member',allowedUser);
+  assert.equal(busy.status,503); assert.equal(busy.body.error,'notify_lookup_unavailable');
+  const uuid = h.store.sends.get('sample:daily:retry-member').retryKey;
+  assert.equal(h.pushes.length,0);
+  h.setMemberFailure(new DOMException('timeout','TimeoutError'));
+  assert.equal((await send('retry-member',allowedUser)).status,503);
+  h.setMemberFailure(null);
+  assert.equal((await send('retry-member',allowedUser)).status,200);
+  assert.equal(h.pushes[0][3].retryKey,uuid);
+});
+
+test('LINE group member lookup propagates a bounded timeout', async (t) => {
+  const keepAlive=setTimeout(()=>{},1000);t.after(()=>clearTimeout(keepAlive));
+  t.mock.method(globalThis,'fetch',async (_url, options)=>new Promise((_resolve,reject)=>{
+    assert.ok(options.signal); options.signal.addEventListener('abort',()=>reject(options.signal.reason),{once:true});
+  }));
+  const line=createLine({channelAccessToken:'synthetic',channelSecret:'synthetic'});
+  await assert.rejects(line.resolveGroupMemberName(groupA,allowedUser,{timeoutMs:20}), {name:'TimeoutError'});
 });
