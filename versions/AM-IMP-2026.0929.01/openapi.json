@@ -2,7 +2,7 @@
   "openapi": "3.0.3",
   "info": {
     "title": "LINE Group Input / Output API",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "description": "Server-side scoped API. Deployment base URL is configured by the operator; no production endpoint is asserted by this specification."
   },
   "security": [
@@ -435,6 +435,254 @@
           }
         }
       }
+    },
+    "/api/v1/line/directory/groups": {
+      "get": {
+        "operationId": "listDirectoryGroups",
+        "description": "Requires directory:read. Returns scoped groups or all known OA groups for an explicitly read-only operator key. coverage.complete is always false because LINE cannot enumerate all OA groups. Visibility does not grant IO access.",
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Last groupId or userId cursor from the preceding page."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 25
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Directory page; check coverage and follow hasMore/nextCursor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "groups": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/DirectoryGroup"
+                      }
+                    },
+                    "nextCursor": {
+                      "type": "string"
+                    },
+                    "hasMore": {
+                      "type": "boolean"
+                    },
+                    "coverage": {
+                      "$ref": "#/components/schemas/DirectoryCoverage"
+                    }
+                  },
+                  "required": [
+                    "groups",
+                    "nextCursor",
+                    "hasMore",
+                    "coverage"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Client, authorization or provider/storage error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Client, authorization or provider/storage error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Client, authorization or provider/storage error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Client, authorization or provider/storage error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Client, authorization or provider/storage error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/line/directory/groups/{groupId}/members": {
+      "get": {
+        "operationId": "listDirectoryMembers",
+        "description": "Requires directory:read. activeUserIds contains this page only and requires successful live group-member profile verification; not online status. On enumeration 403, fallback covers only known IDs and coverage.complete=false.",
+        "parameters": [
+          {
+            "name": "groupId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^C[0-9a-fA-F]{32}$"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Last groupId or userId cursor from the preceding page."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 25
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Directory page; check coverage and follow hasMore/nextCursor.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "groupId": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "users": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/DirectoryMember"
+                      }
+                    },
+                    "activeUserIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "activeDefinition": {
+                      "type": "string"
+                    },
+                    "nextCursor": {
+                      "type": "string"
+                    },
+                    "hasMore": {
+                      "type": "boolean"
+                    },
+                    "coverage": {
+                      "$ref": "#/components/schemas/DirectoryCoverage"
+                    }
+                  },
+                  "required": [
+                    "groupId",
+                    "users",
+                    "activeUserIds",
+                    "nextCursor",
+                    "hasMore",
+                    "coverage"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Client, authorization or provider/storage error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Client, authorization or provider/storage error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Client, authorization or provider/storage error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Client, authorization or provider/storage error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Client, authorization or provider/storage error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -570,6 +818,153 @@
             "description": "Effective @recipient, or null for group text without @."
           }
         }
+      },
+      "DirectoryCoverage": {
+        "type": "object",
+        "properties": {
+          "complete": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "bindingScanComplete": {
+            "type": "boolean"
+          },
+          "bindingScannedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "memberCount": {
+            "type": "integer",
+            "nullable": true
+          },
+          "enumeratedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "verificationComplete": {
+            "type": "boolean"
+          },
+          "note": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "complete"
+        ]
+      },
+      "DirectoryGroup": {
+        "type": "object",
+        "properties": {
+          "groupId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "presence": {
+            "type": "string",
+            "enum": [
+              "present",
+              "unknown"
+            ]
+          },
+          "observedPresence": {
+            "type": "string",
+            "enum": [
+              "present",
+              "left",
+              "unknown"
+            ]
+          },
+          "lastSeenAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "presenceCheckedAt": {
+            "type": "string"
+          },
+          "selectable": {
+            "type": "boolean"
+          },
+          "warning": {
+            "type": "string",
+            "nullable": true
+          },
+          "io": {
+            "type": "object",
+            "properties": {
+              "inputEnabled": {
+                "type": "boolean",
+                "nullable": true
+              },
+              "outputEnabled": {
+                "type": "boolean",
+                "nullable": true
+              },
+              "canReadInput": {
+                "type": "boolean"
+              },
+              "canSend": {
+                "type": "boolean"
+              },
+              "availabilityKnown": {
+                "type": "boolean"
+              }
+            },
+            "required": []
+          }
+        },
+        "required": [
+          "groupId",
+          "name",
+          "presence",
+          "selectable",
+          "io"
+        ]
+      },
+      "DirectoryMember": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "lastSeenAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "membership": {
+            "type": "string",
+            "enum": [
+              "present",
+              "left",
+              "unknown"
+            ]
+          },
+          "checkedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "warning": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "userId",
+          "active",
+          "membership"
+        ]
       }
     }
   }

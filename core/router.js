@@ -231,5 +231,33 @@ export function createRouter({ tenants, notionRequest, logger = console }) {
     if (userId) directCache.delete(String(userId)); else directCache.clear();
   }
 
-  return { resolveGroupBinding, resolveDirectBinding, invalidate, invalidateDirect };
+  // Read only routing metadata. Query each tenant through its existing Notion guard.
+  async function listDirectoryBindings() {
+    const groups = [];
+    let complete = true;
+    for (const tenant of tenants) {
+      if (tenant.runtimeEnabled === false || !tenant.notionConfigured || !tenant.dataSources.groupBindings) continue;
+      let cursor;
+      const seen = new Set();
+      try {
+        do {
+          const result = await notionRequest(`/v1/data_sources/${encodeURIComponent(tenant.dataSources.groupBindings)}/query`, {
+            method:'POST',tenantKey:tenant.key,body:{ page_size:100,...(cursor ? { start_cursor:cursor } : {}) },
+          });
+          for (const page of result.results || []) {
+            if (page.archived || page.in_trash) continue;
+            groups.push({ groupId:plain(page.properties?.['LINE 群組 ID']),tenantKey:tenant.key,
+              status:selected(page.properties?.['狀態']),
+              name:plain(page.properties?.['群組名稱'],'title'),members:parseMembers(page) });
+          }
+          cursor = result.has_more ? result.next_cursor : null;
+          if (result.has_more && (!cursor || seen.has(cursor) || seen.size >= 100)) throw new Error('Invalid directory pagination');
+          seen.add(cursor);
+        } while (cursor);
+      } catch { complete = false; logger.warn(`LINE directory binding scan incomplete (tenant=${tenant.key})`); }
+    }
+    return { groups,complete };
+  }
+
+  return { resolveGroupBinding, resolveDirectBinding, invalidate, invalidateDirect, listDirectoryBindings };
 }
