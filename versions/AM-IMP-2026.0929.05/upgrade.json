@@ -1,0 +1,17 @@
+{
+  "id": "AM-IMP-2026.0929.05",
+  "name": "Personal LINE review cards",
+  "type": "Core / LINE / API",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-09-29",
+  "installTargets": ["AM_PLATFORM"],
+  "requiresPackages": ["AM-IMP-2026.0929.04"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": ["node --test tools/test-line-bindings.mjs tools/test-line-io.mjs tools/test-line-directory.mjs"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": ["Card schema and size bounds verified", "Legacy message and personal authorization regressions pass", "Reviewed main deployment verified separately"],
+  "projectStatus": {"AM_PLATFORM": "Ready"},
+  "files": ["core/line-io/cards.js", "core/line-io/index.js", "server.js", "tools/test-line-bindings.mjs", "versions/AM-IMP-2026.0929.05/API.md"]
+}
