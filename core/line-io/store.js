@@ -47,12 +47,14 @@ export function createLineIoStore(pool) {
     });
   }
 
-  async function list({ tenantKey, groupIds, inputUserIds, after, limit }) {
+  async function list({ tenantKey, groupIds, inputUserIds, personalBindings=[], after, limit }) {
     const result = await pool.query(`SELECT seq::text AS cursor, received_at, payload
       FROM line_io.line_io_events WHERE tenant_key = $1 AND group_id = ANY($2::text[]) AND seq > $3::bigint
-      AND ($5::text[] IS NULL OR payload #>> '{event,type}' NOT IN ('message', 'postback')
-        OR payload #>> '{event,source,userId}' = ANY($5::text[]))
-      ORDER BY seq LIMIT $4`, [tenantKey, groupIds, after, limit + 1, inputUserIds || null]);
+      AND (CASE WHEN EXISTS(SELECT 1 FROM jsonb_array_elements($6::jsonb) AS b WHERE b->>'groupId'=group_id)
+        THEN EXISTS(SELECT 1 FROM jsonb_array_elements($6::jsonb) AS b WHERE b->>'groupId'=group_id AND b->>'bindingId'=payload->>'bindingId'
+          AND (payload #>> '{event,type}' NOT IN ('message','postback') OR b->>'userId'=payload #>> '{event,source,userId}'))
+        ELSE ($5::text[] IS NULL OR payload #>> '{event,type}' NOT IN ('message', 'postback') OR payload #>> '{event,source,userId}' = ANY($5::text[])) END)
+      ORDER BY seq LIMIT $4`, [tenantKey, groupIds, after, limit + 1, inputUserIds || null,JSON.stringify(personalBindings)]);
     const events = result.rows.slice(0, limit).map((row) => ({
       ...row.payload, cursor: row.cursor, receivedAt: row.received_at,
     }));

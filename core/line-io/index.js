@@ -4,9 +4,10 @@ import { createLineIoStore, ioError } from './store.js';
 import { lineIoDatabaseConfig } from './database.js';
 import { createDirectory } from './directory.js';
 import { createDirectoryStore } from './directory-store.js';
+import { createBindings } from './bindings.js';
 
 const PREFIX = '/api/v1/line';
-const SCOPES = new Set(['groups:read', 'events:read', 'messages:write', 'directory:read']);
+const SCOPES = new Set(['groups:read', 'events:read', 'messages:write', 'directory:read', 'bindings:write']);
 const hash = (value) => crypto.createHash('sha256').update(value).digest();
 
 export function loadLineIoClients(env, tenants) {
@@ -23,12 +24,14 @@ export function loadLineIoClients(env, tenants) {
     if (!/^[a-zA-Z0-9_-]{1,64}$/.test(client.id || '') || ids.has(client.id)
       || !tenants.some((t) => t.key === client.tenantKey && t.runtimeEnabled !== false)
       || typeof token !== 'string' || token.length < 32 || tokens.has(token)
-      || !Array.isArray(client.groupIds) || (!client.groupIds.length && client.directoryAllGroups !== true) || client.groupIds.length > 100
+      || !Array.isArray(client.groupIds) || (!client.groupIds.length && client.directoryAllGroups !== true && client.allowPersonalBindings!==true && !(client.scopes?.length===1 && client.scopes[0]==='bindings:write')) || client.groupIds.length > 100
       || client.groupIds.some((id) => typeof id !== 'string' || !/^C[0-9a-f]{32}$/i.test(id))
       || (client.inputUserIds !== undefined && (!Array.isArray(client.inputUserIds) || !client.inputUserIds.length
         || client.inputUserIds.some((id) => !/^U[0-9a-f]{32}$/i.test(id))))
       || (client.notifyUserId !== undefined && !/^U[0-9a-f]{32}$/i.test(client.notifyUserId))
       || (client.transportOnly !== undefined && typeof client.transportOnly !== 'boolean')
+      || (client.allowPersonalBindings !== undefined && (typeof client.allowPersonalBindings !== 'boolean' || (client.allowPersonalBindings && client.transportOnly!==true)))
+      || (client.scopes?.includes('bindings:write') && (client.scopes.length!==1 || !/^[a-zA-Z0-9_-]{1,64}$/.test(client.bindingTargetClientId || '')))
       || (client.directoryAllGroups !== undefined && typeof client.directoryAllGroups !== 'boolean')
       || (client.directoryAllGroups === true && (client.groupIds.length !== 0
         || client.scopes?.length !== 1 || client.scopes[0] !== 'directory:read' || client.transportOnly === true))
@@ -44,6 +47,7 @@ export function loadLineIoClients(env, tenants) {
     return { id: client.id, tenantKey: client.tenantKey, groupIds: [...new Set(client.groupIds)],
       inputUserIds: client.inputUserIds, notifyUserId: client.notifyUserId || null,
       transportOnly: client.transportOnly === true, directoryAllGroups:client.directoryAllGroups === true,
+      allowPersonalBindings:client.allowPersonalBindings===true,bindingTargetClientId:client.bindingTargetClientId,
       scopes: [...client.scopes], tokenHash: hash(token) };
   });
 }
@@ -72,12 +76,16 @@ export async function acceptLineWebhook({ rawBody, signature, line, lineIo }) {
 }
 
 export async function createLineIo({ env = process.env, tenants, router, line, logger = console, store: injectedStore,
-  directoryStore: injectedDirectoryStore }) {
+  directoryStore: injectedDirectoryStore, bindingStore: injectedBindingStore }) {
   if (env.AMCORE_LINE_IO_ENABLED !== '1') return {
     enabled: false, handle: async () => false, capture: async () => {}, owns: () => false, close: async () => {},
   };
   if (!line.configured) throw new Error('LINE I/O requires LINE channel credentials');
   const clients = loadLineIoClients(env, tenants);
+  for(const client of clients.filter(c=>c.scopes.includes('bindings:write'))) {
+    if(!clients.some(c=>c.id===client.bindingTargetClientId && c.tenantKey===client.tenantKey && c.allowPersonalBindings && c.transportOnly
+      && ['groups:read','events:read','messages:write'].every(scope=>c.scopes.includes(scope)))) throw new Error('Invalid personal binding target');
+  }
   let pool;
   if (!injectedStore) {
     const { Pool } = await import('pg');
@@ -88,6 +96,7 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
       await pool.query('SELECT seq FROM line_io.line_io_events LIMIT 0');
       await pool.query('SELECT retry_key FROM line_io.line_io_sends LIMIT 0');
       await pool.query('SELECT message_id FROM line_io.line_io_unsent LIMIT 0');
+      if(env.AMCORE_LINE_BINDINGS_ENABLED==='1') await pool.query('SELECT id FROM line_bindings.bindings LIMIT 0');
       if (env.AMCORE_LINE_DIRECTORY_ENABLED === '1') {
         await pool.query('SELECT group_id FROM line_directory.groups LIMIT 0');
         await pool.query('SELECT user_id FROM line_directory.members LIMIT 0');
@@ -95,12 +104,19 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
     } catch (error) { await pool.end(); throw error; }
   }
   const store = injectedStore || createLineIoStore(pool);
+  const personal = env.AMCORE_LINE_BINDINGS_ENABLED==='1' ? await createBindings({pool,store:injectedBindingStore,line,clients,router,env}) : null;
   const subscriptions = new Map();
   for (const client of clients.filter((c) => c.scopes.includes('events:read'))) {
     for (const id of client.groupIds) subscriptions.set(id, client.tenantKey);
   }
 
   async function resolve(tenantKey, groupId, writable = false) {
+    const person=personal?.lookup(groupId);
+    if(person) {
+      if(person.tenant_key!==tenantKey || person.status!=='bound') throw ioError(403,'group_unavailable');
+      if((await personal.verified(person)).status!=='bound') throw ioError(403,'group_unavailable');
+      return {pageId:person.id,groupName:person.group_name,status:'啟用',projectPageId:null};
+    }
     // Revalidate assignment on each external request, including revocation.
     router.invalidate(groupId);
     const { tenant, binding } = await router.resolveGroupBinding(groupId);
@@ -111,10 +127,22 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
   }
 
   async function capture(events) {
+    if(personal) await personal.capture(events);
     if (directory) await directory.capture(events);
     const records = [];
     for (const event of events) {
       const groupId = event?.source?.type === 'group' ? event.source.groupId : '';
+      const person=personal?.lookup(groupId);
+      if(person) {
+        if(person.status!=='bound' || (['message','postback'].includes(event.type) && event.source.userId!==person.user_id)) continue;
+        if(!Number.isSafeInteger(event.timestamp)||event.timestamp<Date.now()-90*86400000||event.timestamp>Date.now()+300000) continue;
+        if((await personal.verified(person)).status!=='bound') continue;
+        if(typeof event.webhookEventId!=='string'||!event.webhookEventId) throw ioError(400,'event_id_required');
+        const {replyToken,...safeEvent}=event;
+        if(safeEvent.message) {const {quoteToken,...message}=safeEvent.message; safeEvent.message=message;}
+        records.push({tenantKey:person.tenant_key,groupId,bindingId:person.id,projectId:null,event:safeEvent});
+        continue;
+      }
       const tenantKey = subscriptions.get(groupId);
       if (!tenantKey) continue;
       if (['message', 'postback'].includes(event.type) && !clients.some((c) => c.tenantKey === tenantKey
@@ -141,8 +169,21 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
     try {
       const token = /^Bearer ([^\s]+)$/i.exec(String(req.headers.authorization || ''))?.[1] || '';
       const digest = hash(token);
-      const client = clients.find((c) => crypto.timingSafeEqual(c.tokenHash, digest));
-      if (!client) throw ioError(401, 'unauthorized');
+      const configuredClient = clients.find((c) => crypto.timingSafeEqual(c.tokenHash, digest));
+      if (!configuredClient) throw ioError(401, 'unauthorized');
+      if(path.startsWith(`${PREFIX}/bindings`)) {
+        if(!personal) throw ioError(503,'bindings_disabled');
+        if(!configuredClient.scopes.includes('bindings:write')) throw ioError(403,'scope_denied');
+        let body;
+        if(req.method!=='GET') {
+          if(!/^application\/json(?:;|$)/i.test(req.headers['content-type']||'')) throw ioError(415,'json_required');
+          try {body=JSON.parse(await readLineIoBody(req,4096));} catch(error) {if(error.status)throw error;throw ioError(400,'invalid_json');}
+        }
+        sendJson(res,200,await personal.handle(configuredClient,req.method,path,url,body)); return true;
+      }
+      if(personal) await personal.refresh();
+      const dynamic=personal?.active(configuredClient) || [];
+      const client={...configuredClient,groupIds:[...configuredClient.groupIds,...dynamic.map(r=>r.group_id)]};
       const memberMatch = new RegExp(`^${PREFIX}/directory/groups/([^/]+)/members$`).exec(path);
       const required = { [`GET ${PREFIX}/groups`]: 'groups:read',
         [`GET ${PREFIX}/directory/groups`]: 'directory:read',
@@ -161,7 +202,8 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
             const binding = await resolve(client.tenantKey, groupId);
             groups.push({ groupId, name: binding.groupName, bindingId: binding.pageId,
               projectId: binding.projectPageId || null, writable: binding.status === '啟用',
-              inputUserIds: client.inputUserIds || null, notifyUserId: client.notifyUserId });
+              inputUserIds: personal?.lookup(groupId) ? [personal.lookup(groupId).user_id] : client.inputUserIds || null,
+              notifyUserId: personal?.lookup(groupId)?.user_id || client.notifyUserId });
           } catch (error) { if (error.code !== 'group_unavailable') throw error; }
         }
         sendJson(res, 200, { tenantKey: client.tenantKey, groups });
@@ -174,27 +216,31 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
         // temporarily unavailable group; return an error and retain the cursor.
         for (const groupId of client.groupIds) await resolve(client.tenantKey, groupId);
         sendJson(res, 200, await store.list({ tenantKey: client.tenantKey, groupIds: client.groupIds,
-          inputUserIds: client.inputUserIds, after, limit: Number(rawLimit) }));
+          inputUserIds: client.inputUserIds, personalBindings:dynamic.map(r=>({groupId:r.group_id,bindingId:r.id,userId:r.user_id})), after, limit: Number(rawLimit) }));
       } else {
         if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] || '')) throw ioError(415, 'json_required');
         const raw = await readLineIoBody(req);
         let body;
         try { body = JSON.parse(raw); } catch { throw ioError(400, 'invalid_json'); }
         if (!body || typeof body !== 'object' || Array.isArray(body)
-          || Object.keys(body).some((k) => !['groupId', 'text', 'notifyUserId'].includes(k))
+          || Object.keys(body).some((k) => !['groupId', 'text', 'notifyUserId','actions'].includes(k))
           || typeof body.text !== 'string' || !body.text.trim() || body.text.length > 4900) throw ioError(400, 'invalid_message');
         if (Object.hasOwn(body, 'notifyUserId') && body.notifyUserId !== null
           && (typeof body.notifyUserId !== 'string' || !/^U[0-9a-f]{32}$/i.test(body.notifyUserId))) {
           throw ioError(400, 'invalid_notify_user');
         }
         if (!client.groupIds.includes(body.groupId)) throw ioError(403, 'group_denied');
+        if(body.actions!==undefined && (!client.allowPersonalBindings || !Array.isArray(body.actions) || body.actions.length<1 || body.actions.length>3
+          ||body.actions.some(a=>!a||typeof a.label!=='string'||!a.label.trim()||a.label.length>20||typeof a.data!=='string'||!a.data||a.data.length>300||Object.keys(a).some(k=>!['label','data'].includes(k))))) throw ioError(400,'invalid_actions');
         // Omission keeps v1 defaults; explicit null sends a group report without @.
         const notifyUserId = Object.hasOwn(body, 'notifyUserId') ? body.notifyUserId : client.notifyUserId;
+        const person=personal?.lookup(body.groupId);
+        if(person && (person.client_id!==client.id || notifyUserId!==person.user_id)) throw ioError(403,'personal_recipient_required');
         const key = String(req.headers['idempotency-key'] || '');
         if (!/^[a-zA-Z0-9_.:-]{1,128}$/.test(key)) throw ioError(400, 'idempotency_key_required');
         await resolve(client.tenantKey, body.groupId, true);
         const identity = { tenantKey: client.tenantKey, clientId: client.id, key };
-        const reserved = await store.reserve({ ...identity, hash: hash(JSON.stringify([body.groupId, body.text, notifyUserId])).toString('hex') });
+        const reserved = await store.reserve({ ...identity, hash: hash(JSON.stringify(body.actions===undefined ? [body.groupId, body.text, notifyUserId] : [body.groupId,body.text,notifyUserId,body.actions])).toString('hex') });
         if (reserved.result) {
           sendJson(res, 200, { ...reserved.result, replayed: true });
         } else {
@@ -211,8 +257,10 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
             // verifiable in that group before a new push is attempted.
             const message = notifyUserId ? { type: 'textV2', text: '{who}',
               substitution: { who: { type: 'mention', mentionee: { type: 'user', userId: notifyUserId } } } } : body.text;
+            const extra=notifyUserId ? [{type:'text',text:body.text}] : [];
+            if(body.actions) extra.push({type:'flex',altText:'UOF 操作確認',contents:{type:'bubble',body:{type:'box',layout:'vertical',contents:[{type:'text',text:'請確認上方的案件清單、操作及原因。按鈕僅限本人使用，逾期請重新發起。',wrap:true}]},footer:{type:'box',layout:'vertical',contents:body.actions.map(a=>({type:'button',action:{type:'postback',label:a.label,data:a.data}}))}}});
             delivery = await line.pushLineMessage(body.groupId, message, undefined, { retryKey: reserved.retryKey, timeoutMs: 8000,
-              additionalMessages: notifyUserId ? [{ type: 'text', text: body.text }] : [] });
+              additionalMessages:extra });
           } catch (error) {
             await store.finish({ ...identity, attempt: reserved.attempt, result: null });
             if (error.status) throw error;
@@ -234,8 +282,8 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
     return true;
   }
 
-  const owns = (event) => event?.source?.type === 'group' && clients.some((c) =>
-    c.transportOnly && c.scopes.includes('events:read') && c.groupIds.includes(event.source.groupId));
+  const owns = (event) => personal?.owns(event) || (event?.source?.type === 'group' && clients.some((c) =>
+    c.transportOnly && c.scopes.includes('events:read') && c.groupIds.includes(event.source.groupId)));
   const directory = env.AMCORE_LINE_DIRECTORY_ENABLED === '1' ? createDirectory({
     store:injectedDirectoryStore || createDirectoryStore(pool),router,line,clients,
     ioState:async (client,groupId,route,availabilityKnown) => {
@@ -244,9 +292,9 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
       const outputEnabled = Boolean(route?.status === '啟用' && assigned.some((c) => c.scopes.includes('messages:write')));
       return { availabilityKnown,inputEnabled:availabilityKnown ? inputEnabled : null,
         outputEnabled:availabilityKnown ? outputEnabled : null,
-        canReadInput:inputEnabled && assigned.includes(client) && client.scopes.includes('events:read'),
-        canSend:outputEnabled && assigned.includes(client) && client.scopes.includes('messages:write') };
+        canReadInput:inputEnabled && assigned.some(c=>c.id===client.id) && client.scopes.includes('events:read'),
+        canSend:outputEnabled && assigned.some(c=>c.id===client.id) && client.scopes.includes('messages:write') };
     },
   }) : null;
-  return { enabled: true, directoryEnabled:Boolean(directory), capture, handle, owns, close: async () => pool?.end() };
+  return { enabled: true, directoryEnabled:Boolean(directory),bindingsEnabled:Boolean(personal), capture, handle, owns, close: async () => pool?.end() };
 }
