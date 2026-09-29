@@ -96,15 +96,22 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
 
   // 後臺同步群組成員用。LINE 會員清單一次最多 100 人，須依 next 續頁。
   // 此 API 僅適用驗證／進階 OA；權限不足時讓管理端清楚回報，不靜默回空清單。
-  async function listGroupMemberIds(groupId) {
+  async function listGroupMemberIds(groupId, options = {}) {
     if (!groupId) throw new Error('LINE groupId is required.');
     const ids = [];
     let start = '';
+    const seen = new Set();
+    const deadline = options.deadlineMs ? Date.now() + options.deadlineMs : Infinity;
     do {
+      if (Date.now() >= deadline || seen.size >= (options.maxPages || 1000)) throw new Error('LINE member enumeration deadline exceeded');
       const query = start ? `?start=${encodeURIComponent(start)}` : '';
-      const page = await lineGet(`/v2/bot/group/${encodeURIComponent(groupId)}/members/ids${query}`);
-      ids.push(...(Array.isArray(page.memberIds) ? page.memberIds : []));
+      const page = await lineGet(`/v2/bot/group/${encodeURIComponent(groupId)}/members/ids${query}`,
+        { timeoutMs:options.timeoutMs ? Math.max(1,Math.min(options.timeoutMs,deadline - Date.now())) : undefined });
+      if (!Array.isArray(page.memberIds)) throw new Error('LINE member enumeration response is invalid');
+      ids.push(...page.memberIds);
       start = page.next || '';
+      if (start && seen.has(start)) throw new Error('LINE member enumeration cursor repeated');
+      if (start) seen.add(start);
     } while (start);
     return [...new Set(ids)];
   }

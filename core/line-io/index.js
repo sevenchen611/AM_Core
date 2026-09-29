@@ -2,9 +2,11 @@ import crypto from 'node:crypto';
 import { sendJson } from '../util.js';
 import { createLineIoStore, ioError } from './store.js';
 import { lineIoDatabaseConfig } from './database.js';
+import { createDirectory } from './directory.js';
+import { createDirectoryStore } from './directory-store.js';
 
 const PREFIX = '/api/v1/line';
-const SCOPES = new Set(['groups:read', 'events:read', 'messages:write']);
+const SCOPES = new Set(['groups:read', 'events:read', 'messages:write', 'directory:read']);
 const hash = (value) => crypto.createHash('sha256').update(value).digest();
 
 export function loadLineIoClients(env, tenants) {
@@ -21,12 +23,15 @@ export function loadLineIoClients(env, tenants) {
     if (!/^[a-zA-Z0-9_-]{1,64}$/.test(client.id || '') || ids.has(client.id)
       || !tenants.some((t) => t.key === client.tenantKey && t.runtimeEnabled !== false)
       || typeof token !== 'string' || token.length < 32 || tokens.has(token)
-      || !Array.isArray(client.groupIds) || !client.groupIds.length || client.groupIds.length > 100
+      || !Array.isArray(client.groupIds) || (!client.groupIds.length && client.directoryAllGroups !== true) || client.groupIds.length > 100
       || client.groupIds.some((id) => typeof id !== 'string' || !/^C[0-9a-f]{32}$/i.test(id))
       || (client.inputUserIds !== undefined && (!Array.isArray(client.inputUserIds) || !client.inputUserIds.length
         || client.inputUserIds.some((id) => !/^U[0-9a-f]{32}$/i.test(id))))
       || (client.notifyUserId !== undefined && !/^U[0-9a-f]{32}$/i.test(client.notifyUserId))
       || (client.transportOnly !== undefined && typeof client.transportOnly !== 'boolean')
+      || (client.directoryAllGroups !== undefined && typeof client.directoryAllGroups !== 'boolean')
+      || (client.directoryAllGroups === true && (client.groupIds.length !== 0
+        || client.scopes?.length !== 1 || client.scopes[0] !== 'directory:read' || client.transportOnly === true))
       || !Array.isArray(client.scopes) || !client.scopes.length || client.scopes.some((s) => !SCOPES.has(s))) {
       throw new Error('Invalid LINE I/O client configuration (check id, tenant, token, groups, scopes)');
     }
@@ -38,7 +43,8 @@ export function loadLineIoClients(env, tenants) {
     }
     return { id: client.id, tenantKey: client.tenantKey, groupIds: [...new Set(client.groupIds)],
       inputUserIds: client.inputUserIds, notifyUserId: client.notifyUserId || null,
-      transportOnly: client.transportOnly === true, scopes: [...client.scopes], tokenHash: hash(token) };
+      transportOnly: client.transportOnly === true, directoryAllGroups:client.directoryAllGroups === true,
+      scopes: [...client.scopes], tokenHash: hash(token) };
   });
 }
 
@@ -65,7 +71,8 @@ export async function acceptLineWebhook({ rawBody, signature, line, lineIo }) {
   return body.events;
 }
 
-export async function createLineIo({ env = process.env, tenants, router, line, logger = console, store: injectedStore }) {
+export async function createLineIo({ env = process.env, tenants, router, line, logger = console, store: injectedStore,
+  directoryStore: injectedDirectoryStore }) {
   if (env.AMCORE_LINE_IO_ENABLED !== '1') return {
     enabled: false, handle: async () => false, capture: async () => {}, owns: () => false, close: async () => {},
   };
@@ -81,6 +88,10 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
       await pool.query('SELECT seq FROM line_io.line_io_events LIMIT 0');
       await pool.query('SELECT retry_key FROM line_io.line_io_sends LIMIT 0');
       await pool.query('SELECT message_id FROM line_io.line_io_unsent LIMIT 0');
+      if (env.AMCORE_LINE_DIRECTORY_ENABLED === '1') {
+        await pool.query('SELECT group_id FROM line_directory.groups LIMIT 0');
+        await pool.query('SELECT user_id FROM line_directory.members LIMIT 0');
+      }
     } catch (error) { await pool.end(); throw error; }
   }
   const store = injectedStore || createLineIoStore(pool);
@@ -100,6 +111,7 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
   }
 
   async function capture(events) {
+    if (directory) await directory.capture(events);
     const records = [];
     for (const event of events) {
       const groupId = event?.source?.type === 'group' ? event.source.groupId : '';
@@ -131,12 +143,18 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
       const digest = hash(token);
       const client = clients.find((c) => crypto.timingSafeEqual(c.tokenHash, digest));
       if (!client) throw ioError(401, 'unauthorized');
+      const memberMatch = new RegExp(`^${PREFIX}/directory/groups/([^/]+)/members$`).exec(path);
       const required = { [`GET ${PREFIX}/groups`]: 'groups:read',
+        [`GET ${PREFIX}/directory/groups`]: 'directory:read',
         [`GET ${PREFIX}/events`]: 'events:read', [`POST ${PREFIX}/messages`]: 'messages:write' }[`${req.method} ${path}`];
-      if (!required) throw ioError(404, 'not_found');
-      if (!client.scopes.includes(required)) throw ioError(403, 'scope_denied');
+      const scope = required || (req.method === 'GET' && memberMatch ? 'directory:read' : null);
+      if (!scope) throw ioError(404, 'not_found');
+      if (!client.scopes.includes(scope)) throw ioError(403, 'scope_denied');
 
-      if (required === 'groups:read') {
+      if (scope === 'directory:read') {
+        if (!directory) throw ioError(503,'directory_disabled');
+        sendJson(res,200,memberMatch ? await directory.members(client,memberMatch[1],url) : await directory.groups(client,url));
+      } else if (required === 'groups:read') {
         const groups = [];
         for (const groupId of client.groupIds) {
           try {
@@ -218,5 +236,17 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
 
   const owns = (event) => event?.source?.type === 'group' && clients.some((c) =>
     c.transportOnly && c.scopes.includes('events:read') && c.groupIds.includes(event.source.groupId));
-  return { enabled: true, capture, handle, owns, close: async () => pool?.end() };
+  const directory = env.AMCORE_LINE_DIRECTORY_ENABLED === '1' ? createDirectory({
+    store:injectedDirectoryStore || createDirectoryStore(pool),router,line,clients,
+    ioState:async (client,groupId,route,availabilityKnown) => {
+      const assigned = clients.filter((c) => c.tenantKey === route?.tenantKey && c.groupIds.includes(groupId));
+      const inputEnabled = Boolean(['啟用','影子記錄'].includes(route?.status) && assigned.some((c) => c.scopes.includes('events:read')));
+      const outputEnabled = Boolean(route?.status === '啟用' && assigned.some((c) => c.scopes.includes('messages:write')));
+      return { availabilityKnown,inputEnabled:availabilityKnown ? inputEnabled : null,
+        outputEnabled:availabilityKnown ? outputEnabled : null,
+        canReadInput:inputEnabled && assigned.includes(client) && client.scopes.includes('events:read'),
+        canSend:outputEnabled && assigned.includes(client) && client.scopes.includes('messages:write') };
+    },
+  }) : null;
+  return { enabled: true, directoryEnabled:Boolean(directory), capture, handle, owns, close: async () => pool?.end() };
 }

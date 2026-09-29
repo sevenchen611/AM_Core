@@ -5,7 +5,7 @@ Persist nextCursor only after the entire page has been processed successfully.
 """
 import json
 import os
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import urlencode, urlsplit, quote
 from urllib.request import Request, urlopen
 
 
@@ -20,7 +20,7 @@ class LineIO:
         if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.query or parsed.fragment:
             raise ValueError("Use the deployment HTTPS base URL")
 
-    def _request(self, method, path, body=None, key=None):
+    def _request(self, method, path, body=None, key=None, timeout=30):
         headers = {"Authorization": f"Bearer {self.api_key}"}
         data = None
         if body is not None:
@@ -31,11 +31,40 @@ class LineIO:
         request = Request(f"{self.base_url}/api/v1/line{path}", data=data, headers=headers, method=method)
         # HTTPError exposes status/body. On uncertain send outcome, retain the
         # original body and idempotency key for a bounded retry; do not invent one.
-        with urlopen(request, timeout=30) as response:
+        with urlopen(request, timeout=timeout) as response:
             return json.load(response)
 
     def groups(self):
         return self._request("GET", "/groups")
+
+    def directory_groups(self, after="", limit=25):
+        return self._request("GET", "/directory/groups?" + urlencode({"after": after, "limit": limit}), timeout=60)
+
+    def directory_members(self, group_id, after="", limit=25):
+        return self._request("GET", "/directory/groups/" + quote(group_id, safe="") + "/members?" +
+                             urlencode({"after": after, "limit": limit}), timeout=60)
+
+    def iter_directory_groups(self):
+        after = ""
+        while True:
+            page = self.directory_groups(after=after)
+            yield from page["groups"]
+            if not page["hasMore"]:
+                return
+            if not page["nextCursor"] or page["nextCursor"] == after:
+                raise ValueError("Directory cursor did not advance")
+            after = page["nextCursor"]
+
+    def iter_active_members(self, group_id):
+        after = ""
+        while True:
+            page = self.directory_members(group_id, after=after)
+            yield from (user for user in page["users"] if user["active"])
+            if not page["hasMore"]:
+                return
+            if not page["nextCursor"] or page["nextCursor"] == after:
+                raise ValueError("Member cursor did not advance")
+            after = page["nextCursor"]
 
     def events(self, after="0", limit=100):
         return self._request("GET", "/events?" + urlencode({"after": after, "limit": limit}))

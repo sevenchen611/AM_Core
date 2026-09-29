@@ -1,0 +1,59 @@
+{
+  "id": "AM-IMP-2026.0929.03",
+  "name": "OA routing and active-member selector directory",
+  "type": "Core / LINE / API",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-09-29",
+  "installTargets": [
+    "AM_PLATFORM"
+  ],
+  "requiresPackages": [
+    "AM-IMP-2026.0929.02"
+  ],
+  "requiresDatabases": [
+    "Deployment-owned LINE directory metadata schema"
+  ],
+  "requiresEnv": [
+    "AMCORE_LINE_DIRECTORY_ENABLED",
+    "Scoped clients with directory:read"
+  ],
+  "requiresScripts": [
+    "node --test tools/test-line-directory.mjs",
+    "node tools/check-upgrade-package.js AM-IMP-2026.0929.03"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Known group directory and active member selection verified",
+    "Coverage limits and separate read-only operator scope enforced",
+    "Deployment verified separately"
+  ],
+  "projectStatus": {
+    "AM_PLATFORM:green-hotel": "Installed"
+  },
+  "files": [
+    "core/line-io/directory.js",
+    "core/line-io/directory-store.js",
+    "core/line-io/index.js",
+    "core/line.js",
+    "core/router.js",
+    "server.js",
+    "tools/test-line-directory.mjs",
+    ".github/workflows/validate-bank-mention.yml",
+    "versions/AM-IMP-2026.0929.01/openapi.json",
+    "versions/AM-IMP-2026.0929.01/examples/line_io_client.py",
+    "versions/AM-IMP-2026.0929.03/README.md",
+    "versions/AM-IMP-2026.0929.03/INSTALL.md",
+    "versions/AM-IMP-2026.0929.03/VERIFY.md",
+    "versions/AM-IMP-2026.0929.03/ROLLBACK.md",
+    "versions/AM-IMP-2026.0929.03/upgrade.json",
+    "versions/AM-IMP-2026.0929.03/schemas/line-directory.sql",
+    "tools/install-line-directory.mjs",
+    "docs/tenants/green-hotel/project-improvement-manifest.md",
+    "docs/tenants/green-hotel/upgrades/AM-IMP-2026.0929.03-line-directory.md"
+  ]
+}
