@@ -1,0 +1,237 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import http from 'node:http';
+import crypto from 'node:crypto';
+import { createLineIo, loadLineIoClients, acceptLineWebhook, readLineIoBody } from '../core/line-io/index.js';
+import { createLine } from '../core/line.js';
+import { ioError } from '../core/line-io/store.js';
+
+const groupA = `C${'a'.repeat(32)}`;
+const groupB = `C${'b'.repeat(32)}`;
+const secret = 'synthetic-channel-secret';
+const token = 'synthetic-api-key-at-least-32-characters';
+const tenants = [{ key: 'sample' }, { key: 'other' }];
+const config = [{ id: 'daily', tenantKey: 'sample', tokenEnv: 'TEST_TOKEN', groupIds: [groupA],
+  scopes: ['groups:read', 'events:read', 'messages:write'] }];
+const env = { AMCORE_LINE_IO_ENABLED: '1', TEST_TOKEN: token, AMCORE_LINE_IO_CLIENTS_JSON: JSON.stringify(config) };
+
+function memoryStore() {
+  const rows = [];
+  const sends = new Map();
+  return {
+    rows, sends,
+    append: async (records) => {
+      for (const r of records) if (!rows.some((x) => x.tenantKey === r.tenantKey && x.event.webhookEventId === r.event.webhookEventId)) {
+        rows.push({ ...r, cursor: String(rows.length + 1) });
+      }
+    },
+    list: async ({ tenantKey, groupIds, inputUserIds, after, limit }) => {
+      const selected = rows.filter((r) => r.tenantKey === tenantKey && groupIds.includes(r.groupId) && (!inputUserIds || !['message','postback'].includes(r.event.type) || inputUserIds.includes(r.event.source.userId)) && BigInt(r.cursor) > BigInt(after));
+      const events = selected.slice(0, limit);
+      return { events, nextCursor: events.at(-1)?.cursor || after, hasMore: selected.length > limit };
+    },
+    reserve: async (r) => {
+      const id = [r.tenantKey, r.clientId, r.key].join(':');
+      let current = sends.get(id);
+      if (current && current.hash !== r.hash) throw ioError(409, 'idempotency_conflict');
+      if (current?.result) return { result: current.result };
+      if (current?.busy) throw ioError(409, 'send_in_progress');
+      current ||= { ...r, retryKey: crypto.randomUUID(), attempt: crypto.randomUUID() };
+      current.busy = true;
+      sends.set(id, current);
+      return current;
+    },
+    finish: async (r) => { const current = sends.get([r.tenantKey, r.clientId, r.key].join(':')); Object.assign(current, { busy: false, result: r.result }); },
+  };
+}
+
+async function harness(t, options = {}) {
+  const store = memoryStore();
+  let owner = 'sample';
+  let bindingStatus = '啟用';
+  let failPush = false;
+  let holdPush;
+  const pushes = [];
+  const line = { ...createLine({ channelAccessToken: 'synthetic-token', channelSecret: secret }),
+    pushLineMessage: async (...args) => {
+      pushes.push(args);
+      if (holdPush) await holdPush;
+      if (failPush) throw new Error('upstream secret body must not leak');
+      return { requestId: 'request-test', messageIds: ['message-test'] };
+    } };
+  const router = { invalidate() {}, resolveGroupBinding: async (id) => ({ tenant: { key: owner },
+    binding: { pageId: 'binding-test', groupName: 'Synthetic group', projectPageId: 'goal-test', status: bindingStatus, groupId: id } }) };
+  const gateway = await createLineIo({ env: options.env || env, tenants, router, line, store, logger: { warn() {} } });
+  const server = http.createServer(async (req, res) => {
+    const url = new URL(req.url, 'http://localhost');
+    if (url.pathname === '/webhook/line') {
+      try {
+        const rawBody = await readLineIoBody(req);
+        await acceptLineWebhook({ rawBody, signature: req.headers['x-line-signature'], line, lineIo: gateway });
+        res.writeHead(200); res.end('OK');
+      } catch (error) { res.writeHead(error.status || 503); res.end(error.code || 'unavailable'); }
+    } else if (!await gateway.handle(req, res, url)) { res.writeHead(404); res.end(); }
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const request = async (path, options = {}) => {
+    const response = await fetch(`${base}/api/v1/line${path}`, {
+      ...options, headers: { Authorization: `Bearer ${token}`, ...options.headers },
+    });
+    return { status: response.status, headers: response.headers, body: await response.json() };
+  };
+  const send = (key, text = 'Synthetic report', groupId = groupA) => request('/messages', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': key }, body: JSON.stringify({ groupId, text }),
+  });
+  const event = (id, extras = {}) => ({ type: 'message', webhookEventId: id, timestamp: 123,
+    source: { type: 'group', groupId: groupA, userId: 'synthetic-user' },
+    replyToken: 'private-reply-token', message: { id, type: 'text', text: 'Synthetic approval input', quoteToken: 'private-quote-token' }, ...extras });
+  const webhook = async (events, signed = true) => {
+    const body = JSON.stringify({ events });
+    return fetch(`${base}/webhook/line`, { method: 'POST', body,
+      headers: { 'x-line-signature': signed ? crypto.createHmac('sha256', secret).update(body).digest('base64') : 'wrong' } });
+  };
+  return { store, gateway, request, send, event, webhook, pushes, base,
+    setOwner: (value) => { owner = value; }, setBindingStatus: (value) => { bindingStatus = value; },
+    setFailPush: (value) => { failPush = value; }, setHoldPush: (value) => { holdPush = value; } };
+}
+
+test('configuration is opt-in and requires unique scoped keys and tenant ownership', async () => {
+  assert.equal((await createLineIo({ env: {} })).enabled, false);
+  assert.equal(loadLineIoClients(env, tenants).length, 1);
+  for (const value of [[], [null], [{ ...config[0], scopes: ['admin'] }], [{ ...config[0], groupIds: ['*'] }],
+    [{ ...config[0], tenantKey: 'missing' }], [config[0], { ...config[0], id: 'second' }]]) {
+    assert.throws(() => loadLineIoClients({ ...env, AMCORE_LINE_IO_CLIENTS_JSON: JSON.stringify(value) }, tenants));
+  }
+});
+
+test('bearer authentication, group allowlist, revoked ownership and shadow mode', async (t) => {
+  const h = await harness(t);
+  assert.equal((await h.request('/groups', { headers: { Authorization: 'Bearer wrong' } })).status, 401);
+  assert.equal((await h.request('/groups')).body.groups.length, 1);
+  assert.equal((await h.send('a', 'text', groupB)).status, 403);
+  h.setBindingStatus('影子記錄');
+  assert.equal((await h.send('a')).status, 403);
+  h.setOwner('other');
+  assert.equal((await h.request('/events')).status, 403);
+  assert.equal((await h.request('/groups')).body.groups.length, 0);
+  assert.equal((await h.send('a')).status, 403);
+  assert.equal(h.pushes.length, 0);
+});
+
+test('read-only clients cannot send', async (t) => {
+  const h = await harness(t, { env: { ...env, AMCORE_LINE_IO_CLIENTS_JSON: JSON.stringify([{ ...config[0], scopes: ['events:read'] }]) } });
+  assert.equal((await h.send('a')).status, 403);
+});
+
+test('malformed JSON and oversized bodies return explicit client errors', async (t) => {
+  const h = await harness(t);
+  const malformed = await h.request('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{' });
+  assert.equal(malformed.status, 400);
+  const wrongType = await h.request('/messages', { method: 'POST', body: '{}' });
+  assert.equal(wrongType.status, 415);
+  const large = await h.request('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'x'.repeat(70000) }) });
+  assert.equal(large.status, 413);
+  assert.equal(h.pushes.length, 0);
+});
+
+test('signed durable input, deduplication, source evidence, postbacks and cursor paging', async (t) => {
+  const h = await harness(t);
+  assert.equal((await h.webhook([h.event('1')], false)).status, 401);
+  assert.equal(h.store.rows.length, 0);
+  assert.equal((await h.webhook([])).status, 200);
+  assert.equal((await h.webhook([h.event('1'), h.event('2', { type: 'postback', message: undefined, postback: { data: 'approval=42' } })])).status, 200);
+  await h.webhook([h.event('1')]);
+  await h.webhook([h.event('3', { source: { type: 'group', groupId: groupB } })]);
+  const page = await h.request('/events?after=0&limit=1');
+  assert.equal(page.body.events.length, 1);
+  assert.equal(page.body.hasMore, true);
+  assert.equal(page.body.events[0].event.source.userId, 'synthetic-user');
+  assert.equal(page.body.events[0].projectId, 'goal-test');
+  assert.equal(JSON.stringify(page.body).includes('private-'), false);
+  const next = await h.request(`/events?after=${page.body.nextCursor}`);
+  assert.equal(next.body.events[0].event.postback.data, 'approval=42');
+  assert.equal(next.body.hasMore, false);
+  assert.equal((await h.request(`/events?after=${next.body.nextCursor}`)).body.events.length, 0);
+  assert.equal(h.store.rows.length, 2);
+  assert.equal((await h.request('/events?after=-1')).status, 400);
+  assert.equal((await h.request('/events?limit=101')).status, 400);
+  assert.equal((await h.request('/events?after=9999999999999999999')).status, 400);
+});
+
+test('storage failure is not acknowledged and recovered redelivery is saved', async (t) => {
+  const h = await harness(t);
+  const append = h.store.append;
+  h.store.append = async () => { throw new Error('storage down'); };
+  assert.equal((await h.webhook([h.event('1')])).status, 503);
+  h.store.append = append;
+  assert.equal((await h.webhook([h.event('1')])).status, 200);
+  assert.equal(h.store.rows.length, 1);
+  h.setOwner('other');
+  assert.equal((await h.webhook([h.event('2')])).status, 503);
+});
+
+test('input commit finishes before webhook acknowledgement', async (t) => {
+  const h = await harness(t);
+  let release;
+  let entered;
+  const started = new Promise((resolve) => { entered = resolve; });
+  const gate = new Promise((resolve) => { release = resolve; });
+  h.store.append = async () => { entered(); await gate; };
+  let acknowledged = false;
+  const sending = h.webhook([h.event('1')]).then((r) => { acknowledged = true; return r; });
+  await started;
+  assert.equal(acknowledged, false);
+  release();
+  assert.equal((await sending).status, 200);
+});
+
+test('send validation, duplicate suppression, conflict, failure retry UUID and concurrent reservation', async (t) => {
+  const h = await harness(t);
+  assert.equal((await h.send('')).status, 400);
+  assert.equal((await h.send('a', 'x'.repeat(4901))).status, 400);
+  assert.equal((await h.send('a', ' ')).status, 400);
+  assert.equal((await h.send('a')).body.status, 'accepted');
+  assert.equal((await h.send('a')).body.replayed, true);
+  assert.equal(h.pushes.length, 1);
+  assert.equal((await h.send('a', 'changed')).status, 409);
+  h.setFailPush(true);
+  const failed = await h.send('retry');
+  assert.equal(failed.status, 502);
+  assert.equal(JSON.stringify(failed.body).includes('secret'), false);
+  const retryKey = h.pushes.at(-1)[3].retryKey;
+  h.setFailPush(false);
+  assert.equal((await h.send('retry')).status, 200);
+  assert.equal(h.pushes.at(-1)[3].retryKey, retryKey);
+  let release;
+  h.setHoldPush(new Promise((resolve) => { release = resolve; }));
+  const first = h.send('concurrent');
+  // Observe the mock transport beginning; no production network request occurs.
+  while (!h.store.sends.get('sample:daily:concurrent')) await new Promise((resolve) => setImmediate(resolve));
+  const second = await h.send('concurrent');
+  assert.equal(second.status, 409);
+  assert.equal(second.headers.get('retry-after'), '30');
+  release();
+  assert.equal((await first).status, 200);
+});
+
+const allowedUser = 'U' + 'a'.repeat(32);
+test('transport client exposes only allowed user inputs and fixes group mention recipient', async (t) => {
+  const scopedEnv = { ...env, AMCORE_LINE_IO_CLIENTS_JSON: JSON.stringify([{ ...config[0], inputUserIds: [allowedUser], notifyUserId: allowedUser, transportOnly: true }]) };
+  const h = await harness(t, { env: scopedEnv });
+  const source = { type: 'group', groupId: groupA, userId: allowedUser };
+  await h.webhook([h.event('allowed', {source}), h.event('other')]);
+  assert.deepEqual((await h.request('/events')).body.events.map(e=>e.event.webhookEventId), ['allowed']);
+  const g = (await h.request('/groups')).body.groups[0];
+  assert.deepEqual(g.inputUserIds, [allowedUser]);
+  assert.equal(g.notifyUserId, allowedUser);
+  assert.equal(h.gateway.owns(h.event('x')), true);
+  assert.equal(h.gateway.owns({source:{type:'user',userId:allowedUser}}), false);
+  const result = await h.send('scoped', '{literal} report');
+  assert.equal(result.status, 200);
+  assert.equal(result.body.notifyUserId, allowedUser);
+  assert.equal(h.pushes[0][1].substitution.who.mentionee.userId, allowedUser);
+  assert.deepEqual(h.pushes[0][3].additionalMessages, [{type:'text',text:'{literal} report'}]);
+  assert.equal((await h.request('/messages', {method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':'override'},body:JSON.stringify({groupId:groupA,text:'report',notifyUserId:'other'})})).status,400);
+});

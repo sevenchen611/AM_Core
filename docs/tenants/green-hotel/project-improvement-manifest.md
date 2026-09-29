@@ -3,6 +3,7 @@
 | Version | Status | Scope | Verified | Notes |
 | --- | --- | --- | --- | --- |
 | AM-IMP-2026.0718.01 | Deployed | Shadow operational memory | Source database inventory, PostgreSQL migration, runtime-role separation, forced RLS isolation and Render deployment | Green Hotel uses the shared production PostgreSQL service with its own tenant UUID and restricted runtime role. The previous free test database contained no operational-memory rows, so no business records required copying. |
+| AM-IMP-2026.0929.01 | Installed | Scoped LINE input/output gateway | HTTP access and idempotency tests, PostgreSQL schema, restricted runtime role and forced tenant RLS | Production activation pending verification; fixed input users and group mention recipient live only in deployment configuration. |
 
 ## Tenant boundary
 

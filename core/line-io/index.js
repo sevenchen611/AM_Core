@@ -1,0 +1,208 @@
+import crypto from 'node:crypto';
+import { sendJson } from '../util.js';
+import { createLineIoStore, ioError } from './store.js';
+import { lineIoDatabaseConfig } from './database.js';
+
+const PREFIX = '/api/v1/line';
+const SCOPES = new Set(['groups:read', 'events:read', 'messages:write']);
+const hash = (value) => crypto.createHash('sha256').update(value).digest();
+
+export function loadLineIoClients(env, tenants) {
+  let clients;
+  try { clients = JSON.parse(env.AMCORE_LINE_IO_CLIENTS_JSON || '[]'); }
+  catch { throw new Error('LINE I/O clients must be valid JSON'); }
+  if (!Array.isArray(clients) || !clients.length) throw new Error('LINE I/O requires scoped clients');
+  const ids = new Set();
+  const tokens = new Set();
+  const owners = new Map();
+  return clients.map((client) => {
+    if (!client || typeof client !== 'object') throw new Error('Invalid LINE I/O client');
+    const token = env[client.tokenEnv];
+    if (!/^[a-zA-Z0-9_-]{1,64}$/.test(client.id || '') || ids.has(client.id)
+      || !tenants.some((t) => t.key === client.tenantKey && t.runtimeEnabled !== false)
+      || typeof token !== 'string' || token.length < 32 || tokens.has(token)
+      || !Array.isArray(client.groupIds) || !client.groupIds.length || client.groupIds.length > 100
+      || client.groupIds.some((id) => typeof id !== 'string' || !/^C[0-9a-f]{32}$/i.test(id))
+      || (client.inputUserIds !== undefined && (!Array.isArray(client.inputUserIds) || !client.inputUserIds.length
+        || client.inputUserIds.some((id) => !/^U[0-9a-f]{32}$/i.test(id))))
+      || (client.notifyUserId !== undefined && !/^U[0-9a-f]{32}$/i.test(client.notifyUserId))
+      || (client.transportOnly !== undefined && typeof client.transportOnly !== 'boolean')
+      || !Array.isArray(client.scopes) || !client.scopes.length || client.scopes.some((s) => !SCOPES.has(s))) {
+      throw new Error('Invalid LINE I/O client configuration (check id, tenant, token, groups, scopes)');
+    }
+    ids.add(client.id);
+    tokens.add(token);
+    for (const id of client.groupIds) {
+      if (owners.has(id) && owners.get(id) !== client.tenantKey) throw new Error('LINE I/O group has multiple tenants');
+      owners.set(id, client.tenantKey);
+    }
+    return { id: client.id, tenantKey: client.tenantKey, groupIds: [...new Set(client.groupIds)],
+      inputUserIds: client.inputUserIds, notifyUserId: client.notifyUserId || null,
+      transportOnly: client.transportOnly === true, scopes: [...client.scopes], tokenHash: hash(token) };
+  });
+}
+
+export async function readLineIoBody(req, maxBytes = 64 * 1024) {
+  let size = 0;
+  const chunks = [];
+  for await (const chunk of req) {
+    size += Buffer.byteLength(chunk);
+    if (size > maxBytes) throw ioError(413, 'body_too_large');
+    chunks.push(Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+export async function acceptLineWebhook({ rawBody, signature, line, lineIo }) {
+  if (!line.isValidSignature(rawBody, signature)) throw ioError(401, 'invalid_signature');
+  let body;
+  try { body = JSON.parse(rawBody); } catch { throw ioError(400, 'invalid_json'); }
+  if (!body || !Array.isArray(body.events) || body.events.some((event) => !event || typeof event !== 'object' || Array.isArray(event))) {
+    throw ioError(400, 'invalid_events');
+  }
+  try { await lineIo.capture(body.events); }
+  catch { throw ioError(503, 'capture_unavailable'); }
+  return body.events;
+}
+
+export async function createLineIo({ env = process.env, tenants, router, line, logger = console, store: injectedStore }) {
+  if (env.AMCORE_LINE_IO_ENABLED !== '1') return {
+    enabled: false, handle: async () => false, capture: async () => {}, owns: () => false, close: async () => {},
+  };
+  if (!line.configured) throw new Error('LINE I/O requires LINE channel credentials');
+  const clients = loadLineIoClients(env, tenants);
+  let pool;
+  if (!injectedStore) {
+    const { Pool } = await import('pg');
+    pool = new Pool({ ...lineIoDatabaseConfig(env), max: 4,
+      connectionTimeoutMillis: 5000, statement_timeout: 5000, idle_in_transaction_session_timeout: 10000 });
+    // Migration is explicit. Never acknowledge events if durable storage is absent.
+    try {
+      await pool.query('SELECT seq FROM line_io.line_io_events LIMIT 0');
+      await pool.query('SELECT retry_key FROM line_io.line_io_sends LIMIT 0');
+      await pool.query('SELECT message_id FROM line_io.line_io_unsent LIMIT 0');
+    } catch (error) { await pool.end(); throw error; }
+  }
+  const store = injectedStore || createLineIoStore(pool);
+  const subscriptions = new Map();
+  for (const client of clients.filter((c) => c.scopes.includes('events:read'))) {
+    for (const id of client.groupIds) subscriptions.set(id, client.tenantKey);
+  }
+
+  async function resolve(tenantKey, groupId, writable = false) {
+    // Revalidate assignment on each external request, including revocation.
+    router.invalidate(groupId);
+    const { tenant, binding } = await router.resolveGroupBinding(groupId);
+    if (tenant?.key !== tenantKey || !binding || (writable && binding.status !== '啟用')) {
+      throw ioError(403, 'group_unavailable');
+    }
+    return binding;
+  }
+
+  async function capture(events) {
+    const records = [];
+    for (const event of events) {
+      const groupId = event?.source?.type === 'group' ? event.source.groupId : '';
+      const tenantKey = subscriptions.get(groupId);
+      if (!tenantKey) continue;
+      if (['message', 'postback'].includes(event.type) && !clients.some((c) => c.tenantKey === tenantKey
+        && c.groupIds.includes(groupId) && c.scopes.includes('events:read')
+        && (!c.inputUserIds || c.inputUserIds.includes(event.source.userId)))) continue;
+      if (typeof event.webhookEventId !== 'string' || !event.webhookEventId) throw ioError(400, 'event_id_required');
+      // A failed lookup may be temporary. Fail the webhook so LINE can redeliver.
+      const binding = await resolve(tenantKey, groupId);
+      const { replyToken, ...safeEvent } = event;
+      if (safeEvent.message) {
+        const { quoteToken, ...message } = safeEvent.message;
+        safeEvent.message = message;
+      }
+      records.push({ tenantKey, groupId, bindingId: binding.pageId,
+        projectId: binding.projectPageId || null, event: safeEvent });
+    }
+    await store.append(records);
+  }
+
+  async function handle(req, res, url) {
+    const path = url.pathname.replace(/\/+$/, '');
+    if (path !== PREFIX && !path.startsWith(`${PREFIX}/`)) return false;
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+      const token = /^Bearer ([^\s]+)$/i.exec(String(req.headers.authorization || ''))?.[1] || '';
+      const digest = hash(token);
+      const client = clients.find((c) => crypto.timingSafeEqual(c.tokenHash, digest));
+      if (!client) throw ioError(401, 'unauthorized');
+      const required = { [`GET ${PREFIX}/groups`]: 'groups:read',
+        [`GET ${PREFIX}/events`]: 'events:read', [`POST ${PREFIX}/messages`]: 'messages:write' }[`${req.method} ${path}`];
+      if (!required) throw ioError(404, 'not_found');
+      if (!client.scopes.includes(required)) throw ioError(403, 'scope_denied');
+
+      if (required === 'groups:read') {
+        const groups = [];
+        for (const groupId of client.groupIds) {
+          try {
+            const binding = await resolve(client.tenantKey, groupId);
+            groups.push({ groupId, name: binding.groupName, bindingId: binding.pageId,
+              projectId: binding.projectPageId || null, writable: binding.status === '啟用',
+              inputUserIds: client.inputUserIds || null, notifyUserId: client.notifyUserId });
+          } catch (error) { if (error.code !== 'group_unavailable') throw error; }
+        }
+        sendJson(res, 200, { tenantKey: client.tenantKey, groups });
+      } else if (required === 'events:read') {
+        const after = url.searchParams.get('after') || '0';
+        const rawLimit = url.searchParams.get('limit') || '100';
+        if (!/^\d{1,19}$/.test(after) || BigInt(after) > 9223372036854775807n
+          || !/^\d{1,3}$/.test(rawLimit) || Number(rawLimit) < 1 || Number(rawLimit) > 100) throw ioError(400, 'invalid_pagination');
+        // Keep the configured stream stable. Do not silently advance past a
+        // temporarily unavailable group; return an error and retain the cursor.
+        for (const groupId of client.groupIds) await resolve(client.tenantKey, groupId);
+        sendJson(res, 200, await store.list({ tenantKey: client.tenantKey, groupIds: client.groupIds,
+          inputUserIds: client.inputUserIds, after, limit: Number(rawLimit) }));
+      } else {
+        if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] || '')) throw ioError(415, 'json_required');
+        const raw = await readLineIoBody(req);
+        let body;
+        try { body = JSON.parse(raw); } catch { throw ioError(400, 'invalid_json'); }
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some((k) => !['groupId', 'text'].includes(k))
+          || typeof body.text !== 'string' || !body.text.trim() || body.text.length > 4900) throw ioError(400, 'invalid_message');
+        if (!client.groupIds.includes(body.groupId)) throw ioError(403, 'group_denied');
+        const key = String(req.headers['idempotency-key'] || '');
+        if (!/^[a-zA-Z0-9_.:-]{1,128}$/.test(key)) throw ioError(400, 'idempotency_key_required');
+        await resolve(client.tenantKey, body.groupId, true);
+        const identity = { tenantKey: client.tenantKey, clientId: client.id, key };
+        const reserved = await store.reserve({ ...identity, hash: hash(JSON.stringify([body.groupId, body.text, client.notifyUserId])).toString('hex') });
+        if (reserved.result) {
+          sendJson(res, 200, { ...reserved.result, replayed: true });
+        } else {
+          let delivery;
+          try {
+            // Mention is an operator-owned recipient. Caller cannot override it.
+            // textV2 substitution prevents arbitrary text from changing recipient.
+            const message = client.notifyUserId ? { type: 'textV2', text: '{who}',
+              substitution: { who: { type: 'mention', mentionee: { type: 'user', userId: client.notifyUserId } } } } : body.text;
+            delivery = await line.pushLineMessage(body.groupId, message, undefined, { retryKey: reserved.retryKey, timeoutMs: 8000,
+              additionalMessages: client.notifyUserId ? [{ type: 'text', text: body.text }] : [] });
+          } catch (error) {
+            await store.finish({ ...identity, attempt: reserved.attempt, result: null });
+            throw ioError(502, 'line_send_failed');
+          }
+          const result = { status: 'accepted', groupId: body.groupId, notifyUserId: client.notifyUserId, idempotencyKey: key,
+            requestId: delivery.acceptedRequestId || delivery.requestId,
+            messageIds: delivery.messageIds, replayed: Boolean(delivery.replayed) };
+          await store.finish({ ...identity, attempt: reserved.attempt, result });
+          sendJson(res, 200, result);
+        }
+      }
+    } catch (error) {
+      const status = error.status || 503;
+      if (status >= 500) logger.warn?.(`LINE I/O request failed (${error.code || 'storage_unavailable'})`);
+      if (error.code === 'send_in_progress') res.setHeader('Retry-After', '30');
+      sendJson(res, status, { error: error.code && error.status ? error.code : 'service_unavailable' });
+    }
+    return true;
+  }
+
+  const owns = (event) => event?.source?.type === 'group' && clients.some((c) =>
+    c.transportOnly && c.scopes.includes('events:read') && c.groupIds.includes(event.source.groupId));
+  return { enabled: true, capture, handle, owns, close: async () => pool?.end() };
+}

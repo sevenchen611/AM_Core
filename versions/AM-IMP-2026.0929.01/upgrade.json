@@ -1,0 +1,64 @@
+{
+  "id": "AM-IMP-2026.0929.01",
+  "name": "Scoped LINE group input/output API for external approval and report programs",
+  "type": "Core / LINE / API",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-09-29",
+  "installTargets": [
+    "AM_PLATFORM"
+  ],
+  "requiresDatabases": [
+    "Deployment-owned PostgreSQL: line_io_events, line_io_unsent, line_io_sends",
+    "Existing tenant-local group bindings"
+  ],
+  "requiresEnv": [
+    "AMCORE_LINE_IO_ENABLED",
+    "AMCORE_LINE_IO_DATABASE_URL",
+    "AMCORE_LINE_IO_CLIENTS_JSON",
+    "Per-client tokenEnv secret",
+    "LINE_CHANNEL_ACCESS_TOKEN",
+    "LINE_CHANNEL_SECRET"
+  ],
+  "requiresScripts": [
+    "node --test tools/test-line-io.mjs",
+    "node tools/dryrun-core.mjs",
+    "node tools/check-upgrade-package.js AM-IMP-2026.0929.01",
+    "node tools/audit-alignment.js"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Scoped input polling and output push pass local HTTP tests",
+    "SQL schema and adapter pass disposable PostgreSQL engine tests",
+    "OpenAPI, client example, install and rollback instructions are complete",
+    "Production activation is separately verified before any Deployed status"
+  ],
+  "projectStatus": {
+    "AM_PLATFORM": "Ready"
+  },
+  "files": [
+    "server.js",
+    "core/README.md",
+    "core/line-io/index.js",
+    "core/line-io/store.js",
+    "tools/test-line-io.mjs",
+    "tools/test-line-io-sql.mjs",
+    "versions/AM-IMP-2026.0929.01/README.md",
+    "versions/AM-IMP-2026.0929.01/INSTALL.md",
+    "versions/AM-IMP-2026.0929.01/VERIFY.md",
+    "versions/AM-IMP-2026.0929.01/ROLLBACK.md",
+    "versions/AM-IMP-2026.0929.01/upgrade.json",
+    "versions/AM-IMP-2026.0929.01/openapi.json",
+    "versions/AM-IMP-2026.0929.01/examples/line_io_client.py",
+    "versions/AM-IMP-2026.0929.01/schemas/line-io.sql",
+    "core/line-io/database.js",
+    "tools/install-line-io-schema.mjs",
+    "tools/verify-bank-line-reply-intake.mjs",
+    ".github/workflows/validate-bank-mention.yml"
+  ]
+}

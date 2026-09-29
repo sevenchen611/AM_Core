@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { PGlite } from '@electric-sql/pglite';
 import { createOperationalMemory, __test } from '../core/operational-memory.js';
 import { createBankLineReplyIntake } from '../core/bank-line-reply-intake.js';
+import { createLineIo } from '../core/line-io/index.js';
 
 const db = new PGlite();
 const tenant = { key: 'hozo-am-2-0', tenantId: '11111111-1111-4111-8111-111111111111', envPrefix: 'TEST', operationalMemory: { enabled: true, activationMode: 'enforce' } };
@@ -66,6 +67,7 @@ try {
       'node:http':{default:{createServer(fn){callback=fn;return {listen(){}};}}},'node:crypto':{default:crypto},
       './core/bootstrap.js':{bootstrap:async()=>({tenants:[tenant],line:{configured:true,isValidSignature:()=>true,replyLineMessage:async()=>{receipts++;}},router:{},dispatcher:{collectRoutes:()=>[]},portal:{},modules:new Map([['claims',{preAckClaimsAuthorityEvent:async()=>{authority++;return {intercepted:true};}}]]),platform:{operationalMemory:fakeMemory,rentalFinanceGroupPushKey:'synthetic'},logger})},
       './core/bank-line-reply-intake.js':{createBankLineReplyIntake},
+      './core/line-io/index.js':{createLineIo,readLineIoBody:async r=>r.rawBody},
       './core/direct-line.js':{routeDirectLineEvent:async()=>({matched:false})},'./core/access-directory.js':{createAccessDirectory:()=>({})},'./core/portal-handoff.js':{safePortalHandoffLocation:()=>'/'},
       './core/util.js':{readBody:async r=>r.rawBody,sendJson:(r,status)=>{r.status=status;},sendText:(r,status)=>{r.status=status;acked=true;}},
       './core/group-onboarding.js':Object.fromEntries(['GROUP_ONBOARDING_BUILD','deliverGroupOnboardingReply','groupOnboardingProperties','groupOnboardingRepairProperties','groupOnboardingSuccessMessage','parseGroupOnboardingCommand','supportedGroupOnboardingExamples','withResolvedGroupName'].map(k=>[k,()=>null])),
