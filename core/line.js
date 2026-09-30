@@ -219,7 +219,7 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
     return { type: 'text', text: String(value).slice(0, 4900) };
   }
 
-  async function replyLineMessages(replyToken, messages) {
+  async function replyLineMessages(replyToken, messages, { timeoutMs } = {}) {
     if (!replyToken) throw new Error('LINE replyToken is missing.');
     const normalized = (Array.isArray(messages) ? messages : [messages])
       .filter(Boolean)
@@ -233,6 +233,7 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ replyToken, messages: normalized }),
+      ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
     });
     const responseText = await response.text();
     if (!response.ok) {
