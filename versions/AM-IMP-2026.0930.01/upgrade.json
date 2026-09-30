@@ -1,0 +1,17 @@
+{
+  "id": "AM-IMP-2026.0930.01",
+  "name": "Silent personal LINE delivery",
+  "type": "Core / LINE / API",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-09-30",
+  "installTargets": ["AM_PLATFORM"],
+  "requiresPackages": ["AM-IMP-2026.0929.04", "AM-IMP-2026.0929.05"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": ["Active personal groups receive no owner mention", "Personal sender and membership validation remain enforced", "Non-personal mention behavior remains unchanged", "Reviewed main deployment is verified"],
+  "projectStatus": {"AM_PLATFORM": "Ready"},
+  "files": ["core/line-io/index.js", "server.js", "versions/AM-IMP-2026.0930.01/API.md"]
+}

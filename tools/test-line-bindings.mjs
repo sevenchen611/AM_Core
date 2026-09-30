@@ -95,9 +95,10 @@ test('review cards use one native carousel; idempotency covers layout and action
     actions:[{label:'查看內容',data:'uof.open.test'},{label:'開啟原表單',uri:'https://example.test/form'},{label:'尚未開放',disabled:true}]};
   const body={groupId:group,text:'待簽卡片',notifyUserId:user,cards:[card,card]};
   assert.equal((await h.request('/messages',{method:'POST',key:ioKey,body})).status,200);
-  const messages=h.pushes[0][3].additionalMessages;
-  assert.equal(messages.length,1);assert.equal(messages[0].type,'flex');assert.equal(messages[0].contents.type,'carousel');
-  const bubble=messages[0].contents.contents[0];
+  const message=h.pushes[0][1];
+  assert.equal(message.type,'flex');assert.equal(message.contents.type,'carousel');
+  assert.deepEqual(h.pushes[0][3].additionalMessages,[]);
+  const bubble=message.contents.contents[0];
   assert.equal(bubble.header.contents[1].text,'TEST-1');
   assert.equal(bubble.footer.contents[0].action.data,'uof.open.test');
   assert.equal(bubble.footer.contents[2].action,undefined);
