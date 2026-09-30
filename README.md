@@ -49,6 +49,11 @@ AM_Core must not contain:
 - Render environment values
 - Customer messages, reports, tasks, or automation logs from HOZO_AM or SevenAM
 
+For UOF approval receipts, one event-reply action may set `inline:true` to show
+the result-check label as an underlined link in the same compact Flex message.
+Only the result label is tappable; its postback remains the existing UOF
+result-check action.
+
 ## Key Folders
 
 | Folder | Purpose |

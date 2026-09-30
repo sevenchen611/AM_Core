@@ -1,57 +1,57 @@
 {
-  "amcoreVersion": "AM-IMP-2026.0708.02",
-  "amcoreHubRelease": "AMCORE-2026.0708.02",
-  "latestTrackedImprovement": "AM-IMP-2026.0708.02",
-  "packagedThrough": "AM-IMP-2026.0708.02",
+  "amcoreVersion": "AM-IMP-2026.0930.05",
+  "amcoreHubRelease": "AMCORE-2026.0930.05",
+  "latestTrackedImprovement": "AM-IMP-2026.0930.05",
+  "packagedThrough": "AM-IMP-2026.0930.05",
   "isCurrent": true,
   "behindBy": 0,
   "missingPackages": [],
   "proposedDesignItems": [],
-  "totalTrackedImprovements": 61,
-  "totalPackagedVersions": 61,
+  "totalTrackedImprovements": 180,
+  "totalPackagedVersions": 180,
   "projects": [
     {
       "projectKey": "HOZO_AM",
       "displayName": "HOZO AM",
-      "head": "AM-IMP-2026.0613.04",
-      "headStatus": "Installed",
-      "trackedVersions": 40,
+      "head": null,
+      "headStatus": "Unknown",
+      "trackedVersions": 0,
       "dataBoundary": "HOZO AM owns its own LINE, Notion, Render, GitHub, and environment values."
     },
     {
       "projectKey": "SEVEN_AM",
       "displayName": "7AM",
-      "head": "AM-IMP-2026.0618.01",
-      "headStatus": "Installed",
-      "trackedVersions": 57,
+      "head": null,
+      "headStatus": "Unknown",
+      "trackedVersions": 0,
       "dataBoundary": "7AM owns its own LINE, Notion, Render, GitHub, and environment values."
     },
     {
       "projectKey": "BUILD_AM",
-      "displayName": "BuildAM",
-      "head": "AM-IMP-2026.0708.02",
-      "headStatus": "Deployed",
-      "trackedVersions": 4,
-      "dataBoundary": "BuildAM owns its own LINE, Notion, Render, GitHub, and environment values. Minimal-seed project: only foundational AM_Core packages are installed; engineering-module features are project-local."
+      "displayName": "工程 AM（舊服務回退）",
+      "head": null,
+      "headStatus": "Unknown",
+      "trackedVersions": 0,
+      "dataBoundary": "Legacy runtime only. Engineering data remains in its existing Notion parent but is served by AM Platform tenant engineering; no new feature work is installed here."
     },
     {
-      "projectKey": "LEAF_AM",
-      "displayName": "LeafAM",
-      "head": "AM-IMP-2026.0708.02",
-      "headStatus": "Installed",
-      "trackedVersions": 4,
-      "dataBoundary": "LeafAM owns its own LINE, Notion, Render, GitHub, and environment values. Verbatim clone of BuildAM's architecture (display name 葉小蝸 AI 小助手); minimal-seed, no project bindings yet."
+      "projectKey": "FOREST_AM",
+      "displayName": "ForestAM（舊服務回退）",
+      "head": null,
+      "headStatus": "Unknown",
+      "trackedVersions": 0,
+      "dataBoundary": "Legacy rollback clone only. Forest data is served by AM Platform tenant forest; no new feature or authorization work is installed in this standalone clone."
     }
   ],
   "sources": {
     "sharedRegistry": "D:\\Codex_project\\AM_SHARED_VERSION_UPGRADES\\SHARED_IMPROVEMENT_REGISTRY.md",
-    "versionsFolder": "D:\\Codex_project\\AM_Core\\versions",
+    "versionsFolder": "D:\\CodexWork\\AM_Core_reply_token\\versions",
     "manifests": [
       "D:\\Codex_project\\HOZO_AM\\line-oa-webhook\\docs\\project-improvement-manifest.md",
       "D:\\Codex_project\\SevenAM\\line-oa-webhook\\docs\\project-improvement-manifest.md",
       "D:\\Codex_project\\BuildAM\\line-oa-webhook\\docs\\project-improvement-manifest.md",
-      "D:\\Codex_project\\LeafAM\\line-oa-webhook\\docs\\project-improvement-manifest.md"
+      "D:\\Codex_project\\ForestAM\\line-oa-webhook\\docs\\project-improvement-manifest.md"
     ]
   },
-  "generatedAt": "2026-07-09T11:24:05.159Z"
+  "generatedAt": "2026-09-30T05:39:07.154Z"
 }

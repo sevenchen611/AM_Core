@@ -267,13 +267,23 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
           || body.actions.length < 1 || body.actions.length > 3
           || body.actions.some(a => !a || typeof a.label !== 'string' || !a.label.trim() || a.label.length > 20
             || typeof a.data !== 'string' || !a.data || a.data.length > 300
-            || Object.keys(a).some(k => !['label','data'].includes(k))))) throw ioError(400, 'invalid_actions');
+            || (a.inline !== undefined && typeof a.inline !== 'boolean')
+            || Object.keys(a).some(k => !['label','data','inline'].includes(k)))
+          || body.actions.some(a => a.inline === true) && (body.actions.length !== 1 || body.cards !== undefined)))
+          throw ioError(400, 'invalid_actions');
         await resolve(client.tenantKey, body.groupId, true);
-        const replyCard = body.actions ? {type:'flex',altText:'UOF 操作確認',contents:{type:'bubble',
+        const inlineAction = body.actions?.length === 1 && body.actions[0].inline === true ? body.actions[0] : null;
+        const replyCard = inlineAction ? {type:'flex',altText:(body.text + ' ' + inlineAction.label).slice(0,1500),contents:{type:'bubble',size:'kilo',
+          body:{type:'box',layout:'vertical',paddingAll:'12px',contents:[{type:'box',layout:'horizontal',alignItems:'bottom',contents:[
+            {type:'text',text:body.text,wrap:true,flex:1},
+            {type:'text',text:inlineAction.label,color:'#2563EB',decoration:'underline',flex:0,margin:'xs',
+              action:{type:'postback',label:inlineAction.label,data:inlineAction.data}}]}]}}}
+          : body.actions ? {type:'flex',altText:'UOF 操作確認',contents:{type:'bubble',
           body:{type:'box',layout:'vertical',contents:[{type:'text',text:'請確認上方的案件清單、操作及原因。',wrap:true}]},
           footer:{type:'box',layout:'vertical',contents:body.actions.map(a=>({type:'button',
             action:{type:'postback',label:a.label,data:a.data}}))}}} : null;
-        const textParts = body.includeText || !cardMessage ? body.text.match(/[\s\S]{1,4900}/g).map(text=>({type:'text',text})) : [];
+        const textParts = inlineAction ? [] : body.includeText || !cardMessage
+          ? body.text.match(/[\s\S]{1,4900}/g).map(text=>({type:'text',text})) : [];
         const messages = [...textParts, ...(cardMessage ? [cardMessage] : []), ...(replyCard ? [replyCard] : [])];
         if (messages.length > 5) throw ioError(400,'reply_too_long');
         const bodyHash = hash(JSON.stringify([body.groupId,body.notifyUserId,body.text,body.cards,body.actions,body.includeText])).toString('hex');
