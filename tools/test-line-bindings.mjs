@@ -118,6 +118,31 @@ test('review cards use one native carousel; idempotency covers layout and action
   assert.throws(()=>buildReviewCards(Array(6).fill({...card,body:'漢'.repeat(3000),fields:Array(12).fill({label:'欄',value:'漢'.repeat(500)})}),'large'),/cards_too_large/);
 });
 
+test('consolidated review actions wrap filenames and preserve authorization and replay',async t=>{
+  const h=await harness(t);await h.bind();
+  const filename='月結附件含詳細品項與申請說明的長檔名_115年09月.pdf';
+  const actions=Array.from({length:10},(_,i)=>({label:`附件 ${i+1}`,displayText:i===0?filename:`附件_${i+1}.pdf`,uri:`https://example.test/file/${i+1}`}));
+  actions.push({label:'核准',data:'uof.submit.example'},{label:'未開放',displayText:'無效附件.pdf（連結未提供）',disabled:true});
+  const cards=[{title:'Synthetic case',body:'Contents',actions}];
+  const body={groupId:group,notifyUserId:user,text:'附件操作',cards};
+  assert.equal((await h.request('/messages',{method:'POST',key:ioKey,body})).status,200);
+  const bubble=h.pushes[0][1].contents;
+  assert.equal(bubble.type,'bubble');assert.equal(bubble.footer.contents.length,12);
+  assert.equal(bubble.footer.contents[0].contents[0].text,filename);
+  assert.equal(bubble.footer.contents[0].contents[0].wrap,true);
+  assert.equal(bubble.footer.contents[0].action.uri,actions[0].uri);
+  assert.equal(bubble.footer.contents[10].action.data,'uof.submit.example');
+  assert.equal(bubble.footer.contents[11].action,undefined);
+  assert.equal((await h.request('/messages',{method:'POST',key:ioKey,body})).body.replayed,true);
+  const changed=[{...cards[0],actions:actions.map((a,i)=>i===0?{...a,displayText:'changed.pdf'}:a)}];
+  assert.equal((await h.request('/messages',{method:'POST',key:ioKey,body:{...body,cards:changed}})).status,409);
+  for(const badActions of [[...actions,actions[0]],[{...actions[0],displayText:''}],[{...actions[0],displayText:'漢'.repeat(301)}],
+    [{...actions[0],displayText:{text:'raw'}}],[{...actions[0],uri:'javascript:alert(1)'}]])
+    assert.equal((await h.request('/messages',{method:'POST',key:ioKey,idempotency:'invalid-long',body:{...body,cards:[{...cards[0],actions:badActions}]}})).status,400);
+  assert.equal((await h.request('/messages',{method:'POST',key:ioKey,body:{...body,notifyUserId:intruder}})).status,403);
+  assert.equal(h.pushes.length,1);
+});
+
 test('expired codes, legacy groups, rates and competing owners cannot bind',async t=>{
   const h=await harness(t),row=await h.start();
   await h.gateway.capture([h.event('legacy-bind',row.command,legacy)]);

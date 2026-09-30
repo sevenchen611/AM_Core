@@ -1,0 +1,17 @@
+{
+  "id": "AM-IMP-2026.0930.04",
+  "name": "Consolidated review-card actions with wrapped filenames",
+  "type": "Core / LINE / API",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-09-30",
+  "installTargets": ["AM_PLATFORM"],
+  "requiresPackages": ["AM-IMP-2026.0930.02"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": ["node --test tools/test-line-bindings.mjs tools/test-line-io.mjs tools/test-line-directory.mjs"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": ["Twelve actions render in one bubble with wrapped display text", "Filename-to-URI mapping and disabled rows verified", "Oversized, unsafe, foreign and changed-replay requests rejected", "Reviewed main deployment verified separately"],
+  "projectStatus": {"AM_PLATFORM": "Ready"},
+  "files": ["core/line-io/cards.js", "tools/test-line-bindings.mjs"]
+}
