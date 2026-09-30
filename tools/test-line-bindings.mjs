@@ -93,7 +93,8 @@ test('review cards use one native carousel; idempotency covers layout and action
   const h=await harness(t);await h.bind();
   const card={eyebrow:'UOF · 待簽',title:'TEST-1',subtitle:'Synthetic form',fields:[{label:'申請人',value:'測試使用者'}],body:'內容\n第二行',
     actions:[{label:'查看內容',data:'uof.open.test'},{label:'開啟原表單',uri:'https://example.test/form'},{label:'尚未開放',disabled:true}]};
-  const body={groupId:group,text:'待簽卡片',notifyUserId:user,cards:[card,card]};
+  const httpLinkCard={...card,title:'廠商查詢',actions:[{label:'開啟廠商查詢',uri:'http://vendors.example.test:2707/VendorQ.aspx'}]};
+  const body={groupId:group,text:'待簽卡片',notifyUserId:user,cards:[card,httpLinkCard]};
   assert.equal((await h.request('/messages',{method:'POST',key:ioKey,body})).status,200);
   const message=h.pushes[0][1];
   assert.equal(message.type,'flex');assert.equal(message.contents.type,'carousel');
@@ -102,11 +103,12 @@ test('review cards use one native carousel; idempotency covers layout and action
   assert.equal(bubble.header.contents[1].text,'TEST-1');
   assert.equal(bubble.footer.contents[0].action.data,'uof.open.test');
   assert.equal(bubble.footer.contents[2].action,undefined);
+  assert.equal(message.contents.contents[1].footer.contents[0].action.uri,'http://vendors.example.test:2707/VendorQ.aspx');
   assert.equal((await h.request('/messages',{method:'POST',key:ioKey,body})).body.replayed,true);
   assert.equal((await h.request('/messages',{method:'POST',key:ioKey,body:{...body,cards:[{...card,title:'Changed'}]}})).status,409);
   assert.equal(h.pushes.length,1);
   for(const cards of [[],Array(7).fill(card),[{...card,body:'x'.repeat(3001)}],[{...card,actions:[{label:'bad',uri:'javascript:alert(1)'}]}],
-    [{...card,actions:[{label:'bad',uri:'https://user:password@example.test/'}]}],[{...card,actions:[{label:'bad',data:'x',disabled:true}]}],
+    [{...card,actions:[{label:'bad',uri:'https://user:password@example.test/'}]}],[{...card,actions:[{label:'bad',uri:'https://example.test/'+ 'x'.repeat(1000)}]}],[{...card,actions:[{label:'bad',data:'x',disabled:true}]}],
     [{...card,type:'raw-flex'}]]) {
     assert.equal((await h.request('/messages',{method:'POST',key:ioKey,idempotency:'invalid',body:{...body,cards}})).status,400);
   }

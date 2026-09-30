@@ -1,0 +1,17 @@
+{
+  "id": "AM-IMP-2026.0930.02",
+  "name": "Clickable URLs in UOF review cards",
+  "type": "Core / LINE / API",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-09-30",
+  "installTargets": ["AM_PLATFORM"],
+  "requiresPackages": ["AM-IMP-2026.0929.05"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": ["node --test tools/test-line-bindings.mjs tools/test-line-io.mjs tools/test-line-directory.mjs"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": ["HTTP and HTTPS URI action scheme validated", "Invalid and oversized URLs rejected without a LINE push", "Reviewed main deployment verified separately"],
+  "projectStatus": {"AM_PLATFORM": "Ready"},
+  "files": ["core/line-io/cards.js", "tools/test-line-bindings.mjs", "versions/AM-IMP-2026.0930.02/API.md"]
+}
