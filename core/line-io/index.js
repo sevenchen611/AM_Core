@@ -260,9 +260,13 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
             }
             // Group authorization is unchanged. Each supplied recipient must be
             // verifiable in that group before a new push is attempted.
-            const message = notifyUserId ? { type: 'textV2', text: '{who}',
-              substitution: { who: { type: 'mention', mentionee: { type: 'user', userId: notifyUserId } } } } : (cardMessage || body.text);
-            const extra=notifyUserId ? [cardMessage || {type:'text',text:body.text}] : [];
+            // The notifyUserId on a personal binding verifies the owner and
+            // their current membership. It must not also charge a mention for
+            // each reply in a private, one-person group.
+            const mentionUserId = notifyUserId && !person ? notifyUserId : null;
+            const message = mentionUserId ? { type: 'textV2', text: '{who}',
+              substitution: { who: { type: 'mention', mentionee: { type: 'user', userId: mentionUserId } } } } : (cardMessage || body.text);
+            const extra=mentionUserId ? [cardMessage || {type:'text',text:body.text}] : [];
             if(body.actions) extra.push({type:'flex',altText:'UOF 操作確認',contents:{type:'bubble',body:{type:'box',layout:'vertical',contents:[{type:'text',text:'請確認上方的案件清單、操作及原因。按鈕僅限本人使用，逾期請重新發起。',wrap:true}]},footer:{type:'box',layout:'vertical',contents:body.actions.map(a=>({type:'button',action:{type:'postback',label:a.label,data:a.data}}))}}});
             delivery = await line.pushLineMessage(body.groupId, message, undefined, { retryKey: reserved.retryKey, timeoutMs: 8000,
               additionalMessages:extra });
