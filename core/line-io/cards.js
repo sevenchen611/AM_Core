@@ -24,7 +24,7 @@ export function buildReviewCards(cards, altText) {
       if (action.data !== undefined && !text(action.data,300)) throw ioError(400, 'invalid_card_action');
       if (action.uri !== undefined) {
         let uri; try { uri = new URL(action.uri); } catch { throw ioError(400,'invalid_card_action'); }
-        if (!text(action.uri,2000) || uri.protocol !== 'https:' || uri.username || uri.password) throw ioError(400,'invalid_card_action');
+        if (!text(action.uri,1000) || !['http:','https:'].includes(uri.protocol) || uri.username || uri.password) throw ioError(400,'invalid_card_action');
       }
       return {type:'button',style:action.data ? 'primary' : 'secondary',color:action.data ? '#187566' : '#EAF2EF',height:'sm',action:action.data
         ? {type:'postback',label:action.label,data:action.data}
