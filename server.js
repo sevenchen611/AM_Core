@@ -427,6 +427,22 @@ const server = http.createServer(async (req, res) => {
           if (!bankReceipt.replayed && event.replyToken) bankReplyReceipts.push(event.replyToken);
           continue;
         }
+        const financeCommand = event?.type === 'message'
+          && event.message?.type === 'text'
+          && ['請款', '費用申請'].includes(String(event.message.text || '').trim());
+        // The exact deploy-scoped Finance v3 groups own these commands. Persist
+        // their private entry before the broader claims authority registry can
+        // classify a group as unassigned and reply in the group instead.
+        if (financeCommand
+          && typeof financeClaimsModule?.ownsFinanceV3LineEvent === 'function'
+          && typeof financeClaimsModule?.preAckLineEvent === 'function'
+          && financeClaimsModule.ownsFinanceV3LineEvent({ tenant: financeClaimsTenant, event })) {
+          const result = await financeClaimsModule.preAckLineEvent({ tenant: financeClaimsTenant, event });
+          if (result?.intercepted) {
+            financeInterceptedEvents.add(event);
+            continue;
+          }
+        }
         if (groupId && typeof financeClaimsModule?.preAckClaimsAuthorityEvent === 'function') {
           const authorityResult = await financeClaimsModule.preAckClaimsAuthorityEvent({
             tenant: financeClaimsTenant,
@@ -438,10 +454,7 @@ const server = http.createServer(async (req, res) => {
             continue;
           }
         }
-        const financeCandidate = (event?.type === 'message'
-          && event.message?.type === 'text'
-          && ['請款', '費用申請'].includes(String(event.message.text || '').trim()))
-          || event?.type === 'memberJoined' || event?.type === 'memberLeft';
+        const financeCandidate = event?.type === 'memberJoined' || event?.type === 'memberLeft';
         if (!financeCandidate
           || typeof financeClaimsModule?.ownsFinanceV3LineEvent !== 'function'
           || typeof financeClaimsModule?.preAckLineEvent !== 'function') continue;
