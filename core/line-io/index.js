@@ -11,6 +11,20 @@ const PREFIX = '/api/v1/line';
 const SCOPES = new Set(['groups:read', 'events:read', 'messages:write', 'directory:read', 'bindings:write']);
 const hash = (value) => crypto.createHash('sha256').update(value).digest();
 
+function sealReplyToken(token, key) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(token, 'utf8'), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString('base64');
+}
+
+function openReplyToken(sealed, key) {
+  const bytes = Buffer.from(sealed, 'base64');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, bytes.subarray(0, 12));
+  decipher.setAuthTag(bytes.subarray(12, 28));
+  return Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]).toString('utf8');
+}
+
 export function loadLineIoClients(env, tenants) {
   let clients;
   try { clients = JSON.parse(env.AMCORE_LINE_IO_CLIENTS_JSON || '[]'); }
@@ -82,6 +96,9 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
     enabled: false, handle: async () => false, capture: async () => {}, owns: () => false, close: async () => {},
   };
   if (!line.configured) throw new Error('LINE I/O requires LINE channel credentials');
+  const replyEnabled = env.AMCORE_LINE_IO_REPLY_ENABLED === '1';
+  if (replyEnabled && !env.LINE_CHANNEL_SECRET) throw new Error('LINE replies require the existing LINE channel secret');
+  const replyKey = replyEnabled ? hash(`line-io-replies-v1:${env.LINE_CHANNEL_SECRET}`) : null;
   const clients = loadLineIoClients(env, tenants);
   for(const client of clients.filter(c=>c.scopes.includes('bindings:write'))) {
     if(!clients.some(c=>c.id===client.bindingTargetClientId && c.tenantKey===client.tenantKey && c.allowPersonalBindings && c.transportOnly
@@ -141,7 +158,9 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
         if(typeof event.webhookEventId!=='string'||!event.webhookEventId) throw ioError(400,'event_id_required');
         const {replyToken,...safeEvent}=event;
         if(safeEvent.message) {const {quoteToken,...message}=safeEvent.message; safeEvent.message=message;}
-        records.push({tenantKey:person.tenant_key,groupId,bindingId:person.id,projectId:null,event:safeEvent});
+        records.push({tenantKey:person.tenant_key,groupId,bindingId:person.id,projectId:null,event:safeEvent,
+          ...(replyEnabled && ['message','postback'].includes(event.type) && event.replyToken
+            ? {reply:sealReplyToken(event.replyToken,replyKey)} : {})});
         continue;
       }
       const tenantKey = subscriptions.get(groupId);
@@ -158,7 +177,9 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
         safeEvent.message = message;
       }
       records.push({ tenantKey, groupId, bindingId: binding.pageId,
-        projectId: binding.projectPageId || null, event: safeEvent });
+        projectId: binding.projectPageId || null, event: safeEvent,
+        ...(replyEnabled && ['message','postback'].includes(event.type) && event.replyToken
+          ? {reply:sealReplyToken(event.replyToken,replyKey)} : {}) });
     }
     await store.append(records);
   }
@@ -188,7 +209,8 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
       const memberMatch = new RegExp(`^${PREFIX}/directory/groups/([^/]+)/members$`).exec(path);
       const required = { [`GET ${PREFIX}/groups`]: 'groups:read',
         [`GET ${PREFIX}/directory/groups`]: 'directory:read',
-        [`GET ${PREFIX}/events`]: 'events:read', [`POST ${PREFIX}/messages`]: 'messages:write' }[`${req.method} ${path}`];
+        [`GET ${PREFIX}/events`]: 'events:read', [`POST ${PREFIX}/messages`]: 'messages:write',
+        [`POST ${PREFIX}/replies`]: 'messages:write' }[`${req.method} ${path}`];
       const scope = required || (req.method === 'GET' && memberMatch ? 'directory:read' : null);
       if (!scope) throw ioError(404, 'not_found');
       if (!client.scopes.includes(scope)) throw ioError(403, 'scope_denied');
@@ -218,6 +240,56 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
         for (const groupId of client.groupIds) await resolve(client.tenantKey, groupId);
         sendJson(res, 200, await store.list({ tenantKey: client.tenantKey, groupIds: client.groupIds,
           inputUserIds: client.inputUserIds, personalBindings:dynamic.map(r=>({groupId:r.group_id,bindingId:r.id,userId:r.user_id})), after, limit: Number(rawLimit) }));
+      } else if (path === `${PREFIX}/replies`) {
+        if (!replyEnabled) throw ioError(503, 'replies_disabled');
+        if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] || '')) throw ioError(415, 'json_required');
+        let body;
+        try { body = JSON.parse(await readLineIoBody(req)); } catch (error) {
+          if (error.status) throw error;
+          throw ioError(400, 'invalid_json');
+        }
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some(k => !['eventId','groupId','notifyUserId','text','actions','cards','includeText'].includes(k))
+          || typeof body.eventId !== 'string' || !body.eventId || body.eventId.length > 128
+          || typeof body.text !== 'string' || !body.text.trim() || body.text.length > 24000
+          || (body.includeText !== undefined && body.includeText !== true)
+          || (!body.includeText && body.text.length > 4900)
+          || typeof body.notifyUserId !== 'string' || !/^U[0-9a-f]{32}$/i.test(body.notifyUserId)
+          || !client.groupIds.includes(body.groupId)) throw ioError(400, 'invalid_reply');
+        const person = personal?.lookup(body.groupId);
+        if (person && (person.client_id !== client.id || person.user_id !== body.notifyUserId))
+          throw ioError(403, 'personal_recipient_required');
+        if (body.cards !== undefined && (!client.allowPersonalBindings || body.actions !== undefined))
+          throw ioError(400, 'invalid_cards');
+        const cardMessage = body.cards === undefined ? null : buildReviewCards(body.cards, body.text);
+        if (body.includeText && !cardMessage) throw ioError(400, 'invalid_reply');
+        if (body.actions !== undefined && (!client.allowPersonalBindings || !Array.isArray(body.actions)
+          || body.actions.length < 1 || body.actions.length > 3
+          || body.actions.some(a => !a || typeof a.label !== 'string' || !a.label.trim() || a.label.length > 20
+            || typeof a.data !== 'string' || !a.data || a.data.length > 300
+            || Object.keys(a).some(k => !['label','data'].includes(k))))) throw ioError(400, 'invalid_actions');
+        await resolve(client.tenantKey, body.groupId, true);
+        const replyCard = body.actions ? {type:'flex',altText:'UOF 操作確認',contents:{type:'bubble',
+          body:{type:'box',layout:'vertical',contents:[{type:'text',text:'請確認上方的案件清單、操作及原因。',wrap:true}]},
+          footer:{type:'box',layout:'vertical',contents:body.actions.map(a=>({type:'button',
+            action:{type:'postback',label:a.label,data:a.data}}))}}} : null;
+        const textParts = body.includeText || !cardMessage ? body.text.match(/[\s\S]{1,4900}/g).map(text=>({type:'text',text})) : [];
+        const messages = [...textParts, ...(cardMessage ? [cardMessage] : []), ...(replyCard ? [replyCard] : [])];
+        if (messages.length > 5) throw ioError(400,'reply_too_long');
+        const bodyHash = hash(JSON.stringify([body.groupId,body.notifyUserId,body.text,body.cards,body.actions,body.includeText])).toString('hex');
+        const identity = {tenantKey:client.tenantKey,eventId:body.eventId,groupId:body.groupId,
+          userId:body.notifyUserId,bodyHash};
+        const claimed = await store.claimReply(identity);
+        if (claimed.result) { sendJson(res,200,{...claimed.result,replayed:true}); return true; }
+        try {
+          await line.replyLineMessages(openReplyToken(claimed.sealedToken, replyKey), messages, {timeoutMs:8000});
+          const result = {status:'accepted',method:'reply',eventId:body.eventId,replayed:false};
+          await store.finishReply({...identity,status:'accepted',result});
+          sendJson(res,200,result);
+        } catch (error) {
+          await store.finishReply({...identity,status:'uncertain',result:null});
+          throw ioError(409,'reply_outcome_unknown');
+        }
       } else {
         if (!/^application\/json(?:;|$)/i.test(req.headers['content-type'] || '')) throw ioError(415, 'json_required');
         const raw = await readLineIoBody(req);

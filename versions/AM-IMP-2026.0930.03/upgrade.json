@@ -1,0 +1,17 @@
+{
+  "id": "AM-IMP-2026.0930.03",
+  "name": "One-use LINE replies for UOF interactions",
+  "type": "Core / LINE / API",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-09-30",
+  "installTargets": ["AM_PLATFORM"],
+  "requiresPackages": ["AM-IMP-2026.0929.05"],
+  "requiresDatabases": ["existing line_io PostgreSQL event table"],
+  "requiresEnv": ["AMCORE_LINE_IO_REPLY_ENABLED", "existing LINE_CHANNEL_SECRET"],
+  "requiresScripts": ["node --test tools/test-line-io.mjs", "node tools/test-line-io-sql.mjs"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": ["One reply per captured event", "No token exposed through event feed", "Review and production delivery verified"],
+  "projectStatus": {"AM_PLATFORM": "Ready"},
+  "files": ["core/line-io/index.js", "core/line-io/store.js", "core/line.js", "tools/test-line-io.mjs", "tools/test-line-io-sql.mjs"]
+}

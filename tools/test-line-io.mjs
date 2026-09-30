@@ -18,11 +18,15 @@ const env = { AMCORE_LINE_IO_ENABLED: '1', TEST_TOKEN: token, AMCORE_LINE_IO_CLI
 function memoryStore() {
   const rows = [];
   const sends = new Map();
+  const replyRows = new Map();
   return {
-    rows, sends,
+    rows, sends, replyRows,
     append: async (records) => {
       for (const r of records) if (!rows.some((x) => x.tenantKey === r.tenantKey && x.event.webhookEventId === r.event.webhookEventId)) {
-        rows.push({ ...r, cursor: String(rows.length + 1) });
+        rows.push({ ...r, reply: undefined, cursor: String(rows.length + 1) });
+        if (r.reply) replyRows.set(`${r.tenantKey}:${r.event.webhookEventId}`, {
+          groupId:r.groupId,userId:r.event.source.userId,sealedToken:r.reply,status:'pending',bodyHash:null,result:null,
+        });
       }
     },
     list: async ({ tenantKey, groupIds, inputUserIds, after, limit }) => {
@@ -42,6 +46,19 @@ function memoryStore() {
       return current;
     },
     finish: async (r) => { const current = sends.get([r.tenantKey, r.clientId, r.key].join(':')); Object.assign(current, { busy: false, result: r.result }); },
+    claimReply: async (r) => {
+      const row = replyRows.get(`${r.tenantKey}:${r.eventId}`);
+      if (!row || row.groupId !== r.groupId || row.userId !== r.userId) throw ioError(404,'reply_event_unavailable');
+      if (row.bodyHash && row.bodyHash !== r.bodyHash) throw ioError(409,'reply_payload_changed');
+      if (row.status === 'accepted') return {result:row.result};
+      if (row.status !== 'pending') throw ioError(409,'reply_outcome_unknown');
+      row.status='sending'; row.bodyHash=r.bodyHash;
+      return {sealedToken:row.sealedToken};
+    },
+    finishReply: async (r) => {
+      const row=replyRows.get(`${r.tenantKey}:${r.eventId}`);
+      row.status=r.status; row.result=r.result; row.sealedToken=null;
+    },
   };
 }
 
@@ -53,6 +70,7 @@ async function harness(t, options = {}) {
   let holdPush;
   let memberFailure;
   const pushes = [];
+  const replies = [];
   const memberLookups = [];
   const line = { ...createLine({ channelAccessToken: 'synthetic-token', channelSecret: secret }),
     resolveGroupMemberName: async (...args) => {
@@ -65,7 +83,8 @@ async function harness(t, options = {}) {
       if (holdPush) await holdPush;
       if (failPush) throw new Error('upstream secret body must not leak');
       return { requestId: 'request-test', messageIds: ['message-test'] };
-    } };
+    },
+    replyLineMessages: async (...args) => { replies.push(args); return {ok:true}; } };
   const router = { invalidate() {}, resolveGroupBinding: async (id) => ({ tenant: { key: owner },
     binding: { pageId: 'binding-test', groupName: 'Synthetic group', projectPageId: 'goal-test', status: bindingStatus, groupId: id } }) };
   const gateway = await createLineIo({ env: options.env || env, tenants, router, line, store, logger: { warn() {} } });
@@ -99,7 +118,7 @@ async function harness(t, options = {}) {
     return fetch(`${base}/webhook/line`, { method: 'POST', body,
       headers: { 'x-line-signature': signed ? crypto.createHmac('sha256', secret).update(body).digest('base64') : 'wrong' } });
   };
-  return { store, gateway, request, send, event, webhook, pushes, memberLookups, base,
+  return { store, gateway, request, send, event, webhook, pushes, replies, memberLookups, base,
     setMemberFailure: (value) => { memberFailure = value; },
     setOwner: (value) => { owner = value; }, setBindingStatus: (value) => { bindingStatus = value; },
     setFailPush: (value) => { failPush = value; }, setHoldPush: (value) => { holdPush = value; } };
@@ -112,6 +131,29 @@ test('configuration is opt-in and requires unique scoped keys and tenant ownersh
     [{ ...config[0], tenantKey: 'missing' }], [config[0], { ...config[0], id: 'second' }]]) {
     assert.throws(() => loadLineIoClients({ ...env, AMCORE_LINE_IO_CLIENTS_JSON: JSON.stringify(value) }, tenants));
   }
+});
+
+test('bound event replies once without a push and never exposes its token in the event feed', async (t) => {
+  const userId = `U${'a'.repeat(32)}`;
+  const replyEnv = { ...env, LINE_CHANNEL_SECRET:secret, AMCORE_LINE_IO_REPLY_ENABLED:'1',
+    AMCORE_LINE_IO_CLIENTS_JSON:JSON.stringify([{...config[0],inputUserIds:[userId],
+      allowPersonalBindings:true,transportOnly:true}]) };
+  const h=await harness(t,{env:replyEnv});
+  assert.equal((await h.webhook([h.event('reply-1',{source:{type:'group',groupId:groupA,userId}})])).status,200);
+  assert.equal(JSON.stringify((await h.request('/events')).body).includes('private-reply-token'),false);
+  const payload={eventId:'reply-1',groupId:groupA,notifyUserId:userId,text:'待簽清單',
+    cards:[{title:'案件一',body:'測試',actions:[{label:'查看內容',data:'uof.open.test'}]}]};
+  const send=()=>h.request('/replies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  assert.equal((await send()).body.method,'reply');
+  assert.equal(h.replies.length,1);
+  assert.equal(h.replies[0][0],'private-reply-token');
+  assert.equal(h.pushes.length,0);
+  assert.equal((await send()).body.replayed,true);
+  assert.equal(h.replies.length,1);
+  assert.equal((await h.request('/replies',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({...payload,text:'different'})})).status,409);
+  assert.equal((await h.request('/replies',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({...payload,eventId:'missing'})})).status,404);
 });
 
 test('bearer authentication, group allowlist, revoked ownership and shadow mode', async (t) => {

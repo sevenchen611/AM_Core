@@ -20,6 +20,13 @@ export function createLineIoStore(pool) {
   async function append(records) {
     if (!records.length) return;
     await transaction(async (db) => {
+      if (records.some(record => record.reply)) {
+        await db.query(`UPDATE line_io.line_io_events
+          SET payload = jsonb_set(payload, '{reply}', (payload->'reply') ||
+            jsonb_build_object('status', 'expired', 'sealedToken', NULL))
+          WHERE received_at < now()-interval '2 minutes'
+            AND payload #>> '{reply,status}' = 'pending'`);
+      }
       // Allocate sequence IDs in commit order: concurrent webhooks cannot commit
       // a smaller cursor after a reader has already consumed a larger one.
       await db.query('SELECT pg_advisory_xact_lock(9282026, 1)');
@@ -42,7 +49,9 @@ export function createLineIoStore(pool) {
         }
         await db.query(`INSERT INTO line_io.line_io_events (tenant_key, group_id, event_id, payload)
           VALUES ($1, $2, $3, $4::jsonb) ON CONFLICT (tenant_key, event_id) DO NOTHING`,
-        [tenantKey, groupId, event.webhookEventId, JSON.stringify(payload)]);
+        [tenantKey, groupId, event.webhookEventId, JSON.stringify(record.reply
+          ? { ...payload, reply: { sealedToken: record.reply, userId: event.source?.userId || '', status: 'pending' } }
+          : payload)]);
       }
     });
   }
@@ -55,9 +64,10 @@ export function createLineIoStore(pool) {
           AND (payload #>> '{event,type}' NOT IN ('message','postback') OR b->>'userId'=payload #>> '{event,source,userId}'))
         ELSE ($5::text[] IS NULL OR payload #>> '{event,type}' NOT IN ('message', 'postback') OR payload #>> '{event,source,userId}' = ANY($5::text[])) END)
       ORDER BY seq LIMIT $4`, [tenantKey, groupIds, after, limit + 1, inputUserIds || null,JSON.stringify(personalBindings)]);
-    const events = result.rows.slice(0, limit).map((row) => ({
-      ...row.payload, cursor: row.cursor, receivedAt: row.received_at,
-    }));
+    const events = result.rows.slice(0, limit).map((row) => {
+      const { reply: _privateReply, ...publicPayload } = row.payload;
+      return { ...publicPayload, cursor: row.cursor, receivedAt: row.received_at };
+    });
     return { events, nextCursor: events.at(-1)?.cursor || after, hasMore: result.rows.length > limit };
   }
 
@@ -89,5 +99,30 @@ export function createLineIoStore(pool) {
     [tenantKey, clientId, key, attempt, result ? JSON.stringify(result) : null]);
   }
 
-  return { append, list, reserve, finish };
+  async function claimReply({ tenantKey, eventId, groupId, userId, bodyHash }) {
+    return transaction(async (db) => {
+      const { rows: [row] } = await db.query(`SELECT group_id, payload->'reply' AS reply,
+        received_at < now() - interval '40 seconds' AS expired
+        FROM line_io.line_io_events WHERE tenant_key=$1 AND event_id=$2 FOR UPDATE`, [tenantKey, eventId]);
+      if (!row || !row.reply || row.group_id !== groupId || row.reply.userId !== userId)
+        throw ioError(404, 'reply_event_unavailable');
+      if (row.reply.bodyHash && row.reply.bodyHash !== bodyHash) throw ioError(409, 'reply_payload_changed');
+      if (row.reply.status === 'accepted') return { result: row.reply.result };
+      if (row.reply.status !== 'pending') throw ioError(409, 'reply_outcome_unknown');
+      if (row.expired) throw ioError(409, 'reply_token_expired');
+      await db.query(`UPDATE line_io.line_io_events SET payload = jsonb_set(payload, '{reply}', $3::jsonb)
+        WHERE tenant_key=$1 AND event_id=$2`,
+      [tenantKey, eventId, JSON.stringify({ ...row.reply, status: 'sending', bodyHash })]);
+      return { sealedToken: row.reply.sealedToken };
+    });
+  }
+
+  async function finishReply({ tenantKey, eventId, status, result }) {
+    await pool.query(`UPDATE line_io.line_io_events SET payload = jsonb_set(payload, '{reply}',
+      (payload->'reply') || jsonb_build_object('sealedToken',NULL,'status',$3::text,'result',$4::jsonb))
+      WHERE tenant_key=$1 AND event_id=$2 AND payload #>> '{reply,status}' = 'sending'`,
+    [tenantKey, eventId, status, result ? JSON.stringify(result) : null]);
+  }
+
+  return { append, list, reserve, finish, claimReply, finishReply };
 }

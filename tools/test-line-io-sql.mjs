@@ -60,5 +60,22 @@ try {
   await store.reserve(expired);
   await query("UPDATE line_io.line_io_sends SET created_at = now() - interval '25 hours', lease_until = NULL WHERE idempotency_key = 'expired'");
   await assert.rejects(store.reserve(expired), { code: 'retry_window_expired' });
-  console.log('PASS: PostgreSQL schema, tenant isolation, cursors, atomic rollback, unsend redaction, restart retry key, leases, stale writer, expiry');
+  await store.append([{tenantKey:'a',groupId:'synthetic-group',reply:'encrypted-token',
+    event:{type:'postback',webhookEventId:'reply-one',source:{userId:'allowed'},postback:{data:'uof.list.0'}}}]);
+  const replyIdentity={tenantKey:'a',eventId:'reply-one',groupId:'synthetic-group',userId:'allowed',bodyHash:'reply-hash'};
+  await assert.rejects(store.claimReply({...replyIdentity,userId:'wrong'}),{code:'reply_event_unavailable'});
+  assert.equal((await store.claimReply(replyIdentity)).sealedToken,'encrypted-token');
+  await assert.rejects(store.claimReply(replyIdentity),{code:'reply_outcome_unknown'});
+  await store.finishReply({...replyIdentity,status:'accepted',result:{status:'accepted',method:'reply'}});
+  assert.equal((await createLineIoStore(pool).claimReply(replyIdentity)).result.method,'reply');
+  await assert.rejects(store.claimReply({...replyIdentity,bodyHash:'changed'}),{code:'reply_payload_changed'});
+  await store.append([{tenantKey:'a',groupId:'synthetic-group',reply:'new-token',
+    event:{type:'postback',webhookEventId:'reply-old',source:{userId:'allowed'},postback:{data:'uof.list.1'}}}]);
+  await query("UPDATE line_io.line_io_events SET received_at=now()-interval '41 seconds' WHERE event_id='reply-old'");
+  await assert.rejects(store.claimReply({...replyIdentity,eventId:'reply-old'}),{code:'reply_token_expired'});
+  const visible=JSON.stringify((await store.list({tenantKey:'a',groupIds:['synthetic-group'],after:'0',limit:100})).events);
+  assert.equal(visible.includes('encrypted-token'),false);
+  assert.equal(visible.includes('sealedToken'),false);
+  assert.equal((await query("SELECT payload #>> '{reply,sealedToken}' AS token FROM line_io.line_io_events WHERE event_id='reply-one'")).rows[0].token,null);
+  console.log('PASS: PostgreSQL schema, tenant isolation, cursor safety, push retry and single-use reply receipts');
 } finally { await db.close(); }
