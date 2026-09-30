@@ -177,8 +177,9 @@ const groupEntrySource = await readFile(new URL('../modules/claims/v3/group-entr
 const receiverSource = await readFile(new URL('../modules/claims/v3/receiver.js', import.meta.url), 'utf8');
 const serverSource = await readFile(new URL('../server.js', import.meta.url), 'utf8');
 const envelopeSource = groupEntrySource.slice(groupEntrySource.indexOf('function entryEnvelope'), groupEntrySource.indexOf('function safeAck'));
-assert.match(envelopeSource, /templateKey: 'claim_web_entry'/);
-assert.doesNotMatch(envelopeSource, /claim_web_entry_test|testMode/);
+assert.match(envelopeSource, /recipient: \{ type: 'line_user', identityReference: row\.applicant_reference \}/);
+assert.match(envelopeSource, /templateKey: 'claim_web_entry_test'/);
+assert.match(envelopeSource, /testMode: true/);
 assert.match(receiverSource, /const MAX_SOURCE_HINT_AGE_SECONDS = 10 \* 60;/);
 assert.match(receiverSource, /expires <= nowMs \+ MAX_SOURCE_HINT_AGE_SECONDS \* 1000/);
 assert.doesNotMatch(receiverSource, /expires <= nowMs \+ 5 \* 60 \* 1000/);

@@ -35,7 +35,7 @@ const TEMPLATE_RULES = new Map([
   ['payment_date_changed', { recipient: 'line_user', events: new Set(['payment_date_changed']) }],
   ['payment_exception', { recipient: 'line_user', events: new Set(['payment_date_changed']) }],
   ['claim_web_entry', { recipient: 'group_binding', events: new Set(['claim_web_entry']), contract: FINANCE_CLAIMS_V3_GROUP_ENTRY_CONTRACT }],
-  ['claim_web_entry_test', { recipient: 'group_binding', events: new Set(['claim_web_entry']), contract: FINANCE_CLAIMS_V3_GROUP_ENTRY_CONTRACT }],
+  ['claim_web_entry_test', { recipient: 'line_user', events: new Set(['claim_web_entry']), contract: FINANCE_CLAIMS_V3_GROUP_ENTRY_CONTRACT }],
 ]);
 const PAYLOAD_KEYS = new Set([
   'contractVersion', 'eventKey', 'eventType', 'claimId', 'revisionNo', 'amountTotal', 'currency',
