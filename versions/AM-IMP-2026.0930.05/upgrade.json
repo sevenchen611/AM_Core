@@ -1,0 +1,17 @@
+{
+  "id": "AM-IMP-2026.0930.05",
+  "name": "Inline result links for UOF approval replies",
+  "type": "Core / LINE / API",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-09-30",
+  "installTargets": ["AM_PLATFORM", "UOF_LoginCheck"],
+  "requiresPackages": ["AM-IMP-2026.0930.04"],
+  "requiresDatabases": [],
+  "requiresEnv": ["AMCORE_LINE_IO_REPLY_ENABLED", "existing scoped UOF LINE transport key"],
+  "requiresScripts": ["node --test tools/test-line-io.mjs tools/test-line-bindings.mjs tools/test-line-directory.mjs", "node tools/check-upgrade-package.js AM-IMP-2026.0930.05"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": ["Inline result action renders in a single Flex reply message", "No separate action card", "Existing result-check postback is preserved"],
+  "projectStatus": {"AM_PLATFORM": "Ready", "UOF_LoginCheck": "Ready"},
+  "files": ["core/line-io/index.js", "tools/test-line-io.mjs", "versions/AM-IMP-2026.0930.05"]
+}

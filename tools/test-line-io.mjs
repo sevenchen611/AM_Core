@@ -156,6 +156,38 @@ test('bound event replies once without a push and never exposes its token in the
     body:JSON.stringify({...payload,eventId:'missing'})})).status,404);
 });
 
+test('inline result action is one compact reply bubble with no extra button card', async (t) => {
+  const userId = `U${'b'.repeat(32)}`;
+  const replyEnv = { ...env, LINE_CHANNEL_SECRET:secret, AMCORE_LINE_IO_REPLY_ENABLED:'1',
+    AMCORE_LINE_IO_CLIENTS_JSON:JSON.stringify([{...config[0],inputUserIds:[userId],
+      allowPersonalBindings:true,transportOnly:true}]) };
+  const h=await harness(t,{env:replyEnv});
+  assert.equal((await h.webhook([h.event('inline-result-1',{source:{type:'group',groupId:groupA,userId}})])).status,200);
+  const response=await h.request('/replies',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({eventId:'inline-result-1',groupId:groupA,notifyUserId:userId,
+      text:'核准指令已受理，正在確認 UOF 結果；系統不會重複送出核准。',
+      actions:[{label:'查看結果',data:'uof.check.synthetic',inline:true}]})});
+  assert.equal(response.status,200);
+  assert.equal(h.replies.length,1);
+  const messages=h.replies[0][1];
+  assert.equal(messages.length,1);
+  assert.equal(messages[0].type,'flex');
+  assert.equal(messages[0].contents.footer,undefined);
+  const inlineRow=messages[0].contents.body.contents[0];
+  const text=inlineRow.contents[0];
+  const link=inlineRow.contents[1];
+  assert.match(text.text,/核准指令已受理/);
+  assert.equal(link.action.type,'postback');
+  assert.equal(link.action.data,'uof.check.synthetic');
+  assert.equal(link.text,'查看結果');
+  assert.equal(link.decoration,'underline');
+  assert.equal(h.pushes.length,0);
+  const invalid=await h.request('/replies',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({eventId:'inline-result-1',groupId:groupA,notifyUserId:userId,text:'結果',
+      actions:[{label:'查看結果',data:'uof.check.one',inline:true},{label:'另一項',data:'uof.check.two'}]})});
+  assert.equal(invalid.status,400);
+});
+
 test('bearer authentication, group allowlist, revoked ownership and shadow mode', async (t) => {
   const h = await harness(t);
   assert.equal((await h.request('/groups', { headers: { Authorization: 'Bearer wrong' } })).status, 401);
