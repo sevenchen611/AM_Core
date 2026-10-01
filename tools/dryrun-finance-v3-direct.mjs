@@ -189,6 +189,8 @@ const preAckSource = source.slice(source.indexOf('async function preAckLineEvent
 assert.doesNotMatch(preAckSource, /bindingForEvent|bindingForGroupEvent|activeClaimsAccess/);
 const webhookFinancePath = serverSource.slice(serverSource.indexOf("if (req.method === 'POST' && pathname === '/webhook/line')"), serverSource.indexOf("sendText(res, 200, 'OK')"));
 assert.doesNotMatch(webhookFinancePath, /router\.resolveGroupBinding/);
+assert.ok(webhookFinancePath.includes('preAckClaimsAuthorityEvent'));
+assert.ok(webhookFinancePath.indexOf('preAckLineEvent') > webhookFinancePath.indexOf('preAckClaimsAuthorityEvent'));
 const v3Route = source.indexOf("prefix: '/control/finance/claim-events/v3'");
 const legacyRoute = source.indexOf("prefix: '/control/finance/claim-events'");
 assert.ok(v3Route >= 0 && legacyRoute >= 0 && v3Route < legacyRoute);
