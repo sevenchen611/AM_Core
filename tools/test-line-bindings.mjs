@@ -109,6 +109,29 @@ test('delivery proof starts new requests while a read is pending and membership 
   assert.deepEqual((await Promise.all([reading,delivering])).map(row=>row.status),['suspended','suspended']);
 });
 
+test('database revocation during a pending proof cannot authorize its earlier bound snapshot', {timeout:2000},async()=>{
+  const h=await proofHarness(),gate=deferred();h.setGate(gate.promise);
+  const pending=h.binding.verified(h.row);
+  await h.started.promise;
+  h.row.status='revoked';
+  gate.resolve();
+  assert.equal((await pending).status,'revoked');
+});
+
+test('push and incoming capture get fresh membership proof after a successful read',async t=>{
+  for(const operation of ['push','capture']) await t.test(operation,async t=>{
+    const h=await harness(t),row=await h.bind();
+    assert.equal((await h.request('/groups',{key:ioKey})).status,200);
+    h.setCount(2);
+    if(operation==='push') assert.equal((await h.request('/messages',{method:'POST',key:ioKey,
+      body:{groupId:group,text:'Synthetic private report',notifyUserId:user}})).status,403);
+    else await h.gateway.capture([h.event('new-member-query','query')]);
+    assert.equal((await h.bindingStore.get(row.bindingId)).status,'suspended');
+    assert.equal(h.pushes.length,0);
+    assert.equal((await h.db.query("SELECT event_id FROM line_io.line_io_events WHERE event_id='new-member-query'")).rows.length,0);
+  });
+});
+
 test('push, reply and incoming capture reject a new member after a successful read',async t=>{
   const h=await harness(t,{replyEnabled:true}),row=await h.bind();
   await h.gateway.capture([h.event('fresh-reply','query')]);
