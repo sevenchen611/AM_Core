@@ -5,8 +5,8 @@ registry and each project's improvement manifest. Do not edit by hand.
 
 _Last generated: 2026-10-03_
 
-- AMCore version (packaged through): `AM-IMP-2026.1003.01`
-- Latest tracked improvement: `AM-IMP-2026.1003.01`
+- AMCore version (packaged through): `AM-IMP-2026.1003.03`
+- Latest tracked improvement: `AM-IMP-2026.1003.03`
 
 Editable planning copies (not authoritative for status):
 
@@ -196,3 +196,5 @@ Editable planning copies (not authoritative for status):
 | `AM-IMP-2026.0930.04` |  | Missing | Missing | Held |  |
 | `AM-IMP-2026.0930.05` |  | Missing | Missing | Held |  |
 | `AM-IMP-2026.1003.01` |  | Missing | Missing | Held |  |
+| `AM-IMP-2026.1003.02` |  | Missing | Missing | Held |  |
+| `AM-IMP-2026.1003.03` |  | Missing | Missing | Held |  |

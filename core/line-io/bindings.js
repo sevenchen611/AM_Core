@@ -97,11 +97,12 @@ export async function createBindings({pool,store:injectedStore,line,clients,rout
   }
   async function capture(events) {
     await refresh();
+    let mutable=false;
     for(const [id,until] of consumed) if(until<Date.now()) consumed.delete(id);
     for(const event of events) {
       const groupId=event?.source?.type==='group'?event.source.groupId:null;
       if(!groupId) continue;
-      if(['memberJoined','memberLeft','leave'].includes(event.type)) {invalidate(groupId);await store.suspend(groupId);}
+      if(['memberJoined','memberLeft','leave'].includes(event.type)) {invalidate(groupId);await store.suspend(groupId);mutable=true;}
       const text=event.type==='message'&&event.message?.type==='text'?event.message.text:'';
       if(!/^綁定\s+UOF(?:\s|$)/i.test(text)) continue;
       if(typeof event.webhookEventId!=='string'||!event.webhookEventId) throw ioError(400,'event_id_required');
@@ -115,9 +116,12 @@ export async function createBindings({pool,store:injectedStore,line,clients,rout
         const route=await router.resolveGroupBinding(groupId);
         if(route?.binding) throw ioError(409,'binding_conflict');
         await store.candidate(codeHash(match[1]),event,await proof(groupId,event.source.userId));
+        mutable=true;
       } catch(error) { if(error.status<500) continue; throw error; }
     }
-    await refresh();
+    // Ordinary input already loaded the current rows. Binding/member changes
+    // still refresh before capture can authorize or persist any event.
+    if(mutable) await refresh();
   }
   const active=client=>rows.filter(r=>r.status==='bound'&&r.tenant_key===client.tenantKey&&r.client_id===client.id);
   const lookup=group=>rows.find(r=>r.group_id===group&&['bound','suspended'].includes(r.status)) || rows.find(r=>r.group_id===group);

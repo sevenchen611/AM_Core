@@ -1,14 +1,14 @@
 {
-  "amcoreVersion": "AM-IMP-2026.1003.01",
-  "amcoreHubRelease": "AMCORE-2026.1003.01",
-  "latestTrackedImprovement": "AM-IMP-2026.1003.01",
-  "packagedThrough": "AM-IMP-2026.1003.01",
+  "amcoreVersion": "AM-IMP-2026.1003.03",
+  "amcoreHubRelease": "AMCORE-2026.1003.03",
+  "latestTrackedImprovement": "AM-IMP-2026.1003.03",
+  "packagedThrough": "AM-IMP-2026.1003.03",
   "isCurrent": true,
   "behindBy": 0,
   "missingPackages": [],
   "proposedDesignItems": [],
-  "totalTrackedImprovements": 181,
-  "totalPackagedVersions": 181,
+  "totalTrackedImprovements": 183,
+  "totalPackagedVersions": 183,
   "projects": [
     {
       "projectKey": "HOZO_AM",
@@ -53,5 +53,5 @@
       "D:\\Codex_project\\ForestAM\\line-oa-webhook\\docs\\project-improvement-manifest.md"
     ]
   },
-  "generatedAt": "2026-10-03T08:56:56.948Z"
+  "generatedAt": "2026-10-03T09:30:46.629Z"
 }

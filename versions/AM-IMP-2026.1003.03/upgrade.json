@@ -1,0 +1,16 @@
+{
+  "id": "AM-IMP-2026.1003.03",
+  "name": "Shorter fresh LINE capture database path",
+  "type": "Core / LINE / API",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-10-03",
+  "installTargets": ["AM_PLATFORM", "UOF_LoginCheck"],
+  "requiresPackages": ["AM-IMP-2026.1003.01"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": ["node --test tools/test-line-io.mjs tools/test-line-bindings.mjs tools/test-line-directory.mjs tools/test-line-capture-latency.mjs", "node tools/check-upgrade-package.js AM-IMP-2026.1003.03"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": ["Ordinary capture does not repeat an unchanged binding list refresh", "Binding and directory capture both settle before append", "Expired pending rows are read as expired", "Fresh database reads surround LINE verification", "Revocation and membership races fail closed"],
+  "files": ["core/line-io/bindings.js", "core/line-io/binding-store.js", "core/line-io/index.js", "tools/test-line-capture-latency.mjs", "versions/AM-IMP-2026.1003.03"]
+}
