@@ -11,6 +11,14 @@ export async function createBindings({pool,store:injectedStore,line,clients,rout
   const store=injectedStore || createBindingStore(pool);
   let rows=[];
   const consumed=new Map();
+  // Only overlapping reads share a lookup. Delivery and binding mutations
+  // always start new LINE requests; completed authorization is never cached.
+  const checking=new Map();
+  const revisions=new Map();
+  function invalidate(groupId) {
+    revisions.set(groupId,(revisions.get(groupId)||0)+1);
+    for(const key of checking.keys()) if(key.startsWith(groupId+'/')) checking.delete(key);
+  }
   const refresh=async()=>{rows=await store.all();};
   await refresh();
   function target(client) {
@@ -19,21 +27,37 @@ export async function createBindings({pool,store:injectedStore,line,clients,rout
     if(!value) throw ioError(403,'binding_target_unavailable');
     return value;
   }
-  async function proof(groupId,userId) {
+  async function fetchProof(groupId,userId) {
+    const revision=revisions.get(groupId)||0;
     try {
-      const summary=await line.lineGet(`/v2/bot/group/${groupId}/summary`,{timeoutMs:5000});
-      const count=await line.lineGet(`/v2/bot/group/${groupId}/members/count`,{timeoutMs:5000});
+      const [summary,count,userName]=await Promise.all([
+        line.lineGet(`/v2/bot/group/${groupId}/summary`,{timeoutMs:5000}),
+        line.lineGet(`/v2/bot/group/${groupId}/members/count`,{timeoutMs:5000}),
+        line.resolveGroupMemberName(groupId,userId,{timeoutMs:5000}),
+      ]);
+      if(revision!==(revisions.get(groupId)||0)) throw ioError(409,'group_identity_changed');
       if(count.count!==1) throw ioError(409,'exclusive_group_required');
-      const userName=await line.resolveGroupMemberName(groupId,userId,{timeoutMs:5000});
       return {groupId,userId,groupName:summary.groupName || '',userName};
     } catch(error) {
       if(error.status) throw error;
       throw ioError(error.lineStatus===404 ? 409 : 503,error.lineStatus===404 ? 'group_identity_unavailable' : 'line_lookup_unavailable');
     }
   }
-  async function verified(row) {
+  async function proof(groupId,userId,{fresh=true}={}) {
+    if(fresh) return fetchProof(groupId,userId);
+    const key=groupId+'/'+userId;
+    if(checking.has(key)) return checking.get(key);
+    const pending=fetchProof(groupId,userId);
+    checking.set(key,pending);
+    try {return await pending;}
+    finally {if(checking.get(key)===pending) checking.delete(key);}
+  }
+  async function verified(row,{fresh=false}={}) {
+    // A previous request's rows snapshot must not authorize a revoked binding.
+    row=await store.get(row.id);
+    if(!row) throw ioError(403,'group_unavailable');
     if(row.status!=='bound') return row;
-    try { const value=await proof(row.group_id,row.user_id); await store.checked(row.id,value); return await store.get(row.id); }
+    try { const value=await proof(row.group_id,row.user_id,{fresh}); await store.checked(row.id,value); return await store.get(row.id); }
     catch(error) { if(error.status===409) {await store.suspend(row.group_id); await refresh(); return await store.get(row.id);} throw error; }
   }
   async function owned(client,id,account) {
@@ -67,7 +91,7 @@ export async function createBindings({pool,store:injectedStore,line,clients,rout
     else if(method==='POST'&&['confirm','resume'].includes(match[2])) {
       if(!row.group_id||!row.user_id) throw ioError(409,'binding_not_confirmable');
       result=await store.confirm(row.id,value.tenantKey,value.id,account,await proof(row.group_id,row.user_id),match[2]==='resume');
-    } else if(method==='DELETE'&&!match[2]) result=await store.revoke(row.id,value.tenantKey,value.id,account);
+    } else if(method==='DELETE'&&!match[2]) {invalidate(row.group_id);result=await store.revoke(row.id,value.tenantKey,value.id,account);}
     else throw ioError(404,'not_found');
     await refresh(); return bindingView(result);
   }
@@ -77,7 +101,7 @@ export async function createBindings({pool,store:injectedStore,line,clients,rout
     for(const event of events) {
       const groupId=event?.source?.type==='group'?event.source.groupId:null;
       if(!groupId) continue;
-      if(['memberJoined','memberLeft','leave'].includes(event.type)) await store.suspend(groupId);
+      if(['memberJoined','memberLeft','leave'].includes(event.type)) {invalidate(groupId);await store.suspend(groupId);}
       const text=event.type==='message'&&event.message?.type==='text'?event.message.text:'';
       if(!/^綁定\s+UOF(?:\s|$)/i.test(text)) continue;
       if(typeof event.webhookEventId!=='string'||!event.webhookEventId) throw ioError(400,'event_id_required');

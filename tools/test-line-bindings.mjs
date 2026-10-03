@@ -4,6 +4,7 @@ import http from 'node:http';
 import {readFile} from 'node:fs/promises';
 import {PGlite} from '@electric-sql/pglite';
 import {createBindingStore} from '../core/line-io/binding-store.js';
+import {createBindings} from '../core/line-io/bindings.js';
 import {createLineIoStore} from '../core/line-io/store.js';
 import {createLineIo} from '../core/line-io/index.js';
 import {buildReviewCards} from '../core/line-io/cards.js';
@@ -11,20 +12,24 @@ import {buildReviewCards} from '../core/line-io/cards.js';
 const group=`C${'a'.repeat(32)}`,other=`C${'b'.repeat(32)}`,legacy=`C${'c'.repeat(32)}`;
 const user=`U${'a'.repeat(32)}`,intruder=`U${'b'.repeat(32)}`;
 const ioKey='synthetic-io-key-'.padEnd(40,'x'),manageKey='synthetic-management-key-'.padEnd(40,'y');
-async function harness(t) {
+async function harness(t,{replyEnabled=false}={}) {
   const db=new PGlite();
   for(const path of ['AM-IMP-2026.0929.01/schemas/line-io.sql','AM-IMP-2026.0929.04/schemas/line-bindings.sql'])
     await db.exec(await readFile(new URL(`../versions/${path}`,import.meta.url),'utf8'));
   // PGlite lacks advisory locks; writes are sequential in this harness. PostgreSQL remains the production concurrency authority.
   const query=(sql,args)=>sql.includes('pg_advisory_xact_lock')?Promise.resolve({rows:[]}):db.query(sql,args);
   const pool={query,connect:async()=>({query,release(){}})};
-  const bindingStore=createBindingStore(pool),store=createLineIoStore(pool),pushes=[];
+  const bindingStore=createBindingStore(pool),store=createLineIoStore(pool),pushes=[],replies=[],lookups=[];
   let count=1,failure;
-  const line={configured:true,lineGet:async path=>{if(failure)throw failure;return path.endsWith('/count')?{count}:{groupName:'Synthetic private group'};},
-    resolveGroupMemberName:async()=>{if(failure)throw failure;return 'Synthetic owner';},pushLineMessage:async(...args)=>{pushes.push(args);return {requestId:'test',messageIds:['test']};}};
+  const line={configured:true,lineGet:async path=>{lookups.push(path);if(failure)throw failure;return path.endsWith('/count')?{count}:{groupName:'Synthetic private group'};},
+    resolveGroupMemberName:async(...args)=>{lookups.push(args);if(failure)throw failure;return 'Synthetic owner';},
+    pushLineMessage:async(...args)=>{pushes.push(args);return {requestId:'test',messageIds:['test']};},
+    replyLineMessages:async(...args)=>{replies.push(args);return {ok:true};}};
   const clients=[{id:'io',tenantKey:'sample',tokenEnv:'IO_KEY',groupIds:[legacy],scopes:['groups:read','events:read','messages:write'],transportOnly:true,allowPersonalBindings:true,inputUserIds:[user],notifyUserId:user},
     {id:'manager',tenantKey:'sample',tokenEnv:'MANAGE_KEY',groupIds:[],scopes:['bindings:write'],bindingTargetClientId:'io'}];
-  const gateway=await createLineIo({env:{AMCORE_LINE_IO_ENABLED:'1',AMCORE_LINE_BINDINGS_ENABLED:'1',IO_KEY:ioKey,MANAGE_KEY:manageKey,AMCORE_LINE_IO_CLIENTS_JSON:JSON.stringify(clients)},
+  const gateway=await createLineIo({env:{AMCORE_LINE_IO_ENABLED:'1',AMCORE_LINE_BINDINGS_ENABLED:'1',
+    ...(replyEnabled?{AMCORE_LINE_IO_REPLY_ENABLED:'1',LINE_CHANNEL_SECRET:'synthetic-channel-secret'}:{}),
+    IO_KEY:ioKey,MANAGE_KEY:manageKey,AMCORE_LINE_IO_CLIENTS_JSON:JSON.stringify(clients)},
     tenants:[{key:'sample'}],line,router:{invalidate(){},resolveGroupBinding:async id=>id===legacy?{tenant:{key:'sample'},binding:{status:'啟用',groupName:'Legacy'}}:{}},store,bindingStore});
   const server=http.createServer((req,res)=>gateway.handle(req,res,new URL(req.url,'http://localhost')));
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
@@ -36,8 +41,91 @@ async function harness(t) {
   const start=async(account='synthetic-owner')=>{const response=await request('/bindings/start',{method:'POST',body:{externalUserId:account,displayName:'Synthetic owner',replace:true}});assert.equal(response.status,200);return response.body;};
   const event=(id,text,groupId=group,userId=user)=>({type:'message',webhookEventId:id,timestamp:Date.now(),source:{type:'group',groupId,userId},replyToken:'NEVER_STORE',message:{id,type:'text',text}});
   const bind=async(account='synthetic-owner',groupId=group)=>{const row=await start(account);await gateway.capture([event('bind-'+row.bindingId,row.command,groupId)]);assert.equal((await request(`/bindings/${row.bindingId}?externalUserId=${account}`)).body.status,'pending_confirmation');assert.equal((await request(`/bindings/${row.bindingId}/confirm`,{method:'POST',body:{externalUserId:account}})).status,200);return row;};
-  return {db,store,bindingStore,gateway,request,start,event,bind,pushes,setCount:value=>count=value,setFailure:value=>failure=value};
+  return {db,store,bindingStore,gateway,request,start,event,bind,pushes,replies,lookups,setCount:value=>count=value,setFailure:value=>failure=value};
 }
+
+function deferred() {
+  let resolve;
+  const promise=new Promise(done=>{resolve=done;});
+  return {promise,resolve};
+}
+
+async function proofHarness() {
+  const row={id:'11111111-1111-1111-1111-111111111111',status:'bound',group_id:group,user_id:user,
+    tenant_key:'sample',client_id:'io',external_user_id:'synthetic-owner'};
+  let gate,failure;
+  const calls=[];
+  const started=deferred();
+  async function lookup(kind) {
+    calls.push(kind);
+    if(calls.length===3) started.resolve();
+    if(gate) await gate;
+    if(failure) throw failure;
+  }
+  const binding=await createBindings({env:{},router:{},clients:[],store:{
+    all:async()=>[{...row}],get:async()=>({...row}),checked:async()=>{},
+    suspend:async()=>{if(row.status==='bound')row.status='suspended';},
+  },line:{lineGet:async path=>{await lookup(path);return path.endsWith('/count')?{count:1}:{groupName:'Synthetic'};},
+    resolveGroupMemberName:async()=>{await lookup('member');return 'Synthetic';}}});
+  return {binding,row,calls,started,setGate:value=>gate=value,setFailure:value=>failure=value};
+}
+
+test('parallel proof shares overlapping reads only and discards completed success', {timeout:2000},async()=>{
+  const h=await proofHarness(),gate=deferred();h.setGate(gate.promise);
+  const first=h.binding.verified(h.row),second=h.binding.verified(h.row);
+  await h.started.promise;
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(h.calls.length,3,'both reads start all three independent LINE requests once');
+  gate.resolve();
+  assert.deepEqual((await Promise.all([first,second])).map(row=>row.status),['bound','bound']);
+  await h.binding.verified(h.row);
+  assert.equal(h.calls.length,6,'the next request gets a new proof with no success TTL');
+});
+
+test('failed proof is not retained and current revoked, suspended or expired rows cannot authorize',async()=>{
+  const h=await proofHarness();h.setFailure(new Error('provider outage'));
+  await assert.rejects(h.binding.verified(h.row),{code:'line_lookup_unavailable'});
+  await assert.rejects(h.binding.verified(h.row),{code:'line_lookup_unavailable'});
+  assert.equal(h.calls.length,6);
+  h.setFailure(null);
+  assert.equal((await h.binding.verified(h.row)).status,'bound');
+  const oldSnapshot={...h.row};
+  for(const status of ['revoked','suspended','expired']) {
+    h.row.status=status;
+    assert.equal((await h.binding.verified(oldSnapshot)).status,status);
+  }
+  assert.equal(h.calls.length,9,'stale bound snapshots do not bypass database revocation');
+});
+
+test('delivery proof starts new requests while a read is pending and membership events invalidate pending proof', {timeout:2000},async()=>{
+  const h=await proofHarness(),gate=deferred();h.setGate(gate.promise);
+  const reading=h.binding.verified(h.row);
+  await h.started.promise;
+  const delivering=h.binding.verified(h.row,{fresh:true});
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(h.calls.length,6,'fresh delivery cannot borrow an older in-flight read');
+  await h.binding.capture([{type:'memberJoined',source:{type:'group',groupId:group}}]);
+  gate.resolve();
+  assert.deepEqual((await Promise.all([reading,delivering])).map(row=>row.status),['suspended','suspended']);
+});
+
+test('push, reply and incoming capture reject a new member after a successful read',async t=>{
+  const h=await harness(t,{replyEnabled:true}),row=await h.bind();
+  await h.gateway.capture([h.event('fresh-reply','query')]);
+  assert.equal((await h.request('/groups',{key:ioKey})).status,200);
+  h.lookups.length=0;
+  const body={groupId:group,text:'Synthetic private report',notifyUserId:user};
+  assert.equal((await h.request('/messages',{method:'POST',key:ioKey,body})).status,200);
+  assert.equal(h.lookups.length,3,'personal push needs one parallel proof without another member lookup');
+  h.setCount(2);
+  assert.equal((await h.request('/replies',{method:'POST',key:ioKey,body:{...body,eventId:'fresh-reply'}})).status,403);
+  assert.equal(h.replies.length,0);
+  assert.equal((await h.request('/messages',{method:'POST',key:ioKey,idempotency:'after-join',body})).status,403);
+  await h.gateway.capture([h.event('after-join','query')]);
+  assert.equal((await h.db.query("SELECT event_id FROM line_io.line_io_events WHERE event_id='after-join'")).rows.length,0);
+  assert.equal((await h.bindingStore.get(row.bindingId)).status,'suspended');
+  assert.equal(h.pushes.length,1);
+});
 
 test('separate management key, hashed single-use code, owner confirmation and exact sender isolation',async t=>{
   const h=await harness(t),row=await h.start();

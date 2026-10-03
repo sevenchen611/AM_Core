@@ -85,7 +85,7 @@ async function harness(t, options = {}) {
       return { requestId: 'request-test', messageIds: ['message-test'] };
     },
     replyLineMessages: async (...args) => { replies.push(args); return {ok:true}; } };
-  const router = { invalidate() {}, resolveGroupBinding: async (id) => ({ tenant: { key: owner },
+  const router = options.router || { invalidate() {}, resolveGroupBinding: async (id) => ({ tenant: { key: owner },
     binding: { pageId: 'binding-test', groupName: 'Synthetic group', projectPageId: 'goal-test', status: bindingStatus, groupId: id } }) };
   const gateway = await createLineIo({ env: options.env || env, tenants, router, line, store, logger: { warn() {} } });
   const server = http.createServer(async (req, res) => {
@@ -131,6 +131,28 @@ test('configuration is opt-in and requires unique scoped keys and tenant ownersh
     [{ ...config[0], tenantKey: 'missing' }], [config[0], { ...config[0], id: 'second' }]]) {
     assert.throws(() => loadLineIoClients({ ...env, AMCORE_LINE_IO_CLIENTS_JSON: JSON.stringify(value) }, tenants));
   }
+});
+
+test('groups and events resolve at most four groups concurrently and preserve configured order', {timeout:5000},async t=>{
+  const groupIds=Array.from({length:9},(_,i)=>`C${i.toString(16).padStart(32,'0')}`);
+  let active=0,maxActive=0,revoked=false;
+  const router={invalidate(){},resolveGroupBinding:async id=>{
+    active++;maxActive=Math.max(maxActive,active);
+    await new Promise(resolve=>setImmediate(resolve));
+    active--;
+    return {tenant:{key:revoked&&id===groupIds[4]?'other':'sample'},binding:{status:'啟用',groupName:id,pageId:id}};
+  }};
+  const h=await harness(t,{router,env:{...env,AMCORE_LINE_IO_CLIENTS_JSON:JSON.stringify([{...config[0],groupIds}])}});
+  const groups=await h.request('/groups');
+  assert.equal(groups.status,200);
+  assert.deepEqual(groups.body.groups.map(row=>row.groupId),groupIds);
+  assert.equal(maxActive,4);
+  maxActive=0;
+  assert.equal((await h.request('/events')).status,200);
+  assert.equal(maxActive,4);
+  revoked=true;
+  assert.equal((await h.request('/events')).status,403,'one withdrawn group fails the whole event page without advancing the cursor');
+  assert.deepEqual((await h.request('/groups')).body.groups.map(row=>row.groupId),groupIds.filter((_,i)=>i!==4));
 });
 
 test('bound event replies once without a push and never exposes its token in the event feed', async (t) => {

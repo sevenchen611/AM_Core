@@ -11,6 +11,16 @@ const PREFIX = '/api/v1/line';
 const SCOPES = new Set(['groups:read', 'events:read', 'messages:write', 'directory:read', 'bindings:write']);
 const hash = (value) => crypto.createHash('sha256').update(value).digest();
 
+// Bound provider and database fan-out while preserving configured group order.
+async function mapGroups(groups,work) {
+  const results=new Array(groups.length);
+  let next=0;
+  await Promise.all(Array.from({length:Math.min(4,groups.length)},async()=>{
+    while(next<groups.length) {const index=next++;results[index]=await work(groups[index]);}
+  }));
+  return results;
+}
+
 function sealReplyToken(token, key) {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
@@ -132,8 +142,9 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
     const person=personal?.lookup(groupId);
     if(person) {
       if(person.tenant_key!==tenantKey || person.status!=='bound') throw ioError(403,'group_unavailable');
-      if((await personal.verified(person)).status!=='bound') throw ioError(403,'group_unavailable');
-      return {pageId:person.id,groupName:person.group_name,status:'啟用',projectPageId:null};
+      const current=await personal.verified(person,{fresh:writable});
+      if(current?.status!=='bound') throw ioError(403,'group_unavailable');
+      return {pageId:current.id,groupName:current.group_name,status:'啟用',projectPageId:null,personalBinding:current};
     }
     // Revalidate assignment on each external request, including revocation.
     router.invalidate(groupId);
@@ -154,7 +165,7 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
       if(person) {
         if(person.status!=='bound' || (['message','postback'].includes(event.type) && event.source.userId!==person.user_id)) continue;
         if(!Number.isSafeInteger(event.timestamp)||event.timestamp<Date.now()-90*86400000||event.timestamp>Date.now()+300000) continue;
-        if((await personal.verified(person)).status!=='bound') continue;
+        if((await personal.verified(person,{fresh:true}))?.status!=='bound') continue;
         if(typeof event.webhookEventId!=='string'||!event.webhookEventId) throw ioError(400,'event_id_required');
         const {replyToken,...safeEvent}=event;
         if(safeEvent.message) {const {quoteToken,...message}=safeEvent.message; safeEvent.message=message;}
@@ -219,16 +230,15 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
         if (!directory) throw ioError(503,'directory_disabled');
         sendJson(res,200,memberMatch ? await directory.members(client,memberMatch[1],url) : await directory.groups(client,url));
       } else if (required === 'groups:read') {
-        const groups = [];
-        for (const groupId of client.groupIds) {
+        const groups = (await mapGroups(client.groupIds,async groupId=>{
           try {
             const binding = await resolve(client.tenantKey, groupId);
-            groups.push({ groupId, name: binding.groupName, bindingId: binding.pageId,
+            return { groupId, name: binding.groupName, bindingId: binding.pageId,
               projectId: binding.projectPageId || null, writable: binding.status === '啟用',
-              inputUserIds: personal?.lookup(groupId) ? [personal.lookup(groupId).user_id] : client.inputUserIds || null,
-              notifyUserId: personal?.lookup(groupId)?.user_id || client.notifyUserId });
+              inputUserIds: binding.personalBinding ? [binding.personalBinding.user_id] : client.inputUserIds || null,
+              notifyUserId: binding.personalBinding?.user_id || client.notifyUserId };
           } catch (error) { if (error.code !== 'group_unavailable') throw error; }
-        }
+        })).filter(Boolean);
         sendJson(res, 200, { tenantKey: client.tenantKey, groups });
       } else if (required === 'events:read') {
         const after = url.searchParams.get('after') || '0';
@@ -237,7 +247,7 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
           || !/^\d{1,3}$/.test(rawLimit) || Number(rawLimit) < 1 || Number(rawLimit) > 100) throw ioError(400, 'invalid_pagination');
         // Keep the configured stream stable. Do not silently advance past a
         // temporarily unavailable group; return an error and retain the cursor.
-        for (const groupId of client.groupIds) await resolve(client.tenantKey, groupId);
+        await mapGroups(client.groupIds,groupId=>resolve(client.tenantKey,groupId));
         sendJson(res, 200, await store.list({ tenantKey: client.tenantKey, groupIds: client.groupIds,
           inputUserIds: client.inputUserIds, personalBindings:dynamic.map(r=>({groupId:r.group_id,bindingId:r.id,userId:r.user_id})), after, limit: Number(rawLimit) }));
       } else if (path === `${PREFIX}/replies`) {
@@ -333,7 +343,9 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
         } else {
           let delivery;
           try {
-            if (notifyUserId) {
+            // Fresh personal proof already checked this exact member in
+            // parallel with the group's identity and exclusive member count.
+            if (notifyUserId && !person) {
               try { await line.resolveGroupMemberName(body.groupId, notifyUserId, { timeoutMs: 5000 }); }
               catch (error) {
                 throw ioError(error.lineStatus === 404 ? 403 : 503,

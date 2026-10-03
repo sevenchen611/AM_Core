@@ -1,0 +1,17 @@
+{
+  "id": "AM-IMP-2026.1003.01",
+  "name": "Faster fresh authorization for personal LINE commands",
+  "type": "Core / LINE / API",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-10-03",
+  "installTargets": ["AM_PLATFORM", "UOF_LoginCheck"],
+  "requiresPackages": ["AM-IMP-2026.0930.05"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": ["node --test tools/test-line-io.mjs tools/test-line-bindings.mjs tools/test-line-directory.mjs", "node tools/check-upgrade-package.js AM-IMP-2026.1003.01"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": ["Independent LINE identity checks run concurrently", "Only unfinished read proofs are shared and failures are removed", "Delivery and event capture perform fresh checks", "Membership changes and database revocation fail closed", "Group authorization concurrency is bounded and cursor safety is preserved"],
+  "projectStatus": {"AM_PLATFORM": "Ready", "UOF_LoginCheck": "Ready"},
+  "files": ["core/line-io/bindings.js", "core/line-io/index.js", "tools/test-line-bindings.mjs", "tools/test-line-io.mjs", "versions/AM-IMP-2026.1003.01"]
+}
