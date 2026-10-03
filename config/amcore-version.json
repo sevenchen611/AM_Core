@@ -1,14 +1,14 @@
 {
-  "amcoreVersion": "AM-IMP-2026.0930.05",
-  "amcoreHubRelease": "AMCORE-2026.0930.05",
-  "latestTrackedImprovement": "AM-IMP-2026.0930.05",
-  "packagedThrough": "AM-IMP-2026.0930.05",
+  "amcoreVersion": "AM-IMP-2026.1003.01",
+  "amcoreHubRelease": "AMCORE-2026.1003.01",
+  "latestTrackedImprovement": "AM-IMP-2026.1003.01",
+  "packagedThrough": "AM-IMP-2026.1003.01",
   "isCurrent": true,
   "behindBy": 0,
   "missingPackages": [],
   "proposedDesignItems": [],
-  "totalTrackedImprovements": 180,
-  "totalPackagedVersions": 180,
+  "totalTrackedImprovements": 181,
+  "totalPackagedVersions": 181,
   "projects": [
     {
       "projectKey": "HOZO_AM",
@@ -45,7 +45,7 @@
   ],
   "sources": {
     "sharedRegistry": "D:\\Codex_project\\AM_SHARED_VERSION_UPGRADES\\SHARED_IMPROVEMENT_REGISTRY.md",
-    "versionsFolder": "D:\\CodexWork\\AM_Core_reply_token\\versions",
+    "versionsFolder": "D:\\CodexWork\\worktrees\\AM_Core-uof-line-latency\\versions",
     "manifests": [
       "D:\\Codex_project\\HOZO_AM\\line-oa-webhook\\docs\\project-improvement-manifest.md",
       "D:\\Codex_project\\SevenAM\\line-oa-webhook\\docs\\project-improvement-manifest.md",
@@ -53,5 +53,5 @@
       "D:\\Codex_project\\ForestAM\\line-oa-webhook\\docs\\project-improvement-manifest.md"
     ]
   },
-  "generatedAt": "2026-09-30T05:39:07.154Z"
+  "generatedAt": "2026-10-03T08:56:56.948Z"
 }
