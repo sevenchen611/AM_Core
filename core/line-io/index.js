@@ -5,7 +5,7 @@ import { lineIoDatabaseConfig } from './database.js';
 import { createDirectory } from './directory.js';
 import { createDirectoryStore } from './directory-store.js';
 import { createBindings } from './bindings.js';
-import { buildReviewCards } from './cards.js';
+import { buildReviewCards, buildInlineResult } from './cards.js';
 
 const PREFIX = '/api/v1/line';
 const SCOPES = new Set(['groups:read', 'events:read', 'messages:write', 'directory:read', 'bindings:write']);
@@ -283,11 +283,7 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
           throw ioError(400, 'invalid_actions');
         await resolve(client.tenantKey, body.groupId, true);
         const inlineAction = body.actions?.length === 1 && body.actions[0].inline === true ? body.actions[0] : null;
-        const replyCard = inlineAction ? {type:'flex',altText:(body.text + ' ' + inlineAction.label).slice(0,1500),contents:{type:'bubble',size:'kilo',
-          body:{type:'box',layout:'vertical',paddingAll:'12px',contents:[{type:'box',layout:'horizontal',alignItems:'bottom',contents:[
-            {type:'text',text:body.text,wrap:true,flex:1},
-            {type:'text',text:inlineAction.label,color:'#2563EB',decoration:'underline',flex:0,margin:'xs',
-              action:{type:'postback',label:inlineAction.label,data:inlineAction.data}}]}]}}}
+        const replyCard = inlineAction ? buildInlineResult(body.text, inlineAction)
           : body.actions ? {type:'flex',altText:'UOF 操作確認',contents:{type:'bubble',
           body:{type:'box',layout:'vertical',contents:[{type:'text',text:'請確認上方的案件清單、操作及原因。',wrap:true}]},
           footer:{type:'box',layout:'vertical',contents:body.actions.map(a=>({type:'button',
@@ -326,7 +322,11 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
         if (body.cards !== undefined && (!client.allowPersonalBindings || body.actions !== undefined)) throw ioError(400,'invalid_cards');
         const cardMessage = body.cards === undefined ? null : buildReviewCards(body.cards, body.text);
         if(body.actions!==undefined && (!client.allowPersonalBindings || !Array.isArray(body.actions) || body.actions.length<1 || body.actions.length>3
-          ||body.actions.some(a=>!a||typeof a.label!=='string'||!a.label.trim()||a.label.length>20||typeof a.data!=='string'||!a.data||a.data.length>300||Object.keys(a).some(k=>!['label','data'].includes(k))))) throw ioError(400,'invalid_actions');
+          ||body.actions.some(a=>!a||typeof a.label!=='string'||!a.label.trim()||a.label.length>20||typeof a.data!=='string'||!a.data||a.data.length>300
+            ||(a.inline!==undefined && typeof a.inline!=='boolean')||Object.keys(a).some(k=>!['label','data','inline'].includes(k)))
+          ||body.actions.some(a=>a.inline===true) && body.actions.length!==1)) throw ioError(400,'invalid_actions');
+        const inlineAction = body.actions?.length===1 && body.actions[0].inline===true ? body.actions[0] : null;
+        const resultMessage = inlineAction ? buildInlineResult(body.text,inlineAction) : cardMessage;
         // Omission keeps v1 defaults; explicit null sends a group report without @.
         const notifyUserId = Object.hasOwn(body, 'notifyUserId') ? body.notifyUserId : client.notifyUserId;
         const person=personal?.lookup(body.groupId);
@@ -359,9 +359,9 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
             // each reply in a private, one-person group.
             const mentionUserId = notifyUserId && !person ? notifyUserId : null;
             const message = mentionUserId ? { type: 'textV2', text: '{who}',
-              substitution: { who: { type: 'mention', mentionee: { type: 'user', userId: mentionUserId } } } } : (cardMessage || body.text);
-            const extra=mentionUserId ? [cardMessage || {type:'text',text:body.text}] : [];
-            if(body.actions) extra.push({type:'flex',altText:'UOF 操作確認',contents:{type:'bubble',body:{type:'box',layout:'vertical',contents:[{type:'text',text:'請確認上方的案件清單、操作及原因。按鈕僅限本人使用，逾期請重新發起。',wrap:true}]},footer:{type:'box',layout:'vertical',contents:body.actions.map(a=>({type:'button',action:{type:'postback',label:a.label,data:a.data}}))}}});
+              substitution: { who: { type: 'mention', mentionee: { type: 'user', userId: mentionUserId } } } } : (resultMessage || body.text);
+            const extra=mentionUserId ? [resultMessage || {type:'text',text:body.text}] : [];
+            if(body.actions && !inlineAction) extra.push({type:'flex',altText:'UOF 操作確認',contents:{type:'bubble',body:{type:'box',layout:'vertical',contents:[{type:'text',text:'請確認上方的案件清單、操作及原因。按鈕僅限本人使用，逾期請重新發起。',wrap:true}]},footer:{type:'box',layout:'vertical',contents:body.actions.map(a=>({type:'button',action:{type:'postback',label:a.label,data:a.data}}))}}});
             delivery = await line.pushLineMessage(body.groupId, message, undefined, { retryKey: reserved.retryKey, timeoutMs: 8000,
               additionalMessages:extra });
           } catch (error) {
