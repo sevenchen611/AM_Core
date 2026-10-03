@@ -210,6 +210,36 @@ test('inline result action is one compact reply bubble with no extra button card
   assert.equal(invalid.status,400);
 });
 
+test('background result push keeps its read-only link inside the result, including retries and mentions', async (t) => {
+  const userId=`U${'b'.repeat(32)}`;
+  const h=await harness(t,{env:{...env,AMCORE_LINE_IO_CLIENTS_JSON:JSON.stringify([
+    {...config[0],allowPersonalBindings:true,transportOnly:true}])}});
+  const payload={groupId:groupA,notifyUserId:null,text:'OVE-TEST：結果未確認。請重新確認結果。',
+    actions:[{label:'重新確認結果',data:'uof.check.synthetic',inline:true}]};
+  const send=(key,body=payload)=>h.request('/messages',{method:'POST',
+    headers:{'Content-Type':'application/json','Idempotency-Key':key},body:JSON.stringify(body)});
+  assert.equal((await send('inline-push')).status,200);
+  const message=h.pushes[0][1];
+  assert.equal(message.type,'flex');
+  assert.equal(message.contents.footer,undefined);
+  const row=message.contents.body.contents[0];
+  assert.match(row.contents[0].text,/結果未確認/);
+  assert.equal(row.contents[1].text,'重新確認結果');
+  assert.equal(row.contents[1].decoration,'underline');
+  assert.equal(row.contents[1].action.type,'postback');
+  assert.equal(row.contents[1].action.data,'uof.check.synthetic');
+  assert.deepEqual(h.pushes[0][3].additionalMessages,[]);
+  assert.equal((await send('inline-push')).body.replayed,true);
+  assert.equal(h.pushes.length,1);
+  assert.equal((await send('inline-push',{...payload,actions:[{...payload.actions[0],inline:false}]})).status,409);
+  assert.equal((await send('inline-mentioned',{...payload,notifyUserId:userId})).status,200);
+  assert.equal(h.memberLookups.at(-1)[1],userId);
+  assert.deepEqual(h.pushes[1][3].additionalMessages,[message]);
+  assert.equal((await send('invalid-inline',{...payload,actions:[...payload.actions,{label:'other',data:'other'}]})).status,400);
+  assert.equal((await send('invalid-type',{...payload,actions:[{...payload.actions[0],inline:'true'}]})).status,400);
+  assert.equal(h.pushes.length,2);
+});
+
 test('bearer authentication, group allowlist, revoked ownership and shadow mode', async (t) => {
   const h = await harness(t);
   assert.equal((await h.request('/groups', { headers: { Authorization: 'Bearer wrong' } })).status, 401);

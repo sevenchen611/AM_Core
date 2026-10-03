@@ -1,0 +1,15 @@
+{
+  "id": "AM-IMP-2026.1003.02",
+  "name": "Inline LINE result links on background Push and Reply fallback",
+  "type": "Core / LINE / API",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-10-03",
+  "installTargets": ["AM_PLATFORM", "UOF_LoginCheck"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": ["node --test tools/test-line-io.mjs tools/test-line-bindings.mjs tools/test-line-directory.mjs"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": ["Push preserves a single inline check action", "One result bubble replaces the generic extra card", "Idempotent replay cannot change rendering", "Recipient checks and existing Reply behavior pass regression tests"],
+  "files": ["core/line-io/index.js", "core/line-io/cards.js", "tools/test-line-io.mjs"]
+}

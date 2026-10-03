@@ -5,6 +5,14 @@ import { ioError } from './store.js';
 const object = value => value && typeof value === 'object' && !Array.isArray(value);
 const text = (value, max) => typeof value === 'string' && value.trim().length > 0 && value.length <= max;
 const keys = (value, allowed) => Object.keys(value).every(key => allowed.includes(key));
+export function buildInlineResult(message, action) {
+  return {type:'flex',altText:(message + ' ' + action.label).slice(0,1500),contents:{type:'bubble',size:'kilo',
+    body:{type:'box',layout:'vertical',paddingAll:'12px',contents:[{type:'box',layout:'horizontal',alignItems:'bottom',contents:[
+      {type:'text',text:message,wrap:true,flex:1},
+      {type:'text',text:action.label,color:'#2563EB',decoration:'underline',flex:0,margin:'xs',
+        action:{type:'postback',label:action.label,data:action.data}}]}]}}};
+}
+
 export function buildReviewCards(cards, altText) {
   if (!Array.isArray(cards) || cards.length < 1 || cards.length > 6) throw ioError(400, 'invalid_cards');
   const bubbles = cards.map(card => {
