@@ -156,8 +156,15 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
   }
 
   async function capture(events) {
-    if(personal) await personal.capture(events);
-    if (directory) await directory.capture(events);
+    // Both independent stores must finish successfully before any proof or
+    // durable event append. In particular, membership suspension remains a
+    // barrier even while directory observation runs alongside it.
+    const intake=await Promise.allSettled([
+      personal ? personal.capture(events) : Promise.resolve(),
+      directory ? directory.capture(events) : Promise.resolve(),
+    ]);
+    const failed=intake.find(result=>result.status==='rejected');
+    if(failed) throw failed.reason;
     const records = [];
     for (const event of events) {
       const groupId = event?.source?.type === 'group' ? event.source.groupId : '';

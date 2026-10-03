@@ -21,7 +21,15 @@ export function createBindingStore(pool) {
     lastPurge=Date.now();
   };
   const all = async () => { await expire();await purge(); return (await pool.query('SELECT * FROM line_bindings.bindings WHERE group_id IS NOT NULL')).rows; };
-  const get = async (id) => { await expire(); return (await pool.query('SELECT * FROM line_bindings.bindings WHERE id=$1',[id])).rows[0]; };
+  const get = async (id) => (await pool.query(`WITH expired AS (
+    UPDATE line_bindings.bindings SET status='expired',code_hash=NULL
+    WHERE status IN ('pending_line','pending_confirmation') AND expires_at<=now()
+    RETURNING *
+  )
+  SELECT * FROM expired WHERE id=$1
+  UNION ALL
+  SELECT * FROM line_bindings.bindings b WHERE id=$1
+    AND NOT EXISTS (SELECT 1 FROM expired e WHERE e.id=b.id)`,[id])).rows[0];
   const current = async (tenant, client, account) => {
     await expire();
     return (await pool.query("SELECT * FROM line_bindings.bindings WHERE tenant_key=$1 AND client_id=$2 AND external_user_id=$3 AND status IN ('bound','suspended')",[tenant,client,account])).rows[0];

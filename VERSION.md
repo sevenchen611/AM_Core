@@ -11,12 +11,12 @@ _Last generated: 2026-10-03_
 
 | Field | Value |
 | --- | --- |
-| AMCore version (packages held through) | `AM-IMP-2026.1003.01` |
-| AMCore hub release | `AMCORE-2026.1003.01` |
-| Latest tracked improvement (ecosystem) | `AM-IMP-2026.1003.01` |
+| AMCore version (packages held through) | `AM-IMP-2026.1003.03` |
+| AMCore hub release | `AMCORE-2026.1003.03` |
+| Latest tracked improvement (ecosystem) | `AM-IMP-2026.1003.03` |
 | AMCore current? | Yes — every tracked version is packaged |
-| Packaged versions | 181 |
-| Tracked improvements | 181 |
+| Packaged versions | 183 |
+| Tracked improvements | 183 |
 
 ## Project Heads
 
