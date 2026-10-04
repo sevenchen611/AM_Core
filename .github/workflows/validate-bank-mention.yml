@@ -29,6 +29,8 @@ on:
       - 'core/claims-authority-admin.js'
       - 'tools/test-claims-form-availability.mjs'
       - 'versions/AM-IMP-2026.1004.01/**'
+      - 'versions/AM-IMP-2026.1004.03/**'
+      - 'tools/test-mobile-claim-form.mjs'
       - 'modules/claims/**'
       - 'modules/company-line-push/**'
       - 'tools/dryrun-claims-*.mjs'
@@ -53,6 +55,8 @@ jobs:
       - run: npm run dryrun:claims-authority
       - run: node --test tools/test-claims-form-availability.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1004.01
+      - run: node --test tools/test-mobile-claim-form.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1004.03
       - run: npm run verify:bank-mention
       - run: npm run dryrun:processing-jobs
       - run: node --experimental-vm-modules tools/verify-bank-line-reply-intake.mjs

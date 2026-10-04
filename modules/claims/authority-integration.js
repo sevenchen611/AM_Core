@@ -199,7 +199,7 @@ async function listKnownLineGroups(platform, tenant) {
   return [...new Map(groups.map((item) => [item.groupId, item])).values()];
 }
 
-export function createClaimsAuthorityIntegration({ env = process.env, platform, groupEntry, receiver, renderFormPreview, createLegacyFormLink, verifyLiffUser, claimsLiffId, listFormHistory } = {}) {
+export function createClaimsAuthorityIntegration({ env = process.env, platform, groupEntry, receiver, renderFormPreview, createLegacyFormLink, createMobileFormLink, verifyLiffUser, claimsLiffId, listFormHistory } = {}) {
   const enabled = env.HZ2_CLAIMS_AUTHORITY_ENABLED === 'true';
   if (!enabled) return { enabled: false, ready: false };
   const identityKey = String(env.HZ2_CLAIMS_AUTHORITY_IDENTITY_KEY || '');
@@ -229,6 +229,7 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
     '../../versions/AM-IMP-2026.0915.02/config/claims-member-auto-onboarding.sql',
     '../../versions/AM-IMP-2026.0916.01/config/claims-group-modes.sql',
     '../../versions/AM-IMP-2026.1004.01/config/claims-form-availability.sql',
+    '../../versions/AM-IMP-2026.1004.03/config/mobile-claim-form.sql',
   ].map((path) => fs.readFileSync(new URL(path, import.meta.url), 'utf8'));
   const migrationPromise = migrationSql.reduce((chain, sql) => chain.then(() => migrationPool.query(sql)), Promise.resolve()).then(() => true).catch((error) => {
     platform?.logger?.warn?.(`Claims authority migration failed closed: ${error.message}`);
@@ -432,6 +433,13 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
       if (body.action !== 'select') throw new Error('不支援的操作。');
       const selected = await authority.resolveFormSelection({ tenant: authorityTenant(tenant), sessionId: parsed.sessionId, formKey: body.formKey });
       if (selected.resolvedUrl) return sendResponse(res, { status: 200, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }, body: JSON.stringify({ ok: true, url: selected.resolvedUrl, replayed: true }) });
+      if (body.formKey === 'mobile_expense_entry') {
+        if (tenant.key !== 'hozo-am-2-0' || !selected.internalGroup) throw new Error('此表單僅供內部同仁使用。');
+        const url = await createMobileFormLink?.({tenant});
+        if (!url) throw new Error('手機請款入口尚未設定。');
+        await authority.completeFormSelection({tenant:authorityTenant(tenant),sessionId:parsed.sessionId,formKey:body.formKey,resolvedUrl:url});
+        return sendResponse(res,{status:200,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'},body:JSON.stringify({ok:true,url})});
+      }
       let targetUrl = '';
       const identityReference = await resolveApplicantReference({ tenant, userId: selected.userId });
       const requestBase = `selector-${parsed.sessionId}`;
