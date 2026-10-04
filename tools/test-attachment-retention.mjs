@@ -58,6 +58,7 @@ function harness(options = {}) {
           throw new Error('Unexpected query filter');
         }
         results = results.filter(p => match(p,f));
+        if (options.staleLegacyFilter && JSON.stringify(f).includes('files')) results = [...rows.values()];
         return { results: structuredClone(results.slice(0, opts.body.page_size)), has_more: results.length > opts.body.page_size };
       }
       if (path === '/v1/pages') {
@@ -399,6 +400,25 @@ test('historical matching Drive originals are reused after independent Notion ch
   assert.equal(h.calls.filter(c=>c[0]==='upload').length,0);assert.deepEqual(row.properties['檔案'].files,[]);
   assert.equal(row.properties['保存狀態'].select.name,'已保存');
   assert.equal(h.calls.filter(c=>c[0]==='notion'&&c[2].method==='PATCH').length,1,'the durable legacy source needs one verified final index write');
+});
+
+test('a completed upload with no recorded source digest is rechecked against the retained Notion original', async()=>{
+  const h=harness({fetchImpl:async()=>new Response(new Uint8Array(100),{headers:{'content-length':'100'}})});
+  const row=legacyRow(h);const folder=`${h.t.driveRootFolderId}/未歸檔/2026-09-01`;
+  const identity={amTenant:h.t.key,amLineMessage:`notion:${row.id}`};
+  h.files.set('prior-upload',{id:'prior-upload',folder,identity,size:100,md5Checksum:crypto.createHash('md5').update(new Uint8Array(100)).digest('hex'),webViewLink:'https://drive.example/prior'});
+  await h.archive.drain(h.t);
+  assert.equal(h.calls.filter(c=>c[0]==='upload').length,0);
+  assert.match(row.properties['原檔 SHA256'].rich_text[0].text.content,/^[a-f0-9]{64}$/);
+  assert.deepEqual(row.properties['檔案'].files,[]);
+});
+
+test('lagging Notion file filters cannot reclassify a completed migration as manual review', async()=>{
+  const h=harness({staleLegacyFilter:true,fetchImpl:async()=>new Response(new Uint8Array(100),{headers:{'content-length':'100'}})});
+  const row=legacyRow(h);await h.archive.drain(h.t);await h.archive.drain(h.t);
+  assert.equal(row.properties['保存來源'].rich_text[0].text.content,'notion-migration');
+  assert.equal(row.properties['保存錯誤'].rich_text.length,0);
+  assert.equal(h.archive.health(h.t).migrating,false);
 });
 test('private attachment identity uses all active tenant memberships without changing personal assistant access', async()=>{
   const t={...tenant('non-assistant-tenant'),notionConfigured:true,parentPageId:'test-parent',dataSources:{attachments:'a',groupBindings:'g'}};
