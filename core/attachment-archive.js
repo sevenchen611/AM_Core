@@ -360,7 +360,7 @@ export function createAttachmentArchive({ platform, router, logger = console, no
         if (props['檔案']?.files?.length || (!legacyDriveOnly && props['保存狀態']?.select?.name !== '已保存')) return;
         const missingHash = !plain(props['原檔 SHA256']);
         const staleFilter = plain(props['保存來源']) === 'manual-review' && plain(props['保存錯誤']) === 'Historical original is not a single managed file; manual review required.';
-        if (!missingHash && !staleFilter) return;
+        if (!missingHash && !staleFilter && !legacyDriveOnly) return;
         try {
           const id = driveId(props['Drive 連結']?.url);
           if (!id) throw failure('attachment_drive_identity_missing');
@@ -377,7 +377,7 @@ export function createAttachmentArchive({ platform, router, logger = console, no
           if (legacyDriveOnly) {
             await saveResult(tenant, page, file, sourceSha256, file.md5Checksum, {
               '保存來源': rt('drive-migration'), '保存識別': rt(`drive:${id}`), '保存通知': rt('legacy'),
-              '來源類型': rt('historical'), '檔案名稱': props['檔案名稱'] || rt(file.name),
+              '來源類型': rt('historical'), '檔案名稱': plain(props['檔案名稱']) ? props['檔案名稱'] : rt(file.name),
             });
             return;
           }
