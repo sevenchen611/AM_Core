@@ -155,7 +155,7 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
     return binding;
   }
 
-  async function capture(events) {
+  async function capture(events, { excludeEvents = () => false } = {}) {
     // Both independent stores must finish successfully before any proof or
     // durable event append. In particular, membership suspension remains a
     // barrier even while directory observation runs alongside it.
@@ -167,6 +167,9 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
     if(failed) throw failed.reason;
     const records = [];
     for (const event of events) {
+      // Core-owned attachment requests still update directory/membership above,
+      // but must not give a second assistant the event/reply token.
+      if (excludeEvents(event)) continue;
       const groupId = event?.source?.type === 'group' ? event.source.groupId : '';
       const person=personal?.lookup(groupId);
       if(person) {

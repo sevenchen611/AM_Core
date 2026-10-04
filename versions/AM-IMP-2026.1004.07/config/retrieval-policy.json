@@ -1,0 +1,11 @@
+{
+  "contract": "line-quoted-drive-original-v1",
+  "lookup": ["quotedMessageId", "exact-filename-in-current-conversation"],
+  "ambiguous": "refuse-and-request-exact-source",
+  "missingOriginal": "request-re-upload",
+  "delivery": "google-drive-link",
+  "sharingChanges": false,
+  "verifyBeforeReply": ["fresh-active-tenant-binding", "original-conversation", "tenant-drive-root", "original-size", "original-md5"],
+  "assistantOperation": true,
+  "transportReservation": true
+}

@@ -6,6 +6,7 @@ Runtime target: `AM_PLATFORM`
 
 | Version | Status | Capability | Scope | Notes |
 | --- | --- | --- | --- | --- |
+| AM-IMP-2026.1004.07 | Installed | Retrieve archived LINE attachments | Exact quote or complete filename in the same conversation; verified Drive link | Local checks complete; reviewed main and production verification pending. |
 | AM-IMP-2026.1004.06 | Deployed | Drive originals; Notion links only | Production schema, runtime, exact 40 MB canary and completed available-source migration | Code 129dc97 verified; 249 saved indexes with digests, 0 Notion binary references, 11 historical sources need re-upload. |
 | AM-IMP-2026.1004.04 | Deployed | Durable attachment preservation | Group/room originals, retries, verified Drive storage and failure notices | Main commit b99dd8c, live ready health and independent 40,647,423-byte tenant storage canary verified; SHA256/MD5 match. Provider redelivery setting awaits login. |
 | AM-IMP-2026.0921.03 | Deployed | Contract workspace signing-state parity | Workspace consumes the PostgreSQL control projection before rendering Party A assignment and finalization actions; stale overview `sent` state can no longer hide a valid both-signed confirmation action | PR #194 merged as `338d048`; Render deploy `dep-daoe9fh7lnhs73eu70k0` is Live. Authenticated read-only verification opened HZ-CT-003 and confirmed `電子簽署：待我方確認` plus the finalization button, with no obsolete Party A assignment panel. No contract, signer, LINE message or immutable evidence was mutated. |

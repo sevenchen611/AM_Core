@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import { bootstrap } from './core/bootstrap.js';
 import { createLineIo, readLineIoBody } from './core/line-io/index.js';
 import { createBankLineReplyIntake } from './core/bank-line-reply-intake.js';
+import { createAttachmentRetrieval, parseAttachmentRequest } from './core/attachment-retrieval.js';
 import { routeDirectLineEvent } from './core/direct-line.js';
 import { createAccessDirectory } from './core/access-directory.js';
 import { safePortalHandoffLocation } from './core/portal-handoff.js';
@@ -26,6 +27,8 @@ const ctx = await bootstrap(process.env);
 const { tenants, line, router, dispatcher, portal, modules, platform, llm, logger } = ctx;
 const lineIo = await createLineIo({ tenants, line, router, logger });
 platform.attachmentArchive.setTransportResolver(lineIo.resolveAttachmentBinding);
+const attachmentRetrieval = createAttachmentRetrieval({ platform, router,
+  ownsTransport: event => lineIo.owns(event), resolveTransport: lineIo.resolveAttachmentBinding, logger });
 const queueAccessKey = process.env.AMCORE_QUEUE_ACCESS_KEY || '';
 const portalServiceToken = process.env.AMCORE_PORTAL_SERVICE_TOKEN || '';
 
@@ -273,6 +276,7 @@ const server = http.createServer(async (req, res) => {
       lineIo: { enabled: lineIo.enabled, directoryEnabled:Boolean(lineIo.directoryEnabled),bindingsEnabled:Boolean(lineIo.bindingsEnabled), reviewCardsEnabled:lineIo.enabled, contract: 'line-group-io-v1', version: lineIo.bindingsEnabled ? '1.5.0' : '1.2.0' },
       driveConfigured: platform.driveConfigured,
       attachmentArchive: { contract: platform.attachmentArchive.contract, storage: 'google-drive', notionFiles: 'links-only', tenants: tenants.filter(t => t.runtimeEnabled !== false).map(t => ({ tenantKey: t.key, ...platform.attachmentArchive.health(t) })) },
+      attachmentRetrieval: { contract: attachmentRetrieval.contract, delivery: 'google-drive-link', conversationIsolation: true },
       llm: { available: llm.available, chain: llm.backends },
       tenants: tenants.map((t) => ({
         key: t.key,
@@ -416,7 +420,7 @@ const server = http.createServer(async (req, res) => {
     if (!Array.isArray(body?.events) || body.events.some((e) => !e || typeof e !== 'object' || Array.isArray(e))) {
       return sendJson(res, 400, { error: 'Invalid events' });
     }
-    try { await lineIo.capture(body.events); }
+    try { await lineIo.capture(body.events, { excludeEvents: event => Boolean(parseAttachmentRequest(event)) }); }
     catch { return sendJson(res, 503, { error: 'LINE I/O intake is temporarily unavailable.' }); }
     try {
       for (const event of body.events || []) {
@@ -524,8 +528,9 @@ const server = http.createServer(async (req, res) => {
 
 // 收到一則事件 → 解析租戶/綁定 → 交分派器。未綁定 = 不落庫、不回話(照 BuildAM)。
 async function handleEvent(event) {
-  if (lineIo.owns(event)) return;
   if (financeInterceptedEvents.has(event)) return;
+  if (await attachmentRetrieval.handle(event)) return;
+  if (lineIo.owns(event)) return;
   const direct = await routeDirectLineEvent({
     event,
     router,
