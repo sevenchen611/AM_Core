@@ -19,6 +19,11 @@
   },
   "config": {
     "homeRoute": "/admin",
+    "attachments": {
+      "archiveAllLineGroupAttachmentsToDrive": true,
+      "driveRole": "source-of-truth",
+      "notionRole": "durable-queue-metadata-and-supported-preview"
+    },
     "portal": {
       "label": "森在 AM / Forest AM"
     },

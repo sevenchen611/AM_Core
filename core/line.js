@@ -185,12 +185,12 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
 
   // 串流下載:回傳 response.body(ReadableStream)+ contentType,讓呼叫端把 LINE 內容
   // 「邊下載邊上傳」給 AssemblyAI,整個大檔(可能上百 MB)不必進記憶體。202=仍在轉檔,耐心重試。
-  async function streamLineContent(messageId, { tries = 8, baseDelay = 3000 } = {}) {
+  async function streamLineContent(messageId, { tries = 8, baseDelay = 3000, timeoutMs = 15 * 60 * 1000 } = {}) {
     if (!channelAccessToken) throw new Error('LINE_CHANNEL_ACCESS_TOKEN is not set.');
     const url = `https://api-data.line.me/v2/bot/message/${encodeURIComponent(messageId)}/content`;
     let lastReason = '';
     for (let attempt = 1; attempt <= tries; attempt += 1) {
-      const response = await fetch(url, { headers: { Authorization: `Bearer ${channelAccessToken}` } });
+      const response = await fetch(url, { headers: { Authorization: `Bearer ${channelAccessToken}` }, signal: AbortSignal.timeout(timeoutMs) });
       if (response.status === 202) {
         try { await response.body?.cancel?.(); } catch { /* ignore */ }
         lastReason = '202 轉檔中';

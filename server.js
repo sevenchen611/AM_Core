@@ -271,6 +271,7 @@ const server = http.createServer(async (req, res) => {
       lineConfigured: line.configured,
       lineIo: { enabled: lineIo.enabled, directoryEnabled:Boolean(lineIo.directoryEnabled),bindingsEnabled:Boolean(lineIo.bindingsEnabled), reviewCardsEnabled:lineIo.enabled, contract: 'line-group-io-v1', version: lineIo.bindingsEnabled ? '1.5.0' : '1.2.0' },
       driveConfigured: platform.driveConfigured,
+      attachmentArchive: { contract: 'line-attachment-retention-v1', tenants: tenants.filter(t => t.runtimeEnabled !== false && t.modules.includes('collect')).map(t => ({ tenantKey: t.key, ...platform.attachmentArchive.health(t) })) },
       llm: { available: llm.available, chain: llm.backends },
       tenants: tenants.map((t) => ({
         key: t.key,
@@ -463,7 +464,19 @@ const server = http.createServer(async (req, res) => {
       logger.warn(`Finance Claims v3 pre-ack persistence failed: ${error.message}`);
       return sendJson(res, 503, { error: 'Finance claim intake is temporarily unavailable.' });
     }
+    let attachmentTenants;
+    try {
+      // Persist recoverable binary jobs before acknowledging the webhook.
+      // Only binary events do a tenant lookup; ordinary text latency is unchanged.
+      attachmentTenants = await platform.attachmentArchive.capture(body.events, event => lineIo.owns(event));
+    } catch (error) {
+      logger.error('Attachment pre-ack intake unavailable; webhook not acknowledged.');
+      return sendJson(res, 503, { error: 'attachment_intake_unavailable' });
+    }
     sendText(res, 200, 'OK'); // 先回 200,事件背景處理(比照 BuildAM)
+    for (const tenant of attachmentTenants) {
+      platform.attachmentArchive.drain(tenant).catch(() => logger.error('Attachment archive worker unavailable.'));
+    }
     for (const token of bankReplyReceipts) {
       line.replyLineMessage(token, '已收到回覆並保存，正在處理核對；處理結果會另行通知。')
         .catch(() => logger.warn('Bank reply receipt notification failed; saved reply retained.'));
@@ -541,6 +554,18 @@ const tickTimer = setInterval(() => {
 }, 10 * 60 * 1000);
 tickTimer.unref?.();
 
+let archivePatrolRunning = false;
+async function archivePatrol() {
+  if (archivePatrolRunning) return;
+  archivePatrolRunning = true;
+  try {
+    for (const tenant of tenants) await platform.attachmentArchive.drain(tenant);
+  } finally { archivePatrolRunning = false; }
+}
+// A restart resumes persisted jobs; transient transfers retry without another LINE send.
+const archiveTimer = setInterval(() => { archivePatrol().catch(() => logger.error('Attachment patrol unavailable.')); }, 60000);
+archiveTimer.unref?.();
+
 // Durable short-latency jobs must not wait for the 10-minute patrol. Individual
 // modules still guard against overlapping work and lease rows in PostgreSQL.
 const fastTickTimer = setInterval(() => {
@@ -552,4 +577,5 @@ fastTickTimer.unref?.();
 const port = Number(process.env.PORT || 3000);
 server.listen(port, () => {
   logger.log(`AM Platform listening on port ${port}. Tenants: ${tenants.map((t) => t.key).join(', ') || '(none)'}.`);
+  archivePatrol().catch(() => logger.error('Attachment startup recovery unavailable.'));
 });

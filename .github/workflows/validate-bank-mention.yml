@@ -23,6 +23,13 @@ on:
       - 'versions/AM-IMP-2026.1004.02/**'
       - 'modules/operational-memory/**'
       - 'modules/collect/**'
+      - 'core/attachment-archive.js'
+      - 'core/drive.js'
+      - 'core/bootstrap.js'
+      - 'tenants/*.json'
+      - 'tools/attachment-retention.mjs'
+      - 'tools/test-attachment-retention.mjs'
+      - 'versions/AM-IMP-2026.1004.04/**'
       - 'tools/verify-bank-line-reply-intake.mjs'
       - 'versions/AM-IMP-2026.0928.01/**'
       - 'core/claims-authority.js'
@@ -52,6 +59,11 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run check
+      - run: node --test tools/test-attachment-retention.mjs
+      - run: node --experimental-vm-modules tools/verify-attachment-webhook.mjs
+      - run: node tools/dryrun-collect-attachment-archive.mjs
+      - run: node tools/dryrun-core.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1004.04
       - run: npm run dryrun:claims-authority
       - run: node --test tools/test-claims-form-availability.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1004.01
