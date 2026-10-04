@@ -1,5 +1,11 @@
 # AM-IMP-2026.1004.06: forest
 
-Status: Installed.
+Status: Deployed.
 
-Own-tenant additive attachment schema has been applied. Runtime changes and regression checks installed locally; production deployment and historical migration remain to be verified. Group/room/private/transport binaries and recordings use the configured tenant Drive root. Notion retains metadata and Drive links after independently verified storage. Historical originals remain in Notion on transfer or verification failure. No other tenant's data is copied.
+Verified production runtime commit: 129dc97cf297fb3b8b11b92de43893987e7f35dc. Contract: drive-only-line-attachments-v2. The tenant uses its existing configured Drive root and Notion attachment data source. Additive schema and production health are ready; no pending transfer, retry or migration backlog remains.
+
+Available-source migration completed: 1840 managed Notion originals moved/reused after verification; 1849 saved indexes now have Drive links, SHA256 and MD5, including one explicitly synthetic 40,647,423-byte verification PDF. Notion binary references: 0. Historical records requiring re-upload: 3; these are not claimed recovered.
+
+The storage canary used a synthetic Notion-managed original, not a real LINE webhook. Its indexed bytes, SHA256 and MD5 match the known synthetic payload and its Notion file property is empty. Root/ownership checks, source hashing and streaming integrity verification run in the production archive. LINE provider redelivery setting remains unverified because the management login is pending; this is separate from completed Drive storage configuration.
+
+Regression: 33 attachment tests, 18 LINE I/O tests, webhook acknowledgement test, core 19 checks, direct routing 17 checks and meeting 41 checks passed, with CI green. Alignment audit retains pre-existing 113 errors and 34 warnings for unavailable standalone project paths; no standalone project alignment/deployment claim. Customer messages, originals, source record IDs, Drive roots and credentials stay outside AMCore.
