@@ -34,7 +34,7 @@ export function createAttachmentArchive({ platform, router, logger = console, no
   const locks = new Map();
   const schemas = new Set();
   const states = new Map();
-  const draining = new Set();
+  const draining = new Map();
   let resolveTransport = async () => null;
   let requestStart = Promise.resolve(), nextRequestAt = 0;
   async function request(tenant, path, options = {}) {
@@ -328,9 +328,16 @@ export function createAttachmentArchive({ platform, router, logger = console, no
       }
     });
   }
-  async function drain(tenant) {
-    if (!enabled(tenant) || draining.has(tenant.key)) return;
-    draining.add(tenant.key);
+  function drain(tenant) {
+    if (!enabled(tenant)) return Promise.resolve();
+    if (draining.has(tenant.key)) return draining.get(tenant.key);
+    const work = Promise.resolve().then(() => runDrain(tenant)).finally(() => {
+      if (draining.get(tenant.key) === work) draining.delete(tenant.key);
+    });
+    draining.set(tenant.key, work);
+    return work;
+  }
+  async function runDrain(tenant) {
     try {
       await ready(tenant);
       const result = await request(tenant, `/v1/data_sources/${encodeURIComponent(tenant.dataSources.attachments)}/query`, {
@@ -438,7 +445,7 @@ export function createAttachmentArchive({ platform, router, logger = console, no
     } catch (error) {
       states.set(tenant.key, { ready: false, error: error.code || 'attachment_queue_unavailable' });
       logger.error(`[attachment-archive] queue unavailable tenant=${tenant.key}`);
-    } finally { draining.delete(tenant.key); }
+    }
   }
   function health(tenant) {
     return { contract: ATTACHMENT_ARCHIVE_CONTRACT, enabled: enabled(tenant), configured: Boolean(tenant?.driveConfigured && tenant?.driveRootFolderId && tenant?.dataSources?.attachments), ...(states.get(tenant.key) || { ready: false, unchecked: true }) };

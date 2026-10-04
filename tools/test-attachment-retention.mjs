@@ -394,6 +394,15 @@ test('historical managed originals migrate without a LINE source and clear Notio
   const original=legacyRow(broken);await broken.archive.drain(broken.t);
   assert.equal(original.properties['檔案'].files.length,1);assert.equal(original.properties['保存狀態'].select.name,'重試中');
 });
+
+test('patrol and webhook callers await the same active tenant drain without a second worker',async()=>{
+  let release;const response=new Promise(resolve=>{release=resolve;});
+  const h=harness({fetchImpl:()=>response});legacyRow(h);
+  const first=h.archive.drain(h.t),second=h.archive.drain(h.t);
+  assert.equal(first,second);
+  release(new Response(new Uint8Array(100),{headers:{'content-length':'100'}}));
+  await Promise.all([first,second]);assert.equal(h.files.size,1);
+});
 test('historical matching Drive originals are reused after independent Notion checksum and root verification', async () => {
   const md5=crypto.createHash('md5').update(new Uint8Array(100)).digest('hex');
   const h=harness({legacyFile:{id:'synthetic-original-file',size:100,md5Checksum:md5,webViewLink:'https://drive.google.com/file/d/synthetic-original-file/view'},
