@@ -199,8 +199,9 @@ export function createAttachmentArchive({ platform, router, logger = console, no
   function driveId(url) {
     try {
       const u = new URL(url);
-      if (u.protocol !== 'https:' || u.hostname !== 'drive.google.com') return '';
-      const id = u.pathname.match(/^\/file\/d\/([\w-]+)/)?.[1] || u.searchParams.get('id');
+      if (u.protocol !== 'https:' || !['drive.google.com', 'docs.google.com'].includes(u.hostname)) return '';
+      const id = u.pathname.match(/^\/(?:file|document|spreadsheets|presentation)\/d\/([\w-]+)/)?.[1]
+        || (u.hostname === 'drive.google.com' ? u.searchParams.get('id') : '');
       return /^[\w-]{10,200}$/.test(id || '') ? id : '';
     } catch { return ''; }
   }
@@ -243,7 +244,8 @@ export function createAttachmentArchive({ platform, router, logger = console, no
       try {
         if (!tenant.driveConfigured || !tenant.driveRootFolderId) throw failure('attachment_storage_not_configured');
         if (migration) {
-          const existingId = driveId(props['Drive 連結']?.url);
+          const indexedId = plain(props['Drive 檔案 ID']);
+          const existingId = /^[\w-]{10,200}$/.test(indexedId) ? indexedId : driveId(props['Drive 連結']?.url);
           if (existingId) {
             // Reuse an existing original only after independent source hashing and
             // verifying that its parent chain reaches this tenant's configured root.
@@ -369,7 +371,8 @@ export function createAttachmentArchive({ platform, router, logger = console, no
         const staleFilter = plain(props['保存來源']) === 'manual-review' && plain(props['保存錯誤']) === 'Historical original is not a single managed file; manual review required.';
         if (!missingHash && !staleFilter && !legacyDriveOnly) return;
         try {
-          const id = driveId(props['Drive 連結']?.url);
+          const indexedId = plain(props['Drive 檔案 ID']);
+          const id = /^[\w-]{10,200}$/.test(indexedId) ? indexedId : driveId(props['Drive 連結']?.url);
           if (!id) throw failure('attachment_drive_identity_missing');
           const file = await platform.drive.verifyWithinRoot(id, tenant.driveRootFolderId, tenant.key);
           if (legacyDriveOnly
