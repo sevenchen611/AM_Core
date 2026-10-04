@@ -427,3 +427,35 @@ test('LINE group member lookup propagates a bounded timeout', async (t) => {
   const line=createLine({channelAccessToken:'synthetic',channelSecret:'synthetic'});
   await assert.rejects(line.resolveGroupMemberName(groupA,allowedUser,{timeoutMs:20}), {name:'TimeoutError'});
 });
+
+test('card appearance works in Reply and Push while raw style rejection never consumes a reply', async t => {
+  const userId=`U${'a'.repeat(32)}`;
+  const h=await harness(t,{env:{...env,LINE_CHANNEL_SECRET:secret,AMCORE_LINE_IO_REPLY_ENABLED:'1',
+    AMCORE_LINE_IO_CLIENTS_JSON:JSON.stringify([{...config[0],inputUserIds:[userId],allowPersonalBindings:true,transportOnly:true}])}});
+  await h.webhook([h.event('card-appearance',{source:{type:'group',groupId:groupA,userId}})]);
+  const action={label:'Open control',uri:'https://example.com/control',appearance:'primary'};
+  const payload={eventId:'card-appearance',groupId:groupA,notifyUserId:userId,text:'Categories',cards:[{title:'Categories',actions:[action]}]};
+  const reply=body=>h.request('/replies',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const invalid=await reply({...payload,cards:[{title:'Categories',actions:[{...action,style:'primary',color:'#187566'}]}]});
+  assert.equal(invalid.status,400);
+  assert.equal(invalid.body.error,'invalid_card_action');
+  assert.equal(h.replies.length,0);
+  assert.equal(h.pushes.length,0);
+  assert.equal(h.store.replyRows.get('sample:card-appearance').status,'pending');
+  assert.equal((await reply(payload)).status,200);
+  assert.equal(h.replies[0][1].length,1);
+  assert.equal(h.replies[0][1][0].contents.footer.contents[0].style,'primary');
+  assert.equal(h.replies[0][1][0].contents.footer.contents[0].color,'#187566');
+  assert.equal((await reply(payload)).body.replayed,true);
+  assert.equal(h.replies.length,1);
+  assert.equal((await reply({...payload,cards:[{title:'Categories',actions:[{...action,appearance:'secondary'}]}]})).status,409);
+  const {eventId,...pushPayload}=payload;
+  const push=body=>h.request('/messages',{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':'appearance-push'},body:JSON.stringify(body)});
+  assert.equal((await push(pushPayload)).status,200);
+  const card=h.pushes[0][3].additionalMessages.find(x=>x.type==='flex');
+  assert.equal(card.contents.footer.contents[0].style,'primary');
+  assert.equal(card.contents.footer.contents[0].color,'#187566');
+  assert.equal((await push(pushPayload)).body.replayed,true);
+  assert.equal(h.pushes.length,1);
+  assert.equal((await push({...pushPayload,cards:[{title:'Categories',actions:[{...action,appearance:'secondary'}]}]})).status,409);
+});

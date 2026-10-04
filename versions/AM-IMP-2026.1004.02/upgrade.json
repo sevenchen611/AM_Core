@@ -1,0 +1,16 @@
+{
+  "id": "AM-IMP-2026.1004.02",
+  "name": "Bounded review card action appearance",
+  "type": "Core / LINE / API",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-10-04",
+  "installTargets": ["AM_PLATFORM", "UOF_LoginCheck"],
+  "requiresPackages": ["AM-IMP-2026.1003.03"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": ["node --test tools/test-line-io.mjs tools/test-line-io-card-appearance.mjs tools/test-line-bindings.mjs tools/test-line-directory.mjs", "node tools/check-upgrade-package.js AM-IMP-2026.1004.02"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": ["URI and postback actions can select a bounded named palette", "Default styles and disabled semantics remain compatible", "Raw LINE styling and invalid destinations remain rejected", "Push and Reply honor the same appearance", "Appearance participates in existing replay conflict checks"],
+  "files": ["core/line-io/cards.js", "tools/test-line-io.mjs", "tools/test-line-io-card-appearance.mjs", ".github/workflows/validate-bank-mention.yml", "versions/AM-IMP-2026.1004.02"]
+}

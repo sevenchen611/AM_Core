@@ -24,9 +24,10 @@ export function buildReviewCards(cards, altText) {
         || card.fields.some(f => !object(f) || !keys(f, ['label','value']) || !text(f.label,80) || !text(f.value,500))))
       || !Array.isArray(card.actions) || card.actions.length > 12) throw ioError(400, 'invalid_cards');
     const actions = card.actions.map(action => {
-      if (!object(action) || !keys(action, ['label','displayText','data','uri','disabled']) || !text(action.label,20)
+      if (!object(action) || !keys(action, ['label','displayText','data','uri','disabled','appearance']) || !text(action.label,20)
         || (action.displayText !== undefined && !text(action.displayText,300))
         || (action.disabled !== undefined && typeof action.disabled !== 'boolean')
+        || (action.appearance !== undefined && (!['primary','secondary'].includes(action.appearance) || action.disabled === true))
         || [action.data !== undefined, action.uri !== undefined, action.disabled === true].filter(Boolean).length !== 1)
         throw ioError(400, 'invalid_card_action');
       if (action.disabled) return {type:'box',layout:'vertical',backgroundColor:'#F0F2F4',cornerRadius:'8px',paddingAll:'12px',contents:[{type:'text',text:action.displayText || action.label,size:'sm',align:'center',color:'#9099A3',wrap:true}]};
@@ -38,11 +39,14 @@ export function buildReviewCards(cards, altText) {
       const nativeAction = action.data
         ? {type:'postback',label:action.label,data:action.data}
         : {type:'uri',label:action.label,uri:action.uri};
+      // Only named palette choices cross the API boundary; raw LINE styles and
+      // colors remain invalid. Existing callers retain their action-type theme.
+      const primary = (action.appearance ?? (action.data ? 'primary' : 'secondary')) === 'primary';
       // Wrapped, fully clickable filenames without truncating LINE's action label.
       if (action.displayText !== undefined) return {type:'box',layout:'vertical',
-        backgroundColor:action.data ? '#187566' : '#EAF2EF',cornerRadius:'8px',paddingAll:'12px',action:nativeAction,
-        contents:[{type:'text',text:action.displayText,size:'sm',align:'center',color:action.data ? '#FFFFFF' : '#18594F',wrap:true}]};
-      return {type:'button',style:action.data ? 'primary' : 'secondary',color:action.data ? '#187566' : '#EAF2EF',height:'sm',action:nativeAction};
+        backgroundColor:primary ? '#187566' : '#EAF2EF',cornerRadius:'8px',paddingAll:'12px',action:nativeAction,
+        contents:[{type:'text',text:action.displayText,size:'sm',align:'center',color:primary ? '#FFFFFF' : '#18594F',wrap:true}]};
+      return {type:'button',style:primary ? 'primary' : 'secondary',color:primary ? '#187566' : '#EAF2EF',height:'sm',action:nativeAction};
     });
     const header = [{type:'text',text:card.eyebrow || 'UOF',size:'xs',weight:'bold',color:'#BFE4D8',wrap:true},
       {type:'text',text:card.title,size:'lg',weight:'bold',color:'#FFFFFF',wrap:true,margin:'sm'}];
