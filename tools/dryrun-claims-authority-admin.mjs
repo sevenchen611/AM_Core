@@ -49,12 +49,13 @@ assert.match(page, /版本歷史/u);
 assert.match(page, /已停用表單與歷史/u);
 assert.match(page, /href="https:\/\/rental\.example\.test\/finance-claims\.html\?adminPreview=employee_expense"/u);
 assert.deepEqual(CLAIM_FORM_INVENTORY.map((form) => form.key), [
+  'mobile_expense_entry',
   'legacy_social_insurance',
   'legacy_shared_operating',
   'legacy_other',
   'employee_expense',
 ]);
-for (const form of CLAIM_FORM_INVENTORY) assert.match(page, new RegExp(`data-form-key="${form.key}"`, 'u'));
+for (const form of CLAIM_FORM_INVENTORY.filter(form=>!form.internalOnly)) assert.match(page, new RegExp(`data-form-key="${form.key}"`, 'u'));
 assert.equal((page.match(/class="form-card"/gu) || []).length, 4);
 assert.doesNotMatch(page, /innerHTML/u);
 

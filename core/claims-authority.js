@@ -10,10 +10,11 @@ const PLATFORM_SCOPE = Object.freeze({
   key: 'platform',
 });
 const FIXED_KEY_ID = 'fixed-v1';
-const CLAIM_FORM_KEYS = Object.freeze(['legacy_social_insurance', 'legacy_shared_operating', 'legacy_other', 'employee_expense']);
+const CLAIM_FORM_KEYS = Object.freeze(['legacy_social_insurance', 'legacy_shared_operating', 'legacy_other', 'employee_expense', 'mobile_expense_entry']);
 const CLAIM_FORM_KEY_SET = new Set(CLAIM_FORM_KEYS);
 const GROUP_CLAIM_MODES = new Set(['external_claim_only', 'internal_v3']);
 export const isRetiredClaimForm = (tenant, key) => tenant?.key === 'hozo-am-2-0' && key === 'employee_expense';
+export const mobileFormAllowed = (tenant, key, mode) => key !== 'mobile_expense_entry' || (tenant?.key === 'hozo-am-2-0' && mode === 'internal_v3');
 const effectiveClaimMode = (tenant, mode) => tenant?.key === 'hozo-am-2-0' ? 'external_claim_only' : mode || 'internal_v3';
 
 export const isClaimsCommand = (text) => COMMAND.test(String(text || '').trim());
@@ -311,7 +312,7 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
       let removedInternalForms = 0;
       if (claimMode === 'external_claim_only') {
         const removed = await client.query(
-          "/* ca:remove-internal-forms */ DELETE FROM am_claims.group_forms WHERE tenant_id=$1 AND group_lookup=$2 AND form_key='employee_expense' RETURNING form_key",
+          "/* ca:remove-internal-forms */ DELETE FROM am_claims.group_forms WHERE tenant_id=$1 AND group_lookup=$2 AND form_key IN ('employee_expense','mobile_expense_entry') RETURNING form_key",
           [tenant.tenantId, groupLookup],
         );
         removedInternalForms = removed.rows?.length || 0;
@@ -422,7 +423,7 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
         [tenant.tenantId, group],
       );
       const configured = tenant.key === 'hozo-am-2-0' || routing.rows?.length > 0;
-      const availableForms = configured ? routing.rows.filter(item => item.enabled !== false && !isRetiredClaimForm(tenant,item.form_key)).map((item) => item.form_key).filter((key) => CLAIM_FORM_KEY_SET.has(key)) : [];
+      const availableForms = configured ? routing.rows.filter(item => item.enabled !== false && !isRetiredClaimForm(tenant,item.form_key) && mobileFormAllowed(tenant,item.form_key,row?.claim_mode)).map((item) => item.form_key).filter((key) => CLAIM_FORM_KEY_SET.has(key)) : [];
       return {
         handled: true,
         mode: currentMode,
@@ -595,7 +596,7 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
     requireRole(actor,READ);
     return tenantTx(tenant,async client=>{
       const result=await client.query('/* ca:form-availability */ SELECT form_key,enabled,updated_at FROM am_claims.form_availability WHERE tenant_id=$1',[tenant.tenantId]);
-      return CLAIM_FORM_KEYS.map(key=>{
+      return CLAIM_FORM_KEYS.filter(key=>key!=='mobile_expense_entry'||tenant.key==='hozo-am-2-0').map(key=>{
         const row=result.rows.find(item=>item.form_key===key),retired=isRetiredClaimForm(tenant,key);
         return {key,enabled:!retired && row?.enabled!==false,retired,updatedAt:row?.updated_at||null};
       });
@@ -605,6 +606,7 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
   async function setFormEnabled({tenant,actor,formKey,enabled}) {
     requireRole(actor,MANAGE);
     const key=requireFormKey(formKey);
+    if(key==='mobile_expense_entry' && tenant.key!=='hozo-am-2-0')throw new Error('此表單僅供 HOZO 內部同仁使用。');
     if(typeof enabled!=='boolean')throw new Error('請指定啟用或停用狀態。');
     if(enabled && isRetiredClaimForm(tenant,key))throw new Error('V3 流程已退場，不能重新啟用；歷史紀錄仍可查閱。');
     return tenantTx(tenant,async client=>{
@@ -640,6 +642,7 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
     requireRole(actor, MANAGE);
     const key = requireFormKey(formKey);
     if(isRetiredClaimForm(tenant,key))throw new Error('V3 流程已退場，不能發布。');
+    if(key==='mobile_expense_entry' && tenant.key!=='hozo-am-2-0')throw new Error('此表單僅供 HOZO 內部同仁使用。');
     const selected = [...new Set((Array.isArray(groupLookups) ? groupLookups : []).map(String))];
     if (selected.length > 500) throw new Error('一次最多設定 500 個群組。');
     selected.forEach((lookup) => requireLookup(lookup, 'Group'));
@@ -649,8 +652,8 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
       if (selected.length) {
         const eligible = await client.query("/* ca:form-groups-eligible */ SELECT group_lookup,claim_mode FROM am_claims.groups WHERE tenant_id=$1 AND group_lookup=ANY($2::char(64)[]) AND state='active' AND oa_state='present'", [tenant.tenantId, selected]);
         if (eligible.rows.length !== selected.length) throw new Error('只能發布給目前啟用且小幫手仍在群內的群組。');
-        if (key === 'employee_expense' && eligible.rows.some((row) => row.claim_mode !== 'internal_v3')) {
-          throw new Error('V3 標準版只能發布給「內部同仁－V3 請款」群組。');
+        if (['employee_expense','mobile_expense_entry'].includes(key) && eligible.rows.some((row) => row.claim_mode !== 'internal_v3')) {
+          throw new Error('此請款單只能發布給內部同仁群組。');
         }
       }
       const affected = [...new Set([...before, ...selected])];
@@ -711,7 +714,7 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
       if (!row || Date.parse(row.expires_at) <= Date.now()) throw new Error('請款連結已失效，請回到群組重新輸入「請款」。');
       if (row.group_state !== 'active' || row.oa_state !== 'present' || row.member_state !== 'observed' || row.manual_deny) throw new Error('目前沒有使用此請款連結的權限。');
       const current = await client.query(`/* ca:current-form-routing */ SELECT f.form_key,COALESCE(a.enabled,true) AS enabled FROM am_claims.group_forms f LEFT JOIN am_claims.form_availability a ON a.tenant_id=f.tenant_id AND a.form_key=f.form_key WHERE f.tenant_id=$1 AND f.group_lookup=$2 ORDER BY f.sort_order,f.form_key`, [tenant.tenantId, row.group_lookup]);
-      const available = current.rows.filter(item=>item.enabled!==false && !isRetiredClaimForm(tenant,item.form_key)).map((item) => item.form_key).filter((key) => row.available_form_keys.includes(key));
+      const available = current.rows.filter(item=>item.enabled!==false && !isRetiredClaimForm(tenant,item.form_key) && mobileFormAllowed(tenant,item.form_key,row.claim_mode)).map((item) => item.form_key).filter((key) => row.available_form_keys.includes(key));
       if (requestedKey && !available.includes(requestedKey)) throw new Error('這張請款單目前不適用此群組。');
       if (requestedKey && row.selected_form_key && row.selected_form_key !== requestedKey) throw new Error('此連結已選擇其他請款單，請回群組重新開啟。');
       return {
@@ -728,7 +731,7 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
         sourceId: row.finance_source_ref,
         v3FormKey: row.finance_form_key,
         groupReference: row.finance_group_reference,
-        claimMode: effectiveClaimMode(tenant,row.claim_mode),
+        claimMode: effectiveClaimMode(tenant,row.claim_mode), internalGroup: row.claim_mode === 'internal_v3',
       };
     });
   }

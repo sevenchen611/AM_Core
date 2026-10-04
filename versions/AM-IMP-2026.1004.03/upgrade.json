@@ -1,0 +1,3 @@
+{
+ "id":"AM-IMP-2026.1004.03","name":"Internal mobile expense claim form","type":"Core / Claims / UI","portable":true,"status":"Ready","installTargets":["AM_PLATFORM"],"requiresDatabases":["existing claims authority Postgres"],"requiresEnv":[],"requiresScripts":["npm run dryrun:claims-authority","node --test tools/test-mobile-claim-form.mjs"],"dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},"definitionOfDone":["Only HOZO internal groups may publish and select the mobile form","Rental admin login still required","Submission uses legacy approval without V3 identity","Existing forms and histories preserved"]
+}

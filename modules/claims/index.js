@@ -132,6 +132,10 @@ function init(injected) {
         const profile = await lineProfileFromAccessToken(accessToken, claimsLiffChannelId(tenant));
         return { ok: profile.userId === expectedUserId, displayName: profile.displayName };
       },
+      async createMobileFormLink({tenant}) {
+        if (tenant.key !== 'hozo-am-2-0') throw new Error('此表單僅供 HOZO 內部同仁使用。');
+        return new URL('/admin-finance-mobile?mode=claim',claimsBaseUrl(tenant)).toString();
+      },
       async createLegacyFormLink({ tenant, selectorSessionId, formKey, sourceId, groupReference, originGroupReference, claimMode, identityReference, bindingId, groupId, groupName, userId, userName }) {
         const legacyType = { legacy_social_insurance: 'labor_health_insurance', legacy_shared_operating: 'shared_operating', legacy_other: 'other' }[formKey];
         if (!legacyType) throw new Error('舊版請款單識別碼無效。');
