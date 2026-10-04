@@ -39,7 +39,7 @@
     "Production commit, schema, health and migration audited"
   ],
   "projectStatus": {
-    "AM_PLATFORM": "Installed"
+    "AM_PLATFORM": "Deployed"
   },
   "files": [
     "core/attachment-archive.js",
@@ -52,6 +52,9 @@
     "modules/meetings/index.js",
     "server.js",
     "tools/test-attachment-retention.mjs",
-    "tools/test-line-io.mjs"
-  ]
+    "tools/test-line-io.mjs",
+    "modules/collect/README.md"
+  ],
+  "verifiedProductionCommit": "129dc97cf297fb3b8b11b92de43893987e7f35dc",
+  "verifiedAt": "2026-10-04T06:32:46.351Z"
 }

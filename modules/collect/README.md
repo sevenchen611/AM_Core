@@ -2,7 +2,7 @@
 
 > 狀態:**已抽出**(BuildAM `src/server.js` 的「訊息落庫」段)。形狀比照 `modules/meetings/`。
 
-把每則 LINE 事件**落進當前租戶的 Notion 庫**:訊息進「訊息」庫，照片/檔案/影片進「附件」庫。
+把每則 LINE 群組事件落進當前租戶的 Notion 訊息庫；所有附件原檔存入該租戶的 Google Drive，Notion 附件庫僅保存資訊、來源證據、保存狀態與 Drive 連結。
 這是所有租戶的第一道收集層——**只收、不判**。AI 初判、確認佇列、會議整理都由後續模組接手。
 
 來源:BuildAM `src/server.js` 的 `handleEvent` + `storeAttachment`「訊息落庫」段,行為等同,重塑成模組形狀。
@@ -16,8 +16,8 @@
    已記過零成本。狀態以 **(租戶, 群組)** 為鍵(`memberSync` Map),跨租戶不污染。
 4. **訊息落庫** — 寫入 `ctx.tenant.dataSources.messages`,`掛載狀態=未掛載`;有綁定則掛「群組綁定」,
    非總管群且有專案則掛「專案」。
-5. **附件** — 所有啟用 collect 的租戶預設將群組／room 的 `image`/`file`/`video` 原檔存入自己的 Drive。LINE webhook 回應前先在附件庫留下持久保存工作；成功須驗證 Drive 歸屬、目錄和大小。保存失敗會留下狀態與重試，重啟後繼續處理。Notion 預覽是選用功能，大檔或不支援格式不會因此失去原檔。詳見 `AM-IMP-2026.1004.04`。
-   Drive `未歸檔/YYYY-MM-DD/`。**會議錄音跳過**(由 `meetings` 自存 Drive,避免大檔重複下載+上傳)。
+5. **附件** — 所有啟用中的租戶以持久服務保存 `image`/`file`/`video`/`audio`，涵蓋群組、room、唯一身分綁定的私人對話及經授權的 transport 綁定。保存不依檔案大小或副檔名排除；供應商限制及 Drive 可用容量仍適用。LINE webhook 回應前先留下持久保存工作；只有通過歸屬、目錄、大小及雜湊驗證才標記已保存。失敗保留狀態與重試，重啟後繼續處理。詳見 `AM-IMP-2026.1004.06`。
+   群組原檔使用 Drive `未歸檔/YYYY-MM-DD/`；私人原檔使用 `私人附件/使用者識別雜湊/YYYY-MM-DD/`。會議錄音共用同一原檔，轉寫不另外存副本。Notion 不上傳附件預覽。舊 Notion 原檔須先核對 Drive 歸屬與獨立來源雜湊，成功後才清除檔案欄位；過期且無備份的來源標記需要重傳。
 
 ## 不做什麼
 
@@ -28,13 +28,13 @@
 ## 介面
 
 ```js
-init(platform)          // 注入共用能力:notionRequest / uploadFileToNotion / downloadLineContent /
-                        //   resolveLineFilename / ensureDriveFolder / uploadToDrive
+init(platform)          // 注入共用能力:notionRequest / attachmentArchive / downloadFromDrive
 async onMessage(ctx)    // 每則訊息落庫;寫完「回傳 false」→ 不短路,後續模組續跑同一則事件
+async onDirectMessage(ctx) // 僅保存私人附件，回覆 Drive 連結或尚未保存的狀態
 // ctx: { tenant, binding, groupId, isMaster, senderName, event, message, text, notionRequest }
 ```
 
-- **寫哪個庫由 `ctx.tenant.dataSources` 決定**: `messages` 保存訊息，`attachments` 保存群組附件的持久工作與索引。啟用 collect 的群組附件必須具備附件庫、保存狀態 schema 和租戶 Drive 根目錄，缺少時不得成功回應收件。
+- **寫哪個庫由 `ctx.tenant.dataSources` 決定**: `messages` 保存群組訊息，`attachments` 保存附件的持久工作與索引。所有啟用租戶的附件必須具備附件庫、保存狀態 schema 和租戶 Drive 根目錄，缺少時不得成功回應收件。私人附件不進群組任務判斷；跨租戶身分不明時拒絕猜測。
 - 落好的訊息列 id 掛在 `ctx.messagePageId`,供後續模組(triage/queue)承接同一列。
 - Notion 寫入走 `ctx.notionRequest`(tenant-locked,per-tenant 隔離守衛):結構上碰不到別租戶的庫。
 - Drive 目標資料夾用 `ctx.tenant.driveRootFolderId`,是否啟用看 `ctx.tenant.driveConfigured`。
@@ -52,5 +52,5 @@ async onMessage(ctx)    // 每則訊息落庫;寫完「回傳 false」→ 不短
 | 訊息庫欄位 | 訊息/內容/LINE 群組 ID/LINE 訊息 ID/發送者/時間/訊息類型/掛載狀態(未掛載)/群組綁定/專案 |
 | 訊息類型 | `text→文字 image→照片 file→檔案 video→影片 audio→音訊 sticker→貼圖`,其餘→`其他` |
 | 總管群 | 訊息不自動掛專案(留待佇列人工選) |
-| 附件 Drive | 預設只存照片；租戶開啟強制政策後，群組內照片、檔案與影片全數存 `未歸檔/日期`，會議音訊存 `會議錄音/日期` |
-| 會議錄音 | 不進附件流程 |
+| 附件 Drive | 全部附件原檔保存於各租戶自己的 Drive；Notion 僅留資訊與連結 |
+| 會議錄音 | 共用持久附件服務的原檔，會議分析不重複上傳 |
