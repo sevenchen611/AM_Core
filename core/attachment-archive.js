@@ -272,6 +272,12 @@ export function createAttachmentArchive({ platform, router, logger = console, no
         const folder = await platform.ensureDriveFolder(date, root);
         const identity = { amTenant: tenant.key, amLineMessage: messageId };
         driveFile = await platform.drive.findAttachment(folder, identity);
+        if (driveFile && migration) {
+          // A prior process may have uploaded and exited before recording its
+          // digests. Re-hash the retained source before clearing it on restart.
+          const original = await digest(await backupContent(props, true));
+          sourceSha256 = original.sha256; sourceMd5 = original.md5; transferSize = original.size;
+        }
         if (!driveFile) {
           let content;
           try { content = migration ? await backupContent(props, true) : await platform.streamLineContent(messageId); }
@@ -338,15 +344,19 @@ export function createAttachmentArchive({ platform, router, logger = console, no
         const saved = await process(tenant, page);
         retryPending ||= !saved.saved;
       }
-      // Old managed originals are themselves durable intake. Mark the attempt
-      // before transferring, and retain their binary reference on every failure.
+      // Old managed originals are themselves durable intake. Retain their
+      // binary reference on every failure.
       const legacy = await request(tenant, `/v1/data_sources/${encodeURIComponent(tenant.dataSources.attachments)}/query`, {
         method: 'POST', body: { page_size: 20, filter: { and: [
           { property: '檔案', files: { is_not_empty: true } },
           { property: '保存來源', rich_text: { is_empty: true } },
         ] } },
       });
-      const pendingLegacy = [...(legacy.results || [])];
+      // Notion's query filter index can lag behind its returned property values.
+      // Do not reclassify rows already cleared or migrated by a previous batch.
+      const candidates = (legacy.results || []).filter(page =>
+        !plain(page.properties?.['保存來源']) && page.properties?.['檔案']?.files?.length);
+      const pendingLegacy = [...candidates];
       // Bound concurrent transfers; Notion requests still share the rate gate.
       await Promise.all(Array.from({ length: 3 }, async () => { while (pendingLegacy.length) {
         const page = pendingLegacy.shift();
@@ -378,7 +388,7 @@ export function createAttachmentArchive({ platform, router, logger = console, no
         method: 'POST', body: { page_size: 1, filter: { or: ['需要重傳', '保存失敗'].map(name => ({ property: '保存狀態', select: { equals: name } })) } },
       });
       states.set(tenant.key, { ready: true, checkedAt: new Date(now()).toISOString(), retryPending,
-        backlog: Boolean(result.has_more || legacy.has_more), migrating: Boolean(legacy.results?.length),
+        backlog: Boolean(result.has_more || (candidates.length && legacy.has_more)), migrating: Boolean(candidates.length),
         needsAttention: retryPending || Boolean(failures.results?.length) });
     } catch (error) {
       states.set(tenant.key, { ready: false, error: error.code || 'attachment_queue_unavailable' });
