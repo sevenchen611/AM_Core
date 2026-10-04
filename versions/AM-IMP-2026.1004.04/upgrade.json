@@ -11,6 +11,6 @@
   "requiresScripts": ["node tools/attachment-retention.mjs --tenant=<key> --apply", "node --test tools/test-attachment-retention.mjs", "node tools/audit-alignment.js"],
   "dataIsolation": {"canCopyCode": true, "canCopySchema": true, "canCopyData": false, "canCopySecrets": false},
   "definitionOfDone": ["Binary intake is durable before webhook acknowledgement", "Every active collect tenant retains originals in its own Drive root", "Only verified storage is marked saved", "Transfer failures and restarts are recoverable and observable", "Local regression and package checks pass", "Production schemas, deployed commit and canaries verified before Deployed"],
-  "projectStatus": {"AM_PLATFORM": "Installed"},
+  "projectStatus": {"AM_PLATFORM": "Deployed"},
   "files": ["core/attachment-archive.js", "core/bootstrap.js", "core/drive.js", "core/line.js", "modules/collect/index.js", "server.js", "tenants/hozo-am-2-0.json", "tenants/forest.json", "tenants/green-hotel.json", "tools/attachment-retention.mjs", "tools/test-attachment-retention.mjs"]
 }
