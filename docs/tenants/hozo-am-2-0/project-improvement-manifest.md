@@ -69,3 +69,5 @@ The tenant stayed at `authorizationReady=false`, meeting formal task creation di
 ## Shared PostgreSQL connection
 
 `operationalMemory.connectionEnvPrefix=FOREST` deliberately reuses the existing restricted shared-database runtime credential in Render without copying or exposing it. Isolation does not depend on the environment-variable name: every transaction sets HOZO AM 2.0's own tenant UUID, and forced PostgreSQL RLS must deny missing or different tenant contexts.
+
+| AM-IMP-2026.1004.01 | Installed | Individual claim form availability | Disable/enable per form; retired HOZO V3 hidden; existing links rechecked | Local schema, API, routing and desktop/mobile verification; production pending. |

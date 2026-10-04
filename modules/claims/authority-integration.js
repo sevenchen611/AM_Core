@@ -228,6 +228,7 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
     '../../versions/AM-IMP-2026.0914.01/config/claims-group-form-routing.sql',
     '../../versions/AM-IMP-2026.0915.02/config/claims-member-auto-onboarding.sql',
     '../../versions/AM-IMP-2026.0916.01/config/claims-group-modes.sql',
+    '../../versions/AM-IMP-2026.1004.01/config/claims-form-availability.sql',
   ].map((path) => fs.readFileSync(new URL(path, import.meta.url), 'utf8'));
   const migrationPromise = migrationSql.reduce((chain, sql) => chain.then(() => migrationPool.query(sql)), Promise.resolve()).then(() => true).catch((error) => {
     platform?.logger?.warn?.(`Claims authority migration failed closed: ${error.message}`);
