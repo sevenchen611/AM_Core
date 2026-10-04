@@ -1,11 +1,14 @@
-# HOZO AM 2.0 attachment retention
+# Attachment retention — hozo-am-2-0
 
-Status: Installed. Core package: AM-IMP-2026.1004.04.
+Status: Deployed. Core package: AM-IMP-2026.1004.04.
 
-The Engineering-only opt-in left ordinary HOZO files dependent on Notion previews.
-Group/room originals now use durable intake and verified tenant-local Drive storage.
-The additive retention schema and query compatibility were applied and checked in
-this tenant's own attachments data source. Local failure/restart/isolation tests pass.
-Production commit, live health and storage canary remain pending.
+The tenant-local additive schema is installed. Reviewed main commit b99dd8c is
+verified on the production AM Platform service. Live archive health is ready; this
+tenant independently saved a controlled 40,647,423-byte synthetic original to its
+own Drive root with exact SHA256 and MD5. The controlled source was a managed
+Notion original; real large-file LINE webhook and forced production failure
+canaries were not performed. Local durable intake/restart/failure/isolation tests
+and both PR CI runs passed. LINE provider redelivery awaits interactive login.
 
+See the core package PRODUCTION-VERIFY.md for acceptance and remaining checks.
 No customer content, production IDs, credentials or file bytes are stored here.
