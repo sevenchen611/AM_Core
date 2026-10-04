@@ -30,6 +30,13 @@ function harness(options = {}) {
       if (/data_sources\/[^/]+$/.test(path)) return { properties: options.schemaMissing ? {} : Object.fromEntries(Object.entries(ATTACHMENT_ARCHIVE_PROPERTIES).map(([k,v]) => [k,{ type: Object.keys(v)[0] }])) };
       if (path.endsWith('/query')) {
         const f = opts.body.filter;
+        function validateNesting(filter, depth = 0) {
+          const children = filter.and || filter.or;
+          if (!children) return;
+          assert.ok(depth < 2, 'Notion compound filters allow at most two levels');
+          children.forEach(child => validateNesting(child, depth + 1));
+        }
+        validateNesting(f);
         const dataSourceId = path.split('/')[3];
         let results = [...rows.values()].filter(p => p.parent?.data_source_id === dataSourceId);
         function match(p, filter) {

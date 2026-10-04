@@ -246,15 +246,16 @@ export function createAttachmentArchive({ platform, router, logger = console, no
       }
       // Delivery is independent from transfer retries: a temporary LINE push failure
       // must not suppress the terminal warning or the later recovery notice.
+      const noticeScope = [
+        { property: 'LINE 群組 ID', rich_text: { is_not_empty: true } },
+        { property: '保存通知', rich_text: { does_not_contain: 'legacy' } },
+      ];
+      // Notion supports only two levels of compound filters: OR of flat ANDs.
       const notices = await request(tenant, `/v1/data_sources/${encodeURIComponent(tenant.dataSources.attachments)}/query`, {
-        method: 'POST', body: { page_size: 10, filter: { and: [
-          { property: 'LINE 群組 ID', rich_text: { is_not_empty: true } },
-          { property: '保存通知', rich_text: { does_not_contain: 'legacy' } },
-          { or: [
-            { and: [{ property: '保存狀態', select: { equals: '需要重傳' } }, { property: '保存通知', rich_text: { does_not_contain: 'expired' } }] },
-            { and: [{ property: '保存狀態', select: { equals: '保存失敗' } }, { property: '保存通知', rich_text: { does_not_contain: 'failed' } }] },
-            { and: [{ property: '保存狀態', select: { equals: '已保存' } }, { property: '保存通知', rich_text: { contains: 'retry' } }, { property: '保存通知', rich_text: { does_not_contain: 'recovered' } }] },
-          ] },
+        method: 'POST', body: { page_size: 10, filter: { or: [
+          { and: [...noticeScope, { property: '保存狀態', select: { equals: '需要重傳' } }, { property: '保存通知', rich_text: { does_not_contain: 'expired' } }] },
+          { and: [...noticeScope, { property: '保存狀態', select: { equals: '保存失敗' } }, { property: '保存通知', rich_text: { does_not_contain: 'failed' } }] },
+          { and: [...noticeScope, { property: '保存狀態', select: { equals: '已保存' } }, { property: '保存通知', rich_text: { contains: 'retry' } }, { property: '保存通知', rich_text: { does_not_contain: 'recovered' } }] },
         ] } },
       });
       for (const page of notices.results || []) {
