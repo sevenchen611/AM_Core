@@ -60,6 +60,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run check
       - run: node --test tools/test-attachment-retention.mjs
+      - run: node --experimental-vm-modules tools/verify-attachment-webhook.mjs
       - run: node tools/dryrun-collect-attachment-archive.mjs
       - run: node tools/dryrun-core.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1004.04

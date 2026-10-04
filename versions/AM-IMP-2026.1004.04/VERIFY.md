@@ -2,6 +2,7 @@
 
 ```text
 node --test tools/test-attachment-retention.mjs
+node --experimental-vm-modules tools/verify-attachment-webhook.mjs
 node tools/dryrun-collect-attachment-archive.mjs
 node tools/dryrun-core.mjs
 node tools/dryrun-line-download.mjs

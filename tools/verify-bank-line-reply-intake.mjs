@@ -6,6 +6,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { createOperationalMemory, __test } from '../core/operational-memory.js';
 import { createBankLineReplyIntake } from '../core/bank-line-reply-intake.js';
 import { createLineIo } from '../core/line-io/index.js';
+import { createAttachmentArchive } from '../core/attachment-archive.js';
 
 const db = new PGlite();
 const tenant = { key: 'hozo-am-2-0', tenantId: '11111111-1111-4111-8111-111111111111', envPrefix: 'TEST', operationalMemory: { enabled: true, activationMode: 'enforce' } };
@@ -65,7 +66,7 @@ try {
     },leaseProcessingJobs:async()=>[]};
     const dependencies={
       'node:http':{default:{createServer(fn){callback=fn;return {listen(){}};}}},'node:crypto':{default:crypto},
-      './core/bootstrap.js':{bootstrap:async()=>({tenants:[tenant],line:{configured:true,isValidSignature:()=>true,replyLineMessage:async()=>{receipts++;}},router:{},dispatcher:{collectRoutes:()=>[]},portal:{},modules:new Map([['claims',{preAckClaimsAuthorityEvent:async()=>{authority++;return {intercepted:true};}}]]),platform:{operationalMemory:fakeMemory,rentalFinanceGroupPushKey:'synthetic'},logger})},
+      './core/bootstrap.js':{bootstrap:async()=>({tenants:[tenant],line:{configured:true,isValidSignature:()=>true,replyLineMessage:async()=>{receipts++;}},router:{},dispatcher:{collectRoutes:()=>[]},portal:{},modules:new Map([['claims',{preAckClaimsAuthorityEvent:async()=>{authority++;return {intercepted:true};}}]]),platform:{operationalMemory:fakeMemory,rentalFinanceGroupPushKey:'synthetic',attachmentArchive:createAttachmentArchive({platform:{},router:{},logger})},logger})},
       './core/bank-line-reply-intake.js':{createBankLineReplyIntake},
       './core/line-io/index.js':{createLineIo,readLineIoBody:async r=>r.rawBody},
       './core/direct-line.js':{routeDirectLineEvent:async()=>({matched:false})},'./core/access-directory.js':{createAccessDirectory:()=>({})},'./core/portal-handoff.js':{safePortalHandoffLocation:()=>'/'},
