@@ -19,6 +19,11 @@
   },
   "config": {
     "homeRoute": "/meeting-terms",
+    "attachments": {
+      "archiveAllLineGroupAttachmentsToDrive": true,
+      "driveRole": "source-of-truth",
+      "notionRole": "durable-queue-metadata-and-supported-preview"
+    },
     "portal": {
       "label": "Green Hotel AM / 葉綠宿 AM"
     },

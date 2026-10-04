@@ -1,0 +1,16 @@
+{
+  "id": "AM-IMP-2026.1004.04",
+  "name": "Reliable tenant LINE attachment preservation with durable intake and verified originals",
+  "type": "AM Platform / LINE / Attachments / Reliability",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-10-04",
+  "installTargets": ["AM_PLATFORM"],
+  "requiresDatabases": ["Each active collect tenant's existing Notion attachments data source; additive retention fields"],
+  "requiresEnv": ["NOTION_TOKEN", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_OAUTH_REFRESH_TOKEN", "LINE_CHANNEL_ACCESS_TOKEN", "Per-tenant NOTION_PARENT_PAGE_ID, ATTACHMENTS_DATA_SOURCE_ID and DRIVE_ROOT_FOLDER_ID"],
+  "requiresScripts": ["node tools/attachment-retention.mjs --tenant=<key> --apply", "node --test tools/test-attachment-retention.mjs", "node tools/audit-alignment.js"],
+  "dataIsolation": {"canCopyCode": true, "canCopySchema": true, "canCopyData": false, "canCopySecrets": false},
+  "definitionOfDone": ["Binary intake is durable before webhook acknowledgement", "Every active collect tenant retains originals in its own Drive root", "Only verified storage is marked saved", "Transfer failures and restarts are recoverable and observable", "Local regression and package checks pass", "Production schemas, deployed commit and canaries verified before Deployed"],
+  "projectStatus": {"AM_PLATFORM": "Installed"},
+  "files": ["core/attachment-archive.js", "core/bootstrap.js", "core/drive.js", "core/line.js", "modules/collect/index.js", "server.js", "tenants/hozo-am-2-0.json", "tenants/forest.json", "tenants/green-hotel.json", "tools/attachment-retention.mjs", "tools/test-attachment-retention.mjs"]
+}

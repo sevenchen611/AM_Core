@@ -13,6 +13,7 @@ export function createDrive({ clientId, clientSecret, refreshToken, logger = con
     if (accessToken.value && Date.now() < accessToken.expiresAt) return accessToken.value;
     const response = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
+      signal: AbortSignal.timeout(30000),
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         client_id: clientId,
@@ -34,6 +35,7 @@ export function createDrive({ clientId, clientSecret, refreshToken, logger = con
     const query = `name = '${name.replace(/'/g, "\\'")}' and '${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
     const searchResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id)`, {
       headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(30000),
     });
     const search = await searchResponse.json();
     if (!searchResponse.ok) throw new Error(`Drive folder search failed: ${searchResponse.status} ${JSON.stringify(search)}`);
@@ -41,6 +43,7 @@ export function createDrive({ clientId, clientSecret, refreshToken, logger = con
     if (!folderId) {
       const createResponse = await fetch('https://www.googleapis.com/drive/v3/files?fields=id', {
         method: 'POST',
+        signal: AbortSignal.timeout(30000),
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, mimeType: 'application/vnd.google-apps.folder', parents: [parentId] }),
       });
@@ -73,24 +76,26 @@ export function createDrive({ clientId, clientSecret, refreshToken, logger = con
 
   // 串流上傳(resumable):把來源 ReadableStream 直接灌進 Drive,整個大檔不進記憶體。
   // size(bytes)必填才走串流單發 PUT(Google 要 Content-Length);LINE 下載回應都帶 content-length。
-  async function uploadStream(stream, filename, contentType, parentId, size) {
+  async function uploadStream(stream, filename, contentType, parentId, size, metadata = {}) {
     if (!Number.isFinite(size) || size <= 0) throw new Error('uploadStream needs a known size (bytes)');
     const token = await getAccessToken();
     const init = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id,webViewLink', {
       method: 'POST',
+      signal: AbortSignal.timeout(30000),
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json; charset=UTF-8',
         ...(contentType ? { 'X-Upload-Content-Type': contentType } : {}),
         'X-Upload-Content-Length': String(size),
       },
-      body: JSON.stringify({ name: filename, parents: [parentId] }),
+      body: JSON.stringify({ name: filename, parents: [parentId], ...(metadata.appProperties ? { appProperties: metadata.appProperties } : {}) }),
     });
     if (!init.ok) throw new Error(`Drive resumable init failed: ${init.status} ${(await init.text()).slice(0, 200)}`);
     const session = init.headers.get('location');
     if (!session) throw new Error('Drive resumable init: no session URL');
     const put = await fetch(session, {
       method: 'PUT',
+      signal: AbortSignal.timeout(15 * 60 * 1000),
       headers: { ...(contentType ? { 'Content-Type': contentType } : {}), 'Content-Length': String(size) },
       body: stream,
       duplex: 'half',
@@ -107,6 +112,44 @@ export function createDrive({ clientId, clientSecret, refreshToken, logger = con
       if (meta.ok) json = { ...json, ...(await meta.json()) };
     }
     return json; // { id, webViewLink, size? }
+  }
+
+  const attachmentFields = 'id,name,size,md5Checksum,webViewLink,parents,appProperties,trashed';
+  const quote = value => String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  async function findAttachment(parentId, identity) {
+    const token = await getAccessToken();
+    const q = [`'${quote(parentId)}' in parents`, 'trashed = false',
+      ...Object.entries(identity).map(([key, value]) => `appProperties has { key='${quote(key)}' and value='${quote(value)}' }`)].join(' and ');
+    const params = new URLSearchParams({ q, pageSize: '2', fields: `files(${attachmentFields})`, supportsAllDrives: 'true', includeItemsFromAllDrives: 'true' });
+    const response = await fetch(`https://www.googleapis.com/drive/v3/files?${params}`, {
+      headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(30000),
+    });
+    if (!response.ok) throw Object.assign(new Error('Drive attachment lookup failed'), { code: 'attachment_drive_lookup_failed' });
+    const result = await response.json();
+    if (!Array.isArray(result.files)) throw new Error('Drive attachment lookup incomplete');
+    if (result.files.length > 1) throw Object.assign(new Error('Duplicate archived originals require review'), { code: 'attachment_drive_duplicate' });
+    return result.files[0] || null;
+  }
+
+  async function verifyAttachment(fileId, parentId, identity, expectedSize = 0, expectedMd5 = '') {
+    if (!fileId) throw new Error('Drive archive has no file id');
+    const token = await getAccessToken();
+    const params = new URLSearchParams({ fields: attachmentFields, supportsAllDrives: 'true' });
+    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?${params}`, {
+      headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(30000),
+    });
+    if (!response.ok) throw Object.assign(new Error('Drive archive verification failed'), { code: 'attachment_drive_verify_failed' });
+    const file = await response.json();
+    if (file.trashed || !file.parents?.includes(parentId) || Object.entries(identity).some(([k, v]) => file.appProperties?.[k] !== v)) {
+      throw Object.assign(new Error('Drive archive ownership mismatch'), { code: 'attachment_drive_owner_mismatch' });
+    }
+    if (!Number(file.size) || (expectedSize > 0 && Number(file.size) !== expectedSize)) {
+      throw Object.assign(new Error('Drive archive size mismatch'), { code: 'attachment_drive_size_mismatch' });
+    }
+    if (expectedMd5 && file.md5Checksum !== expectedMd5) {
+      throw Object.assign(new Error('Drive archive checksum mismatch'), { code: 'attachment_drive_checksum_mismatch' });
+    }
+    return { ...file, webViewLink: file.webViewLink || `https://drive.google.com/file/d/${encodeURIComponent(file.id)}/view` };
   }
 
   async function download(fileId, maxBytes = 30 * 1024 * 1024) {
@@ -172,5 +215,5 @@ export function createDrive({ clientId, clientSecret, refreshToken, logger = con
     };
   }
 
-  return { configured, getAccessToken, ensureFolder, upload, uploadStream, download, auditPrivateFile };
+  return { configured, getAccessToken, ensureFolder, upload, uploadStream, download, auditPrivateFile, findAttachment, verifyAttachment };
 }

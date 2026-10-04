@@ -2,6 +2,7 @@
 
 | Version | Status | Scope | Verified | Notes |
 | --- | --- | --- | --- | --- |
+| AM-IMP-2026.1004.04 | Installed | Durable attachment preservation | Local regressions and tenant-local additive schema/query checks | Production deployment and storage canary remain pending; transport-only LINE I/O retains its scoped routing. |
 | AM-IMP-2026.0718.01 | Deployed | Shadow operational memory | Source database inventory, PostgreSQL migration, runtime-role separation, forced RLS isolation and Render deployment | Green Hotel uses the shared production PostgreSQL service with its own tenant UUID and restricted runtime role. The previous free test database contained no operational-memory rows, so no business records required copying. |
 | AM-IMP-2026.0929.01 | Deployed | Scoped LINE input/output gateway | Render Live main commit, LINE webhook test, authenticated endpoints, unauthorized/group denial, accepted push and duplicate replay | Enabled in production for the configured transport group and fixed user; live user-message input canary remains pending. |
 | AM-IMP-2026.0929.02 | Deployed | Per-request LINE @recipient | Main SHA and API 1.1.0 health, explicit recipient push/replay, recipient conflict, invalid/nonmember rejection, old receipt replay | Optional notifyUserId overrides the configured default; null disables @. |

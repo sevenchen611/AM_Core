@@ -16,7 +16,7 @@
    已記過零成本。狀態以 **(租戶, 群組)** 為鍵(`memberSync` Map),跨租戶不污染。
 4. **訊息落庫** — 寫入 `ctx.tenant.dataSources.messages`,`掛載狀態=未掛載`;有綁定則掛「群組綁定」,
    非總管群且有專案則掛「專案」。
-5. **附件** — `image`/`file`/`video` →「附件」庫；租戶可開啟 `config.attachments.archiveAllLineGroupAttachmentsToDrive` 將 LINE 群組附件原檔全數存入 Google Drive。Notion 僅做資料列與受支援檔案預覽，不是原檔唯一留存點。會議音訊由 `meetings` 串流留存到 Drive，避免重複檔案。
+5. **附件** — 所有啟用 collect 的租戶預設將群組／room 的 `image`/`file`/`video` 原檔存入自己的 Drive。LINE webhook 回應前先在附件庫留下持久保存工作；成功須驗證 Drive 歸屬、目錄和大小。保存失敗會留下狀態與重試，重啟後繼續處理。Notion 預覽是選用功能，大檔或不支援格式不會因此失去原檔。詳見 `AM-IMP-2026.1004.04`。
    Drive `未歸檔/YYYY-MM-DD/`。**會議錄音跳過**(由 `meetings` 自存 Drive,避免大檔重複下載+上傳)。
 
 ## 不做什麼
@@ -34,7 +34,7 @@ async onMessage(ctx)    // 每則訊息落庫;寫完「回傳 false」→ 不短
 // ctx: { tenant, binding, groupId, isMaster, senderName, event, message, text, notionRequest }
 ```
 
-- **寫哪個庫由 `ctx.tenant.dataSources` 決定**:`messages`(必須,缺則直接回 false 交棒)、`attachments`(選用,沒有就只落訊息)。
+- **寫哪個庫由 `ctx.tenant.dataSources` 決定**: `messages` 保存訊息，`attachments` 保存群組附件的持久工作與索引。啟用 collect 的群組附件必須具備附件庫、保存狀態 schema 和租戶 Drive 根目錄，缺少時不得成功回應收件。
 - 落好的訊息列 id 掛在 `ctx.messagePageId`,供後續模組(triage/queue)承接同一列。
 - Notion 寫入走 `ctx.notionRequest`(tenant-locked,per-tenant 隔離守衛):結構上碰不到別租戶的庫。
 - Drive 目標資料夾用 `ctx.tenant.driveRootFolderId`,是否啟用看 `ctx.tenant.driveConfigured`。

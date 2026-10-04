@@ -46,7 +46,8 @@ function isMeetingAudio(message) {
 }
 
 function archiveAllGroupAttachments(tenant, groupId) {
-  return Boolean(groupId && tenant?.config?.attachments?.archiveAllLineGroupAttachmentsToDrive === true);
+  // Original preservation is a platform baseline, not an opt-in tenant feature.
+  return Boolean(groupId);
 }
 
 function notionUploadCandidate(filename, fileSize = 0) {
@@ -137,7 +138,7 @@ async function onMessage(ctx) {
   // 交棒點:把落好的訊息列 id 掛回 ctx,後續模組(triage/queue)承接同一列,免得再查一次
   ctx.messagePageId = messagePage.id;
 
-  // 照片/檔案/影片 → 附件庫。開啟租戶政策時，LINE 群組附件一律原檔存 Drive。
+  // 照片/檔案/影片 → 附件庫。LINE 群組附件原檔一律存 Drive。
   // 會議錄音仍由 meetings 以串流存入 Drive「會議錄音/日期」，避免重複留存。
   // 用 dispatch 已算好的「是否音檔」(含檔頭補判),避免掉了副檔名的錄音被當附件整包下載+上傳。
   const attachmentsDs = tenant?.dataSources?.attachments;
@@ -155,15 +156,37 @@ async function onMessage(ctx) {
     }
   }
 
-  console.log(`[collect] tenant=${tenant.key} stored ${messageType} ${messageId} (group=${groupId || 'direct'}, project=${binding?.projectPageId && !isMaster ? 'bound' : 'unbound'}).`);
+  console.log(`[collect] tenant=${tenant.key} indexed message ${messageType} ${messageId} (group=${groupId || 'direct'}, project=${binding?.projectPageId && !isMaster ? 'bound' : 'unbound'}).`);
   return false; // 不短路,讓後續模組續跑
 }
 
-// 照片/檔案/影片落地：Google Drive 是工程租戶的原檔真實來源；
+// 照片/檔案/影片落地：Google Drive 是各租戶的原檔真實來源；
 // Notion 僅在格式受支援且不超過 direct-upload 上限時加上預覽檔。
 async function storeAttachment({ ctx, messagePage, messageId, messageType, eventTime }) {
   const { tenant, binding, message, event, senderName, groupId } = ctx;
   const notionRequest = ctx.notionRequest || platform.notionRequest;
+  if (groupId && platform.attachmentArchive) {
+    const page = await platform.attachmentArchive.persist({ tenant, event, messagePage, binding });
+    const stored = await platform.attachmentArchive.process(tenant, page);
+    // Previews/vision are optional and run only after the original is safely in Drive.
+    let content = null;
+    const filename = message.fileName || fallbackFilename(message, messageType, messageId);
+    const archivedSize = Number(stored.driveFile?.size);
+    if (stored.saved && archivedSize > 0 && archivedSize <= NOTION_DIRECT_UPLOAD_MAX_BYTES
+      && (message.type === 'image' || notionUploadCandidate(filename, archivedSize))) {
+      try {
+        content = await platform.downloadLineContent(messageId);
+        const previewFilename = platform.resolveLineFilename?.(message, messageType, messageId, content.contentType) || filename;
+        if (notionUploadCandidate(previewFilename, content.buffer.byteLength)) {
+          const upload = await platform.uploadFileToNotion(content.buffer, previewFilename, content.contentType);
+          await notionRequest(`/v1/pages/${encodeURIComponent(page.id)}`, { method: 'PATCH', body: { properties: {
+            '檔案': { files: [{ type: 'file_upload', file_upload: { id: upload.id }, name: previewFilename }] },
+          } } });
+        }
+      } catch { (platform.logger || console).warn(`[collect] optional preview unavailable tenant=${tenant.key}; archived original retained`); }
+    }
+    return { ...stored, content };
+  }
   const archiveAll = archiveAllGroupAttachments(tenant, groupId);
   const initialFilename = fallbackFilename(message, messageType, messageId);
   const initialSize = Number(message.fileSize) || 0;
@@ -270,6 +293,7 @@ export default {
   name: 'collect',
   init,
   onMessage,          // (ctx) 每則訊息落庫;寫完回傳 false 讓後續模組續跑
+  tick: async ({ tenant }) => platform.attachmentArchive?.drain(tenant),
 };
 
 // 測試用內部匯出(不影響正式流程)

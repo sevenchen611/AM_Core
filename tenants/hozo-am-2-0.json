@@ -20,6 +20,11 @@
   },
   "config": {
     "homeRoute": "/admin",
+    "attachments": {
+      "archiveAllLineGroupAttachmentsToDrive": true,
+      "driveRole": "source-of-truth",
+      "notionRole": "durable-queue-metadata-and-supported-preview"
+    },
     "llm": {
       "minimaxModel": "MiniMax-M3",
       "cheapChain": "minimax,gemini,anthropic"

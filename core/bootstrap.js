@@ -12,6 +12,7 @@ import { createOperationalMemory } from './operational-memory.js';
 import { createContractStore } from './contract-store.js';
 import { createRouter } from './router.js';
 import { loadModules, createDispatcher } from './modules.js';
+import { createAttachmentArchive } from './attachment-archive.js';
 
 function createCalendarIntegration(env, logger = console) {
   const baseUrl = String(env.HOZO_RENTAL_CALENDAR_BASE_URL || env.HOZO_RENTAL_BASE_URL || 'https://rental.hozorental.com').trim().replace(/\/+$/, '');
@@ -238,6 +239,7 @@ export async function bootstrap(env = process.env, overrides = {}) {
   const router = createRouter({ tenants, notionRequest: notion.notionRequest, logger, calendarIdentityResolve: calendarIntegration.resolveIdentity });
   // 網頁管理模組更新群組設定後可立即使路由快取失效；router 本身仍是 core 唯一擁有者。
   platform.router = router;
+  platform.attachmentArchive = createAttachmentArchive({ platform, router, logger });
   const modules = await loadModules({ tenants, platform, logger });
   const dispatcher = createDispatcher({ tenants, modules, platform, logger });
 
