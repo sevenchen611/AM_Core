@@ -5,13 +5,47 @@
   "portable": true,
   "status": "Ready",
   "createdAt": "2026-10-04",
-  "installTargets": ["AM_PLATFORM"],
-  "requiresDatabases": ["Existing tenant attachment and message data sources from AM-IMP-2026.1004.06"],
-  "requiresEnv": ["Existing tenant Notion and LINE credentials", "Existing Drive OAuth identity and per-tenant root"],
-  "requiresScripts": ["node --test tools/test-attachment-retrieval.mjs tools/test-line-io.mjs tools/test-attachment-retention.mjs", "node --experimental-vm-modules tools/verify-attachment-webhook.mjs", "node tools/audit-alignment.js"],
-  "dataIsolation": {"canCopyCode":true,"canCopySchema":true,"canCopyData":false,"canCopySecrets":false},
-  "definitionOfDone": ["Exact quoted original or exact same-conversation filename resolves uniquely", "Fresh binding and tenant Drive ancestry, size and checksum verified before link delivery", "Private and group sources cannot cross conversations or tenants", "Missing, pending and changed originals are reported honestly", "Commands bypass task extraction and second transport assistants", "Regression and CI pass; reviewed main commit verified in production"],
-  "projectStatus": {"AM_PLATFORM":"Installed"},
-  "files": ["core/attachment-retrieval.js","core/line-io/index.js","server.js","tools/test-attachment-retrieval.mjs","tools/test-line-io.mjs","tools/verify-attachment-webhook.mjs"],
-  "contract": "line-quoted-drive-original-v1"
+  "installTargets": [
+    "AM_PLATFORM"
+  ],
+  "requiresDatabases": [
+    "Existing tenant attachment and message data sources from AM-IMP-2026.1004.06"
+  ],
+  "requiresEnv": [
+    "Existing tenant Notion and LINE credentials",
+    "Existing Drive OAuth identity and per-tenant root"
+  ],
+  "requiresScripts": [
+    "node --test tools/test-attachment-retrieval.mjs tools/test-line-io.mjs tools/test-attachment-retention.mjs",
+    "node --experimental-vm-modules tools/verify-attachment-webhook.mjs",
+    "node tools/audit-alignment.js"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Exact quoted original or exact same-conversation filename resolves uniquely",
+    "Fresh binding and tenant Drive ancestry, size and checksum verified before link delivery",
+    "Private and group sources cannot cross conversations or tenants",
+    "Missing, pending and changed originals are reported honestly",
+    "Commands bypass task extraction and second transport assistants",
+    "Regression and CI pass; reviewed main commit verified in production"
+  ],
+  "projectStatus": {
+    "AM_PLATFORM": "Deployed"
+  },
+  "files": [
+    "core/attachment-retrieval.js",
+    "core/line-io/index.js",
+    "server.js",
+    "tools/test-attachment-retrieval.mjs",
+    "tools/test-line-io.mjs",
+    "tools/verify-attachment-webhook.mjs"
+  ],
+  "contract": "line-quoted-drive-original-v1",
+  "verifiedProductionCommit": "e92dc4caf14c4f769c280d6969eae0187f3ec540",
+  "verifiedAt": "2026-10-04T07:11:14.971Z"
 }
