@@ -454,6 +454,15 @@ test('historical Drive-only indexes become saved only after root and streaming i
     else {assert.equal(row.properties['保存狀態'].select.name,'已保存');assert.equal(row.properties['保存來源'].rich_text[0].text.content,'drive-migration');}
   }
 });
+
+test('Google Office viewer links reuse and verify the same tenant Drive binary',async()=>{
+  const md5=crypto.createHash('md5').update(new Uint8Array(100)).digest('hex');
+  const h=harness({legacyFile:{id:'synthetic-original-file',size:100,md5Checksum:md5},fetchImpl:async()=>new Response(new Uint8Array(100),{headers:{'content-length':'100'}})});
+  const row=legacyRow(h,true);row.properties['Drive 連結'].url='https://docs.google.com/spreadsheets/d/synthetic-original-file/edit';
+  await h.archive.drain(h.t);assert.equal(h.calls.filter(c=>c[0]==='upload').length,0);assert.deepEqual(row.properties['檔案'].files,[]);
+  row.properties['原檔 SHA256']={rich_text:[]};row.properties['Drive 檔案 ID']={rich_text:[{text:{content:'synthetic-original-file'}}]};
+  await h.archive.drain(h.t);assert.match(row.properties['原檔 SHA256'].rich_text[0].text.content,/^[a-f0-9]{64}$/);
+});
 test('private attachment identity uses all active tenant memberships without changing personal assistant access', async()=>{
   const t={...tenant('non-assistant-tenant'),notionConfigured:true,parentPageId:'test-parent',dataSources:{attachments:'a',groupBindings:'g'}};
   const router=createRouter({tenants:[t],logger:quiet,notionRequest:async()=>({results:[{id:'binding',properties:{
