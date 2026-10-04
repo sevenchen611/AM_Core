@@ -1,3 +1,4 @@
+import {renderStaffEntry} from './staff-entry.js';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { createFinanceClaimsV3Pool } from './v3/postgres.js';
@@ -199,7 +200,7 @@ async function listKnownLineGroups(platform, tenant) {
   return [...new Map(groups.map((item) => [item.groupId, item])).values()];
 }
 
-export function createClaimsAuthorityIntegration({ env = process.env, platform, groupEntry, receiver, renderFormPreview, createLegacyFormLink, createMobileFormLink, verifyLiffUser, claimsLiffId, listFormHistory } = {}) {
+export function createClaimsAuthorityIntegration({ env = process.env, platform, groupEntry, receiver, renderFormPreview, createLegacyFormLink, createMobileFormLink, staffEntryRequest, verifyLiffUser, claimsLiffId, listFormHistory } = {}) {
   const enabled = env.HZ2_CLAIMS_AUTHORITY_ENABLED === 'true';
   if (!enabled) return { enabled: false, ready: false };
   const identityKey = String(env.HZ2_CLAIMS_AUTHORITY_IDENTITY_KEY || '');
@@ -285,7 +286,7 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
       memberLookup: input.memberLookup,
       eventKey: input.idempotencyKey,
       formKeys: input.routing.availableForms,
-      ttlMs: input.routing.claimMode === 'external_claim_only' ? EXTERNAL_SELECTOR_TTL_MS : SELECTOR_TTL_MS,
+      ttlMs: input.routing.claimMode === 'external_claim_only' || input.routing.availableForms.includes('mobile_expense_entry') ? EXTERNAL_SELECTOR_TTL_MS : SELECTOR_TTL_MS,
     });
     const liffId = String(claimsLiffId?.(input.tenant) || '');
     if (!liffId) throw new Error('請款 LINE LIFF 尚未設定。');
@@ -421,21 +422,30 @@ export function createClaimsAuthorityIntegration({ env = process.env, platform, 
     if (!parsed) return sendResponse(res, { status: 404, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }, body: JSON.stringify({ error: '請款連結已失效，請回群組重新輸入「請款」。' }) });
     try {
       const session = await authority.resolveFormSelection({ tenant: authorityTenant(tenant), sessionId: parsed.sessionId });
-      if (req.method === 'GET') return sendResponse(res, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'set-cookie': selectorSessionCookie(token, parsed.expiresAt), 'referrer-policy': 'no-referrer', 'content-security-policy': "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.line-scdn.net; connect-src 'self' https://api.line.me; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'", 'x-content-type-options': 'nosniff' }, body: selectorHtml({ token, session, tenant }) });
+      if (req.method === 'GET') return sendResponse(res, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'set-cookie': selectorSessionCookie(token, parsed.expiresAt), 'referrer-policy': 'no-referrer', 'content-security-policy': "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.line-scdn.net; connect-src 'self' https://api.line.me; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'", 'x-content-type-options': 'nosniff' }, body: session.selectedFormKey==='mobile_expense_entry'?renderStaffEntry({token,liffId:claimsLiffId?.(tenant)||''}):selectorHtml({ token, session, tenant }) });
       if (req.method !== 'POST') throw new Error('不支援的操作。');
       const chunks = []; let bytes = 0;
-      for await (const chunk of req) { bytes += chunk.length; if (bytes > 64 * 1024) throw new Error('資料量過大。'); chunks.push(chunk); }
+      for await (const chunk of req) { bytes += chunk.length; if (bytes > 2 * 1024 * 1024) throw new Error('資料量過大。'); chunks.push(chunk); }
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
       if (!timingSafeText(body.selectorToken, token)) throw new Error('請款連結驗證失敗。');
       const actor = await verifyLiffUser?.({ tenant, accessToken: body.liffAccessToken, expectedUserId: session.userId, bindingId: session.bindingId });
       if (!actor?.ok) throw new Error('此請款連結僅限原送件人使用。');
+      if(String(body.action).startsWith('mobile_')) {
+        const current=await authority.resolveFormSelection({tenant:authorityTenant(tenant),sessionId:parsed.sessionId,formKey:'mobile_expense_entry'});
+        if(tenant.key!=='hozo-am-2-0'||!current.internalGroup||current.selectedFormKey!=='mobile_expense_entry')throw Error('此表單僅供內部同仁使用。');
+        const action=String(body.action).slice(7);if(!['options','submit','recognize'].includes(action))throw Error('不支援的操作。');
+        const allowed=['requestId','contractVersion','direction','amount','title','transactionDate','postingMonth','businessUnitType','businessUnitId','categoryId','accountId','paymentMethod','vendorId','vendorName','payerId','receiptStatus','receiptMissingReason','receiptDueDate','receiptAssignee','isInvoice','invoiceNumber','invoiceCompany','invoiceTaxEntity','receiptImage','image'];
+        const payload=Object.fromEntries(allowed.filter(k=>Object.hasOwn(body,k)).map(k=>[k,body[k]]));
+        const result=await staffEntryRequest({tenant,payload:{...payload,action,tenantKey:tenant.key,sourceId:current.sourceId,groupReference:originGroupReference(current.groupLookup),internalGroup:true,applicant:{userId:current.userId,name:actor.displayName||'LINE 同仁'},businessUnitType:payload.businessUnitType||'headquarters',businessUnitId:payload.businessUnitId||'company'}});
+        return sendResponse(res,{status:action==='submit'&&!result.replayed?201:200,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'},body:JSON.stringify(result)});
+      }
       if (body.action === 'identify') return sendResponse(res, { status: 200, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }, body: JSON.stringify({ ok: true }) });
       if (body.action !== 'select') throw new Error('不支援的操作。');
       const selected = await authority.resolveFormSelection({ tenant: authorityTenant(tenant), sessionId: parsed.sessionId, formKey: body.formKey });
-      if (selected.resolvedUrl) return sendResponse(res, { status: 200, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }, body: JSON.stringify({ ok: true, url: selected.resolvedUrl, replayed: true }) });
+      if (selected.resolvedUrl && body.formKey!=='mobile_expense_entry') return sendResponse(res, { status: 200, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }, body: JSON.stringify({ ok: true, url: selected.resolvedUrl, replayed: true }) });
       if (body.formKey === 'mobile_expense_entry') {
         if (tenant.key !== 'hozo-am-2-0' || !selected.internalGroup) throw new Error('此表單僅供內部同仁使用。');
-        const url = await createMobileFormLink?.({tenant});
+        const url = await createMobileFormLink?.({tenant,token});
         if (!url) throw new Error('手機請款入口尚未設定。');
         await authority.completeFormSelection({tenant:authorityTenant(tenant),sessionId:parsed.sessionId,formKey:body.formKey,resolvedUrl:url});
         return sendResponse(res,{status:200,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store'},body:JSON.stringify({ok:true,url})});

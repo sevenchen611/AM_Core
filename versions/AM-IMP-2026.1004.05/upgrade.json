@@ -1,0 +1,30 @@
+{
+  "id": "AM-IMP-2026.1004.05",
+  "name": "Standalone LINE staff income and expense",
+  "type": "Core / Claims / UI",
+  "portable": true,
+  "status": "Ready",
+  "installTargets": [
+    "AM_PLATFORM"
+  ],
+  "requiresDatabases": [
+    "existing claims authority PostgreSQL"
+  ],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "npm run dryrun:claims-authority",
+    "node --test tools/test-line-staff-entry.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "LINE staff form grants no admin access",
+    "Income and expense use original mobile layout",
+    "Maggie approves <=30000; Seven approves >30000",
+    "No ledger transaction before required review",
+    "Existing vendor forms and V3 history remain intact"
+  ]
+}

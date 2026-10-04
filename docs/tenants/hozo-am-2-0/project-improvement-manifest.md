@@ -10,6 +10,7 @@ Environment prefix: `HZ2`
 
 | Version | Status | Capability | Scope | Notes |
 | --- | --- | --- | --- | --- |
+| `AM-IMP-2026.1004.05` | Installed | LINE staff income and expense | Root Platform tenant adapter | LINE sender and authority checks; Maggie <=30,000 / Seven >30,000; reviewed cash posting. |
 | `AM-IMP-2026.1004.03` | Installed | Internal mobile expense claim form | Root Platform tenant adapter | Rental login and legacy Maggie approval; internal group publication only. |
 | AM-IMP-2026.1004.04 | Installed | Durable attachment preservation | Group/room originals, retries, verified Drive storage and failure notices | Local retention regressions and tenant-local additive schema/query checks passed. Production deployment and storage canary remain pending. |
 | AM-IMP-2026.0928.01 | Installed | Durable bank LINE reply receipt and recovery | Root HOZO adapter; tenant-scoped processing jobs and accounting receipt contract | Offline PostgreSQL and real webhook tests passed; coordinated Rental-first main deployment and production verification pending. |

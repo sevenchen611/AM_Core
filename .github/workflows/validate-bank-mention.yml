@@ -68,6 +68,8 @@ jobs:
       - run: node --test tools/test-claims-form-availability.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1004.01
       - run: node --test tools/test-mobile-claim-form.mjs
+      - run: node --test tools/test-line-staff-entry.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1004.05
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1004.03
       - run: npm run verify:bank-mention
       - run: npm run dryrun:processing-jobs

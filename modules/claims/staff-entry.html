@@ -1,0 +1,703 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>收支登記｜HOZO 行動版</title>
+  <!-- 行動版「收支登記」（精簡版財務）：報表範圍(公司/月份) + 記帳(收入/支出) + 流水帳明細。沿用桌機版同一組 API。 -->
+  <style>
+    :root{
+      --ink:#221f1b; --muted:#6f6b64; --paper:#faf8f2; --panel:#fffdf8; --line:#ded7c9;
+      --brown:#5b4636; --terra:#c56a3a; --soft:#f3efe8; --green:#2f7a3a; --red:#9b3a2d;
+    }
+    *{box-sizing:border-box;}
+    html,body{margin:0;}
+    body{
+      background:var(--paper); color:var(--ink);
+      font-family:"Noto Sans TC","Microsoft JhengHei",sans-serif;
+      font-size:16px; line-height:1.5;
+      padding-bottom:78px; /* 讓位給底部分頁列 */
+    }
+    /* 頂部：報表範圍 + 月份（兩個畫面共用） */
+    .appbar{
+      position:sticky; top:0; z-index:20;
+      background:var(--brown); color:#fff;
+      padding:10px 14px calc(10px + env(safe-area-inset-top));
+      box-shadow:0 2px 8px rgba(0,0,0,.12);
+    }
+    .appbar h1{margin:0 0 8px; font-size:18px; font-weight:700; letter-spacing:.02em;}
+    .scope-row{display:grid; grid-template-columns:1fr minmax(110px,40%); gap:8px;}
+    .scope-row label{display:flex; flex-direction:column; gap:3px; font-size:11px; color:#f1e7da; font-weight:700;}
+    .scope-row select, .scope-row input{
+      font-size:15px; padding:9px 10px; border-radius:10px; border:1px solid #6f5947;
+      background:#fffdf8; color:var(--ink); width:100%;
+    }
+    .status{margin-top:7px; font-size:12px; color:#f0e4d6; min-height:16px;}
+    .status.error{color:#ffd9cf; font-weight:700;}
+
+    main{padding:14px 14px 0;}
+    .view[hidden]{display:none;}
+    body.claim-mode .tabbar {display:none;}
+    #claim-intro[hidden]{display:none;}
+    .card{background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:14px;}
+
+    /* 收入/支出 切換 */
+    .seg{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:14px;}
+    .seg button{
+      border:1px solid var(--brown); background:#fff; color:var(--brown);
+      border-radius:12px; padding:13px 0; font-size:16px; font-weight:800; cursor:pointer;
+    }
+    .seg button.active[data-dir="out"]{background:var(--red); border-color:var(--red); color:#fff;}
+    .seg button.active[data-dir="in"]{background:var(--green); border-color:var(--green); color:#fff;}
+
+    form label.field{display:flex; flex-direction:column; gap:5px; margin-bottom:13px; font-size:13px; font-weight:700; color:var(--muted);}
+    .req{color:var(--red); font-weight:800;}
+    form input, form select{
+      font-size:16px; /* 16px 以上避免 iOS 自動放大 */
+      padding:11px 12px; border-radius:11px; border:1px solid var(--line);
+      background:#fff; color:var(--ink); width:100%;
+    }
+    form input[type=file]{padding:9px 12px; font-size:14px;}
+    .hint{font-size:12px; color:var(--muted); font-weight:500; margin-top:-3px;}
+    .check{display:flex; align-items:center; gap:8px; font-size:15px; font-weight:700; color:var(--ink);}
+    .check input{width:20px; height:20px;}
+    .two{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+    .submit{
+      width:100%; border:none; background:var(--brown); color:#fff;
+      font-size:18px; font-weight:800; padding:15px 0; border-radius:13px; cursor:pointer; margin-top:4px;
+    }
+    .submit:disabled{opacity:.55;}
+    .open-receipt{
+      display:block; width:100%; margin:-4px 0 13px;
+      border:1px solid var(--brown); background:#fff; color:var(--brown);
+      border-radius:11px; padding:11px 0; font-size:15px; font-weight:700; cursor:pointer;
+    }
+    .open-receipt:disabled{opacity:.45;}
+    .pickrow{display:grid; grid-template-columns:1fr 1fr; gap:8px;}
+    .pickrow button{
+      border:1px solid var(--brown); background:#fff; color:var(--brown);
+      border-radius:11px; padding:12px 0; font-size:15px; font-weight:700; cursor:pointer;
+    }
+    .pickrow button:active{background:var(--soft);}
+    .filename{font-size:12px; color:var(--muted); font-weight:500; word-break:break-all;}
+    .receipt-upload[hidden], .receipt-pending-fields[hidden]{display:none;}
+    /* 憑證圖片 Modal */
+    .img-modal{position:fixed; inset:0; z-index:1000; background:rgba(20,16,12,.9); display:flex; flex-direction:column;}
+    .img-modal[hidden]{display:none;}
+    .img-modal-bar{display:flex; justify-content:flex-end; gap:10px; padding:calc(10px + env(safe-area-inset-top)) 14px 8px;}
+    .img-modal-bar button{width:46px; height:46px; border-radius:50%; border:none; background:rgba(255,255,255,.18); color:#fff; font-size:22px; font-weight:800; line-height:1; cursor:pointer;}
+    .img-modal-bar #img-modal-close{background:#fffdf8; color:#221f1b;}
+    .img-modal-stage{flex:1; overflow:hidden; display:flex; align-items:center; justify-content:center; touch-action:none;}
+    .img-modal-stage img{max-width:100%; max-height:100%; transform-origin:center center; will-change:transform; user-select:none; -webkit-user-drag:none;}
+    .img-modal-hint{text-align:center; color:rgba(255,255,255,.7); font-size:12px; padding:8px 0 calc(10px + env(safe-area-inset-bottom));}
+    .formmsg{margin-top:10px; font-size:14px; min-height:18px; text-align:center;}
+    .formmsg.error{color:var(--red); font-weight:700;}
+    .formmsg.ok{color:var(--green); font-weight:700;}
+
+    .ledger-head{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px;}
+    .ledger-head .scopename{font-size:14px; font-weight:700;}
+    .ledger-head .count{font-size:12px; color:var(--muted);}
+    .txn{border:1px solid var(--line); border-radius:12px; padding:11px 12px; margin-bottom:10px; background:var(--panel);}
+    .txn .l1{display:flex; justify-content:space-between; align-items:center; gap:8px;}
+    .txn .date{font-size:13px; color:var(--muted);}
+    .txn .amt{font-size:18px; font-weight:800;}
+    .txn .amt.in{color:var(--green);} .txn .amt.out{color:var(--red);}
+    .txn .ttl{font-size:15px; font-weight:700; margin-top:4px;}
+    .txn .meta{font-size:12px; color:var(--muted); margin-top:3px;}
+    .pill{display:inline-block; font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px; border:1px solid var(--line);}
+    .pill.in{color:var(--green); border-color:var(--green);}
+    .pill.out{color:var(--red); border-color:var(--red);}
+    .empty{text-align:center; color:var(--muted); padding:30px 0; font-size:14px;}
+
+    /* 底部分頁列 */
+    .tabbar{
+      position:fixed; left:0; right:0; bottom:0; z-index:30;
+      display:grid; grid-template-columns:1fr 1fr;
+      background:var(--panel); border-top:1px solid var(--line);
+      padding-bottom:env(safe-area-inset-bottom);
+    }
+    .tabbar button{
+      border:none; background:none; padding:12px 0 13px; font-size:13px; font-weight:700; color:var(--muted); cursor:pointer;
+    }
+    .tabbar button .ic{display:block; font-size:20px; line-height:1; margin-bottom:3px;}
+    .tabbar button.active{color:var(--brown);}
+  </style>
+</head>
+<body>
+  <header class="appbar">
+    <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:8px;">
+      <h1 style="margin:0;">收支登記</h1>
+    </div>
+    <div class="scope-row">
+      <label>報表範圍
+        <select id="scope"></select>
+      </label>
+      <label>月份
+        <input id="month" type="month" aria-label="月份">
+      </label>
+    </div>
+    <div class="status" id="status"></div>
+  </header>
+
+  <main>
+    <!-- 記帳：報表範圍(上方共用) + 新增收入/支出 -->
+    <section class="view" id="view-entry">
+      <div class="card" id="claim-intro" hidden>收入與支出皆送交昱晴審核，核准後才記帳。30,000 元（含）以下由昱晴核准；超過 30,000 元再由 Seven 複核。</div>
+      <div class="card">
+        <div class="seg">
+          <button type="button" data-dir="out" class="active">支出</button>
+          <button type="button" data-dir="in">收入</button>
+        </div>
+        <form id="entry-form" autocomplete="off">
+          <label class="field"><span>單據處理方式 <span class="req">＊必填</span></span>
+            <select id="receipt-status" required>
+              <option value="">請選擇</option>
+              <option value="attached">已附單據</option>
+              <option value="pending">待補單據</option>
+            </select>
+            <div class="hint">收入與支出都必須選擇單據處理方式。沒有單據仍可建單，但會列入待補工作區。</div>
+          </label>
+          <div class="receipt-upload" id="receipt-upload-wrap" hidden>
+          <label class="field"><span>憑證圖片 <span class="req" id="receipt-req-mark">＊必填</span></span>
+            <div class="pickrow">
+              <button type="button" id="btn-camera">📷 打開相機</button>
+              <button type="button" id="btn-file">📁 選擇檔案</button>
+            </div>
+            <div class="hint" id="line-cam-hint" hidden style="margin-top:4px; line-height:1.5;">📷 偵測到你正在 LINE 內開啟，無法直接拍照。請點右上「⋯」選「用預設瀏覽器開啟」，到瀏覽器即可使用拍照。</div>
+            <div class="filename" id="receipt-filename">尚未選擇檔案</div>
+            <input id="receipt" name="receiptFile" type="file" accept="image/*" hidden>
+          </label>
+          <button type="button" class="open-receipt" id="open-receipt-btn" disabled>🔍 打開圖片確認</button>
+          </div>
+          <div class="receipt-pending-fields" id="receipt-pending-wrap" hidden>
+            <label class="field"><span>缺單原因 <span class="req">＊必填</span></span>
+              <input id="receipt-missing-reason" placeholder="例：廠商尚未開立發票">
+            </label>
+            <div class="two">
+              <label class="field"><span>預計補件日 <span class="req">＊必填</span></span>
+                <input id="receipt-due-date" type="date">
+              </label>
+              <label class="field"><span>補件負責人 <span class="req">＊必填</span></span>
+                <input id="receipt-assignee" placeholder="預設為入帳者">
+              </label>
+            </div>
+          </div>
+          <label class="check" style="margin-bottom:12px;">
+            <input id="is-invoice" type="checkbox" value="1"> 這是發票（勾選後上傳圖片自動辨識）
+          </label>
+
+          <label class="field">發票號碼
+            <input id="invoice-number" placeholder="勾選發票並上傳後自動辨識">
+          </label>
+          <div class="two">
+            <label class="field"><span>日期（發票） <span class="req">＊必填</span></span>
+              <input id="txn-date" type="date" required>
+            </label>
+            <label class="field"><span>金額（發票） <span class="req">＊必填</span></span>
+              <input id="amount" inputmode="numeric" placeholder="辨識帶入或手動" required>
+            </label>
+          </div>
+          <label class="field">賣方／開立公司
+            <input id="invoice-company" placeholder="勾選發票並上傳後自動辨識">
+          </label>
+          <label class="field" id="invoice-tax-entity-wrap"><span>發票／收據統編抬頭 <span class="req">＊必選</span></span>
+            <select id="invoice-tax-entity">
+              <option value="" selected>無（不開發票）</option>
+              <option value="ye_lv_su">葉綠宿股份有限公司（統編 54591729）</option>
+              <option value="hozo">好住寓好股份有限公司（統編 62142855）</option>
+            </select>
+          </label>
+          <label class="field"><span>摘要 <span class="req">＊必填</span></span>
+            <input id="title" placeholder="例：草悟道 清潔費 2026-06" required>
+          </label>
+
+          <label class="field">分類
+            <select id="category"></select>
+          </label>
+          <label class="field"><span>資金帳戶 <span class="req">＊必填</span></span>
+            <select id="account" required></select>
+          </label>
+          <label class="field">付款方式
+            <select id="payment-method"></select>
+          </label>
+          <label class="field" id="target-wrap">付款對象
+            <select id="payment-target"></select>
+          </label>
+          <label class="field" id="vendorname-wrap">付款對象備註 / 手動輸入
+            <input id="vendor-name" placeholder="未建檔廠商、臨時對象或補充名稱">
+          </label>
+
+          <div class="hint" id="unit-hint" style="margin-bottom:10px;"></div>
+          <button type="submit" class="submit" id="submit-btn">建立流水帳</button>
+          <div class="formmsg" id="form-msg"></div>
+        </form>
+      </div>
+    </section>
+
+    <!-- 流水帳明細（另一個畫面） -->
+
+  </main>
+
+
+
+  <!-- 憑證圖片彈出視窗（Modal）：置中顯示、右上叉叉關閉、可縮放／拖曳，關閉後留在本頁。 -->
+  <div class="img-modal" id="img-modal" hidden>
+    <div class="img-modal-bar">
+      <button type="button" id="img-zoom-out" aria-label="縮小">－</button>
+      <button type="button" id="img-zoom-in" aria-label="放大">＋</button>
+      <button type="button" id="img-modal-close" aria-label="關閉">✕</button>
+    </div>
+    <div class="img-modal-stage" id="img-modal-stage">
+      <img id="img-modal-img" alt="憑證圖片" draggable="false">
+    </div>
+    <div class="img-modal-hint">雙指縮放 / 雙擊放大 · 放大後可拖曳</div>
+  </div>
+
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <script>
+    const DATA=__STAFF_ENTRY_DATA__;
+    const claimMode=true;let lineAccessToken='';let defaultProjectId='';
+    const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    async function staffApi(action,body={}) {
+      if(DATA.preview)throw Error('管理者預覽不會送出');
+      const response=await fetch('/claims/liff?selector='+encodeURIComponent(DATA.token),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...body,action:'mobile_'+action,selectorToken:DATA.token,liffAccessToken:lineAccessToken})});
+      const data=await response.json().catch(()=>({}));if(!response.ok||!data.ok)throw Error(data.error||'操作失敗');return data;
+    }
+    const claimPreview=DATA.preview;
+    let claimRequestId = crypto.randomUUID();
+    const scopeSelect = document.getElementById("scope");
+    const monthInput = document.getElementById("month");
+    const statusEl = document.getElementById("status");
+    const form = document.getElementById("entry-form");
+    const receiptStatusSelect = document.getElementById("receipt-status");
+    const receiptUploadWrap = document.getElementById("receipt-upload-wrap");
+    const receiptPendingWrap = document.getElementById("receipt-pending-wrap");
+    const receiptMissingReasonInput = document.getElementById("receipt-missing-reason");
+    const receiptDueDateInput = document.getElementById("receipt-due-date");
+    const receiptAssigneeInput = document.getElementById("receipt-assignee");
+    const receiptInput = document.getElementById("receipt");
+    const invoiceCheckbox = document.getElementById("is-invoice");
+    const invoiceNumberInput = document.getElementById("invoice-number");
+    const invoiceCompanyInput = document.getElementById("invoice-company");
+    const invoiceTaxEntitySelect = document.getElementById("invoice-tax-entity");
+    const invoiceTaxEntityWrap = document.getElementById("invoice-tax-entity-wrap");
+    const txnDateInput = document.getElementById("txn-date");
+    const amountInput = document.getElementById("amount");
+    const categorySelect = document.getElementById("category");
+    const accountSelect = document.getElementById("account");
+    const paymentMethodSelect = document.getElementById("payment-method");
+    const paymentTargetSelect = document.getElementById("payment-target");
+    const targetWrap = document.getElementById("target-wrap");
+    const vendorNameInput = document.getElementById("vendor-name");
+    const vendorNameWrap = document.getElementById("vendorname-wrap");
+    const titleInput = document.getElementById("title");
+    const unitHint = document.getElementById("unit-hint");
+    const submitBtn = document.getElementById("submit-btn");
+    const formMsg = document.getElementById("form-msg");
+    if (claimMode) {
+      document.body.classList.add("claim-mode");
+      document.title = "手機收支請款單｜HOZO";
+      document.querySelector("h1").textContent = "手機收支請款單";
+      document.getElementById("claim-intro").hidden = false;
+      submitBtn.textContent = claimPreview ? "預覽模式（不送出）" : "送出請款";
+      submitBtn.disabled = true;
+      paymentTargetSelect.required = false;
+      categorySelect.required = true;
+      accountSelect.previousElementSibling.firstChild.textContent = "資金帳戶 ";
+    }
+
+    let projects = [];
+    let accounts = [];
+    let categories = [];
+    let paymentMethods = [];
+    let payers = [];
+    let vendors = [];
+    let direction = "out";
+    let invoiceSeq = 0;
+    let currentUser = null;
+    const INVOICE_TAX_ENTITY_COMPANY_IDS = { ye_lv_su: "green-hotel", hozo: "default" };
+    const invoiceTaxEntityCompanies = new Map([
+      ["ye_lv_su", { id:"green-hotel", legalName:"葉綠宿股份有限公司", taxId:"54591729" }],
+      ["hozo", { id:"default", legalName:"好住寓好股份有限公司", taxId:"62142855" }]
+    ]);
+
+    const money = (n) => "NT$" + Number(n || 0).toLocaleString("zh-Hant");
+
+    function invoiceTaxEntityLabel(value, dir = "out") {
+      if (dir !== "out") return "";
+      const company = invoiceTaxEntityCompanies.get(String(value || ""));
+      if (!company) return "無／未標示";
+      const legalName = String(company.legalName || company.companyName || "").trim();
+      const taxId = String(company.taxId || "").trim();
+      return `${legalName}${taxId ? `（統編 ${taxId}）` : ""}`;
+    }
+
+    function parseUnitKey(value) {
+      const [type, ...rest] = String(value || "company:all").split(":");
+      return { type, id: rest.join(":") || "all" };
+    }
+    function unitLabel(type, id) {
+      if (type === "company") return "好住 寓好公司整體";
+      if (type === "headquarters") return "好住 寓好總部";
+      if (type === "shared") return "共同費用";
+      const p = projects.find((x) => x.id === id);
+      return p?.label || p?.name || id || "未指定案場";
+    }
+    // 記帳歸屬：公司整體是彙總、不能記帳，退回目前案場
+    function entryUnit() {
+      const s = parseUnitKey(scopeSelect.value);
+      if (s.type === "headquarters") return { type: "headquarters", id: "company" };
+      if (s.type === "shared") return { type: "shared", id: "shared" };
+      if (s.type === "project") return { type: "project", id: s.id };
+      return { type: "headquarters", id: "company" };
+    }
+    function scopeQuery() {
+      const s = parseUnitKey(scopeSelect.value);
+      const params = new URLSearchParams({ month: monthInput.value });
+      if (s.type === "project") { params.set("view", "project"); params.set("businessUnitId", s.id); }
+      else if (s.type === "headquarters" || s.type === "shared") { params.set("view", "unit"); params.set("businessUnitType", s.type); params.set("businessUnitId", s.id); }
+      else { params.set("view", "company"); }
+      return params.toString();
+    }
+
+    function renderScope(currentProject) {
+      const sorted = [...projects].sort((a, b) => String(a.code || a.label || a.name).localeCompare(String(b.code || b.label || b.name), "zh-Hant"));
+      const projOpts = sorted.map((x) => `<option value="project:${esc(x.id)}">${esc(x.label || x.name)}</option>`).join("");
+      scopeSelect.innerHTML = [
+        claimMode ? "" : `<option value="company:all">好住 寓好公司整體</option>`,
+        `<option value="headquarters:company">好住 寓好總部</option>`,
+        claimMode ? "" : `<option value="shared:shared">共同費用</option>`,
+        projOpts
+      ].join("");
+      scopeSelect.value = `project:${currentProject?.id || defaultProjectId}`;
+      updateUnitHint();
+    }
+    function updateUnitHint() {
+      const u = entryUnit();
+      unitHint.textContent = `${claimMode ? "請款歸屬" : "記帳歸屬"}：${unitLabel(u.type, u.id)}`;
+    }
+
+    function accountLedgerId(item) {
+      return String(item?.accountingAccountId || item?.accounting_account_id || "");
+    }
+
+    function accountName(item) {
+      return String(item?.name || "");
+    }
+
+    function isLiabilityFundAccount(item) {
+      const ledgerId = accountLedgerId(item);
+      const type = String(item?.type || item?.accountType || item?.account_type || "");
+      return ledgerId.startsWith("liability_") || ["advance", "payable", "credit_card"].includes(type);
+    }
+
+    function isPartnerLendingAccount(item) {
+      return accountLedgerId(item) === "asset_partner_lending" || /借出/.test(accountName(item));
+    }
+
+    function accountAllowedForDirection(item, dir) {
+      if (dir === "in") return !isLiabilityFundAccount(item) && !isPartnerLendingAccount(item);
+      if (dir === "out") return !isPartnerLendingAccount(item);
+      return true;
+    }
+
+    function updateAccountOptions(preferredId = accountSelect.value) {
+      const options = accounts.filter((item) => accountAllowedForDirection(item, direction));
+      accountSelect.innerHTML = `<option value="">請選擇資金帳戶</option>` + options.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join("");
+      if (preferredId && options.some((item) => item.id === preferredId)) {
+        accountSelect.value = preferredId;
+      }
+    }
+
+    async function loadOptions() {
+      const unit=entryUnit();const data=DATA.preview?{projects:[{id:'preview',label:'範例案場'}],defaultProjectId:'preview',categories:[{id:'expense',name:'雜支',defaultDirection:'out'},{id:'income',name:'其他收入',defaultDirection:'in'}],accounts:[{id:'fund',name:'範例資金帳戶',type:'cash'}],methods:[{name:'現金'}],vendors:[],payers:[]}:await staffApi('options',{businessUnitType:unit.type,businessUnitId:unit.id});
+      projects=data.projects;defaultProjectId=data.defaultProjectId;
+      accounts=data.accounts;categories=data.categories;paymentMethods=data.methods;payers=data.payers;vendors=data.vendors;
+      if(!scopeSelect.options.length)renderScope({id:defaultProjectId});
+      updateAccountOptions();paymentMethodSelect.innerHTML=paymentMethods.map(x=>'<option value="'+esc(x.name)+'">'+esc(x.name)+'</option>').join('');
+      paymentTargetSelect.innerHTML='<option value="">不指定</option>'+vendors.map(x=>'<option value="vendor:'+esc(x.id)+'">'+esc(x.name)+'</option>').join('')+payers.map(x=>'<option value="payer:'+esc(x.id)+'">'+esc(x.name)+'</option>').join('')+'<option value="manual">手動輸入新對象</option>';
+      updateCategoryOptions();submitBtn.disabled=claimPreview;
+    }
+
+    function updateCategoryOptions() {
+      const filtered = categories.filter((x) => x.defaultDirection === direction || x.defaultDirection === "none");
+      categorySelect.innerHTML = (claimMode ? '<option value="">請選擇科目</option>' : '') + filtered.map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join("");
+    }
+
+    function setDirection(dir) {
+
+      direction = dir;
+      document.querySelectorAll(".seg button").forEach((b) => b.classList.toggle("active", b.dataset.dir === dir));
+      updateAccountOptions();
+      // 付款對象/備註 為支出專用
+      const showTarget = true;
+      targetWrap.style.display = showTarget ? "" : "none";
+      vendorNameWrap.style.display = "";
+      invoiceTaxEntityWrap.style.display = dir === "out" ? "" : "none";
+      invoiceTaxEntitySelect.required = false;
+      if (!showTarget) invoiceTaxEntitySelect.value = "";
+      updateCategoryOptions();
+    }
+
+    function syncReceiptFields() {
+      const status = receiptStatusSelect.value || "";
+      const attached = status === "attached";
+      const pending = status === "pending";
+      receiptUploadWrap.hidden = !attached;
+      receiptPendingWrap.hidden = !pending;
+      receiptMissingReasonInput.required = pending;
+      receiptDueDateInput.required = pending;
+      receiptAssigneeInput.required = pending;
+      if (pending && !receiptDueDateInput.value) {
+        const due = new Date();
+        due.setDate(due.getDate() + 7);
+        receiptDueDateInput.value = due.toISOString().slice(0, 10);
+      }
+      if (pending && !receiptAssigneeInput.value && currentUser?.username) receiptAssigneeInput.value = currentUser.username;
+      if (pending) {
+        receiptInput.value = "";
+        const receiptFilename = document.getElementById("receipt-filename");
+        if (receiptFilename) receiptFilename.textContent = "尚未選擇檔案";
+        const openReceiptBtn = document.getElementById("open-receipt-btn");
+        if (openReceiptBtn) openReceiptBtn.disabled = true;
+      }
+    }
+
+    // 憑證只需看清文字（發票辨識），不需高解析度。
+    // 後端 safeReceiptImage 上限為 dataURL 長度 1,200,000；這裡壓到 < 1,000,000 留安全邊際，
+    // 長邊上限 1400、JPEG 品質自動下修（必要時再縮尺寸），確保手機拍照一定存得進去。
+    const RECEIPT_DATAURL_TARGET = 1000000;
+
+    async function decodeImageSource(file) {
+      // 優先用 createImageBitmap；部分相機輸出/HEIC 會失敗，改用 <img> 備援解碼。
+      try {
+        return await createImageBitmap(file);
+      } catch {
+        return await new Promise((resolve, reject) => {
+          const url = URL.createObjectURL(file);
+          const img = new Image();
+          img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+          img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("無法讀取這張圖片，請改用 JPG/PNG 或重拍。")); };
+          img.src = url;
+        });
+      }
+    }
+
+    function drawSourceToJpeg(source, maxSide, quality) {
+      const w = source.naturalWidth || source.width;
+      const h = source.naturalHeight || source.height;
+      const scale = Math.min(1, maxSide / Math.max(w, h));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(w * scale));
+      canvas.height = Math.max(1, Math.round(h * scale));
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#fff"; // JPEG 不支援透明，補白底避免黑底
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL("image/jpeg", quality);
+    }
+
+    async function imageFileToDataUrl(file) {
+      if (!file) return null;
+      const source = await decodeImageSource(file);
+      let maxSide = 1400;
+      let quality = 0.72;
+      let dataUrl = "";
+      for (let attempt = 0; attempt < 8; attempt++) {
+        dataUrl = drawSourceToJpeg(source, maxSide, quality);
+        if (dataUrl.length <= RECEIPT_DATAURL_TARGET) break;
+        // 先降品質，品質到底再縮長邊，逐步逼近上限內
+        if (quality > 0.5) quality = Math.round((quality - 0.1) * 100) / 100;
+        else { maxSide = Math.round(maxSide * 0.82); quality = 0.7; }
+      }
+      if (source && typeof source.close === "function") source.close();
+      if (dataUrl.length > RECEIPT_DATAURL_TARGET) {
+        throw new Error("這張照片即使壓縮後仍太大，請靠近發票一點重拍、或裁切後再上傳。");
+      }
+      return { fileName: file.name || "receipt.jpg", mimeType: "image/jpeg", dataUrl };
+    }
+
+    // 勾「發票」且有圖片 → 辨識並自動帶入號碼/日期/金額/開立公司；支出時公司一併帶入付款對象備註
+    async function maybeRecognizeInvoice() {
+      if (!invoiceCheckbox.checked) return;
+      const file = receiptInput.files && receiptInput.files[0];
+      if (!file) return;
+      const seq = ++invoiceSeq;
+      invoiceNumberInput.value = ""; invoiceNumberInput.placeholder = "辨識中…";
+      invoiceCompanyInput.value = ""; invoiceCompanyInput.placeholder = "辨識中…";
+      try {
+        const image = await imageFileToDataUrl(file);
+        const data=await staffApi('recognize',{image});const res={ok:true};
+        if (seq !== invoiceSeq) return;
+        invoiceNumberInput.value = (res.ok && data.invoiceNumber) ? data.invoiceNumber : "辨識不出來";
+        if (res.ok && data.invoiceDate) txnDateInput.value = data.invoiceDate;
+        if (res.ok && data.invoiceAmount) amountInput.value = data.invoiceAmount;
+        invoiceCompanyInput.value = (res.ok && data.company) ? data.company : "";
+        if (res.ok && data.company && direction === "out") vendorNameInput.value = data.company;
+      } catch {
+        if (seq !== invoiceSeq) return;
+        invoiceNumberInput.value = "辨識不出來"; invoiceCompanyInput.value = "";
+      } finally {
+        if (seq === invoiceSeq) {
+          invoiceNumberInput.placeholder = "勾選發票並上傳後自動辨識";
+          invoiceCompanyInput.placeholder = "勾選發票並上傳後自動辨識";
+        }
+      }
+    }
+
+    async function submitEntry(event) {
+      event.preventDefault();
+      if (claimPreview) return;
+      formMsg.className = "formmsg";
+      const file = receiptInput.files && receiptInput.files[0];
+      const receiptStatus = receiptStatusSelect.value || "";
+      const receiptPending = receiptStatus === "pending";
+      if (!receiptStatus) { formMsg.textContent = "請選擇單據處理方式。"; formMsg.classList.add("error"); return; }
+      if (receiptStatus === "attached" && !file) { formMsg.textContent = "選擇已附單據時，請先拍照或選圖片。"; formMsg.classList.add("error"); return; }
+      if (receiptPending && (!receiptMissingReasonInput.value.trim() || !receiptDueDateInput.value || !receiptAssigneeInput.value.trim())) {
+        formMsg.textContent = "單據待補時，請填寫缺單原因、預計補件日與補件負責人。";
+        formMsg.classList.add("error");
+        return;
+      }
+      if (!txnDateInput.value) { formMsg.textContent = "請填日期。"; formMsg.classList.add("error"); return; }
+      if (!amountInput.value) { formMsg.textContent = "請填金額。"; formMsg.classList.add("error"); return; }
+      if (!accountSelect.value) { formMsg.textContent = "請選資金帳戶。"; formMsg.classList.add("error"); return; }
+      if (!titleInput.value.trim()) { formMsg.textContent = "請填摘要。"; formMsg.classList.add("error"); return; }
+
+      if (direction === "out" && !["", "ye_lv_su", "hozo"].includes(invoiceTaxEntitySelect.value)) { formMsg.textContent = "支出請選擇發票／收據統編抬頭（無、葉綠宿股份有限公司或好住寓好股份有限公司）。"; formMsg.classList.add("error"); invoiceTaxEntitySelect.focus(); return; }
+      const unit = entryUnit();
+      const inv = (invoiceNumberInput.value || "").trim();
+      const payload = {
+        direction,
+        amount: amountInput.value,
+        transactionDate: txnDateInput.value,
+        postingMonth: monthInput.value,
+        businessUnitType: unit.type,
+        businessUnitId: unit.id,
+        categoryId: categorySelect.value,
+        accountId: accountSelect.value,
+        paymentMethod: paymentMethodSelect.value,
+        title: titleInput.value.trim(),
+        receiptStatus,
+        receiptMissingReason: receiptPending ? receiptMissingReasonInput.value.trim() : "",
+        receiptDueDate: receiptPending ? receiptDueDateInput.value : "",
+        receiptAssignee: receiptPending ? receiptAssigneeInput.value.trim() : "",
+        isInvoice: invoiceCheckbox.checked ? "1" : "",
+        invoiceCompany: invoiceCompanyInput.value.trim(),
+        invoiceTaxEntity: invoiceTaxEntitySelect.value
+      };
+      if (inv && inv !== "辨識不出來" && inv !== "辨識中…") payload.invoiceNumber = inv;
+      {
+        const t = paymentTargetSelect.value;
+        if (t.startsWith("vendor:")) { payload.vendorId = t.slice(7); const vd = vendors.find((x) => x.id === payload.vendorId); if (vd && !vendorNameInput.value) payload.vendorName = vd.name; }
+        else if (t.startsWith("payer:")) { payload.payerId = t.slice(6); }
+        if (vendorNameInput.value.trim()) payload.vendorName = vendorNameInput.value.trim();
+      }
+      submitBtn.disabled = true;
+      if (claimMode) Object.assign(payload, {contractVersion:"finance-line-staff-entry-v2", requestId:claimRequestId});
+      formMsg.textContent = claimMode ? "送審中…" : "建立中…";
+      try {
+        if (file) payload.receiptImage = await imageFileToDataUrl(file);
+        const data=await staffApi('submit',payload);
+        formMsg.className = "formmsg ok";
+        formMsg.textContent = claimMode ? `✅ ${data.claimNo} 已送出，等待昱晴審核。` : `✅ 已建立 ${data.transactionNo || ""}`;
+        if (claimMode) claimRequestId = crypto.randomUUID();
+        // 重設（保留收支方向與帳戶設定）
+        form.reset();
+        invoiceNumberInput.value = ""; invoiceCompanyInput.value = ""; vendorNameInput.value = "";
+        receiptStatusSelect.value = "";
+        syncReceiptFields();
+        setDirection(direction);
+
+      } catch (err) {
+        formMsg.className = "formmsg error";
+        formMsg.textContent = err.message || "建立失敗";
+      } finally {
+        submitBtn.disabled = false;
+      }
+    }
+
+    // 事件綁定
+    document.querySelectorAll(".seg button").forEach((b) => b.addEventListener("click", () => setDirection(b.dataset.dir)));
+    receiptStatusSelect.addEventListener("change", syncReceiptFields);
+    receiptInput.addEventListener("change", maybeRecognizeInvoice);
+    invoiceCheckbox.addEventListener("change", maybeRecognizeInvoice);
+    // 憑證來源：「打開相機」與「選擇檔案」兩顆按鈕共用同一個隱藏 input，只切換 capture 屬性。
+    const receiptFilename = document.getElementById("receipt-filename");
+    document.getElementById("btn-camera").addEventListener("click", () => { receiptInput.setAttribute("capture", "environment"); receiptInput.click(); });
+    document.getElementById("btn-file").addEventListener("click", () => { receiptInput.removeAttribute("capture"); receiptInput.click(); });
+    // LINE 等 App 內建瀏覽器（webview）不支援 <input capture> 直接開相機，偵測到就顯示灰字引導改用外部瀏覽器。
+    const lineCamHint = document.getElementById("line-cam-hint");
+    if (lineCamHint && /\bLine\/|\bLIFF\//i.test(navigator.userAgent)) { lineCamHint.hidden = false; }
+    receiptInput.addEventListener("change", () => {
+      const f = receiptInput.files && receiptInput.files[0];
+      if (f && receiptStatusSelect.value !== "attached") {
+        receiptStatusSelect.value = "attached";
+        syncReceiptFields();
+      }
+      receiptFilename.textContent = f ? f.name : "尚未選擇檔案";
+    });
+    // 「打開圖片」：開新分頁顯示目前選的憑證圖片，方便對照辨識數值。
+    const openReceiptBtn = document.getElementById("open-receipt-btn");
+    function openReceiptImage() {
+      const f = receiptInput.files && receiptInput.files[0];
+      if (!f) { formMsg.className = "formmsg error"; formMsg.textContent = "請先選擇憑證圖片，再打開對照。"; return; }
+      showImageModal(f);
+    }
+    if (openReceiptBtn) openReceiptBtn.addEventListener("click", openReceiptImage);
+    receiptInput.addEventListener("change", () => { if (openReceiptBtn) openReceiptBtn.disabled = !(receiptInput.files && receiptInput.files[0]); });
+
+    // 憑證圖片 Modal：置中顯示、可雙指/雙擊縮放、放大後拖曳、右上叉叉或 Esc 關閉。
+    const imgModal = document.getElementById("img-modal");
+    const imgStage = document.getElementById("img-modal-stage");
+    const imgEl = document.getElementById("img-modal-img");
+    let imgScale = 1, imgTx = 0, imgTy = 0, imgUrl = null;
+    function imgApply() { imgEl.style.transform = `translate(${imgTx}px, ${imgTy}px) scale(${imgScale})`; }
+    function imgReset() { imgScale = 1; imgTx = 0; imgTy = 0; imgApply(); }
+    function imgClamp(s) { return Math.min(6, Math.max(1, s)); }
+    function showImageModal(file) {
+      if (imgUrl) URL.revokeObjectURL(imgUrl);
+      imgUrl = URL.createObjectURL(file);
+      imgEl.src = imgUrl;
+      imgReset();
+      imgModal.hidden = false;
+    }
+    function closeImageModal() {
+      imgModal.hidden = true;
+      if (imgUrl) { URL.revokeObjectURL(imgUrl); imgUrl = null; }
+      imgEl.src = "";
+    }
+    document.getElementById("img-modal-close").addEventListener("click", closeImageModal);
+    document.getElementById("img-zoom-in").addEventListener("click", () => { imgScale = imgClamp(imgScale * 1.3); imgApply(); });
+    document.getElementById("img-zoom-out").addEventListener("click", () => { imgScale = imgClamp(imgScale / 1.3); if (imgScale === 1) { imgTx = 0; imgTy = 0; } imgApply(); });
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !imgModal.hidden) closeImageModal(); });
+    imgEl.addEventListener("dblclick", () => { imgScale = imgScale > 1 ? 1 : 2.5; if (imgScale === 1) { imgTx = 0; imgTy = 0; } imgApply(); });
+    imgStage.addEventListener("wheel", (e) => { e.preventDefault(); imgScale = imgClamp(imgScale * (e.deltaY < 0 ? 1.12 : 1 / 1.12)); if (imgScale === 1) { imgTx = 0; imgTy = 0; } imgApply(); }, { passive: false });
+    // 觸控：雙指縮放、放大後單指拖曳
+    let pinchStart = 0, pinchScale = 1, panX = 0, panY = 0, panning = false;
+    const tdist = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    imgStage.addEventListener("touchstart", (e) => {
+      if (e.touches.length === 2) { pinchStart = tdist(e.touches); pinchScale = imgScale; }
+      else if (e.touches.length === 1 && imgScale > 1) { panning = true; panX = e.touches[0].clientX; panY = e.touches[0].clientY; }
+    }, { passive: false });
+    imgStage.addEventListener("touchmove", (e) => {
+      if (e.touches.length === 2) { e.preventDefault(); imgScale = imgClamp(pinchScale * (tdist(e.touches) / (pinchStart || 1))); if (imgScale === 1) { imgTx = 0; imgTy = 0; } imgApply(); }
+      else if (panning && e.touches.length === 1) { e.preventDefault(); imgTx += e.touches[0].clientX - panX; imgTy += e.touches[0].clientY - panY; panX = e.touches[0].clientX; panY = e.touches[0].clientY; imgApply(); }
+    }, { passive: false });
+    imgStage.addEventListener("touchend", (e) => { if (e.touches.length === 0) panning = false; });
+
+    scopeSelect.addEventListener("change", async () => { updateUnitHint(); if (claimMode) {submitBtn.disabled=true;try{await loadOptions();statusEl.textContent="";}catch(e){statusEl.textContent=e.message;}} });
+    form.addEventListener("submit", submitEntry);
+
+    // LINE identity authenticates only this form; it never grants admin access.
+    async function initStaffForm(){
+      document.getElementById('entry-form').hidden=true;statusEl.textContent='正在驗證 LINE 身分…';
+      if(!DATA.preview){if(!window.liff)throw Error('LINE 元件載入失敗，請回群組重新開啟');await liff.init({liffId:DATA.liffId,withLoginOnExternalBrowser:true});if(!liff.isLoggedIn()){liff.login({redirectUri:location.href});return}lineAccessToken=liff.getAccessToken()||'';if(!lineAccessToken)throw Error('請回群組重新開啟以驗證 LINE 身分');}
+      monthInput.value=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit'}).format(new Date());
+      await loadOptions();setDirection('out');syncReceiptFields();document.getElementById('entry-form').hidden=false;
+      statusEl.textContent=DATA.preview?'管理者預覽（不會送出）':'LINE 身分已驗證';
+    }
+    initStaffForm().catch(err=>{statusEl.className='status error';statusEl.textContent=err.message;submitBtn.disabled=true;});
+  </script>
+</body>
+</html>

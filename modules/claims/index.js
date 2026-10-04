@@ -1,3 +1,4 @@
+import {renderStaffEntry} from './staff-entry.js';
 import crypto from 'node:crypto';
 import { normalizeId, readBody, sendJson } from '../../core/util.js';
 import { createFinanceClaimsV3Receiver, createPostgresFinanceClaimsV3Store } from './v3/receiver.js';
@@ -132,9 +133,13 @@ function init(injected) {
         const profile = await lineProfileFromAccessToken(accessToken, claimsLiffChannelId(tenant));
         return { ok: profile.userId === expectedUserId, displayName: profile.displayName };
       },
-      async createMobileFormLink({tenant}) {
+      async createMobileFormLink({tenant,token}) {
         if (tenant.key !== 'hozo-am-2-0') throw new Error('此表單僅供 HOZO 內部同仁使用。');
-        return new URL('/admin-finance-mobile?mode=claim',claimsBaseUrl(tenant)).toString();
+        return '/claims/liff?selector='+encodeURIComponent(token)+'&mobile=1';
+      },
+      async staffEntryRequest({tenant,payload}) {
+        const response=await fetch(claimsBaseUrl(tenant)+'/api/integrations/finance/staff-entry',{method:'POST',headers:{Authorization:'Bearer '+claimsRentalToken(tenant),'content-type':'application/json'},body:JSON.stringify(payload),signal:AbortSignal.timeout(25000)});
+        const body=await response.json().catch(()=>({}));if(!response.ok||!body.ok)throw Error(body.error||'收支服務暫時無法使用');return body;
       },
       async createLegacyFormLink({ tenant, selectorSessionId, formKey, sourceId, groupReference, originGroupReference, claimMode, identityReference, bindingId, groupId, groupName, userId, userName }) {
         const legacyType = { legacy_social_insurance: 'labor_health_insurance', legacy_shared_operating: 'shared_operating', legacy_other: 'other' }[formKey];
@@ -950,6 +955,7 @@ function renderLegacyClaimFormPreview(formKey, options = {}) {
     legacy_other: 'other',
   };
   const previewType = previewTypes[String(formKey || '')];
+  if(formKey==='mobile_expense_entry')return renderStaffEntry({preview:true});
   if (!previewType) return '';
   return liffHtml(null, null, { previewType, backUrl: options.backUrl });
 }
@@ -1251,6 +1257,8 @@ function normalizeClaimEvent(body, tenant) {
 
 function eventMessage(event) {
   const subject = `請款單 ${event.claimNumber}`;
+  if(event.reasonCode==='line_staff_recorded')return `收支單 ${event.claimNumber} 已核准並記帳\n${event.claimTitle || ''}\n金額：${money(event.amount,event.currency)}`;
+  if(event.reasonCode==='line_staff_second_review')return `收支單 ${event.claimNumber} 昱晴已核准\n狀態：等待 Seven 複核\n${event.claimTitle || ''}\n金額：${money(event.amount,event.currency)}`;
   const value = money(event.amount, event.currency);
   const suffix = value ? `\n金額：${value}` : '';
   const reason = cleanText(event.reason, 1600);

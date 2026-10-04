@@ -44,9 +44,8 @@ function financeClaimPreviewUrl(value) {
   }
 }
 
-function mobilePreviewUrl(value) {try {const url=new URL(value);if(url.protocol!=='https:'||url.username||url.password)return '';url.pathname='/admin-finance-mobile';url.search='?mode=claim&preview=1';url.hash='';return url.toString();}catch{return '';}}
 export const CLAIM_FORM_INVENTORY = Object.freeze([
-  Object.freeze({key:'mobile_expense_entry',name:'手機收支請款單',version:'內部手機版',status:'內部同仁',description:'沿用手機收支登記畫面，送交昱晴審核；需後台登入。',internalOnly:true}),
+  Object.freeze({key:'mobile_expense_entry',name:'手機收支請款單',version:'內部手機版',status:'內部同仁',description:'LINE 直接登記收入與支出，昱晴審核後記帳；超過 3 萬由 Seven 複核。',internalOnly:true}),
   Object.freeze({
     key: 'legacy_social_insurance',
     name: '勞健保費用請款單',
@@ -91,7 +90,7 @@ export function renderClaimsAuthorityAccessRecoveryPage({ financeBaseUrl = '' } 
 function renderClaimFormInventory(basePath, financeBaseUrl, tenantKey) {
   const v3Preview = financeClaimPreviewUrl(financeBaseUrl);
   return CLAIM_FORM_INVENTORY.filter(form=>!form.internalOnly||tenantKey==='hozo-am-2-0').map((form, index) => {
-    const previewUrl = form.key === 'mobile_expense_entry' ? mobilePreviewUrl(financeBaseUrl) : form.key === 'employee_expense' ? v3Preview : `${basePath}/forms/${form.key}/preview`;
+    const previewUrl = form.key === 'mobile_expense_entry' ? `${basePath}/forms/${form.key}/preview` : form.key === 'employee_expense' ? v3Preview : `${basePath}/forms/${form.key}/preview`;
     const previewAction = previewUrl
       ? `<a class="preview-link" href="${previewUrl}" target="_blank" rel="noopener">開啟管理者預覽<span aria-hidden="true">↗</span></a>`
       : '<span class="preview-unavailable">預覽尚未設定</span>';

@@ -6,4 +6,4 @@ Replace the mobile card's admin URL with a LINE selector session form. Reuse the
 
 The form sends entries to Maggie (陸昱晴); up to TWD 30,000 posts after her approval, above that waits for Seven. Preserve source group, verified applicant and idempotency. Keep the existing internal group assignment and vendor forms.
 
-Upgrade package: AM-IMP-2026.1004.04. No PostgreSQL schema change is expected. Runtime verification uses synthetic data and no LINE messages or production financial entries.
+Upgrade package: AM-IMP-2026.1004.05. No PostgreSQL schema change is expected. Runtime verification uses synthetic data and no LINE messages or production financial entries.
