@@ -133,6 +133,18 @@ test('configuration is opt-in and requires unique scoped keys and tenant ownersh
   }
 });
 
+test('attachment archive resolves transport assignment only for permitted senders and current owners', async t => {
+  const userId=`U${'a'.repeat(32)}`;
+  const ioEnv={...env,AMCORE_LINE_IO_CLIENTS_JSON:JSON.stringify([{...config[0],transportOnly:true,inputUserIds:[userId]}])};
+  const h=await harness(t,{env:ioEnv});
+  const e=h.event('binary',{message:{id:'binary',type:'file'}});
+  e.source.userId=userId;
+  assert.equal((await h.gateway.resolveAttachmentBinding(e)).tenant.key,'sample');
+  const denied=structuredClone(e);denied.source.userId='outsider';
+  assert.equal(await h.gateway.resolveAttachmentBinding(denied),null);
+  h.setOwner('other');await assert.rejects(h.gateway.resolveAttachmentBinding(e),/group_unavailable/);
+});
+
 test('groups and events resolve at most four groups concurrently and preserve configured order', {timeout:5000},async t=>{
   const groupIds=Array.from({length:9},(_,i)=>`C${i.toString(16).padStart(32,'0')}`);
   let active=0,maxActive=0,revoked=false;

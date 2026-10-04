@@ -10,7 +10,10 @@
     "attachments": {
       "archiveAllLineGroupAttachmentsToDrive": true,
       "driveRole": "source-of-truth",
-      "notionRole": "metadata-and-supported-preview"
+      "notionRole": "metadata-and-drive-links-only",
+      "archiveDirectMessages": true,
+      "archiveAudio": true,
+      "migrateNotionOriginals": true
     },
     "portal": {
       "featureAliases": ["am-buildam"],

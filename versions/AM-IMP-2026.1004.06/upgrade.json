@@ -1,0 +1,57 @@
+{
+  "id": "AM-IMP-2026.1004.06",
+  "name": "All authorized LINE originals in tenant Google Drive; Notion links only",
+  "type": "AM Platform / Attachments / Storage",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-10-04",
+  "installTargets": [
+    "AM_PLATFORM"
+  ],
+  "requiresDatabases": [
+    "Each active tenant own attachment data source and additive source identity schema"
+  ],
+  "requiresEnv": [
+    "NOTION_TOKEN",
+    "GOOGLE_OAUTH_CLIENT_ID",
+    "GOOGLE_OAUTH_CLIENT_SECRET",
+    "GOOGLE_OAUTH_REFRESH_TOKEN",
+    "LINE_CHANNEL_ACCESS_TOKEN",
+    "Per-tenant Notion parent, attachment data source and Drive root"
+  ],
+  "requiresScripts": [
+    "node tools/attachment-retention.mjs --tenant=<key> --apply",
+    "node --test tools/test-attachment-retention.mjs tools/test-line-io.mjs",
+    "node tools/audit-alignment.js"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Every authorized binary type and size enters durable own-tenant storage",
+    "Notion receives no new binary copies",
+    "Historical available originals verified before Notion references cleared",
+    "Private routing and transport authorization remain isolated",
+    "Local and CI regressions pass",
+    "Production commit, schema, health and migration audited"
+  ],
+  "projectStatus": {
+    "AM_PLATFORM": "Installed"
+  },
+  "files": [
+    "core/attachment-archive.js",
+    "core/drive.js",
+    "core/notion.js",
+    "core/router.js",
+    "core/direct-line.js",
+    "core/line-io/index.js",
+    "modules/collect/index.js",
+    "modules/meetings/index.js",
+    "server.js",
+    "tools/test-attachment-retention.mjs",
+    "tools/test-line-io.mjs"
+  ]
+}

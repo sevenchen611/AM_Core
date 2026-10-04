@@ -5,7 +5,7 @@
 //   2. 發送者解析:用 ctx.senderName(dispatcher 已用 platform.resolveSenderName 解過)。
 //   3. 成員對照:名字 → LINE userId,新對照即時寫回綁定頁(供日後推播真 @mention);已記過零成本。
 //   4. 訊息寫入該租戶「訊息」庫(ctx.tenant.dataSources.messages)。
-//   5. 照片/檔案 → Notion 附件預覽;照片另存 Drive「未歸檔/日期」。會議錄音不進附件流程(meetings 自存)。
+//   5. 所有 LINE 附件 → 租戶 Drive 原檔；Notion 僅留資訊與連結。錄音與私人附件使用同一保存服務。
 //
 // 多租戶契約(modules/README.md):
 //   - init(platform):注入共用能力(所有租戶相同):notionRequest / uploadFileToNotion / drive 助手 / LINE 助手。
@@ -34,37 +34,16 @@ function storedMessageContent(message = {}) {
 }
 
 // 會議錄音判定(與 meetings.isAudio 同準則):音檔訊息或音檔副檔名的檔案。
-// collect 據此把「會議錄音」排除在附件流程外——大音檔由 meetings 自己存 Drive,避免重複下載+上傳。
+// 錄音分析由 meetings 處理；原檔保存由共用持久服務負責。
 const AUDIO_EXT = /\.(m4a|mp3|aac|wav|amr|ogg|opus|flac)$/i;
 const VIDEO_EXT = /\.(mp4|mov|m4v|avi|mkv|webm|3gp|3g2|wmv|flv)$/i;
-const NOTION_DIRECT_UPLOAD_MAX_BYTES = 20 * 1024 * 1024;
-const NOTION_UPLOAD_EXT = /\.(aac|adts|mid|midi|mp3|mpga|m4a|m4b|mp4|oga|ogg|opus|wav|wma|weba|flac|pdf|txt|csv|json|js|ts|tsx|py|doc|dot|docx|dotx|xls|xlt|xla|xlsx|xltx|ppt|pot|pps|ppa|pptx|potx|rtf|md|markdown|html|htm|epub|xml|css|odt|ods|odp|ics|yaml|yml|tsv|zip|gz|gzip|tar|7z|bz2|rar|gif|heic|jpeg|jpg|png|svg|tif|tiff|webp|ico|bmp|avif|apng|amv|asf|wmv|avi|f4v|flv|gifv|m4v|mkv|webm|mov|qt|mpeg|ogv|3gp|3g2)$/i;
+const VISION_BUFFER_MAX_BYTES = 20 * 1024 * 1024;
 function isMeetingAudio(message) {
   if (message.type === 'audio') return true;
   const filename = message.fileName || '';
   return message.type === 'file' && !VIDEO_EXT.test(filename) && AUDIO_EXT.test(filename);
 }
 
-function archiveAllGroupAttachments(tenant, groupId) {
-  // Original preservation is a platform baseline, not an opt-in tenant feature.
-  return Boolean(groupId);
-}
-
-function notionUploadCandidate(filename, fileSize = 0) {
-  const size = Number(fileSize) || 0;
-  return NOTION_UPLOAD_EXT.test(String(filename || ''))
-    && (!size || size <= NOTION_DIRECT_UPLOAD_MAX_BYTES);
-}
-
-function fallbackFilename(message, messageType, messageId) {
-  if (message?.fileName) return message.fileName;
-  if (message?.type === 'video') return `video-${messageId}.mp4`;
-  if (message?.type === 'audio') return `audio-${messageId}.m4a`;
-  return `${messageType}-${messageId}`;
-}
-
-// ── 成員對照同步狀態(記憶體,鍵=（租戶,群組）)──────────────
-// 已同步過的 name→userId,避免每則訊息都 PATCH 綁定頁。跨租戶不共用。
 const memberSync = new Map();
 const pkey = (tenant, groupId) => `${(tenant && tenant.key) || 'default'}::${groupId}`;
 
@@ -139,11 +118,10 @@ async function onMessage(ctx) {
   ctx.messagePageId = messagePage.id;
 
   // 照片/檔案/影片 → 附件庫。LINE 群組附件原檔一律存 Drive。
-  // 會議錄音仍由 meetings 以串流存入 Drive「會議錄音/日期」，避免重複留存。
+  // 會議錄音共用持久保存工作；轉寫不另外建立原檔副本。
   // 用 dispatch 已算好的「是否音檔」(含檔頭補判),避免掉了副檔名的錄音被當附件整包下載+上傳。
   const attachmentsDs = tenant?.dataSources?.attachments;
-  const isAudioMsg = ctx.isMeetingAudio ?? isMeetingAudio(message);
-  if (['image', 'file', 'video'].includes(message.type) && attachmentsDs && !isAudioMsg) {
+  if (['image', 'file', 'video', 'audio'].includes(message.type) && attachmentsDs) {
     try {
       const stored = await storeAttachment({ ctx, messagePage, messageId, messageType, eventTime });
       // 交棒給 media:附件頁 id + 圖片 buffer(供視覺判讀)掛回 ctx
@@ -161,137 +139,42 @@ async function onMessage(ctx) {
 }
 
 // 照片/檔案/影片落地：Google Drive 是各租戶的原檔真實來源；
-// Notion 僅在格式受支援且不超過 direct-upload 上限時加上預覽檔。
-async function storeAttachment({ ctx, messagePage, messageId, messageType, eventTime }) {
-  const { tenant, binding, message, event, senderName, groupId } = ctx;
-  const notionRequest = ctx.notionRequest || platform.notionRequest;
-  if (groupId && platform.attachmentArchive) {
-    const page = await platform.attachmentArchive.persist({ tenant, event, messagePage, binding });
-    const stored = await platform.attachmentArchive.process(tenant, page);
-    // Previews/vision are optional and run only after the original is safely in Drive.
-    let content = null;
-    const filename = message.fileName || fallbackFilename(message, messageType, messageId);
-    const archivedSize = Number(stored.driveFile?.size);
-    if (stored.saved && archivedSize > 0 && archivedSize <= NOTION_DIRECT_UPLOAD_MAX_BYTES
-      && (message.type === 'image' || notionUploadCandidate(filename, archivedSize))) {
-      try {
-        content = await platform.downloadLineContent(messageId);
-        const previewFilename = platform.resolveLineFilename?.(message, messageType, messageId, content.contentType) || filename;
-        if (notionUploadCandidate(previewFilename, content.buffer.byteLength)) {
-          const upload = await platform.uploadFileToNotion(content.buffer, previewFilename, content.contentType);
-          await notionRequest(`/v1/pages/${encodeURIComponent(page.id)}`, { method: 'PATCH', body: { properties: {
-            '檔案': { files: [{ type: 'file_upload', file_upload: { id: upload.id }, name: previewFilename }] },
-          } } });
-        }
-      } catch { (platform.logger || console).warn(`[collect] optional preview unavailable tenant=${tenant.key}; archived original retained`); }
-    }
-    return { ...stored, content };
-  }
-  const archiveAll = archiveAllGroupAttachments(tenant, groupId);
-  const initialFilename = fallbackFilename(message, messageType, messageId);
-  const initialSize = Number(message.fileSize) || 0;
-  const shouldStreamFirst = archiveAll
-    && ['file', 'video'].includes(message.type)
-    && (!notionUploadCandidate(initialFilename, initialSize) || message.type === 'video');
-
+// Notion 僅保存索引、來源證據、狀態與 Drive 連結。
+async function storeAttachment({ ctx, messagePage, messageId }) {
+  const { tenant, binding, message, event } = ctx;
+  if (!platform.attachmentArchive) throw new Error('Durable Drive archive is unavailable');
+  const page = await platform.attachmentArchive.persist({ tenant, event, messagePage, binding });
+  // Recording analysis must not wait for a large upload; the durable worker owns it.
+  if (ctx.isMeetingAudio || message.type === 'audio') return { attachmentPage: page, saved: false };
+  const stored = await platform.attachmentArchive.process(tenant, page);
   let content = null;
-  let driveFile = null;
-  let archivedContentType = '';
-  let archivedContentLength = 0;
-
-  const taipeiDate = new Date((event?.timestamp || Date.now()) + 8 * 3600 * 1000).toISOString().slice(0, 10);
-  let dayFolderId = '';
-  const ensureDayFolder = async () => {
-    if (dayFolderId) return dayFolderId;
-    const unfiledFolderId = await platform.ensureDriveFolder('未歸檔', tenant.driveRootFolderId);
-    dayFolderId = await platform.ensureDriveFolder(taipeiDate, unfiledFolderId);
-    return dayFolderId;
-  };
-
-  if (shouldStreamFirst && tenant?.driveConfigured
-    && typeof platform.streamLineContent === 'function'
-    && typeof platform.uploadDriveStream === 'function') {
+  // A temporary vision buffer is independent from original retention. No Notion upload.
+  if (stored.saved && message.type === 'image' && Number(stored.driveFile?.size) <= VISION_BUFFER_MAX_BYTES) {
     try {
-      const streamed = await platform.streamLineContent(messageId);
-      archivedContentType = streamed.contentType || 'application/octet-stream';
-      archivedContentLength = Number(streamed.contentLength) || initialSize;
-      if (!archivedContentLength) {
-        try { await streamed.stream?.cancel?.(); } catch { /* ignore */ }
-        throw new Error('LINE 未回 content-length，無法串流留存');
-      }
-      driveFile = await platform.uploadDriveStream(
-        streamed.stream,
-        initialFilename,
-        archivedContentType,
-        await ensureDayFolder(),
-        archivedContentLength,
-      );
-    } catch (error) {
-      console.warn(`Unable to stream LINE attachment ${messageId} to Google Drive: ${error.message}`);
-    }
+      content = typeof platform.downloadFromDrive === 'function'
+        ? await platform.downloadFromDrive(stored.driveFile.id, VISION_BUFFER_MAX_BYTES)
+        : await platform.downloadLineContent(messageId);
+    } catch { (platform.logger || console).warn('[collect] vision unavailable; Drive original retained'); }
   }
+  return { ...stored, content };
+}
 
-  if (!shouldStreamFirst || !driveFile) {
-    try {
-      content = await platform.downloadLineContent(messageId);
-    } catch (error) {
-      console.warn(`Unable to download LINE content ${messageId}: ${error.message}`);
-    }
-  }
-  const filename = content
-    ? platform.resolveLineFilename(message, messageType, messageId, content.contentType)
-    : initialFilename;
-
-  let uploaded = null;
-  if (content && notionUploadCandidate(filename, content.buffer.byteLength || initialSize)) {
-    try {
-      const upload = await platform.uploadFileToNotion(content.buffer, filename, content.contentType);
-      uploaded = { fileUploadId: upload.id, contentLength: content.buffer.byteLength };
-    } catch (error) {
-      console.warn(`Unable to upload LINE content ${messageId} to Notion: ${error.message}`);
-    }
-  }
-
-  // 舊預設只存照片；租戶開啟強制政策後，所有群組附件原檔都存 Drive。
-  if (!driveFile && content && tenant?.driveConfigured && (message.type === 'image' || archiveAll)) {
-    try {
-      driveFile = await platform.uploadToDrive(content.buffer, filename, content.contentType, await ensureDayFolder());
-      archivedContentType = content.contentType;
-      archivedContentLength = content.buffer.byteLength;
-    } catch (error) {
-      console.warn(`Unable to upload LINE attachment ${messageId} to Google Drive: ${error.message}`);
-    }
-  }
-
-  const properties = {
-    '附件項目': { title: [textItem(filename)] },
-    '訊息': { relation: [{ id: messagePage.id }] },
-    '日期': { date: { start: eventTime } },
-    '檔案名稱': { rich_text: [textItem(filename)] },
-    '檔案大小': { number: Number(message.fileSize || archivedContentLength || uploaded?.contentLength || 0) || null },
-  };
-  if (binding?.projectPageId) {
-    properties['專案'] = { relation: [{ id: binding.projectPageId }] };
-  }
-  if (uploaded?.fileUploadId) {
-    properties['檔案'] = { files: [{ type: 'file_upload', file_upload: { id: uploaded.fileUploadId }, name: filename }] };
-  }
-  if (driveFile?.webViewLink) {
-    properties['Drive 連結'] = { url: driveFile.webViewLink };
-  }
-
-  const attachmentPage = await notionRequest('/v1/pages', {
-    method: 'POST',
-    body: { parent: { type: 'data_source_id', data_source_id: tenant.dataSources.attachments }, properties },
-  });
-  console.log(`[collect] stored attachment ${filename} from ${senderName} (drive=${driveFile?.webViewLink ? 'yes' : 'no'}, notion=${uploaded?.fileUploadId ? 'yes' : 'no'}, contentType=${archivedContentType || content?.contentType || 'unknown'}).`);
-  return { attachmentPage, content, driveFile };
+async function onDirectMessage(ctx) {
+  if (!['image', 'file', 'video', 'audio'].includes(ctx.message?.type)) return false;
+  const page = await platform.attachmentArchive.persist({ tenant: ctx.tenant, event: ctx.event });
+  const stored = await platform.attachmentArchive.process(ctx.tenant, page);
+  const text = stored.saved ? '附件已保存到 Google Drive：\n' + stored.driveFile.webViewLink
+    : '附件尚未保存成功，系統會依保存狀態重試。請先保留原檔。';
+  try { await ctx.replyLineMessage(ctx.event.replyToken, text); }
+  catch { await ctx.pushLineMessage(ctx.directUserId, text).catch(() => {}); }
+  return true;
 }
 
 // ── 模組契約:預設匯出 ─────────────────────────────────────
 export default {
   name: 'collect',
   init,
+  onDirectMessage,
   onMessage,          // (ctx) 每則訊息落庫;寫完回傳 false 讓後續模組續跑
   tick: async ({ tenant }) => platform.attachmentArchive?.drain(tenant),
 };
@@ -301,9 +184,6 @@ export const __test = {
   mapMessageType,
   storedMessageContent,
   isMeetingAudio,
-  archiveAllGroupAttachments,
-  notionUploadCandidate,
-  fallbackFilename,
   storeAttachment,
   syncMemberMap,
 };

@@ -49,7 +49,9 @@ export async function routeDirectLineEvent({
   const userId = String(event.source.userId || '').trim();
   let resolved;
   try {
-    resolved = await withTimeout(router.resolveDirectBinding(userId), DIRECT_BINDING_TIMEOUT_MS);
+    const binary = event?.type === 'message' && ['image','file','video','audio'].includes(event.message?.type);
+    const lookup = binary ? router.resolveDirectAttachmentBinding || router.resolveDirectBinding : router.resolveDirectBinding;
+    resolved = await withTimeout(lookup(userId), DIRECT_BINDING_TIMEOUT_MS);
   } catch (error) {
     logger?.warn?.(`Direct LINE identity lookup timed out or failed: ${error.message}`);
     await safeReply(replyLineMessage, event, unresolvedMessage('lookup_timeout'), logger);
