@@ -344,6 +344,40 @@ export function createAttachmentArchive({ platform, router, logger = console, no
         const saved = await process(tenant, page);
         retryPending ||= !saved.saved;
       }
+      // Complete the rare upload-before-restart index gap from the already
+      // preserved, independently owned Drive original. Never fetch untrusted URLs.
+      const incomplete = await request(tenant, `/v1/data_sources/${encodeURIComponent(tenant.dataSources.attachments)}/query`, {
+        method: 'POST', body: { page_size: 10, filter: { or: [
+          { and: [{ property: '保存狀態', select: { equals: '已保存' } }, { property: '原檔 SHA256', rich_text: { is_empty: true } }] },
+          { and: [{ property: '保存狀態', select: { equals: '已保存' } }, { property: '保存來源', rich_text: { equals: 'manual-review' } }, { property: '檔案', files: { is_empty: true } }] },
+        ] } },
+      });
+      let indexRepairPending = false;
+      for (const page of incomplete.results || []) await locked(`save:${tenant.key}:${page.id}`, async () => {
+        const props = page.properties || {};
+        if (props['檔案']?.files?.length || props['保存狀態']?.select?.name !== '已保存') return;
+        const missingHash = !plain(props['原檔 SHA256']);
+        const staleFilter = plain(props['保存來源']) === 'manual-review' && plain(props['保存錯誤']) === 'Historical original is not a single managed file; manual review required.';
+        if (!missingHash && !staleFilter) return;
+        try {
+          const id = driveId(props['Drive 連結']?.url);
+          if (!id) throw failure('attachment_drive_identity_missing');
+          const file = await platform.drive.verifyWithinRoot(id, tenant.driveRootFolderId, tenant.key);
+          if (Number(file.size) !== Number(props['檔案大小']?.number) || file.md5Checksum !== plain(props['Drive MD5'])) throw failure('attachment_drive_checksum_mismatch');
+          let sourceSha256 = plain(props['原檔 SHA256']);
+          if (missingHash) {
+            const content = await digest(await platform.drive.streamDownload(id));
+            if (content.size !== Number(file.size) || content.md5 !== file.md5Checksum) throw failure('attachment_drive_checksum_mismatch');
+            sourceSha256 = content.sha256;
+          }
+          await patch(tenant, page, { '原檔 SHA256': rt(sourceSha256),
+            ...(staleFilter ? { '保存來源': rt('notion-migration'), '保存錯誤': rt('') }
+              : plain(props['保存來源']) !== 'manual-review' ? { '保存錯誤': rt('') } : {}) });
+        } catch (error) {
+          indexRepairPending = true;
+          if (!staleFilter) await patch(tenant, page, { '保存錯誤': rt(error.code || 'attachment_index_verification_failed') });
+        }
+      });
       // Old managed originals are themselves durable intake. Retain their
       // binary reference on every failure.
       const legacy = await request(tenant, `/v1/data_sources/${encodeURIComponent(tenant.dataSources.attachments)}/query`, {
@@ -389,7 +423,7 @@ export function createAttachmentArchive({ platform, router, logger = console, no
       });
       states.set(tenant.key, { ready: true, checkedAt: new Date(now()).toISOString(), retryPending,
         backlog: Boolean(result.has_more || (candidates.length && legacy.has_more)), migrating: Boolean(candidates.length),
-        needsAttention: retryPending || Boolean(failures.results?.length) });
+        needsAttention: retryPending || indexRepairPending || Boolean(failures.results?.length) });
     } catch (error) {
       states.set(tenant.key, { ready: false, error: error.code || 'attachment_queue_unavailable' });
       logger.error(`[attachment-archive] queue unavailable tenant=${tenant.key}`);

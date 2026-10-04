@@ -99,6 +99,7 @@ function harness(options = {}) {
       return file;
     },
     drive: {
+      streamDownload: async () => ({stream:new Response(new Uint8Array(100).fill(options.corruptDriveRead?9:0)).body,contentLength:100}),
       verifyWithinRoot: async () => { if (!options.legacyFile) throw new Error('Legacy file outside root'); return options.legacyFile; },
       findAttachment: async (folder, identity) => [...files.values()].find(f => f.folder === folder && JSON.stringify(f.identity) === JSON.stringify(identity)),
       verifyAttachment: async (id, folder, identity, size, checksum) => {
@@ -419,6 +420,18 @@ test('lagging Notion file filters cannot reclassify a completed migration as man
   assert.equal(row.properties['保存來源'].rich_text[0].text.content,'notion-migration');
   assert.equal(row.properties['保存錯誤'].rich_text.length,0);
   assert.equal(h.archive.health(h.t).migrating,false);
+});
+
+test('saved indexes recover a missing digest only from a verified own-root Drive original', async()=>{
+  for(const corrupt of [false,true]) {
+    const md5=crypto.createHash('md5').update(new Uint8Array(100)).digest('hex');
+    const h=harness({corruptDriveRead:corrupt,legacyFile:{id:'synthetic-original-file',size:100,md5Checksum:md5}});
+    const row=legacyRow(h,true);row.properties['檔案'].files=[];
+    row.properties['保存狀態']={select:{name:'已保存'}};row.properties['Drive MD5']={rich_text:[{text:{content:md5}}]};
+    await h.archive.drain(h.t);
+    if(corrupt) {assert.equal(row.properties['原檔 SHA256'],undefined);assert.equal(h.archive.health(h.t).needsAttention,true);}
+    else assert.equal(row.properties['原檔 SHA256'].rich_text[0].text.content,crypto.createHash('sha256').update(new Uint8Array(100)).digest('hex'));
+  }
 });
 test('private attachment identity uses all active tenant memberships without changing personal assistant access', async()=>{
   const t={...tenant('non-assistant-tenant'),notionConfigured:true,parentPageId:'test-parent',dataSources:{attachments:'a',groupBindings:'g'}};
