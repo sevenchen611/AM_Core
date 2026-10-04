@@ -103,7 +103,7 @@ export async function acceptLineWebhook({ rawBody, signature, line, lineIo }) {
 export async function createLineIo({ env = process.env, tenants, router, line, logger = console, store: injectedStore,
   directoryStore: injectedDirectoryStore, bindingStore: injectedBindingStore }) {
   if (env.AMCORE_LINE_IO_ENABLED !== '1') return {
-    enabled: false, handle: async () => false, capture: async () => {}, owns: () => false, close: async () => {},
+    enabled: false, handle: async () => false, capture: async () => {}, owns: () => false, resolveAttachmentBinding: async () => null, close: async () => {},
   };
   if (!line.configured) throw new Error('LINE I/O requires LINE channel credentials');
   const replyEnabled = env.AMCORE_LINE_IO_REPLY_ENABLED === '1';
@@ -394,6 +394,22 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
 
   const owns = (event) => personal?.owns(event) || (event?.source?.type === 'group' && clients.some((c) =>
     c.transportOnly && c.scopes.includes('events:read') && c.groupIds.includes(event.source.groupId)));
+  async function resolveAttachmentBinding(event) {
+    if (!owns(event)) return null;
+    const groupId = event.source?.groupId;
+    const person = personal?.lookup(groupId);
+    if (person) {
+      if (person.status !== 'bound' || person.user_id !== event.source.userId) return null;
+      if ((await personal.verified(person, { fresh: true }))?.status !== 'bound') return null;
+      return { tenant: tenants.find(t => t.key === person.tenant_key),
+        binding: { status: '啟用' }, resolution: 'active' };
+    }
+    const client = clients.find(c => c.transportOnly && c.scopes.includes('events:read')
+      && c.groupIds.includes(groupId) && (!c.inputUserIds || c.inputUserIds.includes(event.source.userId)));
+    if (!client) return null;
+    const binding = await resolve(client.tenantKey, groupId);
+    return { tenant: tenants.find(t => t.key === client.tenantKey), binding, resolution: 'active' };
+  }
   const directory = env.AMCORE_LINE_DIRECTORY_ENABLED === '1' ? createDirectory({
     store:injectedDirectoryStore || createDirectoryStore(pool),router,line,clients,
     ioState:async (client,groupId,route,availabilityKnown) => {
@@ -406,5 +422,5 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
         canSend:outputEnabled && assigned.some(c=>c.id===client.id) && client.scopes.includes('messages:write') };
     },
   }) : null;
-  return { enabled: true, directoryEnabled:Boolean(directory),bindingsEnabled:Boolean(personal), capture, handle, owns, close: async () => pool?.end() };
+  return { enabled: true, directoryEnabled:Boolean(directory),bindingsEnabled:Boolean(personal), capture, handle, owns, resolveAttachmentBinding, close: async () => pool?.end() };
 }

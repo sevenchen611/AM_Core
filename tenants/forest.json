@@ -22,7 +22,10 @@
     "attachments": {
       "archiveAllLineGroupAttachmentsToDrive": true,
       "driveRole": "source-of-truth",
-      "notionRole": "durable-queue-metadata-and-supported-preview"
+      "notionRole": "metadata-and-drive-links-only",
+      "archiveDirectMessages": true,
+      "archiveAudio": true,
+      "migrateNotionOriginals": true
     },
     "portal": {
       "label": "森在 AM / Forest AM"

@@ -3,7 +3,9 @@ import test from 'node:test';
 import { createAttachmentArchive, ATTACHMENT_ARCHIVE_PROPERTIES, isArchiveEvent } from '../core/attachment-archive.js';
 import { createDrive } from '../core/drive.js';
 import collect from '../modules/collect/index.js';
+import meetings, { __test as meetingTest } from '../modules/meetings/index.js';
 import crypto from 'node:crypto';
+import { createRouter } from '../core/router.js';
 
 const quiet = { log() {}, warn() {}, error() {} };
 const event = (type = 'file', extra = {}) => ({ type: 'message', timestamp: Date.UTC(2026, 8, 23, 6, 42),
@@ -19,7 +21,8 @@ function harness(options = {}) {
   const t = options.tenant || tenant();
   let clock = Date.UTC(2026, 8, 23, 6, 42);
   let nextId = rows.size;
-  const router = { resolveGroupBinding: async () => ({ tenant: options.currentTenant || t, binding: { groupId: 'test-group', status: options.bindingStatus || '啟用' }, resolution: options.resolution || 'active' }) };
+  const router = { resolveGroupBinding: async () => ({ tenant: options.currentTenant || t, binding: { groupId: 'test-group', status: options.bindingStatus || '啟用' }, resolution: options.resolution || 'active' }),
+    resolveDirectAttachmentBinding: async userId => ({tenant:options.currentTenant || t,binding:{kind:'direct',userId,status:'啟用'},reason:options.resolution || 'bound'}) };
   const platform = {
     logger: quiet,
     pushLineMessage: async (...args) => { calls.push(['notice', ...args]); if (options.noticeError) throw new Error('Temporary LINE push failure'); },
@@ -45,7 +48,9 @@ function harness(options = {}) {
           const prop = p.properties[filter.property];
           if (filter.select) return prop?.select?.name === filter.select.equals;
           if (filter.date) return new Date(prop?.date?.start).getTime() <= new Date(filter.date.on_or_before).getTime();
+          if (filter.files) return filter.files.is_not_empty ? Boolean(prop?.files?.length) : !prop?.files?.length;
           const text = prop?.rich_text?.map(x=>x.plain_text||x.text?.content||'').join('') || '';
+          if (filter.rich_text.is_empty) return !text;
           if (filter.rich_text.equals !== undefined) return text === filter.rich_text.equals;
           if (filter.rich_text.is_not_empty) return Boolean(text);
           if (filter.rich_text.contains !== undefined) return text.includes(filter.rich_text.contains);
@@ -65,6 +70,7 @@ function harness(options = {}) {
       if (opts.method === 'PATCH') {
         if (options.failFinalPatch && opts.body.properties['保存狀態']?.select?.name === '已保存') {
           options.failFinalPatch = false;
+          if (options.appliedLostPatch) Object.assign(page.properties, structuredClone(opts.body.properties));
           throw new Error('Notion response lost after Drive upload');
         }
         Object.assign(page.properties, structuredClone(opts.body.properties));
@@ -92,6 +98,7 @@ function harness(options = {}) {
       return file;
     },
     drive: {
+      verifyWithinRoot: async () => { if (!options.legacyFile) throw new Error('Legacy file outside root'); return options.legacyFile; },
       findAttachment: async (folder, identity) => [...files.values()].find(f => f.folder === folder && JSON.stringify(f.identity) === JSON.stringify(identity)),
       verifyAttachment: async (id, folder, identity, size, checksum) => {
         calls.push(['verify', id]);
@@ -107,7 +114,7 @@ function harness(options = {}) {
     downloadLineContent: async () => { calls.push(['buffer']); throw new Error('Large originals must not buffer'); },
     uploadFileToNotion: async () => { calls.push(['preview']); throw new Error('Preview is optional'); },
   };
-  const makeArchive = () => createAttachmentArchive({ platform, router, logger: quiet, now: () => clock, fetchImpl: options.fetchImpl || (() => { throw new Error('Unexpected external fetch'); }) });
+  const makeArchive = () => createAttachmentArchive({ platform, router, logger: quiet, now: () => clock, requestSpacingMs:0, fetchImpl: options.fetchImpl || (() => { throw new Error('Unexpected external fetch'); }) });
   const archive = makeArchive();
   platform.attachmentArchive = archive;
   return { archive, platform, rows, files, calls, options, t, makeArchive, advance: () => { clock += 600000; } };
@@ -279,10 +286,11 @@ test('source key cannot be rebound to another group', async () => {
   await assert.rejects(h.archive.capture([changed]), /group_conflict/);
 });
 
-test('texts, private chats, transport-only traffic and known meeting recordings retain their routing', async () => {
+test('all bound binary types include private conversations and recordings; text stays outside archive', async () => {
   const h = harness();
   const privateEvent = event(); privateEvent.source = { userId: 'private-user' };
-  for (const e of [event('text'), event('audio'), event('file', { fileName: 'meeting.m4a' }), privateEvent]) assert.equal(isArchiveEvent(e), false);
+  assert.equal(isArchiveEvent(event('text')), false);
+  for (const e of [event('audio'), event('file', { fileName: 'meeting.m4a' }), privateEvent]) assert.equal(isArchiveEvent(e), true);
   await h.archive.capture([event()], () => true);
   assert.equal(h.rows.size, 0);
 });
@@ -301,7 +309,7 @@ test('collect relates the archived original to its exact source message and avoi
   assert.equal(h.calls.some(c => c[0] === 'buffer'), false);
 });
 
-test('an optional small Notion preview failure does not downgrade the verified Drive original', async () => {
+test('small PDF originals retain only a Drive link and never upload a Notion preview', async () => {
   const h = harness({ contentLength: 100 });
   h.platform.downloadLineContent = async () => ({ buffer: new Uint8Array(100), contentType: 'application/pdf' });
   const e = event('file', { fileSize: 100 });
@@ -311,7 +319,123 @@ test('an optional small Notion preview failure does not downgrade the verified D
   const row = [...h.rows.values()].find(p => p.properties['保存狀態']);
   assert.equal(row.properties['保存狀態'].select.name, '已保存');
   assert.ok(row.properties['Drive 連結'].url);
-  assert.equal(h.calls.filter(c => c[0] === 'preview').length, 1);
+  assert.equal(h.calls.filter(c => c[0] === 'preview').length, 0);
+  assert.deepEqual(row.properties['檔案'].files, []);
+});
+
+test('direct originals are isolated by tenant and user, with no group task or Notion binary', async () => {
+  const h = harness({contentLength:100});
+  const e = event('file',{fileSize:100}); e.source = {type:'user',userId:'private-user'};
+  await h.archive.capture([e]); await h.archive.drain(h.t);
+  const p=[...h.rows.values()][0].properties;
+  assert.equal(p['來源類型'].rich_text[0].text.content,'direct');
+  assert.ok(h.calls.find(c=>c[0]==='upload')[1].includes('/私人附件/'));
+  assert.deepEqual(p['檔案'].files,[]);
+  const changed=structuredClone(e); changed.source.userId='different-user';
+  await assert.rejects(h.archive.capture([changed]),/group_conflict/);
+});
+
+test('private terminal warnings resume independently after a failed push', async()=>{
+  const h=harness({lineError:'LINE content download failed: 404 gone',noticeError:true});
+  const e=event();e.source={type:'user',userId:'private-user'};
+  await h.archive.capture([e]);await h.archive.drain(h.t);
+  const p=[...h.rows.values()][0].properties;
+  assert.equal(p['保存狀態'].select.name,'需要重傳');
+  h.options.noticeError=false;await h.archive.drain(h.t);
+  assert.match(p['保存通知'].rich_text[0].text.content,/expired/);
+  assert.equal(h.calls.filter(c=>c[0]==='notice').at(-1)[1],'private-user');
+});
+
+test('voice messages and audio files archive independently of the meeting feature', async () => {
+  for(const type of ['audio','file']) {
+    const h=harness({contentLength:100});
+    await h.archive.capture([event(type,{fileSize:100,fileName:'recording.m4a'})]); await h.archive.drain(h.t);
+    assert.equal([...h.rows.values()][0].properties['保存狀態'].select.name,'已保存');
+    assert.equal(h.files.size,1);
+  }
+});
+
+test('meeting processing reuses the canonical original instead of uploading a second recording', async()=>{
+  const h=harness({contentLength:100});const e=event('audio',{fileSize:100,fileName:'recording.m4a'});
+  await h.archive.capture([e]);await h.archive.drain(h.t);
+  meetings.init(h.platform);
+  const link=await meetingTest.archiveAudio(new Uint8Array(100),'recording.m4a','audio/mp4',h.t,{event:e});
+  assert.ok(link);assert.equal(h.files.size,1);assert.equal(h.calls.filter(c=>c[0]==='upload').length,1);
+});
+
+test('transport-owned binaries retain only the explicitly authorized tenant assignment', async () => {
+  const h=harness({contentLength:100}); let resolved=0;
+  h.archive.setTransportResolver(async()=>{resolved++;return null;});
+  await h.archive.capture([event()],{ownsTransport:()=>true});assert.equal(h.rows.size,0);
+  h.archive.setTransportResolver(async()=>({tenant:h.t,binding:{status:'啟用'}}));
+  await h.archive.capture([event('file',{fileSize:100})],{ownsTransport:()=>true});await h.archive.drain(h.t);
+  assert.equal(h.files.size,1);assert.equal(resolved,1);
+});
+
+function legacyRow(h, hasDrive=false) {
+  const rich=s=>({rich_text:[{text:{content:s}}]});
+  const p={id:'historical-row',parent:{data_source_id:h.t.dataSources.attachments},properties:{
+    '檔案名稱':rich('renamed-original.pdf'),'日期':{date:{start:'2026-09-01'}},'檔案大小':{number:100},
+    '檔案':{files:[{type:'file',name:'original.pdf',file:{url:'https://prod-files-secure.s3.us-west-2.amazonaws.com/synthetic.pdf'}}]},
+    ...(hasDrive?{'Drive 連結':{url:'https://drive.google.com/file/d/synthetic-original-file/view'}}:{}),
+  }};h.rows.set(p.id,p);return p;
+}
+test('historical managed originals migrate without a LINE source and clear Notion only after verification', async () => {
+  const h=harness({fetchImpl:async()=>new Response(new Uint8Array(100),{headers:{'content-length':'100'}})});
+  const row=legacyRow(h);
+  await h.archive.drain(h.t);
+  assert.equal(row.properties['保存狀態'].select.name,'已保存');assert.deepEqual(row.properties['檔案'].files,[]);
+  assert.equal(h.calls.filter(c=>c[0]==='stream').length,0);
+  assert.equal(h.calls.filter(c=>c[0]==='notice').length,0);
+  const broken=harness({uploadError:true,fetchImpl:async()=>new Response(new Uint8Array(100),{headers:{'content-length':'100'}})});
+  const original=legacyRow(broken);await broken.archive.drain(broken.t);
+  assert.equal(original.properties['檔案'].files.length,1);assert.equal(original.properties['保存狀態'].select.name,'重試中');
+});
+test('historical matching Drive originals are reused after independent Notion checksum and root verification', async () => {
+  const md5=crypto.createHash('md5').update(new Uint8Array(100)).digest('hex');
+  const h=harness({legacyFile:{id:'synthetic-original-file',size:100,md5Checksum:md5,webViewLink:'https://drive.google.com/file/d/synthetic-original-file/view'},
+    fetchImpl:async()=>new Response(new Uint8Array(100),{headers:{'content-length':'100'}})});
+  const row=legacyRow(h,true);await h.archive.drain(h.t);
+  assert.equal(h.calls.filter(c=>c[0]==='upload').length,0);assert.deepEqual(row.properties['檔案'].files,[]);
+  assert.equal(row.properties['保存狀態'].select.name,'已保存');
+});
+test('private attachment identity uses all active tenant memberships without changing personal assistant access', async()=>{
+  const t={...tenant('non-assistant-tenant'),notionConfigured:true,parentPageId:'test-parent',dataSources:{attachments:'a',groupBindings:'g'}};
+  const router=createRouter({tenants:[t],logger:quiet,notionRequest:async()=>({results:[{id:'binding',properties:{
+    '狀態':{select:{name:'啟用'}},'成員對照':{rich_text:[{text:{content:JSON.stringify({member:'private-user'})}}]},
+    'LINE 群組 ID':{rich_text:[{text:{content:'bound-group'}}]},
+  }}]})});
+  assert.equal((await router.resolveDirectBinding('private-user')).tenant,null);
+  assert.equal((await router.resolveDirectAttachmentBinding('private-user')).tenant.key,t.key);
+});
+
+test('migration resumes after a final index write applied but its response was lost', async () => {
+  const md5=crypto.createHash('md5').update(new Uint8Array(100)).digest('hex');
+  const h=harness({failFinalPatch:true,appliedLostPatch:true,
+    legacyFile:{id:'synthetic-original-file',size:100,md5Checksum:md5,webViewLink:'https://drive.google.com/file/d/synthetic-original-file/view'},
+    fetchImpl:async()=>new Response(new Uint8Array(100),{headers:{'content-length':'100'}})});
+  const row=legacyRow(h,true);await h.archive.drain(h.t);
+  assert.deepEqual(row.properties['檔案'].files,[]);
+  assert.equal(row.properties['保存狀態'].select.name,'重試中');
+  h.advance();await h.makeArchive().drain(h.t);
+  assert.equal(row.properties['保存狀態'].select.name,'已保存');
+  assert.equal(h.calls.filter(c=>c[0]==='upload').length,0);
+});
+
+test('legacy Drive root verification rejects moved files, foreign tenant identities and cycles', async()=>{
+  const originalFetch=globalThis.fetch;
+  let mode='valid';
+  globalThis.fetch=async url=>{
+    if(String(url).includes('oauth2.googleapis.com'))return Response.json({access_token:'fake',expires_in:3600});
+    const id=new URL(String(url)).pathname.split('/').at(-1);
+    return Response.json(id==='file' ? {id,size:100,md5Checksum:'checksum',parents:['folder'],appProperties:mode==='foreign'?{amTenant:'other'}:{}} :
+      {id,parents:[mode==='valid'?'root':mode==='cycle'?'folder':'outside']});
+  };
+  try {
+    const d=createDrive({clientId:'fake',clientSecret:'fake',refreshToken:'fake',logger:quiet});
+    assert.equal((await d.verifyWithinRoot('file','root','owner')).id,'file');
+    for(mode of ['foreign','moved','cycle'])await assert.rejects(d.verifyWithinRoot('file','root','owner'));
+  } finally {globalThis.fetch=originalFetch;}
 });
 
 test('Drive verification checks persisted ownership, parents, size, and retry search scope', async () => {

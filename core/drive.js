@@ -152,6 +152,31 @@ export function createDrive({ clientId, clientSecret, refreshToken, logger = con
     return { ...file, webViewLink: file.webViewLink || `https://drive.google.com/file/d/${encodeURIComponent(file.id)}/view` };
   }
 
+  async function verifyWithinRoot(fileId, rootId, tenantKey) {
+    const token = await getAccessToken();
+    async function metadata(id) {
+      const params = new URLSearchParams({ fields: attachmentFields, supportsAllDrives: 'true' });
+      const r = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(id)}?${params}`, {
+        headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(30000),
+      });
+      if (!r.ok) throw new Error('Legacy Drive original unavailable');
+      const file = await r.json();
+      if (file.trashed || (file.appProperties?.amTenant && file.appProperties.amTenant !== tenantKey)) throw new Error('Legacy Drive original ownership invalid');
+      return file;
+    }
+    const file = await metadata(fileId);
+    if (!Number(file.size) || !file.md5Checksum) throw new Error('Legacy Drive original has no binary checksum');
+    const parents = [...(file.parents || [])], seen = new Set();
+    while (parents.length && seen.size < 64) {
+      const parent = parents.shift();
+      if (parent === rootId) return { ...file, webViewLink: file.webViewLink || `https://drive.google.com/file/d/${encodeURIComponent(file.id)}/view` };
+      if (seen.has(parent)) continue;
+      seen.add(parent);
+      parents.push(...((await metadata(parent)).parents || []));
+    }
+    throw new Error('Legacy Drive original is outside configured tenant root');
+  }
+
   async function download(fileId, maxBytes = 30 * 1024 * 1024) {
     const id = String(fileId || '').trim();
     if (!/^[A-Za-z0-9_-]{10,200}$/.test(id)) throw new Error('Drive file id is invalid');
@@ -215,5 +240,5 @@ export function createDrive({ clientId, clientSecret, refreshToken, logger = con
     };
   }
 
-  return { configured, getAccessToken, ensureFolder, upload, uploadStream, download, auditPrivateFile, findAttachment, verifyAttachment };
+  return { configured, getAccessToken, ensureFolder, upload, uploadStream, download, auditPrivateFile, findAttachment, verifyAttachment, verifyWithinRoot };
 }

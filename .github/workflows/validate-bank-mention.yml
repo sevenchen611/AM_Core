@@ -23,6 +23,10 @@ on:
       - 'versions/AM-IMP-2026.1004.02/**'
       - 'modules/operational-memory/**'
       - 'modules/collect/**'
+      - 'core/direct-line.js'
+      - 'core/notion.js'
+      - 'modules/meetings/**'
+      - 'versions/AM-IMP-2026.1004.06/**'
       - 'core/attachment-archive.js'
       - 'core/drive.js'
       - 'core/bootstrap.js'
@@ -63,6 +67,9 @@ jobs:
       - run: node --experimental-vm-modules tools/verify-attachment-webhook.mjs
       - run: node tools/dryrun-collect-attachment-archive.mjs
       - run: node tools/dryrun-core.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1004.06
+      - run: node tools/dryrun-personal-line-routing.mjs
+      - run: node tools/dryrun-meetings.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1004.04
       - run: npm run dryrun:claims-authority
       - run: node --test tools/test-claims-form-availability.mjs

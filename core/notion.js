@@ -127,7 +127,17 @@ export function createNotion({ token, version, registry, logger = console }) {
     if (!response.ok) {
       throw new Error(`Notion API failed: ${response.status} ${responseText}`);
     }
-    return responseText ? JSON.parse(responseText) : {};
+    const result = responseText ? JSON.parse(responseText) : {};
+    const query = String(pathname).match(/^\/v1\/data_sources\/([^/]+)\/query$/);
+    if (query) {
+      const ds = normalizeId(decodeURIComponent(query[1]));
+      // The guarded query is authoritative proof of each returned page's owner.
+      // Cache only rows whose explicit parent agrees with the queried data source.
+      for (const page of result.results || []) {
+        if (normalizeId(page.parent?.data_source_id) === ds) verifiedPages.set(normalizeId(page.id), ds);
+      }
+    }
+    return result;
   }
 
   // 上傳檔案到 Notion(附件用),沿用 BuildAM 流程。

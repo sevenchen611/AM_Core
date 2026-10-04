@@ -21,6 +21,7 @@ export function createRouter({ tenants, notionRequest, logger = console }) {
   const cache = new Map();
   // LINE userId → { tenant, binding, reason, at }。只存在執行期記憶體，不寫進 AMCore。
   const directCache = new Map();
+  const attachmentDirectCache = new Map();
 
   function directTenantEnabled(tenant) {
     return tenant?.runtimeEnabled !== false
@@ -170,10 +171,11 @@ export function createRouter({ tenants, notionRequest, logger = console }) {
   }
 
   // 一對一 LINE 身分只在「唯一租戶」時成立。任一候選租戶查核失敗即 fail closed。
-  async function resolveDirectBinding(rawUserId) {
+  async function resolveDirectBinding(rawUserId, attachmentsOnly = false) {
     const userId = String(rawUserId || '').trim();
     if (!userId) return { tenant: null, binding: null, reason: 'not_found' };
-    const cached = directCache.get(userId);
+    const identityCache = attachmentsOnly ? attachmentDirectCache : directCache;
+    const cached = identityCache.get(userId);
     if (cached && Date.now() - cached.at < BINDING_CACHE_TTL_MS) {
       return { tenant: cached.tenant, binding: cached.binding, reason: cached.reason };
     }
@@ -181,7 +183,9 @@ export function createRouter({ tenants, notionRequest, logger = console }) {
     const candidates = [];
     let lookupFailed = false;
     for (const tenant of tenants) {
-      if (!directTenantEnabled(tenant)) continue;
+      if (attachmentsOnly
+        ? !(tenant.runtimeEnabled !== false && tenant.notionConfigured && tenant.dataSources.attachments)
+        : !directTenantEnabled(tenant)) continue;
       try {
         const groupMatches = await queryTenantDirectIdentity(tenant, userId);
         if (groupMatches.length) candidates.push({ tenant, groupMatches });
@@ -216,7 +220,7 @@ export function createRouter({ tenants, notionRequest, logger = console }) {
       };
     }
 
-    directCache.set(userId, { ...resolved, at: Date.now() });
+    identityCache.set(userId, { ...resolved, at: Date.now() });
     return resolved;
   }
 
@@ -225,10 +229,12 @@ export function createRouter({ tenants, notionRequest, logger = console }) {
     if (groupId) cache.delete(groupId); else cache.clear();
     // 群組成員或群組狀態可能已改變；私人身分候選也必須重新查核。
     directCache.clear();
+    attachmentDirectCache.clear();
   }
 
   function invalidateDirect(userId) {
     if (userId) directCache.delete(String(userId)); else directCache.clear();
+    if (userId) attachmentDirectCache.delete(String(userId)); else attachmentDirectCache.clear();
   }
 
   // Read only routing metadata. Query each tenant through its existing Notion guard.
@@ -259,5 +265,7 @@ export function createRouter({ tenants, notionRequest, logger = console }) {
     return { groups,complete };
   }
 
-  return { resolveGroupBinding, resolveDirectBinding, invalidate, invalidateDirect, listDirectoryBindings };
+  return { resolveGroupBinding, resolveDirectBinding,
+    resolveDirectAttachmentBinding: userId => resolveDirectBinding(userId, true),
+    invalidate, invalidateDirect, listDirectoryBindings };
 }

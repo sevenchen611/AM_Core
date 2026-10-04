@@ -310,7 +310,7 @@ async function onAudio(ctx) {
       buf = downloaded.buffer;
       contentType = normalizeMeetingContentType(downloaded.contentType || contentType, filename, sourceIsVideo);
     }
-    await processRecording({ tenant, buffer: buf, filename, contentType, binding, senderName, groupId, senderUserId, sourceIsVideo, meetingMode: rollout.effectiveMode });
+    await processRecording({ tenant, buffer: buf, filename, contentType, binding, senderName, groupId, senderUserId, sourceIsVideo, meetingMode: rollout.effectiveMode, archiveSource: ctx });
     return true;
   }
   contentType = normalizeMeetingContentType(contentType, filename, sourceIsVideo);
@@ -320,7 +320,7 @@ async function onAudio(ctx) {
   // buffer 路徑(相容):有 buffer(舊呼叫)維持原地存 Drive。
   let audioDriveUrl = '';
   if (buffer) {
-    try { audioDriveUrl = await archiveAudio(buffer, filename, contentType, tenant); }
+    try { audioDriveUrl = await archiveAudio(buffer, filename, contentType, tenant, ctx); }
     catch (e) { console.warn(`Meeting audio Drive backup failed: ${e.message}`); }
   }
 
@@ -330,7 +330,7 @@ async function onAudio(ctx) {
   if (!buffer && audioMessageId) {
     // 背景留底:即刻開始(不等與會回覆——就算沒人回、或伺服器中途重啟,原檔已在 Drive)。
     // 結果掛在 entry 上,finalize 發布前再收割;.catch 確保這個 promise 永不 reject。
-    entry.drivePromise = streamArchiveAudio(tenant, audioMessageId, filename)
+    entry.drivePromise = streamArchiveAudio(tenant, audioMessageId, filename, ctx)
       .catch((e) => { console.warn(`Meeting audio Drive backup (stream) failed: ${e.message}`); return ''; });
   }
   entry.timer = setTimeout(() => {
@@ -2009,7 +2009,16 @@ async function publishMeeting({ parsed, diarized, legend, roster, projectPageId,
 }
 
 // 錄音原檔存 Drive「會議錄音/日期/」
-async function archiveAudio(buffer, filename, contentType, tenant) {
+async function canonicalAudio(tenant, source) {
+  if (!platform.attachmentArchive || !source?.event?.message) return null;
+  const page = await platform.attachmentArchive.persist({ tenant, event: source.event, binding: source.binding,
+    messagePage: source.messagePageId ? { id: source.messagePageId } : undefined });
+  const stored = await platform.attachmentArchive.process(tenant, page);
+  return stored.saved ? stored.driveFile.webViewLink : '';
+}
+async function archiveAudio(buffer, filename, contentType, tenant, source) {
+  const canonical = await canonicalAudio(tenant, source);
+  if (canonical !== null) return canonical;
   if (!tenant?.driveConfigured) return '';
   const folder = await platform.ensureDriveFolder('會議錄音', tenant.driveRootFolderId);
   const dayFolder = await platform.ensureDriveFolder(todayStr(), folder);
@@ -2018,7 +2027,9 @@ async function archiveAudio(buffer, filename, contentType, tenant) {
 }
 
 // 錄音原檔「串流」存 Drive(大檔友善):LINE 下載串流直灌 Drive resumable 上傳,整檔不進記憶體。
-async function streamArchiveAudio(tenant, audioMessageId, filename) {
+async function streamArchiveAudio(tenant, audioMessageId, filename, source) {
+  const canonical = await canonicalAudio(tenant, source);
+  if (canonical !== null) return canonical;
   if (!tenant?.driveConfigured) return '';
   if (typeof platform.streamLineContent !== 'function' || typeof platform.uploadDriveStream !== 'function') return '';
   const folder = await platform.ensureDriveFolder('會議錄音', tenant.driveRootFolderId);
@@ -2091,7 +2102,7 @@ async function geminiTranscribeParsed({ tenant, buffer, filename, contentType, s
 
 // ══ 後備:Gemini 直轉流程(無 AssemblyAI key 時使用)══
 // ctx: { tenant, buffer, filename, contentType, binding, senderName, senderUserId, groupId }
-async function processRecording({ tenant, buffer, filename, contentType, sourceIsVideo = false, binding, senderName, senderUserId, groupId, meetingMode }) {
+async function processRecording({ tenant, buffer, filename, contentType, sourceIsVideo = false, binding, senderName, senderUserId, groupId, meetingMode, archiveSource }) {
   const rollout = meetingRolloutPolicy(tenant, binding || {}, meetingMode);
   if (!rollout.enabled) {
     console.log(`Meeting recording skipped by rollout policy (tenant=${tenant?.key || 'default'}, group=${groupId}).`);
@@ -2107,7 +2118,7 @@ async function processRecording({ tenant, buffer, filename, contentType, sourceI
   const today = todayStr();
   let audioDriveUrl = '';
   if (tenant?.driveConfigured) {
-    try { audioDriveUrl = await archiveAudio(buffer, filename, contentType, tenant); }
+    try { audioDriveUrl = await archiveAudio(buffer, filename, contentType, tenant, archiveSource); }
     catch (error) { console.warn(`Meeting audio Drive upload failed: ${error.message}`); }
   }
 
@@ -2220,4 +2231,4 @@ export default {
 };
 
 // 測試用內部匯出(不影響正式流程)
-export const __test = { meetingPrompt, normalizeParsed, normalizeMeetingContentType, withNextMeetingTodo, summarize, summaryTabBlocks, formalTasksEnabled, meetingRolloutPolicy, sessionMeetingMode, sessionCanReview, sessionCreatesFormalTasks, notesTabBlocks, publishMeeting, resolveMeetingsTarget, provisionMeetingsDb, normalizeTodo, hasRequiredTodoFields, reviewSummary, renderReviewHtml, pushMeetingReviewNotification, beginMeetingReview, lineProfileFromAccessToken, ensureSessionMemberBestEffort, createReviewSession, persistReviewSession, loadReviewSessionFromMeeting, autoCompleteReviewSession, finishReviewSession, completeWithoutReview, resolveTenantForPublicMeeting, reviewSessions };
+export const __test = { canonicalAudio, archiveAudio, meetingPrompt, normalizeParsed, normalizeMeetingContentType, withNextMeetingTodo, summarize, summaryTabBlocks, formalTasksEnabled, meetingRolloutPolicy, sessionMeetingMode, sessionCanReview, sessionCreatesFormalTasks, notesTabBlocks, publishMeeting, resolveMeetingsTarget, provisionMeetingsDb, normalizeTodo, hasRequiredTodoFields, reviewSummary, renderReviewHtml, pushMeetingReviewNotification, beginMeetingReview, lineProfileFromAccessToken, ensureSessionMemberBestEffort, createReviewSession, persistReviewSession, loadReviewSessionFromMeeting, autoCompleteReviewSession, finishReviewSession, completeWithoutReview, resolveTenantForPublicMeeting, reviewSessions };

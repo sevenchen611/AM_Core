@@ -25,6 +25,7 @@ import {
 const ctx = await bootstrap(process.env);
 const { tenants, line, router, dispatcher, portal, modules, platform, llm, logger } = ctx;
 const lineIo = await createLineIo({ tenants, line, router, logger });
+platform.attachmentArchive.setTransportResolver(lineIo.resolveAttachmentBinding);
 const queueAccessKey = process.env.AMCORE_QUEUE_ACCESS_KEY || '';
 const portalServiceToken = process.env.AMCORE_PORTAL_SERVICE_TOKEN || '';
 
@@ -271,7 +272,7 @@ const server = http.createServer(async (req, res) => {
       lineConfigured: line.configured,
       lineIo: { enabled: lineIo.enabled, directoryEnabled:Boolean(lineIo.directoryEnabled),bindingsEnabled:Boolean(lineIo.bindingsEnabled), reviewCardsEnabled:lineIo.enabled, contract: 'line-group-io-v1', version: lineIo.bindingsEnabled ? '1.5.0' : '1.2.0' },
       driveConfigured: platform.driveConfigured,
-      attachmentArchive: { contract: 'line-attachment-retention-v1', tenants: tenants.filter(t => t.runtimeEnabled !== false && t.modules.includes('collect')).map(t => ({ tenantKey: t.key, ...platform.attachmentArchive.health(t) })) },
+      attachmentArchive: { contract: platform.attachmentArchive.contract, storage: 'google-drive', notionFiles: 'links-only', tenants: tenants.filter(t => t.runtimeEnabled !== false).map(t => ({ tenantKey: t.key, ...platform.attachmentArchive.health(t) })) },
       llm: { available: llm.available, chain: llm.backends },
       tenants: tenants.map((t) => ({
         key: t.key,
@@ -468,7 +469,7 @@ const server = http.createServer(async (req, res) => {
     try {
       // Persist recoverable binary jobs before acknowledging the webhook.
       // Only binary events do a tenant lookup; ordinary text latency is unchanged.
-      attachmentTenants = await platform.attachmentArchive.capture(body.events, event => lineIo.owns(event));
+      attachmentTenants = await platform.attachmentArchive.capture(body.events, { ownsTransport: event => lineIo.owns(event) });
     } catch (error) {
       logger.error('Attachment pre-ack intake unavailable; webhook not acknowledged.');
       return sendJson(res, 503, { error: 'attachment_intake_unavailable' });
@@ -559,7 +560,14 @@ async function archivePatrol() {
   if (archivePatrolRunning) return;
   archivePatrolRunning = true;
   try {
-    for (const tenant of tenants) await platform.attachmentArchive.drain(tenant);
+    let more;
+    do {
+      for (const tenant of tenants) await platform.attachmentArchive.drain(tenant);
+      more = tenants.some(tenant => {
+        const state = platform.attachmentArchive.health(tenant);
+        return state.ready && (state.backlog || state.migrating);
+      });
+    } while (more);
   } finally { archivePatrolRunning = false; }
 }
 // A restart resumes persisted jobs; transient transfers retry without another LINE send.
