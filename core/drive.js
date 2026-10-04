@@ -192,6 +192,16 @@ export function createDrive({ clientId, clientSecret, refreshToken, logger = con
     return { buffer, contentType: response.headers.get('content-type') || 'application/octet-stream' };
   }
 
+  async function streamDownload(fileId) {
+    if (!/^[A-Za-z0-9_-]{10,200}$/.test(String(fileId || ''))) throw new Error('Drive file id is invalid');
+    const token = await getAccessToken();
+    const r = await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?alt=media`, {
+      headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(900000),
+    });
+    if (!r.ok) throw Object.assign(new Error('Drive original download failed'), { code: 'attachment_drive_download_failed' });
+    return { stream: r.body, contentLength: Number(r.headers.get('content-length')) || 0 };
+  }
+
   async function auditPrivateFile(fileId) {
     const id = String(fileId || '').trim();
     if (!/^[A-Za-z0-9_-]{3,200}$/.test(id)) throw new Error('Drive file id is invalid');
@@ -240,5 +250,5 @@ export function createDrive({ clientId, clientSecret, refreshToken, logger = con
     };
   }
 
-  return { configured, getAccessToken, ensureFolder, upload, uploadStream, download, auditPrivateFile, findAttachment, verifyAttachment, verifyWithinRoot };
+  return { configured, getAccessToken, ensureFolder, upload, uploadStream, download, streamDownload, auditPrivateFile, findAttachment, verifyAttachment, verifyWithinRoot };
 }

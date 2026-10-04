@@ -46,7 +46,8 @@ function harness(options = {}) {
           if (filter.and) return filter.and.every(f => match(p,f));
           if (filter.or) return filter.or.some(f => match(p,f));
           const prop = p.properties[filter.property];
-          if (filter.select) return prop?.select?.name === filter.select.equals;
+          if (filter.select) return filter.select.is_empty ? !prop?.select?.name : prop?.select?.name === filter.select.equals;
+          if (filter.url) return filter.url.is_not_empty ? Boolean(prop?.url) : !prop?.url;
           if (filter.date) return new Date(prop?.date?.start).getTime() <= new Date(filter.date.on_or_before).getTime();
           if (filter.files) return filter.files.is_not_empty ? Boolean(prop?.files?.length) : !prop?.files?.length;
           const text = prop?.rich_text?.map(x=>x.plain_text||x.text?.content||'').join('') || '';
@@ -99,6 +100,7 @@ function harness(options = {}) {
       return file;
     },
     drive: {
+      streamDownload: async () => ({stream:new Response(new Uint8Array(100).fill(options.corruptDriveRead?9:0)).body,contentLength:100}),
       verifyWithinRoot: async () => { if (!options.legacyFile) throw new Error('Legacy file outside root'); return options.legacyFile; },
       findAttachment: async (folder, identity) => [...files.values()].find(f => f.folder === folder && JSON.stringify(f.identity) === JSON.stringify(identity)),
       verifyAttachment: async (id, folder, identity, size, checksum) => {
@@ -392,6 +394,15 @@ test('historical managed originals migrate without a LINE source and clear Notio
   const original=legacyRow(broken);await broken.archive.drain(broken.t);
   assert.equal(original.properties['檔案'].files.length,1);assert.equal(original.properties['保存狀態'].select.name,'重試中');
 });
+
+test('patrol and webhook callers await the same active tenant drain without a second worker',async()=>{
+  let release;const response=new Promise(resolve=>{release=resolve;});
+  const h=harness({fetchImpl:()=>response});legacyRow(h);
+  const first=h.archive.drain(h.t),second=h.archive.drain(h.t);
+  assert.equal(first,second);
+  release(new Response(new Uint8Array(100),{headers:{'content-length':'100'}}));
+  await Promise.all([first,second]);assert.equal(h.files.size,1);
+});
 test('historical matching Drive originals are reused after independent Notion checksum and root verification', async () => {
   const md5=crypto.createHash('md5').update(new Uint8Array(100)).digest('hex');
   const h=harness({legacyFile:{id:'synthetic-original-file',size:100,md5Checksum:md5,webViewLink:'https://drive.google.com/file/d/synthetic-original-file/view'},
@@ -419,6 +430,29 @@ test('lagging Notion file filters cannot reclassify a completed migration as man
   assert.equal(row.properties['保存來源'].rich_text[0].text.content,'notion-migration');
   assert.equal(row.properties['保存錯誤'].rich_text.length,0);
   assert.equal(h.archive.health(h.t).migrating,false);
+});
+
+test('saved indexes recover a missing digest only from a verified own-root Drive original', async()=>{
+  for(const corrupt of [false,true]) {
+    const md5=crypto.createHash('md5').update(new Uint8Array(100)).digest('hex');
+    const h=harness({corruptDriveRead:corrupt,legacyFile:{id:'synthetic-original-file',size:100,md5Checksum:md5}});
+    const row=legacyRow(h,true);row.properties['檔案'].files=[];
+    row.properties['保存狀態']={select:{name:'已保存'}};row.properties['Drive MD5']={rich_text:[{text:{content:md5}}]};
+    await h.archive.drain(h.t);
+    if(corrupt) {assert.equal(row.properties['原檔 SHA256'],undefined);assert.equal(h.archive.health(h.t).needsAttention,true);}
+    else assert.equal(row.properties['原檔 SHA256'].rich_text[0].text.content,crypto.createHash('sha256').update(new Uint8Array(100)).digest('hex'));
+  }
+});
+
+test('historical Drive-only indexes become saved only after root and streaming integrity verification', async()=>{
+  for(const corrupt of [false,true]) {
+    const md5=crypto.createHash('md5').update(new Uint8Array(100)).digest('hex');
+    const h=harness({corruptDriveRead:corrupt,legacyFile:{id:'synthetic-original-file',size:100,md5Checksum:md5}});
+    const row=legacyRow(h,true);row.properties['檔案'].files=[];
+    await h.archive.drain(h.t);
+    if(corrupt)assert.equal(row.properties['保存狀態'],undefined);
+    else {assert.equal(row.properties['保存狀態'].select.name,'已保存');assert.equal(row.properties['保存來源'].rich_text[0].text.content,'drive-migration');}
+  }
 });
 test('private attachment identity uses all active tenant memberships without changing personal assistant access', async()=>{
   const t={...tenant('non-assistant-tenant'),notionConfigured:true,parentPageId:'test-parent',dataSources:{attachments:'a',groupBindings:'g'}};

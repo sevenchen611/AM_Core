@@ -561,8 +561,16 @@ async function archivePatrol() {
   archivePatrolRunning = true;
   try {
     let more;
+    let firstPass = true;
     do {
-      for (const tenant of tenants) await platform.attachmentArchive.drain(tenant);
+      for (const tenant of tenants) {
+        const state = platform.attachmentArchive.health(tenant);
+        const lastCheck = Date.parse(state.checkedAt || '');
+        if (firstPass || state.backlog || state.migrating || !Number.isFinite(lastCheck) || Date.now() - lastCheck >= 60000) {
+          await platform.attachmentArchive.drain(tenant);
+        }
+      }
+      firstPass = false;
       more = tenants.some(tenant => {
         const state = platform.attachmentArchive.health(tenant);
         return state.ready && (state.backlog || state.migrating);
