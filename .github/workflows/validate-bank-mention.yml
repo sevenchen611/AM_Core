@@ -20,6 +20,7 @@ on:
       - 'versions/AM-IMP-2026.0929.02/**'
       - 'versions/AM-IMP-2026.0929.03/**'
       - 'versions/AM-IMP-2026.1003.03/**'
+      - 'versions/AM-IMP-2026.1004.02/**'
       - 'modules/operational-memory/**'
       - 'modules/collect/**'
       - 'tools/verify-bank-line-reply-intake.mjs'
@@ -56,6 +57,8 @@ jobs:
       - run: npm run dryrun:processing-jobs
       - run: node --experimental-vm-modules tools/verify-bank-line-reply-intake.mjs
       - run: node --test tools/test-line-io.mjs
+      - run: node --test tools/test-line-io-card-appearance.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1004.02
       - run: node --test tools/test-line-directory.mjs
       - run: node --test tools/test-line-bindings.mjs
       - run: node --test tools/test-line-capture-latency.mjs
