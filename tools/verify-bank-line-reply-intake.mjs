@@ -7,6 +7,7 @@ import { createOperationalMemory, __test } from '../core/operational-memory.js';
 import { createBankLineReplyIntake } from '../core/bank-line-reply-intake.js';
 import { createLineIo } from '../core/line-io/index.js';
 import { createAttachmentArchive } from '../core/attachment-archive.js';
+import { createAttachmentRetrieval, parseAttachmentRequest } from '../core/attachment-retrieval.js';
 
 const db = new PGlite();
 const tenant = { key: 'hozo-am-2-0', tenantId: '11111111-1111-4111-8111-111111111111', envPrefix: 'TEST', operationalMemory: { enabled: true, activationMode: 'enforce' } };
@@ -65,6 +66,7 @@ try {
       assert.equal(acked,false);if(persistenceFails)throw new Error('storage unavailable');return {ok:true,job:{input_payload:input.inputPayload,replayed:false}};
     },leaseProcessingJobs:async()=>[]};
     const dependencies={
+      './core/attachment-retrieval.js':{createAttachmentRetrieval,parseAttachmentRequest},
       'node:http':{default:{createServer(fn){callback=fn;return {listen(){}};}}},'node:crypto':{default:crypto},
       './core/bootstrap.js':{bootstrap:async()=>({tenants:[tenant],line:{configured:true,isValidSignature:()=>true,replyLineMessage:async()=>{receipts++;}},router:{},dispatcher:{collectRoutes:()=>[]},portal:{},modules:new Map([['claims',{preAckClaimsAuthorityEvent:async()=>{authority++;return {intercepted:true};}}]]),platform:{operationalMemory:fakeMemory,rentalFinanceGroupPushKey:'synthetic',attachmentArchive:createAttachmentArchive({platform:{},router:{},logger})},logger})},
       './core/bank-line-reply-intake.js':{createBankLineReplyIntake},

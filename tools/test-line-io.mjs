@@ -133,6 +133,15 @@ test('configuration is opt-in and requires unique scoped keys and tenant ownersh
   }
 });
 
+test('core-owned attachment requests cannot be delivered to a second transport assistant', async t => {
+  const h=await harness(t,{env:{...env,LINE_CHANNEL_SECRET:secret,AMCORE_LINE_IO_REPLY_ENABLED:'1'}});
+  const reserved=h.event('synthetic-reserved-request');
+  await h.gateway.capture([reserved,h.event('synthetic-ordinary-message')],
+    {excludeEvents:event=>event.webhookEventId===reserved.webhookEventId});
+  assert.deepEqual(h.store.rows.map(row=>row.event.webhookEventId),['synthetic-ordinary-message']);
+  assert.equal(h.store.replyRows.has('sample:synthetic-reserved-request'),false);
+});
+
 test('attachment archive resolves transport assignment only for permitted senders and current owners', async t => {
   const userId=`U${'a'.repeat(32)}`;
   const ioEnv={...env,AMCORE_LINE_IO_CLIENTS_JSON:JSON.stringify([{...config[0],transportOnly:true,inputUserIds:[userId]}])};

@@ -27,6 +27,9 @@ on:
       - 'core/notion.js'
       - 'modules/meetings/**'
       - 'versions/AM-IMP-2026.1004.06/**'
+      - 'versions/AM-IMP-2026.1004.07/**'
+      - 'core/attachment-retrieval.js'
+      - 'tools/test-attachment-retrieval.mjs'
       - 'core/attachment-archive.js'
       - 'core/drive.js'
       - 'core/bootstrap.js'
@@ -63,6 +66,8 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run check
+      - run: node --test tools/test-attachment-retrieval.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1004.07
       - run: node --test tools/test-attachment-retention.mjs
       - run: node --experimental-vm-modules tools/verify-attachment-webhook.mjs
       - run: node tools/dryrun-collect-attachment-archive.mjs
