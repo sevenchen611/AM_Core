@@ -46,7 +46,8 @@ function harness(options = {}) {
           if (filter.and) return filter.and.every(f => match(p,f));
           if (filter.or) return filter.or.some(f => match(p,f));
           const prop = p.properties[filter.property];
-          if (filter.select) return prop?.select?.name === filter.select.equals;
+          if (filter.select) return filter.select.is_empty ? !prop?.select?.name : prop?.select?.name === filter.select.equals;
+          if (filter.url) return filter.url.is_not_empty ? Boolean(prop?.url) : !prop?.url;
           if (filter.date) return new Date(prop?.date?.start).getTime() <= new Date(filter.date.on_or_before).getTime();
           if (filter.files) return filter.files.is_not_empty ? Boolean(prop?.files?.length) : !prop?.files?.length;
           const text = prop?.rich_text?.map(x=>x.plain_text||x.text?.content||'').join('') || '';
@@ -431,6 +432,17 @@ test('saved indexes recover a missing digest only from a verified own-root Drive
     await h.archive.drain(h.t);
     if(corrupt) {assert.equal(row.properties['原檔 SHA256'],undefined);assert.equal(h.archive.health(h.t).needsAttention,true);}
     else assert.equal(row.properties['原檔 SHA256'].rich_text[0].text.content,crypto.createHash('sha256').update(new Uint8Array(100)).digest('hex'));
+  }
+});
+
+test('historical Drive-only indexes become saved only after root and streaming integrity verification', async()=>{
+  for(const corrupt of [false,true]) {
+    const md5=crypto.createHash('md5').update(new Uint8Array(100)).digest('hex');
+    const h=harness({corruptDriveRead:corrupt,legacyFile:{id:'synthetic-original-file',size:100,md5Checksum:md5}});
+    const row=legacyRow(h,true);row.properties['檔案'].files=[];
+    await h.archive.drain(h.t);
+    if(corrupt)assert.equal(row.properties['保存狀態'],undefined);
+    else {assert.equal(row.properties['保存狀態'].select.name,'已保存');assert.equal(row.properties['保存來源'].rich_text[0].text.content,'drive-migration');}
   }
 });
 test('private attachment identity uses all active tenant memberships without changing personal assistant access', async()=>{

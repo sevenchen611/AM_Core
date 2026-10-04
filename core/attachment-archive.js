@@ -350,12 +350,14 @@ export function createAttachmentArchive({ platform, router, logger = console, no
         method: 'POST', body: { page_size: 10, filter: { or: [
           { and: [{ property: '保存狀態', select: { equals: '已保存' } }, { property: '原檔 SHA256', rich_text: { is_empty: true } }] },
           { and: [{ property: '保存狀態', select: { equals: '已保存' } }, { property: '保存來源', rich_text: { equals: 'manual-review' } }, { property: '檔案', files: { is_empty: true } }] },
+          { and: [{ property: '保存狀態', select: { is_empty: true } }, { property: '保存來源', rich_text: { is_empty: true } }, { property: '檔案', files: { is_empty: true } }, { property: 'Drive 連結', url: { is_not_empty: true } }] },
         ] } },
       });
       let indexRepairPending = false;
       for (const page of incomplete.results || []) await locked(`save:${tenant.key}:${page.id}`, async () => {
         const props = page.properties || {};
-        if (props['檔案']?.files?.length || props['保存狀態']?.select?.name !== '已保存') return;
+        const legacyDriveOnly = !props['保存狀態']?.select?.name && !plain(props['保存來源']) && Boolean(props['Drive 連結']?.url);
+        if (props['檔案']?.files?.length || (!legacyDriveOnly && props['保存狀態']?.select?.name !== '已保存')) return;
         const missingHash = !plain(props['原檔 SHA256']);
         const staleFilter = plain(props['保存來源']) === 'manual-review' && plain(props['保存錯誤']) === 'Historical original is not a single managed file; manual review required.';
         if (!missingHash && !staleFilter) return;
@@ -363,12 +365,21 @@ export function createAttachmentArchive({ platform, router, logger = console, no
           const id = driveId(props['Drive 連結']?.url);
           if (!id) throw failure('attachment_drive_identity_missing');
           const file = await platform.drive.verifyWithinRoot(id, tenant.driveRootFolderId, tenant.key);
-          if (Number(file.size) !== Number(props['檔案大小']?.number) || file.md5Checksum !== plain(props['Drive MD5'])) throw failure('attachment_drive_checksum_mismatch');
+          if (legacyDriveOnly
+            ? Number(props['檔案大小']?.number) > 0 && Number(file.size) !== Number(props['檔案大小']?.number)
+            : Number(file.size) !== Number(props['檔案大小']?.number) || file.md5Checksum !== plain(props['Drive MD5'])) throw failure('attachment_drive_checksum_mismatch');
           let sourceSha256 = plain(props['原檔 SHA256']);
-          if (missingHash) {
+          if (missingHash || legacyDriveOnly) {
             const content = await digest(await platform.drive.streamDownload(id));
             if (content.size !== Number(file.size) || content.md5 !== file.md5Checksum) throw failure('attachment_drive_checksum_mismatch');
             sourceSha256 = content.sha256;
+          }
+          if (legacyDriveOnly) {
+            await saveResult(tenant, page, file, sourceSha256, file.md5Checksum, {
+              '保存來源': rt('drive-migration'), '保存識別': rt(`drive:${id}`), '保存通知': rt('legacy'),
+              '來源類型': rt('historical'), '檔案名稱': props['檔案名稱'] || rt(file.name),
+            });
+            return;
           }
           await patch(tenant, page, { '原檔 SHA256': rt(sourceSha256),
             ...(staleFilter ? { '保存來源': rt('notion-migration'), '保存錯誤': rt('') }
