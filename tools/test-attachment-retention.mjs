@@ -335,6 +335,17 @@ test('direct originals are isolated by tenant and user, with no group task or No
   await assert.rejects(h.archive.capture([changed]),/group_conflict/);
 });
 
+test('private terminal warnings resume independently after a failed push', async()=>{
+  const h=harness({lineError:'LINE content download failed: 404 gone',noticeError:true});
+  const e=event();e.source={type:'user',userId:'private-user'};
+  await h.archive.capture([e]);await h.archive.drain(h.t);
+  const p=[...h.rows.values()][0].properties;
+  assert.equal(p['保存狀態'].select.name,'需要重傳');
+  h.options.noticeError=false;await h.archive.drain(h.t);
+  assert.match(p['保存通知'].rich_text[0].text.content,/expired/);
+  assert.equal(h.calls.filter(c=>c[0]==='notice').at(-1)[1],'private-user');
+});
+
 test('voice messages and audio files archive independently of the meeting feature', async () => {
   for(const type of ['audio','file']) {
     const h=harness({contentLength:100});

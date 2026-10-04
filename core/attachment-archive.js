@@ -145,10 +145,12 @@ export function createAttachmentArchive({ platform, router, logger = console, no
     try {
       const groupId = plain(page.properties?.['LINE 群組 ID']);
       const userId = plain(page.properties?.['LINE 使用者 ID']);
-      const current = groupId ? await router.resolveGroupBinding(groupId)
+      let current = groupId ? await router.resolveGroupBinding(groupId)
         : await router.resolveDirectAttachmentBinding(userId);
+      if (groupId && !current?.tenant) current = await resolveTransport({ type: 'message',
+        source: { type: 'group', groupId, userId }, message: { id: plain(page.properties?.['LINE 訊息 ID']), type: plain(page.properties?.['附件類型']) } });
       // Only notify the still-active original tenant/group, never a re-bound or shadow group.
-      if (current.tenant?.key !== tenant.key || current.binding?.status !== '啟用') return;
+      if (current?.tenant?.key !== tenant.key || current.binding?.status !== '啟用') return;
       const filename = plain(page.properties?.['檔案名稱']).slice(0, 160);
       const messages = {
         retry: `⚠ 附件「${filename}」尚未保存成功，系統正在重試。請先保留原檔。`,
@@ -352,17 +354,16 @@ export function createAttachmentArchive({ platform, router, logger = console, no
       } }));
       // Delivery is independent from transfer retries: a temporary LINE push failure
       // must not suppress the terminal warning or the later recovery notice.
-      const noticeScope = [
-        { property: 'LINE 群組 ID', rich_text: { is_not_empty: true } },
-        { property: '保存通知', rich_text: { does_not_contain: 'legacy' } },
+      const noticeScope = [{ property: '保存通知', rich_text: { does_not_contain: 'legacy' } }];
+      const noticeStates = [
+        [{ property: '保存狀態', select: { equals: '需要重傳' } }, { property: '保存通知', rich_text: { does_not_contain: 'expired' } }],
+        [{ property: '保存狀態', select: { equals: '保存失敗' } }, { property: '保存通知', rich_text: { does_not_contain: 'failed' } }],
+        [{ property: '保存狀態', select: { equals: '已保存' } }, { property: '保存通知', rich_text: { contains: 'retry' } }, { property: '保存通知', rich_text: { does_not_contain: 'recovered' } }],
       ];
       // Notion supports only two levels of compound filters: OR of flat ANDs.
       const notices = await request(tenant, `/v1/data_sources/${encodeURIComponent(tenant.dataSources.attachments)}/query`, {
-        method: 'POST', body: { page_size: 10, filter: { or: [
-          { and: [...noticeScope, { property: '保存狀態', select: { equals: '需要重傳' } }, { property: '保存通知', rich_text: { does_not_contain: 'expired' } }] },
-          { and: [...noticeScope, { property: '保存狀態', select: { equals: '保存失敗' } }, { property: '保存通知', rich_text: { does_not_contain: 'failed' } }] },
-          { and: [...noticeScope, { property: '保存狀態', select: { equals: '已保存' } }, { property: '保存通知', rich_text: { contains: 'retry' } }, { property: '保存通知', rich_text: { does_not_contain: 'recovered' } }] },
-        ] } },
+        method: 'POST', body: { page_size: 10, filter: { or: ['LINE 群組 ID', 'LINE 使用者 ID'].flatMap(property =>
+          noticeStates.map(filters => ({ and: [...noticeScope, { property, rich_text: { is_not_empty: true } }, ...filters] }))) } },
       });
       for (const page of notices.results || []) {
         const status = page.properties?.['保存狀態']?.select?.name;
