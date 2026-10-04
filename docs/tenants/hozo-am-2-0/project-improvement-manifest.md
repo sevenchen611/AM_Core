@@ -10,7 +10,7 @@ Environment prefix: `HZ2`
 
 | Version | Status | Capability | Scope | Notes |
 | --- | --- | --- | --- | --- |
-| AM-IMP-2026.1004.07 | Installed | Retrieve archived LINE attachments | Exact quote or complete filename in the same conversation; verified Drive link | Local checks complete; reviewed main and production verification pending. |
+| AM-IMP-2026.1004.07 | Deployed | Retrieve archived LINE attachments | Exact quote or complete filename in the same conversation; verified Drive link | Main e92dc4c live; retrieval contract and tenant archive readiness verified; real LINE delivery remains user acceptance. |
 | `AM-IMP-2026.1004.05` | Installed | LINE staff income and expense | Root Platform tenant adapter | LINE sender and authority checks; Maggie <=30,000 / Seven >30,000; reviewed cash posting. |
 | `AM-IMP-2026.1004.03` | Installed | Internal mobile expense claim form | Root Platform tenant adapter | Rental login and legacy Maggie approval; internal group publication only. |
 | AM-IMP-2026.1004.06 | Deployed | Drive originals; Notion links only | Production schema, runtime, exact 40 MB canary and completed available-source migration | Code 129dc97 verified; 383 saved indexes with digests, 0 Notion binary references, 4 historical sources need re-upload. |
