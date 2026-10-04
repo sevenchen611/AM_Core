@@ -45,7 +45,7 @@ test('publication and inventory are limited to HOZO internal staff',async()=>{
  mode='internal_v3';assert.equal((await authority.publishFormGroups({tenant,actor,formKey:'mobile_expense_entry',groupLookups:['a'.repeat(64)]})).assignedCount,1);
  await assert.rejects(authority.publishFormGroups({tenant:{...tenant,key:'other'},actor,formKey:'mobile_expense_entry',groupLookups:[]}),/HOZO/);
  assert.equal(mobileFormAllowed(tenant,'mobile_expense_entry','external_claim_only'),false);
- const html=renderClaimsAuthorityAdminPage({tenantKey:tenant.key,financeBaseUrl:'https://synthetic.invalid'});assert.match(html,/admin-finance-mobile\?mode=claim&amp;preview=1|admin-finance-mobile\?mode=claim&preview=1/);new Function(html.match(/<script>([\s\S]*?)<\/script>/)[1]);
+ const html=renderClaimsAuthorityAdminPage({tenantKey:tenant.key,financeBaseUrl:'https://synthetic.invalid'});assert.match(html,/claims-authority\/forms\/mobile_expense_entry\/preview/);assert(!html.includes('需後台登入'));new Function(html.match(/<script>([\s\S]*?)<\/script>/)[1]);
  assert(!renderClaimsAuthorityAdminPage({tenantKey:'other'}).includes('data-form-key="mobile_expense_entry"'));
 });
 test('schema expands three real key constraints idempotently and preserves old records',async()=>{
