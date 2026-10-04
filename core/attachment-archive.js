@@ -185,8 +185,9 @@ export function createAttachmentArchive({ platform, router, logger = console, no
     if (!size || (content.contentLength && size !== Number(content.contentLength))) throw failure('attachment_received_size_mismatch');
     return { size, sha256: sha.digest('hex'), md5: md5.digest('hex') };
   }
-  async function saveResult(tenant, page, driveFile, sourceSha256, sourceMd5) {
+  async function saveResult(tenant, page, driveFile, sourceSha256, sourceMd5, metadata = {}) {
     await patch(tenant, page, {
+      ...metadata,
       '保存狀態': { select: { name: '已保存' } }, '保存時間': { date: { start: new Date(now()).toISOString() } },
       'Drive 檔案 ID': rt(driveFile.id), 'Drive 連結': { url: driveFile.webViewLink },
       '檔案大小': { number: Number(driveFile.size) }, '保存錯誤': rt(''), '下次重試': { date: null },
@@ -226,11 +227,14 @@ export function createAttachmentArchive({ platform, router, logger = console, no
       }
       const attempt = (Number(props['保存嘗試']?.number) || 0) + 1;
       const due = new Date(now() + Math.min(600000, 30000 * 2 ** Math.min(attempt - 1, 5))).toISOString();
-      // Persist the attempt before network transfer so a process exit remains recoverable.
-      await patch(tenant, page, { '保存嘗試': { number: attempt }, '保存狀態': { select: { name: '重試中' } }, '下次重試': { date: { start: due } },
+      const attemptProperties = { '保存嘗試': { number: attempt }, '保存狀態': { select: { name: '重試中' } }, '下次重試': { date: { start: due } },
         ...(migration ? { '保存來源': rt('notion-migration'), '保存識別': rt(messageId), '保存通知': rt('legacy'),
           '來源類型': props['來源類型'] || rt('historical') } : {}),
-      });
+      };
+      // Initial legacy migration already has a durable Notion original and a
+      // deterministic Drive identity. Write its outcome once, after verification.
+      // Fresh LINE intake and retries still persist each attempt before transfer.
+      if (!migrate) await patch(tenant, page, attemptProperties);
       let stream;
       let driveFile;
       let transferSize = expectedSize;
@@ -255,7 +259,7 @@ export function createAttachmentArchive({ platform, router, logger = console, no
                 : await digest(await backupContent(props, true));
               if (Number(existing.size) === original.size && existing.md5Checksum === original.md5) {
                 sourceSha256 = original.sha256; sourceMd5 = original.md5; transferSize = original.size;
-                await saveResult(tenant, page, existing, sourceSha256, sourceMd5);
+                await saveResult(tenant, page, existing, sourceSha256, sourceMd5, attemptProperties);
                 return { attachmentPage: page, saved: true, driveFile: existing };
               }
             }
@@ -295,7 +299,7 @@ export function createAttachmentArchive({ platform, router, logger = console, no
         }
         // The upload response alone is insufficient: read storage metadata and check size/parent/identity.
         driveFile = await platform.drive.verifyAttachment(driveFile.id, folder, identity, transferSize, sourceMd5);
-        await saveResult(tenant, page, driveFile, sourceSha256, sourceMd5);
+        await saveResult(tenant, page, driveFile, sourceSha256, sourceMd5, attemptProperties);
         logger.log(`[attachment-archive] saved tenant=${tenant.key} bytes=${driveFile.size}`);
         await notify(tenant, page, 'recovered');
         return { attachmentPage: page, saved: true, driveFile };
@@ -306,6 +310,7 @@ export function createAttachmentArchive({ platform, router, logger = console, no
         // Do not store provider response bodies, URLs or credentials in the index/log.
         const reason = expired ? 'LINE 原檔已無法下載，請由來源持有人重傳。' : (error.code || 'attachment_transfer_or_index_failed');
         await patch(tenant, page, {
+          ...attemptProperties,
           '保存狀態': { select: { name: nextStatus } }, '保存錯誤': rt(reason),
           '下次重試': { date: nextStatus === '重試中' ? { start: due } : null },
           // Preserve computed source digests if the final index write failed.

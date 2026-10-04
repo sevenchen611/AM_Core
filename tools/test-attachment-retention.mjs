@@ -398,6 +398,7 @@ test('historical matching Drive originals are reused after independent Notion ch
   const row=legacyRow(h,true);await h.archive.drain(h.t);
   assert.equal(h.calls.filter(c=>c[0]==='upload').length,0);assert.deepEqual(row.properties['檔案'].files,[]);
   assert.equal(row.properties['保存狀態'].select.name,'已保存');
+  assert.equal(h.calls.filter(c=>c[0]==='notion'&&c[2].method==='PATCH').length,1,'the durable legacy source needs one verified final index write');
 });
 test('private attachment identity uses all active tenant memberships without changing personal assistant access', async()=>{
   const t={...tenant('non-assistant-tenant'),notionConfigured:true,parentPageId:'test-parent',dataSources:{attachments:'a',groupBindings:'g'}};
