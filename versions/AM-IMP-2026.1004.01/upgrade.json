@@ -1,0 +1,29 @@
+{
+  "id": "AM-IMP-2026.1004.01",
+  "name": "Tenant claim form availability",
+  "type": "Core / Claims / UI",
+  "portable": true,
+  "status": "Ready",
+  "installTargets": [
+    "AM_PLATFORM"
+  ],
+  "requiresDatabases": [
+    "existing claims authority Postgres"
+  ],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "npm run dryrun:claims-authority",
+    "node --test tools/test-claims-form-availability.mjs"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Authorized managers can disable/enable individual forms",
+    "Group assignments and histories preserved",
+    "Existing selector and LIFF links recheck availability",
+    "HOZO retired V3 hidden and cannot be enabled"
+  ]
+}

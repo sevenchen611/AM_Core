@@ -13,6 +13,8 @@ const FIXED_KEY_ID = 'fixed-v1';
 const CLAIM_FORM_KEYS = Object.freeze(['legacy_social_insurance', 'legacy_shared_operating', 'legacy_other', 'employee_expense']);
 const CLAIM_FORM_KEY_SET = new Set(CLAIM_FORM_KEYS);
 const GROUP_CLAIM_MODES = new Set(['external_claim_only', 'internal_v3']);
+export const isRetiredClaimForm = (tenant, key) => tenant?.key === 'hozo-am-2-0' && key === 'employee_expense';
+const effectiveClaimMode = (tenant, mode) => tenant?.key === 'hozo-am-2-0' ? 'external_claim_only' : mode || 'internal_v3';
 
 export const isClaimsCommand = (text) => COMMAND.test(String(text || '').trim());
 export const redact = (value) => value
@@ -412,14 +414,15 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
         && row?.member_state === 'observed'
         && !row?.manual_deny;
       const routing = await client.query(
-        `/* ca:form-routing */ SELECT c.revision,f.form_key
+        `/* ca:form-routing */ SELECT c.revision,f.form_key,COALESCE(a.enabled,true) AS enabled
          FROM am_claims.group_form_configs c
          LEFT JOIN am_claims.group_forms f ON f.tenant_id=c.tenant_id AND f.group_lookup=c.group_lookup
+         LEFT JOIN am_claims.form_availability a ON a.tenant_id=f.tenant_id AND a.form_key=f.form_key
          WHERE c.tenant_id=$1 AND c.group_lookup=$2 ORDER BY f.sort_order,f.form_key`,
         [tenant.tenantId, group],
       );
-      const configured = routing.rows?.length > 0;
-      const availableForms = configured ? routing.rows.map((item) => item.form_key).filter((key) => CLAIM_FORM_KEY_SET.has(key)) : [];
+      const configured = tenant.key === 'hozo-am-2-0' || routing.rows?.length > 0;
+      const availableForms = configured ? routing.rows.filter(item => item.enabled !== false && !isRetiredClaimForm(tenant,item.form_key)).map((item) => item.form_key).filter((key) => CLAIM_FORM_KEY_SET.has(key)) : [];
       return {
         handled: true,
         mode: currentMode,
@@ -427,7 +430,7 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
           ok: (currentMode === 'shadow' || allowed) && (!configured || availableForms.length > 0),
           allowed,
           reason: !allowed ? 'not_ready_or_denied' : configured && !availableForms.length ? 'no_forms_published' : null,
-          routing: { configured, revision: Number(routing.rows?.[0]?.revision || 0), availableForms, claimMode: row?.claim_mode || 'internal_v3' },
+          routing: { configured, revision: Number(routing.rows?.[0]?.revision || 0), availableForms, claimMode: effectiveClaimMode(tenant,row?.claim_mode) },
         },
       };
     });
@@ -588,6 +591,30 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
     return String(formKey);
   }
 
+  async function listForms({tenant,actor}) {
+    requireRole(actor,READ);
+    return tenantTx(tenant,async client=>{
+      const result=await client.query('/* ca:form-availability */ SELECT form_key,enabled,updated_at FROM am_claims.form_availability WHERE tenant_id=$1',[tenant.tenantId]);
+      return CLAIM_FORM_KEYS.map(key=>{
+        const row=result.rows.find(item=>item.form_key===key),retired=isRetiredClaimForm(tenant,key);
+        return {key,enabled:!retired && row?.enabled!==false,retired,updatedAt:row?.updated_at||null};
+      });
+    });
+  }
+
+  async function setFormEnabled({tenant,actor,formKey,enabled}) {
+    requireRole(actor,MANAGE);
+    const key=requireFormKey(formKey);
+    if(typeof enabled!=='boolean')throw new Error('請指定啟用或停用狀態。');
+    if(enabled && isRetiredClaimForm(tenant,key))throw new Error('V3 流程已退場，不能重新啟用；歷史紀錄仍可查閱。');
+    return tenantTx(tenant,async client=>{
+      const result=await client.query(`/* ca:set-form-availability */ INSERT INTO am_claims.form_availability(tenant_id,form_key,enabled,updated_by)
+        VALUES($1,$2,$3,$4) ON CONFLICT(tenant_id,form_key) DO UPDATE SET enabled=EXCLUDED.enabled,updated_by=EXCLUDED.updated_by,updated_at=now() RETURNING enabled`,[tenant.tenantId,key,enabled,actor.subject||null]);
+      await audit(client,tenant,'form_availability_changed',null,actor,{formKey:key,enabled});
+      return {ok:true,key,enabled:result.rows[0].enabled,retired:isRetiredClaimForm(tenant,key)};
+    });
+  }
+
   async function listFormGroups({ tenant, actor, formKey }) {
     requireRole(actor, READ);
     const key = requireFormKey(formKey);
@@ -612,6 +639,7 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
   async function publishFormGroups({ tenant, actor, formKey, groupLookups }) {
     requireRole(actor, MANAGE);
     const key = requireFormKey(formKey);
+    if(isRetiredClaimForm(tenant,key))throw new Error('V3 流程已退場，不能發布。');
     const selected = [...new Set((Array.isArray(groupLookups) ? groupLookups : []).map(String))];
     if (selected.length > 500) throw new Error('一次最多設定 500 個群組。');
     selected.forEach((lookup) => requireLookup(lookup, 'Group'));
@@ -649,7 +677,7 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
   async function createFormSelectionSession({ tenant, groupLookup, memberLookup, eventKey, formKeys, ttlMs = 15 * 60 * 1000 }) {
     requireLookup(groupLookup, 'Group');
     requireLookup(memberLookup, 'Member');
-    const keys = [...new Set((formKeys || []).map(requireFormKey))];
+    const keys = [...new Set((formKeys || []).map(requireFormKey))].filter(key=>!isRetiredClaimForm(tenant,key));
     if (!keys.length) throw new Error('此群組尚未發布可用的請款單。');
     const sessionId = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + ttlMs).toISOString();
@@ -682,16 +710,16 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
       const row = result.rows?.[0];
       if (!row || Date.parse(row.expires_at) <= Date.now()) throw new Error('請款連結已失效，請回到群組重新輸入「請款」。');
       if (row.group_state !== 'active' || row.oa_state !== 'present' || row.member_state !== 'observed' || row.manual_deny) throw new Error('目前沒有使用此請款連結的權限。');
-      const current = await client.query('/* ca:current-form-routing */ SELECT form_key FROM am_claims.group_forms WHERE tenant_id=$1 AND group_lookup=$2 ORDER BY sort_order,form_key', [tenant.tenantId, row.group_lookup]);
-      const available = current.rows.map((item) => item.form_key).filter((key) => row.available_form_keys.includes(key));
+      const current = await client.query(`/* ca:current-form-routing */ SELECT f.form_key,COALESCE(a.enabled,true) AS enabled FROM am_claims.group_forms f LEFT JOIN am_claims.form_availability a ON a.tenant_id=f.tenant_id AND a.form_key=f.form_key WHERE f.tenant_id=$1 AND f.group_lookup=$2 ORDER BY f.sort_order,f.form_key`, [tenant.tenantId, row.group_lookup]);
+      const available = current.rows.filter(item=>item.enabled!==false && !isRetiredClaimForm(tenant,item.form_key)).map((item) => item.form_key).filter((key) => row.available_form_keys.includes(key));
       if (requestedKey && !available.includes(requestedKey)) throw new Error('這張請款單目前不適用此群組。');
       if (requestedKey && row.selected_form_key && row.selected_form_key !== requestedKey) throw new Error('此連結已選擇其他請款單，請回群組重新開啟。');
       return {
         sessionId: row.session_id,
         expiresAt: new Date(row.expires_at).toISOString(),
         formKeys: available,
-        selectedFormKey: row.selected_form_key || '',
-        resolvedUrl: row.resolved_url || '',
+        selectedFormKey: available.includes(row.selected_form_key) ? row.selected_form_key : '',
+        resolvedUrl: available.includes(row.selected_form_key) ? row.resolved_url || '' : '',
         groupLookup: row.group_lookup,
         groupId: codec.decrypt(row.group_ciphertext),
         groupName: row.group_name_ciphertext ? codec.decrypt(row.group_name_ciphertext) : '',
@@ -700,18 +728,20 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
         sourceId: row.finance_source_ref,
         v3FormKey: row.finance_form_key,
         groupReference: row.finance_group_reference,
-        claimMode: row.claim_mode || 'internal_v3',
+        claimMode: effectiveClaimMode(tenant,row.claim_mode),
       };
     });
   }
 
   async function completeFormSelection({ tenant, sessionId, formKey, resolvedUrl }) {
     const key = requireFormKey(formKey);
+    if(isRetiredClaimForm(tenant,key))throw new Error('V3 流程已退場。');
     return tenantTx(tenant, async (client) => {
       const result = await client.query(
         `/* ca:complete-form-session */ UPDATE am_claims.form_selection_sessions
          SET selected_form_key=$3,resolved_url=$4,selected_at=COALESCE(selected_at,now())
-         WHERE tenant_id=$1 AND session_id=$2 AND (selected_form_key IS NULL OR selected_form_key=$3)
+         WHERE tenant_id=$1 AND session_id=$2 AND expires_at>now() AND (selected_form_key IS NULL OR selected_form_key=$3)
+         AND NOT EXISTS(SELECT 1 FROM am_claims.form_availability a WHERE a.tenant_id=$1 AND a.form_key=$3 AND NOT a.enabled)
          RETURNING session_id`,
         [tenant.tenantId, sessionId, key, String(resolvedUrl || '').slice(0, 4096)],
       );
@@ -732,6 +762,8 @@ export function createClaimsAuthority({ store, identityKey, financeProvisioner, 
     resolveGroupNotificationTarget,
     resolveGroupMention,
     listFormGroups,
+    listForms,
+    setFormEnabled,
     publishFormGroups,
     createFormSelectionSession,
     resolveFormSelection,
