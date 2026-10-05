@@ -60,3 +60,16 @@ Integrated from verified GitHub main/production commit b5f87849a9aa18b73b34a1e80
 Live canary (explicit deployment operation): use `tools/verify-construction-journal-live.mjs engineering --prepare /tmp/engineering-journal-canary.json` to create a clearly labelled synthetic case/site/work item and verify a real Drive photo upload/download. Submit its journal through the authenticated web form with 6 people, 35% and its one photo, then run `--verify` and `--cleanup` using the same state path. Cleanup archives only synthetic Notion pages and moves their unique Drive case directory to recoverable trash. Shared Drive root and real cases are retained. State and all binding IDs remain outside AMCore.
 
 Audit on the production-source checkout ran and reported pre-existing HOZO/Seven manifest/path gaps; no new engineering error was reported. This release does not claim global alignment completion.
+
+## 正式部署驗證，2026-10-05
+
+以下結果取代前述各階段的「尚未正式接入」狀態，早期記錄保留作為驗證歷程。
+
+- PR #236 合併 main，程式版本 `449867741a3c30315cce6338b91d2b095ad1954f`；Render am-platform 程式部署 `dep-db1i2c8473hc73947760` 與環境重建 `dep-db1i49k9v7es73fm849g` 均 Live。
+- 在既有工程部署環境完成三個工程租戶 Notion 資料來源及原有案件／現場／工項／預算／合約雙向關聯；新增三個日誌環境綁定，未更改既有環境值。所有識別碼、憑證、建庫／驗證狀態只保存在部署環境與 AMCore 外。
+- 正式 `/health` HTTP 200、程式版本相符；日誌、施工進度、照片三來源齊全，Drive configured、isolation enabled。未登入案件 API HTTP 401。
+- 正式登入表單實際提交清楚標示合成的驗證案件：6 人、12 平方公尺、35%、1 張 Drive 原檔；畫面顯示「日誌已保存，工項進度已更新」，不用管理者確認。原工項既有內容下方顯示同一施工內容、工班、人數、完成率與照片。
+- live verifier 回傳 `verified: true`、`directUpdate: true`、`crewCount: 6`、`percent: 35`、`photos: 1`、`siteLinked: true`、`nativeReverseRelation: true`。實際 Drive 原檔下載與私人權限亦通過 prepare 驗證。
+- cleanup 回傳 `cleaned: true`、`syntheticNotionPagesArchived: true`、`syntheticDriveFolderTrashed: true`。只封存合成 Notion 記錄、把其專用 Drive 案件資料夾放可復原垃圾桶；保留真實工程、共用資料夾及已建立日誌資料庫。
+- 正式案件與原有工項／現場可載入；部署未替真實工程捏造日誌，也未自動匯入歷史 LINE／報表。既有內容可透過已建成的補登入口保存來源後回填。
+- 仍維持單一服務實例。沒有兩個不同實際登入身分可做跨館別 live 測試，該拒絕行為由 scope／隔離測試覆蓋；不宣稱已執行所有人工作廢／故障注入 live 檢查。全域 alignment 既有缺列未於本版修正。

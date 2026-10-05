@@ -91,4 +91,4 @@ project-local upgrade record and package `VERIFY.md` passes. A deployed runtime
 with signing disabled is not a completed signing deployment and must not be
 recorded as `Deployed`.
 
-| AM-IMP-2026.1005.01 | Installed | Engineering daily journals and work-item history | 16 journal tests; 14 dashboard master-data checks; 18 engineering convergence checks; 19 core checks; task-card check | Integrated from current production main; submission directly updates progress, links original work items and sites, keeps source and photos. Production databases and live-service verification remain before Deployed. |
+| AM-IMP-2026.1005.01 | Deployed | Engineering daily journals and work-item history | 16 journal tests; 14 dashboard master-data checks; 12 construction checks; 18 engineering convergence checks; 19 core checks; task-card check; production synthetic form/Drive/Notion verification | Production main 4498677 verified live on 2026-10-05. Three tenant-local journal sources bound. Submission directly updates progress and displays site/work/photo history below original work items. Synthetic records archived and their unique Drive folder trashed after verification. |
