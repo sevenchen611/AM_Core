@@ -85,7 +85,7 @@ export async function journalOptions(deps, scope, projectId, permissions = {}) {
     projectRows(deps, 'attachments', projectId),
   ]);
   const choice = p => ({ id: p.id, name: plain(Object.values(p.properties || {}).find(v => v.type === 'title')?.title) || p.id });
-  return { works: works.map(p => ({ ...choice(p), spaceIds: (p.properties['空間']?.relation || []).map(r => r.id) })), spaces: spaces.map(choice), budgets: budgets.filter(p => p.properties['類別']?.select?.name !== '總預算').map(choice), contracts: contracts.map(choice),
+  return { works: works.map(p => ({ ...choice(p), trade: p.properties['工種']?.select?.name || '', spaceIds: (p.properties['空間']?.relation || []).map(r => r.id) })), spaces: spaces.map(choice), budgets: budgets.filter(p => p.properties['類別']?.select?.name !== '總預算').map(choice), contracts: contracts.map(choice),
     photos: [...photos.map(p => ({ ...choice(p), kind: 'photo', url: p.properties['Drive 連結']?.url || '' })),
       ...attachments.filter(p => /image|照片/i.test(field(p, '檔案類型')) || /\.(png|jpe?g|webp|heic)$/i.test(choice(p).name)).map(p => ({ ...choice(p), kind: 'attachment', url: p.properties['Drive 連結']?.url || '' }))],
     canVoid: Boolean(deps.access?.isPlatformOwner || deps.access?.user?.role === 'owner') };
@@ -98,8 +98,12 @@ export async function validateJournal(deps, scope, input, permissions = {}) {
   await assertManagedProject(deps, scope, projectId);
   const date = dateOnly(input.date);
   const requestId = required(input.requestId, '提交識別碼', 100);
-  if (!Array.isArray(input.crews) || input.crews.length > 40) throw fail('工班清單格式不正確');
-  const crews = input.crews.map(c => ({ id: required(c.id, '工班列識別碼', 100), name: required(c.name, '工班名稱', 200), trade: required(c.trade, '工種', 100), count: numeric(c.count, '人數', 10000, true) }));
+  const byWork = input.format === 'work-content-v2';
+  if (input.format != null && !byWork) throw fail('日誌格式版本不正確');
+  if (byWork && input.crews?.length) throw fail('工作內容格式請在各筆工作填進場人數');
+  const crewInput = byWork ? [] : input.crews;
+  if (!Array.isArray(crewInput) || crewInput.length > 40) throw fail('工班清單格式不正確');
+  const crews = crewInput.map(c => ({ id: required(c.id, '工班列識別碼', 100), name: required(c.name, '工班名稱', 200), trade: required(c.trade, '工種', 100), count: numeric(c.count, '人數', 10000, true) }));
   if (new Set(crews.map(c => c.id)).size !== crews.length) throw fail('工班列不可重複');
   const crewIdentity = c => `${c.name.normalize('NFKC').replace(/\s+/g, ' ').toLowerCase()}\u0000${c.trade.normalize('NFKC').replace(/\s+/g, ' ').toLowerCase()}`;
   if (new Set(crews.map(crewIdentity)).size !== crews.length) throw fail('同一工班與工種請合併人數後填一列，避免重複計算');
@@ -112,12 +116,21 @@ export async function validateJournal(deps, scope, input, permissions = {}) {
     const workItemId = required(e.workItemId, '原有工項', 100);
     const work = await owned(deps, workItemId, 'workItems', projectId);
     const assignedSpaces = (work.properties['空間']?.relation || []).map(r => r.id);
-    const requestedSpace = optional(e.spaceId, '現場空間', 100);
-    if (requestedSpace && assignedSpaces.length && !assignedSpaces.some(id => sameId(id, requestedSpace))) throw fail('現場空間不在此工項的施工範圍');
-    const spaceIds = requestedSpace ? [requestedSpace] : assignedSpaces;
+    let spaceIds;
+    if (byWork) {
+      if (!Array.isArray(e.spaceIds) || !e.spaceIds.length || e.spaceIds.length > 100) throw fail('請勾選現場空間／施工位置，最多 100 個');
+      spaceIds = e.spaceIds.map(id => required(id, '現場空間／施工位置', 100));
+      if (new Set(spaceIds.map(id => id.replace(/-/g, '').toLowerCase())).size !== spaceIds.length) throw fail('現場空間／施工位置不可重複');
+    } else {
+      const requestedSpace = optional(e.spaceId, '現場空間', 100);
+      if (requestedSpace && assignedSpaces.length && !assignedSpaces.some(id => sameId(id, requestedSpace))) throw fail('現場空間不在此工項的施工範圍');
+      spaceIds = requestedSpace ? [requestedSpace] : assignedSpaces;
+    }
+    // Reported areas may span several floors in the same project. This does not
+    // edit the original work item's planned space relations.
     for (const id of spaceIds) await owned(deps, id, 'spaces', projectId);
-    const crewId = required(e.crewId, '施工工班', 100);
-    if (!crews.some(c => c.id === crewId)) throw fail('施工紀錄未連到日誌工班');
+    const crewId = byWork ? '' : required(e.crewId, '施工工班', 100);
+    if (!byWork && !crews.some(c => c.id === crewId)) throw fail('施工紀錄未連到日誌工班');
     const budgetId = text(e.budgetId), contractId = text(e.contractId);
     if (budgetId) {
       if (!permissions.canBudget) throw fail('無預算關聯權限', 403);
@@ -140,15 +153,16 @@ export async function validateJournal(deps, scope, input, permissions = {}) {
     const quantity = numeric(e.quantity, '今日施作量');
     const unit = optional(e.unit, '施作量單位', 50);
     if (quantity != null && !unit) throw fail('填施作量時請填單位');
-    entries.push({ workItemId, spaceIds, crewId, budgetId, contractId, content: required(e.content, '施工內容'),
-      location: optional(e.location, '施工位置', 200), quantity, unit, percent: numeric(e.percent, '累計完成百分比', 100),
+    entries.push({ workItemId, spaceIds, crewId, budgetId, contractId, content: required(e.content, '工作內容'),
+      ...(byWork ? { workName: required(e.workName, '工程名稱', 200), headcount: numeric(e.headcount, '進場人數', 10000, true), trade: work.properties['工種']?.select?.name || '' } : {}),
+      location: byWork ? '' : optional(e.location, '施工位置', 200), quantity, unit, percent: numeric(e.percent, '累計完成百分比', 100),
       blocker: optional(e.blocker, '現場障礙'), nextStep: optional(e.nextStep, '下一步'), photos });
   }
-  if (new Set(entries.map(e => e.workItemId)).size !== entries.length) throw fail('同一份日誌同一工項請合併為一筆，避免施作量重複');
+  if (new Set(entries.map(e => e.workItemId.replace(/-/g, '').toLowerCase())).size !== entries.length) throw fail('同一份日誌同一工項請合併為一筆，避免施作量重複');
   const source = { kind: input.source?.kind || 'web', reference: optional(input.source?.reference, '原始來源參照', 1000), original: optional(input.source?.original, '原始回報內容', 8000) };
   if (!['web', 'line', 'report'].includes(source.kind)) throw fail('回報來源不正確');
   if (source.kind !== 'web' && (!source.reference || !source.original)) throw fail('補登需保留原始 LINE 群組／時間／發話者或報表連結與原文');
-  return { projectId, date, requestId, summary, noWork, crews, entries, source };
+  return { projectId, date, requestId, summary, noWork, crews, entries, source, ...(byWork ? { format: 'work-content-v2' } : {}) };
 }
 
 function journalView(p) {
@@ -172,7 +186,8 @@ export async function submitJournal(deps, scope, input, permissions = {}) {
     if (journal && field(journal, '填報者') !== who) throw fail('不可接續其他人的提交', 403);
     if (journal && journalView(journal).status !== '整理中') return { ok: true, replay: true, journal: journalView(journal) };
     if (!journal) {
-      const count = normalized.crews.some(c => c.count == null) ? null : normalized.crews.reduce((s, c) => s + c.count, 0);
+      const counts = normalized.format === 'work-content-v2' ? normalized.entries.map(e => e.headcount) : normalized.crews.map(c => c.count);
+      const count = counts.some(c => c == null) ? null : counts.reduce((s, c) => s + c, 0);
       journal = await deps.notionRequest('/v1/pages', { method: 'POST', body: {
         parent: { type: 'data_source_id', data_source_id: deps.dataSources.constructionJournals },
         properties: { '日誌': { title: textFrag(`${normalized.date} 工程日誌`) }, '專案': rel([normalized.projectId]),
@@ -193,12 +208,12 @@ export async function submitJournal(deps, scope, input, permissions = {}) {
           '專案': rel([normalized.projectId]), '日誌': rel([journal.id]), '工項': rel([e.workItemId]),
           '空間': rel(e.spaceIds),
           '預算項目': rel(e.budgetId ? [e.budgetId] : []), '合約': rel(e.contractId ? [e.contractId] : []),
-          '施工日期': { date: { start: normalized.date } }, '紀錄識別碼': rt(key), '工班': rt(crew.name), '工種': rt(crew.trade),
+          '施工日期': { date: { start: normalized.date } }, '紀錄識別碼': rt(key), '工班': rt(crew?.name || ''), '工種': rt(e.trade ?? crew?.trade ?? ''),
           '施工位置': rt(e.location), '施工內容': rt(e.content), '今日施作量': { number: e.quantity }, '單位': rt(e.unit),
           '累計完成率': { number: e.percent }, '障礙': rt(e.blocker), '下一步': rt(e.nextStep),
           '現場照片': rel(e.photos.filter(f => f.kind === 'photo').map(f => f.id)),
           '來源附件': rel(e.photos.filter(f => f.kind === 'attachment').map(f => f.id)) },
-        children: [{ object: 'block', type: 'paragraph', paragraph: { rich_text: textFrag(`來源：工程日誌 ${journal.id}；施工日期 ${normalized.date}；填報 ${who}\n${e.content}\n${e.photos.map(f => `${f.caption} ${f.url}`).join('\n')}`) } }],
+        children: [{ object: 'block', type: 'paragraph', paragraph: { rich_text: textFrag(`來源：工程日誌 ${journal.id}；施工日期 ${normalized.date}；填報 ${who}\n${e.workName ? `工程名稱：${e.workName}；進場人數：${e.headcount ?? '待補'}\n` : ''}${e.content}\n${e.photos.map(f => `${f.caption} ${f.url}`).join('\n')}`) } }],
       } });
     }
     journal = await deps.notionRequest(`/v1/pages/${encodeURIComponent(journal.id)}`, { method: 'PATCH', body: { properties: { '狀態': { select: { name: '已更新' } }, '更新時間': { date: { start: stamp(deps) } } } } });
@@ -242,11 +257,11 @@ export async function voidJournal(deps, scope, input) {
 export async function projectJournalReport(deps, scope, projectId) {
   configured(deps);
   await assertManagedProject(deps, scope, projectId);
-  const [journals, rows, works] = await Promise.all([projectRows(deps, 'constructionJournals', projectId), projectRows(deps, 'constructionProgress', projectId), projectRows(deps, 'workItems', projectId)]);
+  const [journals, rows, works, spaces] = await Promise.all([projectRows(deps, 'constructionJournals', projectId), projectRows(deps, 'constructionProgress', projectId), projectRows(deps, 'workItems', projectId), projectRows(deps, 'spaces', projectId)]);
   const byId = new Map(journals.map(p => [p.id.replace(/-/g, '').toLowerCase(), p]));
   const view = journals.map(p => ({ ...journalView(p),
     voidReason: field(p, '作廢原因'), voidedBy: field(p, '作廢者'), voidedAt: p.properties['作廢時間']?.date?.start || '',
-    original: JSON.parse(field(p, '原始回報')) })).sort((a, b) => b.date.localeCompare(a.date));
+    original: JSON.parse(field(p, '原始回報')) })).map(j => ({ ...j, headcountUnit: j.original.format === 'work-content-v2' ? '人次' : '人' })).sort((a, b) => b.date.localeCompare(a.date));
   const items = works.map(w => {
     const records = rows.filter(p => p.properties['工項']?.relation?.some(r => sameId(r.id, w.id))).map(p => {
       const j = byId.get((p.properties['日誌']?.relation?.[0]?.id || '').replace(/-/g, '').toLowerCase());
@@ -256,7 +271,9 @@ export async function projectJournalReport(deps, scope, projectId) {
       const jv = journalView(j), effective = ['已更新', '已確認'].includes(jv.status);
       return { id: p.id, journalId: j.id, date: raw.date, status: jv.status, confirmed: effective, effective,
         reviewedAt: jv.updatedAt || jv.reviewedAt, spaceIds: entry?.spaceIds || [],
-        crewCount: raw.crews.find(c => c.id === entry?.crewId)?.count ?? null,
+        spaceNames: (entry?.spaceIds || []).map(id => { const space = spaces.find(s => sameId(s.id, id)); return space ? plain(Object.values(space.properties || {}).find(v => v.type === 'title')?.title) : '原空間已封存'; }),
+        workName: entry?.workName || '', headcount: entry?.headcount ?? raw.crews.find(c => c.id === entry?.crewId)?.count ?? null,
+        crewCount: entry?.headcount ?? raw.crews.find(c => c.id === entry?.crewId)?.count ?? null,
         budgetId: entry?.budgetId || '', contractId: entry?.contractId || '', source: raw.source,
         content: field(p, '施工內容'), crew: field(p, '工班'), location: field(p, '施工位置'),
         quantity: p.properties['今日施作量']?.number ?? null, unit: field(p, '單位'), percent: p.properties['累計完成率']?.number ?? null,

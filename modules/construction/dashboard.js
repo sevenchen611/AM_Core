@@ -799,8 +799,8 @@ function renderConstructionHistory(history) {
     + '<p><a href="' + esc(history.journalUrl) + '">＋ 填寫施工日誌／查看完整日誌</a></p>'
     + history.items.map(w => '<h4>' + esc(w.name) + ' · ' + (w.percent == null ? '尚無完成率' : w.percent + '%') + '</h4>'
       + w.records.map(r => '<div class="blk" style="padding:12px;background:#f4f8f5;margin:8px 0">'
-        + esc(r.date) + ' · ' + esc(r.status) + ' · ' + esc(r.crew) + ' · ' + (r.crewCount == null ? '人數待補' : r.crewCount + ' 人')
-        + ' · ' + esc(r.location) + '<br>' + esc(r.content)
+        + esc(r.date) + ' · ' + esc(r.status) + ' · ' + esc(r.workName || r.crew) + ' · ' + (r.crewCount == null ? '人數待補' : r.crewCount + ' 人')
+        + ' · ' + esc((r.spaceNames || []).join('、')) + (r.location ? ' · ' + esc(r.location) : '') + '<br>' + esc(r.content)
         + '<br>今日施作量：' + (r.quantity == null ? '未填' : r.quantity + ' ' + esc(r.unit))
         + '；累計完成率：' + (r.percent == null ? '未填' : r.percent + '%')
         + (r.blocker ? '<br>障礙：' + esc(r.blocker) : '') + (r.nextStep ? '<br>下一步：' + esc(r.nextStep) : '')

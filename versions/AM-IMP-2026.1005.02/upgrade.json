@@ -1,0 +1,21 @@
+{
+  "id": "AM-IMP-2026.1005.02",
+  "name": "工程日誌工作內容、逐筆人數與多個現場位置",
+  "type": "Construction / Daily Journal / Evidence",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-10-05",
+  "installTargets": ["AM_PLATFORM"],
+  "tenantScope": "construction-enabled tenants; Engineering rollout",
+  "excludedTargets": ["HOZO_AM", "SEVEN_AM", "BUILD_AM", "FOREST_AM"],
+  "requiresDatabases": ["existing Engineering construction journal, progress and photo sources"],
+  "requiresEnv": [],
+  "requiresScripts": ["node --test tools/test-construction-journal.mjs", "node tools/check-upgrade-package.js AM-IMP-2026.1005.02", "node tools/audit-alignment.js"],
+  "dataIsolation": {"canCopyCode": true, "canCopySchema": true, "canCopyData": false, "canCopySecrets": false},
+  "projectStatus": {"AM_PLATFORM": "Installed", "HOZO_AM": "Blocked", "SEVEN_AM": "Blocked", "BUILD_AM": "Deprecated"},
+  "files": ["modules/construction/journal-page.js", "modules/construction/journal.js", "modules/construction/dashboard.js", "tools/test-construction-journal.mjs", "tools/verify-construction-journal-live.mjs"],
+  "definitionOfDone": ["Per-work people, person-time totals, multi-area isolation, retry and legacy evidence checks pass", "Synthetic browser submission displays names and all areas below original work items", "Reviewed main commit and Engineering live service verified before Deployed"],
+  "pendingUserDecisions": [],
+  "headcountPolicy": "Each work entry reports people; journal sum is person-times, never unique site attendance",
+  "writerConcurrency": "single Node process; no change to existing deployment instance count"
+}
