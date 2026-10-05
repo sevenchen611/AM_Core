@@ -46,7 +46,7 @@
     "Engineering production service verified before Deployed"
   ],
   "projectStatus": {
-    "AM_PLATFORM": "Ready",
+    "AM_PLATFORM": "Deployed",
     "HOZO_AM": "Blocked",
     "SEVEN_AM": "Blocked",
     "BUILD_AM": "Deprecated"
@@ -64,9 +64,7 @@
     "versions/AM-IMP-2026.1005.01/schemas/journal-schema.js",
     "tools/verify-construction-journal-live.mjs"
   ],
-  "pendingUserDecisions": [
-    "official engineering service checkout and existing source location"
-  ],
+  "pendingUserDecisions": [],
   "writerConcurrency": "single Node process; shared distributed lock required before multi-instance writes",
   "progressPolicy": "submission directly effective; latest construction date then latest successful update; retain all historical evidence"
 }

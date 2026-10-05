@@ -22,4 +22,4 @@ node --env-file=<deployment-env-file> tools/provision-construction-journal.mjs e
 現有租戶載入器會自動轉成 `constructionJournals`、`constructionProgress`、`constructionPhotos`，與原有 `projects`、`spaces`、`workItems`、`budgets`、`contracts`、`attachments` 分庫。所有索引／上傳／讀寫都限原租戶與原案件；預算及合約關聯需各自權限。
 
 5. 確保單一程序寫入；若多實例先完成共享鎖再開啟。重啟工程服務並依 VERIFY 做登入、scope、實際照片與資料落庫驗證。正式上線前確認 API Gateway／Portal 未把 `/journal` route 排除。
-6. 在工程部署自己的 improvement manifest 與 upgrades 紀錄登錄 Installed；正式 Render 服務驗證後才改為 Deployed。AMCore 套件保持 Ready。本輪沒有修改部署環境或建立正式資料庫。
+6. 在工程部署自己的 improvement manifest 與 upgrades 紀錄登錄 Installed；正式 Render 服務驗證後才改為 Deployed。AMCore 共用套件保持 Ready。工程租戶已於 2026-10-05 完成正式建庫、綁定及部署驗證，結果見 VERIFY 與租戶 upgrade record。
