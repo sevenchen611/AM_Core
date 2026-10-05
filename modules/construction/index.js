@@ -41,6 +41,7 @@ import {
 } from './contract-runtime.js';
 import { SOP_STAGES, readSopState, writeSopCheck } from './sop.js';
 import { handleDashboardRequest } from './dashboard.js';
+import { handleJournalRequest } from './journal.js';
 import { handleTaskCardRequest } from './task-card.js';
 import { classify, classifyPhoto } from './classify.js';
 import { reminderPasses } from './reminders.js';
@@ -351,6 +352,7 @@ export default {
     { prefix: '/contract-sign', tenantKey: 'engineering', access: { kind: 'public', capability: 'construction.contract-sign' }, handler: publicContractSigningRoute },
     { prefix: '/contract-review', tenantKey: 'engineering', access: { kind: 'public', capability: 'construction.contract-review' }, handler: publicContractDraftReviewRoute },
     { prefix: '/task', access: { kind: 'tenant', capability: 'construction.read' }, handler: webRoute(handleTaskCardRequest) },
+    { prefix: '/journal', access: { kind: 'tenant', capability: 'construction.read' }, handler: webRoute(handleJournalRequest) },
     { prefix: '/dashboard', access: { kind: 'tenant', capability: 'construction.read' }, handler: webRoute(handleDashboardRequest) },
     { prefix: '/budget', access: { kind: 'tenant', capability: 'construction.budget' }, handler: webRoute(handleBudgetRequest) },
     { prefix: '/contracts', access: { kind: 'tenant', capability: 'construction.contracts' }, handler: webRoute(handleContractsRequest) },

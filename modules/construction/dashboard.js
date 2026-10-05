@@ -7,6 +7,7 @@
 
 import { plain, sameId, queryAll, pageName, sendJson, readJsonBody, parseScope, assertProjectInScope } from './common.js';
 import { SOP_STAGES } from './sop.js';
+import { constructionHistoryForPage } from './journal.js';
 import { listDesignDrawings, uploadDesignDrawing } from './drawings.js';
 import {
   createDashboardSpace,
@@ -47,7 +48,7 @@ export async function handleDashboardRequest(req, res, pathname, url, deps) {
       return sendJson(res, 200, await buildSpacePhotos(deps, url.searchParams.get('space')));
     }
     if (req.method === 'GET' && pathname === '/dashboard/api/doc') {
-      return sendJson(res, 200, await buildDoc(deps, url.searchParams.get('page'), canBudget));
+      return sendJson(res, 200, await buildDoc(deps, url.searchParams.get('page'), canBudget, scope, canContract));
     }
     if (req.method === 'GET' && pathname === '/dashboard/api/gantt') {
       const projectId = url.searchParams.get('project');
@@ -177,6 +178,7 @@ async function buildProjectDetail(deps, projectId) {
     const p = w.properties;
     const spaceId = p['空間']?.relation?.[0]?.id;
     matrix.push({
+      id: w.id,
       space: spaceId ? await pageName(deps, spaceId) : '(未分空間)',
       trade: p['工種']?.select?.name || '其他',
       status: p['狀態']?.select?.name || '未開始',
@@ -267,7 +269,7 @@ function assertBudgetPageAllowed(deps, page, canBudget) {
 }
 
 // 單據/會議記錄的網頁詳情(取代進 Notion)
-async function buildDoc(deps, pageId, canBudget) {
+async function buildDoc(deps, pageId, canBudget, scope = null, canContract = false) {
   if (!pageId) throw new Error('page required');
   const page = await deps.notionRequest(`/v1/pages/${encodeURIComponent(pageId)}`, { method: 'GET' });
   assertBudgetPageAllowed(deps, page, canBudget);
@@ -319,7 +321,8 @@ async function buildDoc(deps, pageId, canBudget) {
       spans: t.rich_text.map((r) => ({ text: r.plain_text || '', color: r.annotations?.color || 'default', link: r.href || null })),
     };
   }).filter(Boolean);
-  return { title, fields, blocks, notionUrl: page.url };
+  const constructionHistory = await constructionHistoryForPage(deps, scope, page, { canBudget, canContract });
+  return { title, fields, blocks, notionUrl: page.url, constructionHistory };
 }
 
 // 彈窗就地編輯:寫回欄位並留編輯記錄
@@ -375,6 +378,7 @@ function renderDashboardPage(tenantKey, canBudget, canContract) {
   const headerLinks = [
     ...(canBudget ? [`<a href="/budget?tenant=${t}">→ 💰 預算控制</a>`] : []),
     ...(canContract ? [`<a href="/contracts?tenant=${t}">→ 📑 合約管理</a>`] : []),
+    `<a href="/journal?tenant=${t}">→ 工程日誌／施工進度</a>`,
     `<a href="/tickets?tenant=${t}">→ 回饋單／變更單</a>`,
     `<a href="/queue?tenant=${t}">→ 確認佇列</a>`,
   ].map((a, i) => (i === 0 ? a : a.replace('<a ', '<a style="margin-left:14px" '))).join('');
@@ -556,8 +560,8 @@ async function openProject(id) {
   const matrix = spaces.length ? \`<div class="matrix-wrap"><table>
       <tr><th>空間\\\\工種</th>\${trades.map(t => '<th>' + esc(t) + '</th>').join('')}</tr>
       \${spaces.map(s => '<tr><th>' + esc(s) + '</th>' + trades.map(t => {
-        const cell = d.matrix.find(m => m.space === s && m.trade === t);
-        return cell ? '<td class="s-' + esc(cell.status) + '" title="' + esc(cell.name) + '">' + esc(cell.status) + '</td>' : '<td></td>';
+        const cells = d.matrix.filter(m => m.space === s && m.trade === t);
+        return '<td>' + cells.map(cell => '<div class="s-' + esc(cell.status) + '"><a href="#" onclick="openDoc(\\\'' + esc(cell.id) + '\\\');return false">' + esc(cell.name) + ' · ' + esc(cell.status) + '</a></div>').join('') + '</td>';
       }).join('') + '</tr>').join('')}
     </table></div>\` : '<div class="empty">尚無工項(建立工項後這裡會長出矩陣)</div>';
 
@@ -785,8 +789,24 @@ async function openDoc(pageId) {
           }
           return '<div class="blk">' + inner + '</div>';
         }).join('')
+      + renderConstructionHistory(d.constructionHistory)
       + '<div style="margin-top:12px;font-size:12px"><a href="' + esc(d.notionUrl) + '" target="_blank">在 Notion 中開啟 ↗</a></div>';
   } catch (e) { body.innerHTML = '<div class="empty">載入失敗:' + esc(e.message) + '</div>'; }
+}
+function renderConstructionHistory(history) {
+  if (!history) return '';
+  return '<section style="margin-top:20px;border-top:1px solid #d4e2da;padding-top:14px"><h3>施工日誌與進度紀錄</h3>'
+    + '<p><a href="' + esc(history.journalUrl) + '">＋ 填寫施工日誌／查看完整日誌</a></p>'
+    + history.items.map(w => '<h4>' + esc(w.name) + ' · ' + (w.percent == null ? '尚無完成率' : w.percent + '%') + '</h4>'
+      + w.records.map(r => '<div class="blk" style="padding:12px;background:#f4f8f5;margin:8px 0">'
+        + esc(r.date) + ' · ' + esc(r.status) + ' · ' + esc(r.crew) + ' · ' + (r.crewCount == null ? '人數待補' : r.crewCount + ' 人')
+        + ' · ' + esc(r.location) + '<br>' + esc(r.content)
+        + '<br>今日施作量：' + (r.quantity == null ? '未填' : r.quantity + ' ' + esc(r.unit))
+        + '；累計完成率：' + (r.percent == null ? '未填' : r.percent + '%')
+        + (r.blocker ? '<br>障礙：' + esc(r.blocker) : '') + (r.nextStep ? '<br>下一步：' + esc(r.nextStep) : '')
+        + '<br>' + r.photos.map(p => '<a href="' + esc(p.url) + '" target="_blank" rel="noopener noreferrer">' + esc(p.caption || '現場照片') + '</a>').join(' · ')
+        + (r.source?.reference ? '<br>來源：' + esc(r.source.reference) : '') + '</div>').join('')
+      + (w.records.length ? '' : '<p>尚無施工紀錄</p>')).join('') + '</section>';
 }
 async function editFld(i) {
   const f = window._docFields[i];
