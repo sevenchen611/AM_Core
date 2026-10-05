@@ -10,6 +10,78 @@ import { renderJournalPage } from '../modules/construction/journal-page.js';
 import { uploadJournalPhoto } from '../modules/construction/journal-photos.js';
 import { journalSchemas } from '../versions/AM-IMP-2026.1005.01/schemas/journal-schema.js';
 
+function workContentInput(f) {
+  return { ...f.input, format: 'work-content-v2', crews: [], entries: f.input.entries.map((e, i) => ({
+    ...e, workName: i ? '合成配管工程' : '合成牆面修補工程', headcount: i ? 3 : 6,
+    spaceIds: i ? ['space-other'] : ['space-a', 'space-other'],
+  })) };
+}
+
+test('work content keeps engineering name, per-work people and all areas with summed person-times', async () => {
+  const f = fixture(); f.deps.access = { user: { role: 'member' } };
+  const input = workContentInput(f), saved = await submitJournal(f.deps, null, input);
+  assert.equal(saved.journal.headcount, 9); assert.equal(saved.journal.status, '已更新');
+  const report = await projectJournalReport(f.deps, null, 'case-a');
+  assert.equal(report.journals[0].headcountUnit, '人次');
+  assert.equal(report.journals[0].original.format, 'work-content-v2');
+  assert.deepEqual(report.journals[0].original.crews, []);
+  assert.equal(report.items[0].records[0].workName, '合成牆面修補工程');
+  assert.equal(report.items[0].records[0].headcount, 6);
+  assert.equal(report.items[1].records[0].headcount, 3);
+  assert.deepEqual(report.items[0].records[0].spaceIds, ['space-a', 'space-other']);
+  assert.deepEqual(report.items[0].records[0].spaceNames, ['合成一樓現場', '合成其他空間']);
+  const row = [...f.store.values()].find(p => p.parent.data_source_id === 'progress');
+  assert.deepEqual(row.properties['空間'].relation.map(r => r.id), ['space-a', 'space-other']);
+  assert.deepEqual(f.store.get('work-1').properties['空間'].relation, [{ id: 'space-a' }]);
+  assert.equal((await constructionHistoryForPage(f.deps, null, f.store.get('space-other'))).items.length, 2);
+  assert.equal((await constructionHistoryForPage(f.deps, null, f.store.get('space-a'))).items.length, 1);
+});
+
+test('multi-area input rejects cross-case, cross-tenant, empty, duplicate and oversized lists before writes', async () => {
+  for (const ids of [[], ['space-b'], ['work-other-tenant'], ['space-a', 'space-a'], Array(101).fill('space-a'), 'space-a']) {
+    const f = fixture(), input = workContentInput(f); input.entries[0].spaceIds = ids;
+    await assert.rejects(submitJournal(f.deps, null, input)); assert.equal(f.writes(), 0);
+  }
+});
+
+test('per-work headcounts distinguish unknown and zero and reject invalid people or missing name', async () => {
+  for (const mutate of [i => i.entries[0].headcount = -1, i => i.entries[0].headcount = 1.5,
+    i => i.entries[0].headcount = '6', i => i.entries[0].workName = '', i => i.entries[0].workName = 'x'.repeat(201),
+    i => i.crews = [{ id: 'c1' }], i => i.format = 'future']) {
+    const f = fixture(), input = workContentInput(f); mutate(input);
+    await assert.rejects(submitJournal(f.deps, null, input)); assert.equal(f.writes(), 0);
+  }
+  const f = fixture(), input = workContentInput(f); input.entries[0].headcount = null; input.entries[1].headcount = 0;
+  assert.equal((await submitJournal(f.deps, null, input)).journal.headcount, null);
+  const report = await projectJournalReport(f.deps, null, 'case-a');
+  assert.equal(report.items[0].records[0].headcount, null); assert.equal(report.items[1].records[0].headcount, 0);
+  const z = fixture(), noWork = workContentInput(z); noWork.entries = []; noWork.noWork = true;
+  assert.equal((await submitJournal(z.deps, null, noWork)).journal.headcount, 0);
+});
+
+test('work content retry recovers interrupted multi-area rows without duplicating reports', async () => {
+  const f = fixture(), input = workContentInput(f); f.failAt(3);
+  await assert.rejects(submitJournal(f.deps, null, input), /transient/);
+  assert.equal((await projectJournalReport(f.deps, null, 'case-a')).items[0].records.length, 0);
+  f.failAt(Infinity); await submitJournal(f.deps, null, input); await submitJournal(f.deps, null, input);
+  assert.equal([...f.store.values()].filter(p => p.parent.data_source_id === 'progress').length, 2);
+  assert.equal((await projectJournalReport(f.deps, null, 'case-a')).journals[0].headcount, 9);
+  const changed = structuredClone(input); changed.entries[0].headcount = 7;
+  await assert.rejects(submitJournal(f.deps, null, changed), /不同內容/);
+});
+
+test('old crew journals remain readable beside new work content without changing latest-date ordering', async () => {
+  const f = fixture(); await submitJournal(f.deps, null, f.input);
+  const older = workContentInput(f); older.requestId = 'older-work-content'; older.date = '2026-10-01'; older.entries[0].percent = 5;
+  await submitJournal(f.deps, null, older);
+  let report = await projectJournalReport(f.deps, null, 'case-a');
+  assert.equal(report.items[0].percent, 20); assert.equal(report.items[0].records[0].crew, '測試工班');
+  assert.equal(report.items[0].records[0].headcount, 4); assert.equal(report.journals[0].headcountUnit, '人');
+  const newer = workContentInput(f); newer.requestId = 'newer-work-content'; newer.entries[0].percent = 35;
+  await submitJournal(f.deps, null, newer); report = await projectJournalReport(f.deps, null, 'case-a');
+  assert.equal(report.items[0].percent, 35); assert.equal(report.items[0].records.length, 3);
+});
+
 
 test('member submission directly updates progress and links source, crew and site without approval', async () => {
   const f = fixture(); f.deps.access = { user: { role: 'member' } };

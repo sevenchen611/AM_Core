@@ -38,7 +38,9 @@ if (mode === '--prepare') {
   }
   state.projectId = await create('projects', { '專案名稱': { title: textFrag('工程日誌部署驗證（非施工案件）') }, '館別代碼': { rich_text: textFrag('JRN-QA') } }); save();
   state.spaceId = await create('spaces', { '名稱': { title: textFrag('部署驗證現場（合成）') }, '專案': { relation: [{ id: state.projectId }] } }); save();
+  state.secondSpaceId = await create('spaces', { '名稱': { title: textFrag('部署驗證二樓（合成）') }, '專案': { relation: [{ id: state.projectId }] } }); save();
   state.workItemId = await create('workItems', { '工項': { title: textFrag('部署驗證工項（合成）') }, '專案': { relation: [{ id: state.projectId }] }, '空間': { relation: [{ id: state.spaceId }] } }); save();
+  state.secondWorkItemId = await create('workItems', { '工項': { title: textFrag('部署驗證第二工項（合成）') }, '專案': { relation: [{ id: state.projectId }] }, '空間': { relation: [{ id: state.secondSpaceId }] } }); save();
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=', 'base64');
   state.photo = await uploadJournalPhoto(deps, null, { projectId: state.projectId, date: new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10), filename: '部署驗證合成照片.png', contentType: 'image/png', caption: '合成部署測試，非現場照片', stream: Readable.from([png]) });
   state.pages.push(state.photo.id); save();
@@ -49,14 +51,26 @@ if (mode === '--prepare') {
 } else if (mode === '--verify') {
   assert.ok(state.projectId); assert.ok(!state.cleaned);
   const report = await projectJournalReport(deps, null, state.projectId);
-  assert.equal(report.journals.length, 1); assert.equal(report.journals[0].status, '已更新'); assert.equal(report.journals[0].headcount, 6);
-  assert.equal(report.items[0].percent, 35); assert.equal(report.items[0].records[0].photos.length, 1);
-  assert.ok(report.items[0].records[0].spaceIds.some(id => sameId(id, state.spaceId)));
+  const byWork = Boolean(state.secondWorkItemId);
+  const first = report.items.find(w => sameId(w.id, state.workItemId));
+  assert.equal(report.journals.length, 1); assert.equal(report.journals[0].status, '已更新'); assert.equal(report.journals[0].headcount, byWork ? 9 : 6);
+  assert.equal(first.percent, 35); assert.equal(first.records[0].photos.length, 1);
+  assert.ok(first.records[0].spaceIds.some(id => sameId(id, state.spaceId)));
+  if (byWork) {
+    assert.equal(report.journals[0].headcountUnit, '人次');
+    assert.equal(first.records[0].headcount, 6); assert.ok(first.records[0].workName);
+    assert.ok(first.records[0].spaceIds.some(id => sameId(id, state.secondSpaceId)));
+    const second = report.items.find(w => sameId(w.id, state.secondWorkItemId));
+    assert.equal(second.records[0].headcount, 3); assert.equal(second.percent, 50);
+    const area = await request('/v1/pages/' + state.secondSpaceId, { method: 'GET' });
+    assert.equal((await constructionHistoryForPage(deps, null, area)).items.length, 2);
+    assert.ok(Object.values(area.properties).some(p => p.type === 'relation' && p.relation.some(r => sameId(r.id, first.records[0].id))), 'Second area reverse relation must contain the actual report');
+  }
   const work = await request('/v1/pages/' + state.workItemId, { method: 'GET' });
   const history = await constructionHistoryForPage(deps, null, work); assert.equal(history.items[0].records.length, 1);
   const rawWork = await request('/v1/pages/' + state.workItemId, { method: 'GET' });
   assert.ok(Object.values(rawWork.properties).some(p => p.type === 'relation' && p.relation.some(r => sameId(r.id, history.items[0].records[0].id))), 'Notion reverse relation must point to the actual record');
-  state.verified = true; save(); console.log(JSON.stringify({ verified: true, directUpdate: true, crewCount: 6, percent: 35, photos: 1, siteLinked: true, nativeReverseRelation: true }));
+  state.verified = true; save(); console.log(JSON.stringify({ verified: true, directUpdate: true, headcount: byWork ? 9 : 6, unit: byWork ? '人次' : '人', percent: 35, photos: 1, multiAreaLinked: byWork, engineeringNameSaved: byWork, nativeReverseRelation: true }));
 } else {
   if (state.pending) throw Error('Recover unknown create outcome before cleanup');
   assert.ok(state.projectId);
