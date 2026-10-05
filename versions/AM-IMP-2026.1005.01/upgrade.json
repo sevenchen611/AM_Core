@@ -1,0 +1,72 @@
+{
+  "id": "AM-IMP-2026.1005.01",
+  "name": "工程日誌、工班人數、現場照片與原有施工項目進度檔案",
+  "type": "Construction / Daily Journal / Evidence",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-10-05",
+  "installTargets": [
+    "AM_PLATFORM"
+  ],
+  "tenantScope": "construction-enabled tenants only; first rollout engineering",
+  "excludedTargets": [
+    "HOZO_AM",
+    "SEVEN_AM",
+    "BUILD_AM",
+    "FOREST_AM"
+  ],
+  "requiresDatabases": [
+    "tenant-local projects, spaces, workItems, budgets, contracts, attachments",
+    "tenant-local constructionJournals, constructionProgress, constructionPhotos"
+  ],
+  "requiresEnv": [
+    "<PREFIX>_CONSTRUCTION_JOURNALS_DATA_SOURCE_ID",
+    "<PREFIX>_CONSTRUCTION_PROGRESS_DATA_SOURCE_ID",
+    "<PREFIX>_CONSTRUCTION_PHOTOS_DATA_SOURCE_ID",
+    "existing tenant-local Drive root and deployment credentials"
+  ],
+  "requiresScripts": [
+    "node --test tools/test-construction-journal.mjs",
+    "node tools/provision-construction-journal.mjs <tenant>",
+    "node tools/check-upgrade-package.js AM-IMP-2026.1005.01",
+    "node tools/audit-alignment.js",
+    "node tools/compare-project-manifests.js"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "Local evidence, isolation, retry, status and upload tests pass",
+    "Existing construction checks pass",
+    "Package installation/verification/rollback documentation complete",
+    "Official deployment checkout and tenant-local databases verified before Installed",
+    "Engineering production service verified before Deployed"
+  ],
+  "projectStatus": {
+    "AM_PLATFORM": "Ready",
+    "HOZO_AM": "Blocked",
+    "SEVEN_AM": "Blocked",
+    "BUILD_AM": "Deprecated"
+  },
+  "files": [
+    "modules/construction/journal.js",
+    "modules/construction/journal-page.js",
+    "modules/construction/journal-photos.js",
+    "modules/construction/index.js",
+    "modules/construction/dashboard.js",
+    "tools/provision-construction-journal.mjs",
+    "tools/test-construction-journal.mjs",
+    "tools/fixtures/construction-journal-fixture.mjs",
+    "tools/preview-construction-journal.mjs",
+    "versions/AM-IMP-2026.1005.01/schemas/journal-schema.js",
+    "tools/verify-construction-journal-live.mjs"
+  ],
+  "pendingUserDecisions": [
+    "official engineering service checkout and existing source location"
+  ],
+  "writerConcurrency": "single Node process; shared distributed lock required before multi-instance writes",
+  "progressPolicy": "submission directly effective; latest construction date then latest successful update; retain all historical evidence"
+}
