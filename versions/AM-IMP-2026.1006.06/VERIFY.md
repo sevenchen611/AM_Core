@@ -9,3 +9,5 @@ node tools/check-upgrade-package.js AM-IMP-2026.1006.06
 Inspect the active half-height PNG for readable labels and no clipping. Confirm the public URL loads, PNG dimensions are 2500 × 422, and the left URI/right message click bounds exactly cover their own halves. Missing journal URL must fail without applying. Old inactive configurations should still dry-run with explicit config/image paths.
 
 Before Deployed, read back the actual default, exact journal URI, UOF command, dimensions and uploaded image SHA-256. Do not send unsolicited chat messages or approval requests during verification.
+
+The alignment audit with current local project paths reports 13 existing July manifest gaps. Manifest comparison also ran. This LINE menu rollout does not claim overall standalone-project alignment.
