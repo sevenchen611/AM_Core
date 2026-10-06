@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import { bootstrap } from './core/bootstrap.js';
 import { createLineIo, readLineIoBody } from './core/line-io/index.js';
 import { createBankLineReplyIntake } from './core/bank-line-reply-intake.js';
+import { createLeafCalendar } from './core/leaf-calendar/index.js';
 import { createAttachmentRetrieval, parseAttachmentRequest } from './core/attachment-retrieval.js';
 import { routeDirectLineEvent, isPausedDirectEvent, PERSONAL_ASSISTANT_ENABLED, PERSONAL_ASSISTANT_CONTRACT } from './core/direct-line.js';
 import { createAccessDirectory } from './core/access-directory.js';
@@ -26,6 +27,7 @@ import {
 const ctx = await bootstrap(process.env);
 const { tenants, line, router, dispatcher, portal, modules, platform, llm, logger } = ctx;
 const lineIo = await createLineIo({ tenants, line, router, logger });
+const leafCalendar = await createLeafCalendar({ tenants, platform, logger });
 platform.attachmentArchive.setTransportResolver(lineIo.resolveAttachmentBinding);
 const attachmentRetrieval = createAttachmentRetrieval({ platform, router,
   ownsTransport: event => lineIo.owns(event), resolveTransport: lineIo.resolveAttachmentBinding, logger });
@@ -274,6 +276,7 @@ const server = http.createServer(async (req, res) => {
       commit: /^[a-f0-9]{40}$/u.test(String(process.env.RENDER_GIT_COMMIT || '')) ? process.env.RENDER_GIT_COMMIT : null,
       lineConfigured: line.configured,
       personalAssistant: { enabled: PERSONAL_ASSISTANT_ENABLED, contract: PERSONAL_ASSISTANT_CONTRACT, scope: 'am-platform-private-assistant' },
+      lineCalendar: leafCalendar.health(),
       lineIo: { enabled: lineIo.enabled, directoryEnabled:Boolean(lineIo.directoryEnabled),bindingsEnabled:Boolean(lineIo.bindingsEnabled), reviewCardsEnabled:lineIo.enabled, contract: 'line-group-io-v1', version: lineIo.bindingsEnabled ? '1.5.0' : '1.2.0' },
       driveConfigured: platform.driveConfigured,
       attachmentArchive: { contract: platform.attachmentArchive.contract, storage: 'google-drive', notionFiles: 'links-only', tenants: tenants.filter(t => t.runtimeEnabled !== false).map(t => ({ tenantKey: t.key, ...platform.attachmentArchive.health(t) })) },
@@ -425,10 +428,22 @@ const server = http.createServer(async (req, res) => {
     let activeEvents;
     try {
       const admitted = await Promise.all(body.events.map(async event =>
-        !isPausedDirectEvent(event) || lineIo.owns(event) || Boolean(await lineIo.acceptsBindingEvent?.(event))));
+        !isPausedDirectEvent(event) || lineIo.owns(event) || Boolean(await lineIo.acceptsBindingEvent?.(event)) || await leafCalendar.accepts(event)));
       activeEvents = body.events.filter((event,index) => admitted[index]);
     } catch { return sendJson(res,503,{error:'LINE binding intake is temporarily unavailable.'}); }
-    if (!activeEvents.length) return sendText(res, 200, 'OK');
+    let hasCalendarEvents = false;
+    try {
+      const calendarEvents = [];
+      for (const event of activeEvents) if (!lineIo.owns(event) && await leafCalendar.accepts(event)) calendarEvents.push(event);
+      await leafCalendar.capture(calendarEvents);
+      activeEvents = activeEvents.filter(event => !calendarEvents.includes(event));
+      hasCalendarEvents = calendarEvents.length > 0;
+    } catch { return sendJson(res,503,{error:'Calendar intake is temporarily unavailable.'}); }
+    if (!activeEvents.length) {
+      sendText(res,200,'OK');
+      if (hasCalendarEvents) leafCalendar.drain().catch(() => logger.warn('Calendar processing deferred.'));
+      return;
+    }
     try { await lineIo.capture(activeEvents, { excludeEvents: event => Boolean(parseAttachmentRequest(event)) }); }
     catch { return sendJson(res, 503, { error: 'LINE I/O intake is temporarily unavailable.' }); }
     try {
@@ -488,6 +503,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 503, { error: 'attachment_intake_unavailable' });
     }
     sendText(res, 200, 'OK'); // 先回 200,事件背景處理(比照 BuildAM)
+    if (hasCalendarEvents) leafCalendar.drain().catch(() => logger.warn('Calendar processing deferred.'));
     for (const tenant of attachmentTenants) {
       platform.attachmentArchive.drain(tenant).catch(() => logger.error('Attachment archive worker unavailable.'));
     }
@@ -499,6 +515,15 @@ const server = http.createServer(async (req, res) => {
     Promise.all(activeEvents.map((event) => handleEvent(event)))
       .catch((error) => logger.error('Unable to process LINE webhook events:', error));
     return;
+  }
+
+  // Purpose-specific setup token derived from this channel's secret; never exposed to LINE or AI.
+  if (req.method === 'POST' && pathname === '/portal/admin/leaf-calendar/pairings') {
+    if (!leafCalendar.adminAuthorized(String(req.headers.authorization || '').replace(/^Bearer /,''))) return sendJson(res,401,{error:'Unauthorized'});
+    try {
+      const payload = JSON.parse(await readLineIoBody(req,4096));
+      return sendJson(res,201,await leafCalendar.createPairing(payload));
+    } catch { return sendJson(res,503,{error:'Calendar API, credential or tenant setup is not ready.'}); }
   }
 
   // ── 模組 web routes(佇列 / 儀表板 …)──
@@ -568,6 +593,8 @@ const tickTimer = setInterval(() => {
   dispatcher.runTicks().catch((error) => logger.warn('Scheduled tick failed:', error.message));
 }, 10 * 60 * 1000);
 tickTimer.unref?.();
+const calendarTimer = setInterval(() => { leafCalendar.drain().catch(() => logger.warn('Calendar processing deferred.')); }, 5000);
+calendarTimer.unref?.();
 
 let archivePatrolRunning = false;
 async function archivePatrol() {

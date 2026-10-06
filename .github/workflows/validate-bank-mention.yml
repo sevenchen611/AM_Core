@@ -5,6 +5,11 @@ on:
       - 'server.js'
       - 'core/operational-memory.js'
       - 'core/bank-line-reply-intake.js'
+      - 'core/leaf-calendar/**'
+      - 'tools/test-leaf-calendar.mjs'
+      - 'tools/install-leaf-calendar.mjs'
+      - 'tools/enroll-leaf-calendar.mjs'
+      - 'versions/AM-IMP-2026.1006.07/**'
       - 'core/line-io/**'
       - 'core/line.js'
       - 'core/router.js'
@@ -80,6 +85,8 @@ jobs:
       - run: node tools/dryrun-core.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1004.06
       - run: node tools/dryrun-personal-line-routing.mjs
+      - run: node --experimental-vm-modules --test tools/test-leaf-calendar.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1006.07
       - run: node --experimental-vm-modules tools/verify-private-assistant-pause.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1006.02
       - run: node tools/dryrun-meetings.mjs

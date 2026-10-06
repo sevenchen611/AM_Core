@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import vm from 'node:vm';
 import crypto from 'node:crypto';
 import * as directLine from '../core/direct-line.js';
+import * as leafCalendar from '../core/leaf-calendar/index.js';
 
 const source = { type: 'user', userId: 'synthetic-private-user' };
 const privateEvents = [
@@ -63,6 +64,7 @@ const dependencies = {
     contract: 'synthetic', handle: async event => { calls.retrieval++; passed.retrieval.push(event); return false; },
   }), parseAttachmentRequest: () => null },
   './core/direct-line.js': directLine,
+  './core/leaf-calendar/index.js': leafCalendar,
   './core/access-directory.js': { createAccessDirectory: () => ({}) },
   './core/portal-handoff.js': { safePortalHandoffLocation: () => '/' },
   './core/util.js': { readBody: async req => req.rawBody, sendJson: (res, status, body) => { res.status = status; res.body = body; }, sendText: (res, status) => { res.status = status; } },
