@@ -1,0 +1,10 @@
+{
+  "name": "Work journal and UOF approvals v3 - journal enabled",
+  "chatBarText": "葉小蝸工作台",
+  "selected": true,
+  "size": {"width": 2500, "height": 422},
+  "areas": [
+    {"bounds": {"x": 0, "y": 0, "width": 1250, "height": 422}, "action": {"type": "uri", "label": "工作日誌", "uri": "{{WORK_JOURNAL_URL}}"}},
+    {"bounds": {"x": 1250, "y": 0, "width": 1250, "height": 422}, "action": {"type": "message", "label": "UOF 簽核", "text": "待簽"}}
+  ]
+}

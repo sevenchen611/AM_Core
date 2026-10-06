@@ -1,0 +1,17 @@
+{
+  "id": "AM-IMP-2026.1006.06",
+  "name": "啟用半高 Rich Menu 工作日誌連結",
+  "type": "LINE / Rich Menu",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-10-06",
+  "installTargets": ["AM_PLATFORM"],
+  "requiresPackages": ["AM-IMP-2026.1006.05"],
+  "requiresDatabases": [],
+  "requiresEnv": ["project-local LINE_CHANNEL_ACCESS_TOKEN for application only"],
+  "requiresScripts": ["node tools/apply-compact-rich-menu.mjs", "node tools/check-upgrade-package.js AM-IMP-2026.1006.06"],
+  "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
+  "projectStatus": {"AM_PLATFORM": "Ready"},
+  "files": ["assets/line/work-journal-uof-rich-menu-active-half-height.svg", "assets/line/work-journal-uof-rich-menu-active-half-height.png", "tools/apply-compact-rich-menu.mjs", "versions/AM-IMP-2026.1006.06/config/work-journal-uof-rich-menu.json"],
+  "definitionOfDone": ["Left journal tile opens the user-confirmed HTTPS URL", "Half-height layout stays 2500x422", "Right UOF tile sends 待簽", "Actual LINE default, URI, actions and image verified before Deployed"]
+}
