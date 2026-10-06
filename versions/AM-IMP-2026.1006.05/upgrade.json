@@ -11,7 +11,7 @@
   "requiresEnv": ["project-local LINE_CHANNEL_ACCESS_TOKEN for application only"],
   "requiresScripts": ["node tools/apply-compact-rich-menu.mjs", "node tools/check-upgrade-package.js AM-IMP-2026.1006.05"],
   "dataIsolation": {"canCopyCode": true, "canCopyData": false, "canCopySecrets": false},
-  "projectStatus": {"AM_PLATFORM": "Ready"},
+  "projectStatus": {"AM_PLATFORM": "Deployed"},
   "files": ["assets/line/work-journal-uof-rich-menu-half-height.svg", "assets/line/work-journal-uof-rich-menu-half-height.png", "tools/apply-compact-rich-menu.mjs", "versions/AM-IMP-2026.1006.05/config/work-journal-uof-rich-menu.json"],
   "definitionOfDone": ["Menu height reduced from 843 to 422 pixels", "Mobile labels remain readable without clipping", "Journal remains inactive; UOF still sends 待簽", "Actual LINE default, action bounds and image verified before Deployed"]
 }
