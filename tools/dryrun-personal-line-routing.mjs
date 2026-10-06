@@ -271,6 +271,39 @@ await check('Rich Menu 身分設定按鈕回覆身分狀態且不承諾未開放
   assert.match(replies.at(-1), /通知設定與安靜時段尚未開放/);
 });
 
+await check('未辨識私人文字安靜結束且不觸發路由的備援回覆或任務寫入', async () => {
+  const replies = [];
+  let taskCalls = 0;
+  let groupCalls = 0;
+  const unexpectedTaskCall = async () => { taskCalls += 1; throw new Error('unknown text must not access tasks'); };
+  const sharedPlatform = {
+    logger,
+    resolveSenderName: async () => 'Seven',
+    replyLineMessage: async (_token, message) => replies.push(message),
+    tasks: { createTask: unexpectedTaskCall, listByOwner: unexpectedTaskCall, setStatus: unexpectedTaskCall },
+  };
+  personalAssistant.init(sharedPlatform);
+  const dispatcher = createDispatcher({
+    tenants: [hozo], logger, platform: sharedPlatform,
+    modules: new Map([
+      ['personal-assistant', personalAssistant],
+      ['group-spy', { name: 'group-spy', async onMessage() { groupCalls += 1; return true; } }],
+    ]),
+  });
+  for (const [index, message] of ['待簽', '你好', '謝謝', '這段文字只是一般聊天', '   '].entries()) {
+    const result = await routeDirectLineEvent({
+      event: { type: 'message', replyToken: `silent-${index}`, source: { type: 'user', userId: 'U_SILENT' }, message: { type: 'text', id: `silent-${index}`, text: message } },
+      router: { resolveDirectBinding: async () => ({ tenant: hozo, binding: { displayName: 'Seven' }, reason: 'bound' }) },
+      dispatcher, replyLineMessage: sharedPlatform.replyLineMessage, logger,
+    });
+    assert.equal(result.routed, true);
+    assert.equal(result.handled, true);
+  }
+  assert.deepEqual(replies, []);
+  assert.equal(taskCalls, 0);
+  assert.equal(groupCalls, 0);
+});
+
 await check('圖片等非文字私人訊息不再重複回覆身分確認', async () => {
   let replied = false;
   personalAssistant.init({ replyLineMessage: async () => { replied = true; } });

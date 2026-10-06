@@ -24,6 +24,9 @@ on:
       - 'modules/operational-memory/**'
       - 'modules/collect/**'
       - 'core/direct-line.js'
+      - 'modules/personal-assistant/**'
+      - 'tools/dryrun-personal-line-routing.mjs'
+      - 'versions/AM-IMP-2026.1006.02/**'
       - 'core/notion.js'
       - 'modules/meetings/**'
       - 'versions/AM-IMP-2026.1004.06/**'
@@ -74,6 +77,7 @@ jobs:
       - run: node tools/dryrun-core.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1004.06
       - run: node tools/dryrun-personal-line-routing.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1006.02
       - run: node tools/dryrun-meetings.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1004.04
       - run: npm run dryrun:claims-authority

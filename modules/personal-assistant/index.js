@@ -391,14 +391,7 @@ function responseFor(ctx) {
       '通知設定與安靜時段尚未開放。'
     ].join('\n');
   }
-  return [
-    '我目前可以處理私人待辦、今天清單、行事曆清單、昨日未完成和請款入口。',
-    '',
-    '你可以直接說：',
-    '新增待辦 明天 10:00 回覆房東',
-    '我的今天',
-    '昨日未完成',
-  ].join('\n');
+  return '';
 }
 
 export default {
@@ -417,7 +410,9 @@ export default {
     if (await handleItemAction(ctx)) return true;
     const kind = queryKind(ctx.text);
     if (kind) return handleQuery(ctx, kind);
-    await reply(ctx, responseFor(ctx));
+    const response = responseFor(ctx);
+    if (response) await reply(ctx, response);
+    // 未辨識文字安靜結束；仍回傳 handled，避免私人入口補上另一段自動提示。
     return true;
   },
   routes: [],

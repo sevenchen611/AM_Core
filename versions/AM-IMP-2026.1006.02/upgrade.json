@@ -1,0 +1,17 @@
+{
+  "id": "AM-IMP-2026.1006.02",
+  "name": "私人助理未辨識文字取消固定功能介紹",
+  "type": "Core / LINE / Personal Assistant",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-10-06",
+  "installTargets": ["AM_PLATFORM"],
+  "tenantScope": "tenants with personalAssistant.enabled=true and the personal-assistant module",
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": ["node tools/dryrun-personal-line-routing.mjs", "node tools/dryrun-line-task-control.mjs", "node tools/check-upgrade-package.js AM-IMP-2026.1006.02", "node tools/audit-alignment.js"],
+  "dataIsolation": {"canCopyCode": true, "canCopySchema": false, "canCopyData": false, "canCopySecrets": false},
+  "projectStatus": {"AM_PLATFORM": "Ready"},
+  "files": ["modules/personal-assistant/index.js", "tools/dryrun-personal-line-routing.mjs"],
+  "definitionOfDone": ["Unrecognized private text generates no replies, including the outer routing fallback", "Unrecognized text does not read or write tasks and never reaches group handlers", "Identity, task creation confirmation and delegated commands still pass local checks", "Reviewed main production deployment verified before Deployed"]
+}
