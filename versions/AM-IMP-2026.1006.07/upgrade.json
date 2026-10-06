@@ -34,7 +34,7 @@
     "canCopySecrets": false
   },
   "projectStatus": {
-    "AM_PLATFORM": "Ready"
+    "AM_PLATFORM": "Deployed"
   },
   "files": [
     "core/leaf-calendar/index.js",
