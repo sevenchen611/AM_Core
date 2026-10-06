@@ -423,6 +423,7 @@ const server = http.createServer(async (req, res) => {
     }
     // 暫停整個私人助理入口；在任何收集、身分查詢、附件、請款或回覆前排除一對一事件。
     const activeEvents = body.events.filter(event => !isPausedDirectEvent(event));
+    if (!activeEvents.length) return sendText(res, 200, 'OK');
     try { await lineIo.capture(activeEvents, { excludeEvents: event => Boolean(parseAttachmentRequest(event)) }); }
     catch { return sendJson(res, 503, { error: 'LINE I/O intake is temporarily unavailable.' }); }
     try {

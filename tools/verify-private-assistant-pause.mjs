@@ -32,13 +32,14 @@ for (const event of [group, room]) {
 // Real server handler: pause before transport intake, finance, attachments and dispatch.
 let handler;
 const passed = { io: [], bank: [], archive: [], retrieval: [], dispatch: [] };
+const calls = { io: 0, bank: 0, archive: 0, retrieval: 0, dispatch: 0 };
 const logger = { log() {}, warn() {}, error(message) { throw new Error(message); } };
 const tenant = { key: 'synthetic', modules: [], runtimeEnabled: true, dataSources: {} };
 const router = { resolveGroupBinding: async () => ({ tenant, binding: { status: '啟用' } }) };
 const platform = {
   attachmentArchive: {
     contract: 'synthetic', health: () => ({}), setTransportResolver() {},
-    capture: async events => { passed.archive.push(...events); return []; },
+    capture: async events => { calls.archive++; passed.archive.push(...events); return []; },
   },
 };
 const secret = 'synthetic-signature-secret';
@@ -48,17 +49,17 @@ const dependencies = {
   'node:crypto': { default: crypto },
   './core/bootstrap.js': { bootstrap: async () => ({
     tenants: [tenant], line: { configured: true, isValidSignature: (raw, signature) => signature === sign(raw), replyLineMessage: forbidden },
-    router, dispatcher: { collectRoutes: () => [], dispatchMessage: async ({ event }) => passed.dispatch.push(event) },
+    router, dispatcher: { collectRoutes: () => [], dispatchMessage: async ({ event }) => { calls.dispatch++; passed.dispatch.push(event); } },
     portal: {}, modules: new Map(), platform, llm: { available: false, backends: [] }, logger,
   }) },
   './core/line-io/index.js': { createLineIo: async () => ({
-    enabled: false, owns: () => false, handle: async () => false, capture: async events => passed.io.push(...events),
+    enabled: false, owns: () => false, handle: async () => false, capture: async events => { calls.io++; passed.io.push(...events); },
   }), readLineIoBody: async req => req.rawBody },
   './core/bank-line-reply-intake.js': { createBankLineReplyIntake: () => ({
-    receive: async event => { passed.bank.push(event); return false; }, drain: async () => {},
+    receive: async event => { calls.bank++; passed.bank.push(event); return false; }, drain: async () => {},
   }) },
   './core/attachment-retrieval.js': { createAttachmentRetrieval: () => ({
-    contract: 'synthetic', handle: async event => { passed.retrieval.push(event); return false; },
+    contract: 'synthetic', handle: async event => { calls.retrieval++; passed.retrieval.push(event); return false; },
   }), parseAttachmentRequest: () => null },
   './core/direct-line.js': directLine,
   './core/access-directory.js': { createAccessDirectory: () => ({}) },
@@ -84,6 +85,7 @@ async function webhook(events, valid = true) {
 assert.equal((await webhook(privateEvents, false)).status, 401);
 assert.equal((await webhook(privateEvents)).status, 200);
 for (const events of Object.values(passed)) assert.deepEqual(events, []);
+assert.ok(Object.values(calls).every(count => count === 0), 'private-only requests must bypass the entire processing pipeline');
 assert.equal((await webhook([...privateEvents, group, room])).status, 200);
 for (const events of Object.values(passed)) assert.deepEqual(JSON.parse(JSON.stringify(events)), [group, room]);
 const health = {};
