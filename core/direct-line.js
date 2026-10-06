@@ -3,6 +3,15 @@
 
 const DIRECT_BINDING_TIMEOUT_MS = 5 * 1000;
 
+// 平台級暫停：恢復時需將此值改為 true，經審查部署；租戶原有設定保留。
+export const PERSONAL_ASSISTANT_ENABLED = false;
+export const PERSONAL_ASSISTANT_CONTRACT = 'private-assistant-pause-v1';
+
+export function isPausedDirectEvent(event, enabled = PERSONAL_ASSISTANT_ENABLED) {
+  const source = event?.source || {};
+  return !enabled && source.type === 'user' && !source.groupId && !source.roomId;
+}
+
 function directSource(event) {
   const source = event?.source || {};
   return source.type === 'user' && source.userId && !source.groupId && !source.roomId;
@@ -43,8 +52,10 @@ export async function routeDirectLineEvent({
   dispatcher,
   replyLineMessage,
   logger = console,
+  enabled = PERSONAL_ASSISTANT_ENABLED,
 }) {
   if (!directSource(event)) return { matched: false };
+  if (isPausedDirectEvent(event, enabled)) return { matched: true, routed: false, handled: true, reason: 'paused' };
 
   const userId = String(event.source.userId || '').trim();
   let resolved;

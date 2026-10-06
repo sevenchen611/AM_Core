@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
 import { createRouter } from '../core/router.js';
 import { createDispatcher } from '../core/modules.js';
-import { routeDirectLineEvent, withTimeout } from '../core/direct-line.js';
+import { routeDirectLineEvent as routeDirect, withTimeout } from '../core/direct-line.js';
 import personalAssistant, { isDelegatedCommand, responseFor } from '../modules/personal-assistant/index.js';
+
+// 保留啟用模式的既有驗證；正式入口預設已暫停。
+const routeDirectLineEvent = options => routeDirect({ ...options, enabled: true });
 
 function text(value) {
   return value ? { rich_text: [{ plain_text: value }] } : { rich_text: [] };

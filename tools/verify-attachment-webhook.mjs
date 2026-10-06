@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
 import crypto from 'node:crypto';
+import * as directLine from '../core/direct-line.js';
 import { createAttachmentArchive, ATTACHMENT_ARCHIVE_PROPERTIES } from '../core/attachment-archive.js';
 import { createAttachmentRetrieval, parseAttachmentRequest } from '../core/attachment-retrieval.js';
 
@@ -48,7 +49,7 @@ for (const fails of [false, true]) {
       capture:async(events,options)=>{ if(retrievalMode) assert.equal(options.excludeEvents(events[0]),true); },
     }),readLineIoBody:async r=>r.rawBody },
     './core/bank-line-reply-intake.js': {createBankLineReplyIntake:()=>({receive:async()=>false,drain:async()=>{}})},
-    './core/direct-line.js': {routeDirectLineEvent:async()=>({matched:false})},
+    './core/direct-line.js': directLine,
     './core/access-directory.js': {createAccessDirectory:()=>({})},
     './core/portal-handoff.js': {safePortalHandoffLocation:()=> '/'},
     './core/util.js': { readBody:async r=>r.rawBody,sendJson:(r,status)=>{r.status=status;},sendText:(r,status)=>{r.status=status;acked=true;} },
