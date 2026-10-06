@@ -428,5 +428,7 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
         canSend:outputEnabled && assigned.some(c=>c.id===client.id) && client.scopes.includes('messages:write') };
     },
   }) : null;
-  return { enabled: true, directoryEnabled:Boolean(directory),bindingsEnabled:Boolean(personal), capture, handle, owns, resolveAttachmentBinding, close: async () => pool?.end() };
+  return { enabled: true, directoryEnabled:Boolean(directory),bindingsEnabled:Boolean(personal), capture, handle, owns,
+    acceptsBindingEvent: event => personal?.acceptsBindingEvent(event) ?? Promise.resolve(false),
+    resolveAttachmentBinding, close: async () => pool?.end() };
 }

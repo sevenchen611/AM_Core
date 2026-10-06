@@ -422,7 +422,12 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 400, { error: 'Invalid events' });
     }
     // 暫停 AM 私人助理；已明確綁定給獨立傳輸服務的指令仍由原本服務處理。
-    const activeEvents = body.events.filter(event => !isPausedDirectEvent(event) || lineIo.owns(event));
+    let activeEvents;
+    try {
+      const admitted = await Promise.all(body.events.map(async event =>
+        !isPausedDirectEvent(event) || lineIo.owns(event) || Boolean(await lineIo.acceptsBindingEvent?.(event))));
+      activeEvents = body.events.filter((event,index) => admitted[index]);
+    } catch { return sendJson(res,503,{error:'LINE binding intake is temporarily unavailable.'}); }
     if (!activeEvents.length) return sendText(res, 200, 'OK');
     try { await lineIo.capture(activeEvents, { excludeEvents: event => Boolean(parseAttachmentRequest(event)) }); }
     catch { return sendJson(res, 503, { error: 'LINE I/O intake is temporarily unavailable.' }); }

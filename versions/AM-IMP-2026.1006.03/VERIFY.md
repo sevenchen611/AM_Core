@@ -1,0 +1,3 @@
+# Review and deployment checks
+
+Review mode validation, hashed-code namespaces, fresh LINE profile proof, expiry, replay, account isolation and web confirmation. Confirm ordinary private assistant pause remains active. Build UOF and check gateway syntax/package metadata. Inspect the deployed commit and health endpoint. Read migration results from the service identity; verify all successful destinations equal their original owners and managed grants are unchanged. Do not submit real UOF approvals during deployment.
