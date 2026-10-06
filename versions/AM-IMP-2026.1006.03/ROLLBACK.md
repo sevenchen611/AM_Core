@@ -1,0 +1,3 @@
+# Rollback
+
+Restore each direct conversation through the scoped conversation endpoint with mode=group, the current direct expectedGroupId, unchanged expectedUserId and the original group ID. This revalidates exclusive group membership. Restore UOF config/pages only after direct bindings are safely restored. Do not restore an old encrypted snapshot over new approval history or grants. If a LINE profile is unavailable, retain the original binding and ask the colleague to add the official account as a friend and complete direct pairing in UOF.

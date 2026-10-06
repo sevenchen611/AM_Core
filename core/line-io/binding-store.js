@@ -52,7 +52,7 @@ export function createBindingStore(pool) {
       const row = (await db.query("SELECT * FROM line_bindings.bindings WHERE code_hash=$1 AND status='pending_line' AND expires_at>now() FOR UPDATE",[hash])).rows[0];
       if(!row) throw ioError(400,'invalid_binding_code');
       return (await db.query(`UPDATE line_bindings.bindings SET status='pending_confirmation',code_hash=NULL,group_id=$2,user_id=$3,group_name=$4,user_name=$5,event_id=$6,checked_at=now()
-        WHERE id=$1 RETURNING *`,[row.id,event.source.groupId,event.source.userId,proof.groupName,proof.userName,event.webhookEventId])).rows[0];
+        WHERE id=$1 RETURNING *`,[row.id,proof.groupId,event.source.userId,proof.groupName,proof.userName,event.webhookEventId])).rows[0];
     });
   }
   async function confirm(id, tenant, client, account, proof, resume=false) {

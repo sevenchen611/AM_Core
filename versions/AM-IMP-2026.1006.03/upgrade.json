@@ -1,0 +1,39 @@
+{
+  "id": "AM-IMP-2026.1006.03",
+  "name": "UOF direct chat onboarding",
+  "type": "Core / LINE / API",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-10-06",
+  "installTargets": [
+    "AM_PLATFORM",
+    "UOF_LoginCheck"
+  ],
+  "requiresPackages": [
+    "AM-IMP-2026.1006.01",
+    "AM-IMP-2026.1006.02"
+  ],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": [
+    "node tools/check-upgrade-package.js AM-IMP-2026.1006.03"
+  ],
+  "dataIsolation": {
+    "canCopyData": false,
+    "canCopySecrets": false,
+    "canCopyCode": true
+  },
+  "definitionOfDone": [
+    "Direct pairing requires authenticated UOF issue and final confirmation",
+    "Code modes are isolated and expired codes fail closed",
+    "Existing owners migrate without widening grants",
+    "General assistant remains paused"
+  ],
+  "files": [
+    "core/line-io/bindings.js",
+    "core/line-io/binding-store.js",
+    "core/line-io/index.js",
+    "server.js",
+    "versions/AM-IMP-2026.1006.03"
+  ]
+}

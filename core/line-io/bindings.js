@@ -4,6 +4,9 @@ import { createBindingStore } from './binding-store.js';
 import { directId, conversationId, directUofInput } from './conversation.js';
 
 const codeHash = code => crypto.createHash('sha256').update(code).digest('hex');
+// Separate code namespaces persist the requested mode without a schema change.
+// A group code cannot pair a direct chat, or the other way round.
+const pairingHash = (code,direct) => codeHash(direct ? 'direct:'+code : code);
 export const bindingView = row => row && ({ bindingId:row.id,status:row.status,externalUserId:row.external_user_id,
   groupId:row.group_id,userId:row.user_id,groupName:row.group_name,lineDisplayName:row.user_name,
   conversationType:directId(row.group_id)?'user':'group',
@@ -85,14 +88,15 @@ export async function createBindings({pool,store:injectedStore,line,clients,rout
       const value=target(client);
       if(!body||typeof body.externalUserId!=='string'||! /^[a-zA-Z0-9_.@-]{1,100}$/.test(body.externalUserId)
         ||typeof body.displayName!=='string'||!body.displayName.trim()||body.displayName.length>100
-        ||Object.keys(body).some(k=>!['externalUserId','displayName','replace'].includes(k))
+        ||Object.keys(body).some(k=>!['externalUserId','displayName','replace','conversationType'].includes(k))
+        ||(body.conversationType!==undefined&&!['user','group'].includes(body.conversationType))
         ||(body.replace!==undefined&&typeof body.replace!=='boolean')) throw ioError(400,'invalid_binding_request');
-      if(!body.replace) {const prior=await store.current(value.tenantKey,value.id,body.externalUserId); if(prior) return bindingView(await verified(prior));}
+      if(!body.replace) {const prior=await store.current(value.tenantKey,value.id,body.externalUserId); if(prior) return {...bindingView(await verified(prior)),oaFriendUrl:env.AMCORE_LINE_BINDING_OA_FRIEND_URL||''};}
       const code=crypto.randomBytes(16).toString('base64url');
       const row=await store.start({id:crypto.randomUUID(),tenantKey:value.tenantKey,clientId:value.id,account:body.externalUserId,
-        displayName:body.displayName,hash:codeHash(code),expiresAt:new Date(Date.now()+600000)});
+        displayName:body.displayName,hash:pairingHash(code,body.conversationType==='user'),expiresAt:new Date(Date.now()+600000)});
       await refresh();
-      return {...bindingView(row),command:`綁定 UOF ${code}`,suggestedGroupName:`${body.displayName} 的 UOF 群`,oaFriendUrl:env.AMCORE_LINE_BINDING_OA_FRIEND_URL || ''};
+      return {...bindingView(row),conversationType:body.conversationType||'group',command:`綁定 UOF ${code}`,suggestedGroupName:`${body.displayName} 的 UOF 群`,oaFriendUrl:env.AMCORE_LINE_BINDING_OA_FRIEND_URL || ''};
     }
     const match=/^\/api\/v1\/line\/bindings\/([0-9a-f-]{36})(?:\/(confirm|resume|conversation))?$/.exec(path);
     if(!match) throw ioError(404,'not_found');
@@ -122,7 +126,7 @@ export async function createBindings({pool,store:injectedStore,line,clients,rout
       result=await store.confirm(row.id,value.tenantKey,value.id,account,await proof(row.group_id,row.user_id),match[2]==='resume');
     } else if(method==='DELETE'&&!match[2]) {invalidate(row.group_id);result=await store.revoke(row.id,value.tenantKey,value.id,account);}
     else throw ioError(404,'not_found');
-    await refresh(); return bindingView(result);
+    await refresh(); return {...bindingView(result),oaFriendUrl:env.AMCORE_LINE_BINDING_OA_FRIEND_URL||''};
   }
   async function capture(events) {
     await refresh();
@@ -133,22 +137,22 @@ export async function createBindings({pool,store:injectedStore,line,clients,rout
       if(!groupId) continue;
       if(event.source.type==='user') {
         if(event.type==='unfollow') {invalidate(groupId);await store.suspend(groupId);mutable=true;}
-        continue; // Direct pilot identities come only from management migration.
       }
       if(['memberJoined','memberLeft','leave'].includes(event.type)) {invalidate(groupId);await store.suspend(groupId);mutable=true;}
       const text=event.type==='message'&&event.message?.type==='text'?event.message.text:'';
       if(!/^綁定\s+UOF(?:\s|$)/i.test(text)) continue;
       if(typeof event.webhookEventId!=='string'||!event.webhookEventId) throw ioError(400,'event_id_required');
-      consumed.set(event.webhookEventId,Date.now()+600000);
       const match=/^綁定\s+UOF\s+([a-zA-Z0-9_-]{22})\s*$/.exec(text);
       if(!match||!/^U[0-9a-f]{32}$/i.test(event.source.userId||'')) continue;
       if(!Number.isSafeInteger(event.timestamp)||Math.abs(Date.now()-event.timestamp)>600000) continue;
-      if(!await store.findCode(codeHash(match[1]))) continue;
+      const hash=pairingHash(match[1],event.source.type==='user');
+      if(!await store.findCode(hash)) continue;
+      consumed.set(event.webhookEventId,Date.now()+600000);
       try {
         if(clients.some(c=>c.groupIds.includes(groupId))) throw ioError(409,'binding_conflict');
         const route=await router.resolveGroupBinding(groupId);
         if(route?.binding) throw ioError(409,'binding_conflict');
-        await store.candidate(codeHash(match[1]),event,await proof(groupId,event.source.userId));
+        await store.candidate(hash,event,await proof(groupId,event.source.userId));
         mutable=true;
       } catch(error) { if(error.status<500) continue; throw error; }
     }
@@ -157,8 +161,16 @@ export async function createBindings({pool,store:injectedStore,line,clients,rout
     if(mutable) await refresh();
   }
   const active=client=>rows.filter(r=>r.status==='bound'&&r.tenant_key===client.tenantKey&&r.client_id===client.id);
+  // The paused general assistant admits only a live, server-issued direct code.
+  async function acceptsBindingEvent(event) {
+    if(event?.source?.type!=='user'||!conversationId(event)||event.type!=='message'||event.message?.type!=='text') return false;
+    if(!event.webhookEventId||!Number.isSafeInteger(event.timestamp)||Math.abs(Date.now()-event.timestamp)>600000) return false;
+    const match=/^綁定\s+UOF\s+([a-zA-Z0-9_-]{22})\s*$/.exec(event.message.text||'');
+    return Boolean(match && await store.findCode(pairingHash(match[1],true)));
+  }
   const lookup=group=>rows.find(r=>r.group_id===group&&['bound','suspended'].includes(r.status)) || rows.find(r=>r.group_id===group);
   const owns=event=>consumed.has(event?.webhookEventId)||rows.some(r=>r.group_id===conversationId(event)
-    && (event?.source?.type==='group' || directUofInput(event)));
-  return {handle,capture,active,lookup,owns,verified,refresh};
+    && (event?.source?.type==='group' || (event?.source?.userId===r.user_id &&
+      (directUofInput(event) || event.type==='unfollow'))));
+  return {handle,capture,active,lookup,owns,verified,refresh,acceptsBindingEvent};
 }

@@ -1,0 +1,3 @@
+# Install
+
+Merge reviewed source to GitHub main and deploy the AM Platform from that commit. Deploy the updated UOF binary and setup page. Set LineIo.DirectEnabled=true for all managed enabled accounts. Stop the UOF worker before running a migration helper under the same scheduled-task identity; back up encrypted state and migrate each active account using its original binding ID, conversation and user. Restart the worker and record results. Do not overwrite native state with Codex virtualized copies.

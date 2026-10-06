@@ -22,6 +22,7 @@ on:
       - 'versions/AM-IMP-2026.1003.03/**'
       - 'versions/AM-IMP-2026.1004.02/**'
       - 'versions/AM-IMP-2026.1006.01/**'
+      - 'versions/AM-IMP-2026.1006.03/**'
       - 'modules/operational-memory/**'
       - 'modules/collect/**'
       - 'core/direct-line.js'
@@ -97,6 +98,7 @@ jobs:
       - run: node --test tools/test-line-io-card-appearance.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1004.02
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1006.01
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1006.03
       - run: node --test tools/test-line-directory.mjs
       - run: node --test tools/test-line-bindings.mjs
       - run: node --test tools/test-line-capture-latency.mjs
