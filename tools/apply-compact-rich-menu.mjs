@@ -1,6 +1,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const args = process.argv.slice(2);
@@ -58,5 +59,5 @@ receipt.defaultApplied = true;
 await writeFile(receiptPath, JSON.stringify(receipt, null, 2));
 const current = await request('/v2/bot/user/all/richmenu');
 const menu = await request(`/v2/bot/richmenu/${created.richMenuId}`);
-if (current.richMenuId !== created.richMenuId || JSON.stringify(menu.areas) !== JSON.stringify(config.areas)) throw new Error('Default menu verification failed; use the saved receipt to restore.');
+if (current.richMenuId !== created.richMenuId || !isDeepStrictEqual(menu.areas, config.areas)) throw new Error('Default menu verification failed; use the saved receipt to restore.');
 console.log(JSON.stringify({ ok: true, defaultApplied: true, areas: menu.areas.map(a => a.action.label), receiptPath }));

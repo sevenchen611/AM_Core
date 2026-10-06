@@ -10,7 +10,7 @@ Environment prefix: `HZ2`
 
 | Version | Status | Capability | Scope | Notes |
 | --- | --- | --- | --- | --- |
-| `AM-IMP-2026.1006.04` | Ready | Compact journal / UOF Rich Menu | Shared LINE account menu | Journal inactive with no link; UOF message action 待簽; LINE application pending. |
+| `AM-IMP-2026.1006.04` | Deployed | Compact journal / UOF Rich Menu | Shared LINE account menu | PR #243; active default, exact 待簽 action and image hash verified; journal inactive with no link. |
 | `AM-IMP-2026.1006.02` | Ready | Pause entire one-to-one private assistant | Root Platform LINE user events | Stop before intake and all replies; group/room routing retained; production verification pending. |
 | AM-IMP-2026.1004.07 | Deployed | Retrieve archived LINE attachments | Exact quote or complete filename in the same conversation; verified Drive link | Main e92dc4c live; retrieval contract and tenant archive readiness verified; real LINE delivery remains user acceptance. |
 | `AM-IMP-2026.1004.05` | Installed | LINE staff income and expense | Root Platform tenant adapter | LINE sender and authority checks; Maggie <=30,000 / Seven >30,000; reviewed cash posting. |
