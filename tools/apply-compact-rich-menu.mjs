@@ -6,16 +6,12 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const args = process.argv.slice(2);
 const value = name => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] || '' : ''; };
 const apply = args.includes('--apply');
-const journalUrl = value('--journal-url');
-if (!journalUrl) throw new Error('Provide --journal-url with the mobile-accessible work journal HTTPS URL. No menu was changed.');
-const url = new URL(journalUrl);
-if (url.protocol !== 'https:' || url.username || url.password || ['localhost', '127.0.0.1', '::1'].includes(url.hostname)) {
-  throw new Error('The work journal must have an HTTPS URL accessible from a phone.');
-}
-if (apply && (url.hostname === 'example.com' || url.hostname.endsWith('.example.com'))) throw new Error('A placeholder URL cannot be applied.');
 const config = JSON.parse(await readFile(path.join(root, 'versions/AM-IMP-2026.1006.04/config/work-journal-uof-rich-menu.json'), 'utf8'));
-config.areas[0].action.uri = journalUrl;
-if (config.areas.length !== 2 || config.areas[1].action.text !== '待簽') throw new Error('Unexpected menu actions.');
+const uofArea = config.areas?.[0];
+if (config.areas.length !== 1 || uofArea.action.type !== 'message' || uofArea.action.text !== '待簽'
+  || uofArea.bounds.x !== 1250 || uofArea.bounds.y !== 0 || uofArea.bounds.width !== 1250 || uofArea.bounds.height !== 843) {
+  throw new Error('Expected only the right-side UOF 待簽 action; the journal must remain inactive.');
+}
 for (const { bounds } of config.areas) {
   if (!Object.values(bounds).every(Number.isInteger) || bounds.x < 0 || bounds.y < 0 || bounds.width <= 0 || bounds.height <= 0
     || bounds.x + bounds.width > config.size.width || bounds.y + bounds.height > config.size.height) throw new Error('Invalid click bounds.');
@@ -43,8 +39,6 @@ async function request(apiPath, options = {}, data = false) {
 }
 const bot = await request('/v2/bot/info');
 if (bot.basicId !== expectedBot) throw new Error('LINE channel does not match --expected-bot. No menu was changed.');
-const journalResponse = await fetch(journalUrl, { signal: AbortSignal.timeout(15000) });
-if (!journalResponse.ok) throw new Error(`Journal URL returned HTTP ${journalResponse.status}. No menu was changed.`);
 await request('/v2/bot/richmenu/validate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) });
 let previous = null;
 let restoreManagerDefault = false;
@@ -64,5 +58,5 @@ receipt.defaultApplied = true;
 await writeFile(receiptPath, JSON.stringify(receipt, null, 2));
 const current = await request('/v2/bot/user/all/richmenu');
 const menu = await request(`/v2/bot/richmenu/${created.richMenuId}`);
-if (current.richMenuId !== created.richMenuId || menu.areas.length !== 2) throw new Error('Default menu verification failed; use the saved receipt to restore.');
+if (current.richMenuId !== created.richMenuId || JSON.stringify(menu.areas) !== JSON.stringify(config.areas)) throw new Error('Default menu verification failed; use the saved receipt to restore.');
 console.log(JSON.stringify({ ok: true, defaultApplied: true, areas: menu.areas.map(a => a.action.label), receiptPath }));
