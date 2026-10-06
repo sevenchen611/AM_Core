@@ -8,7 +8,7 @@ import { bootstrap } from './core/bootstrap.js';
 import { createLineIo, readLineIoBody } from './core/line-io/index.js';
 import { createBankLineReplyIntake } from './core/bank-line-reply-intake.js';
 import { createAttachmentRetrieval, parseAttachmentRequest } from './core/attachment-retrieval.js';
-import { routeDirectLineEvent } from './core/direct-line.js';
+import { routeDirectLineEvent, isPausedDirectEvent, PERSONAL_ASSISTANT_ENABLED, PERSONAL_ASSISTANT_CONTRACT } from './core/direct-line.js';
 import { createAccessDirectory } from './core/access-directory.js';
 import { safePortalHandoffLocation } from './core/portal-handoff.js';
 import { sendJson, sendText, readBody } from './core/util.js';
@@ -273,6 +273,7 @@ const server = http.createServer(async (req, res) => {
       bankReconciliationNotificationContract: 'hozo-bank-reconciliation-notification-v1',
       commit: /^[a-f0-9]{40}$/u.test(String(process.env.RENDER_GIT_COMMIT || '')) ? process.env.RENDER_GIT_COMMIT : null,
       lineConfigured: line.configured,
+      personalAssistant: { enabled: PERSONAL_ASSISTANT_ENABLED, contract: PERSONAL_ASSISTANT_CONTRACT, scope: 'line-user-direct' },
       lineIo: { enabled: lineIo.enabled, directoryEnabled:Boolean(lineIo.directoryEnabled),bindingsEnabled:Boolean(lineIo.bindingsEnabled), reviewCardsEnabled:lineIo.enabled, contract: 'line-group-io-v1', version: lineIo.bindingsEnabled ? '1.5.0' : '1.2.0' },
       driveConfigured: platform.driveConfigured,
       attachmentArchive: { contract: platform.attachmentArchive.contract, storage: 'google-drive', notionFiles: 'links-only', tenants: tenants.filter(t => t.runtimeEnabled !== false).map(t => ({ tenantKey: t.key, ...platform.attachmentArchive.health(t) })) },
@@ -420,10 +421,12 @@ const server = http.createServer(async (req, res) => {
     if (!Array.isArray(body?.events) || body.events.some((e) => !e || typeof e !== 'object' || Array.isArray(e))) {
       return sendJson(res, 400, { error: 'Invalid events' });
     }
-    try { await lineIo.capture(body.events, { excludeEvents: event => Boolean(parseAttachmentRequest(event)) }); }
+    // 暫停整個私人助理入口；在任何收集、身分查詢、附件、請款或回覆前排除一對一事件。
+    const activeEvents = body.events.filter(event => !isPausedDirectEvent(event));
+    try { await lineIo.capture(activeEvents, { excludeEvents: event => Boolean(parseAttachmentRequest(event)) }); }
     catch { return sendJson(res, 503, { error: 'LINE I/O intake is temporarily unavailable.' }); }
     try {
-      for (const event of body.events || []) {
+      for (const event of activeEvents) {
         if (lineIo.owns(event)) continue;
         const groupId = event?.source?.groupId || event?.source?.roomId || '';
         // Persist the full quote before authority intercepts or remote accounting work.
@@ -473,7 +476,7 @@ const server = http.createServer(async (req, res) => {
     try {
       // Persist recoverable binary jobs before acknowledging the webhook.
       // Only binary events do a tenant lookup; ordinary text latency is unchanged.
-      attachmentTenants = await platform.attachmentArchive.capture(body.events, { ownsTransport: event => lineIo.owns(event) });
+      attachmentTenants = await platform.attachmentArchive.capture(activeEvents, { ownsTransport: event => lineIo.owns(event) });
     } catch (error) {
       logger.error('Attachment pre-ack intake unavailable; webhook not acknowledged.');
       return sendJson(res, 503, { error: 'attachment_intake_unavailable' });
@@ -487,7 +490,7 @@ const server = http.createServer(async (req, res) => {
         .catch(() => logger.warn('Bank reply receipt notification failed; saved reply retained.'));
     }
     bankLineReplyIntake.drain().catch((error) => logger.warn('Bank reply queue unavailable:', error.message));
-    Promise.all((body.events || []).map((event) => handleEvent(event)))
+    Promise.all(activeEvents.map((event) => handleEvent(event)))
       .catch((error) => logger.error('Unable to process LINE webhook events:', error));
     return;
   }

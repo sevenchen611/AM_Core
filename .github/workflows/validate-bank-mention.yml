@@ -26,6 +26,7 @@ on:
       - 'core/direct-line.js'
       - 'modules/personal-assistant/**'
       - 'tools/dryrun-personal-line-routing.mjs'
+      - 'tools/verify-private-assistant-pause.mjs'
       - 'versions/AM-IMP-2026.1006.02/**'
       - 'core/notion.js'
       - 'modules/meetings/**'
@@ -77,6 +78,7 @@ jobs:
       - run: node tools/dryrun-core.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1004.06
       - run: node tools/dryrun-personal-line-routing.mjs
+      - run: node --experimental-vm-modules tools/verify-private-assistant-pause.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1006.02
       - run: node tools/dryrun-meetings.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1004.04

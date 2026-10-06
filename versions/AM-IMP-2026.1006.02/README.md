@@ -1,9 +1,9 @@
-# Silent fallback for private assistant text
+# Pause the entire one-to-one private assistant
 
-Status: Ready. Target: AM Platform tenants with the personal-assistant module enabled.
+Status: Ready. Target: root AM Platform one-to-one LINE user events.
 
-Previously, any unrecognized private text received the same capabilities guide. The guide lived in `responseFor()` in `modules/personal-assistant/index.js`; `onDirectMessage()` called it after command matching failed.
+The fixed capabilities guide originates in `responseFor()` in `modules/personal-assistant/index.js`. The requested final behavior is to pause the entire private assistant, including supported commands and identity/fallback replies.
 
-Unrecognized private text now finishes without a reply, task creation or task update. It remains handled so `core/direct-line.js` does not send its own fallback. Explicit identity queries and existing task, calendar and claims commands keep their current routing. This supports conversation control by avoiding misleading command responses to ordinary conversation.
+`PERSONAL_ASSISTANT_ENABLED=false` in `core/direct-line.js` is the platform pause switch. The signed webhook excludes one-to-one user events before transport intake, finance, attachment archive/retrieval, identity lookup or module dispatch. Direct route callers also stop before lookup. Text, binary messages, follow/unfollow and postbacks receive no assistant reply. Group and room events retain their existing routes, including transport-managed personal groups. Existing records are retained. This prevents private control commands from running while the assistant is paused.
 
-No LINE Official Account setting, schema, environment variable or project data change is required. The tenant's `personalAssistant.enabled` setting enables the whole assistant and should remain enabled when only cancelling the repetitive guide.
+`/health` exposes `personalAssistant.enabled=false` and contract `private-assistant-pause-v1`. No LINE Official Account setting, schema, environment variable or tenant record change is required. Resume requires changing the platform switch to true in a reviewed main deployment; existing tenant-level enablement still applies.

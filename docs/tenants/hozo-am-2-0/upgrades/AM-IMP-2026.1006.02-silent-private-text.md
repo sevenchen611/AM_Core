@@ -1,7 +1,7 @@
-# AM-IMP-2026.1006.02 — Silent unrecognized private text
+# AM-IMP-2026.1006.02 — Pause entire one-to-one private assistant
 
 Status: Ready. Production deployment pending.
 
-The root Platform personal-assistant module no longer replies with its fixed capabilities guide when private text does not match a supported command. The handler consumes that text silently so the direct router does not substitute its own fallback reply.
+`PERSONAL_ASSISTANT_ENABLED=false` in `core/direct-line.js` pauses all one-to-one LINE user events before transport/finance/attachment intake, identity lookup and module dispatch. The assistant sends no identity, task, claims or default replies while paused.
 
-Identity queries and delegated task/claims commands keep their existing behavior. No tenant configuration, database or data migration is needed. Verification is recorded in the shared package's VERIFY.md; production status requires verification of the deployed reviewed main revision.
+Group and room routing remain active. Existing tenant settings and records remain available for resumption. No database, environment or tenant configuration change is needed. Verification is recorded in the shared package's VERIFY.md; production status requires the deployed reviewed main revision and `/health` pause contract/state.
