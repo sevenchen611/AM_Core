@@ -1,10 +1,12 @@
 import crypto from 'node:crypto';
 import { ioError } from './store.js';
 import { createBindingStore } from './binding-store.js';
+import { directId, conversationId, directUofInput } from './conversation.js';
 
 const codeHash = code => crypto.createHash('sha256').update(code).digest('hex');
 export const bindingView = row => row && ({ bindingId:row.id,status:row.status,externalUserId:row.external_user_id,
   groupId:row.group_id,userId:row.user_id,groupName:row.group_name,lineDisplayName:row.user_name,
+  conversationType:directId(row.group_id)?'user':'group',
   expiresAt:row.expires_at,lastVerifiedAt:row.checked_at,inputEnabled:row.status==='bound',outputEnabled:row.status==='bound' });
 
 export async function createBindings({pool,store:injectedStore,line,clients,router,env}) {
@@ -30,6 +32,12 @@ export async function createBindings({pool,store:injectedStore,line,clients,rout
   async function fetchProof(groupId,userId) {
     const revision=revisions.get(groupId)||0;
     try {
+      if(directId(groupId)) {
+        if(groupId!==userId) throw ioError(409,'direct_identity_changed');
+        const profile=await line.lineGet(`/v2/bot/profile/${userId}`,{timeoutMs:5000});
+        if(profile.userId!==userId || revision!==(revisions.get(groupId)||0)) throw ioError(409,'direct_identity_changed');
+        return {groupId,userId,groupName:'LINE 1 對 1',userName:profile.displayName||''};
+      }
       const [summary,count,userName]=await Promise.all([
         line.lineGet(`/v2/bot/group/${groupId}/summary`,{timeoutMs:5000}),
         line.lineGet(`/v2/bot/group/${groupId}/members/count`,{timeoutMs:5000}),
@@ -57,7 +65,12 @@ export async function createBindings({pool,store:injectedStore,line,clients,rout
     row=await store.get(row.id);
     if(!row) throw ioError(403,'group_unavailable');
     if(row.status!=='bound') return row;
-    try { const value=await proof(row.group_id,row.user_id,{fresh}); await store.checked(row.id,value); return await store.get(row.id); }
+    try {
+      const value=await proof(row.group_id,row.user_id,{fresh}); await store.checked(row.id,value);
+      const current=await store.get(row.id);
+      if(current?.status==='bound' && (current.group_id!==row.group_id || current.user_id!==row.user_id)) throw ioError(403,'group_unavailable');
+      return current;
+    }
     catch(error) { if(error.status===409) {await store.suspend(row.group_id); await refresh(); return await store.get(row.id);} throw error; }
   }
   async function owned(client,id,account) {
@@ -81,13 +94,29 @@ export async function createBindings({pool,store:injectedStore,line,clients,rout
       await refresh();
       return {...bindingView(row),command:`綁定 UOF ${code}`,suggestedGroupName:`${body.displayName} 的 UOF 群`,oaFriendUrl:env.AMCORE_LINE_BINDING_OA_FRIEND_URL || ''};
     }
-    const match=/^\/api\/v1\/line\/bindings\/([0-9a-f-]{36})(?:\/(confirm|resume))?$/.exec(path);
+    const match=/^\/api\/v1\/line\/bindings\/([0-9a-f-]{36})(?:\/(confirm|resume|conversation))?$/.exec(path);
     if(!match) throw ioError(404,'not_found');
     const account=method==='GET'?url.searchParams.get('externalUserId'):body?.externalUserId;
-    if(body && Object.keys(body).some(k=>k!=='externalUserId')) throw ioError(400,'invalid_binding_request');
+    if(body && Object.keys(body).some(k=>!(match[2]==='conversation'
+      ? ['externalUserId','mode','expectedGroupId','expectedUserId','groupId'] : ['externalUserId']).includes(k))) throw ioError(400,'invalid_binding_request');
     const {row,value}=await owned(client,match[1],account);
     let result;
-    if(method==='GET'&&!match[2]) result=await verified(row);
+    if(method==='POST'&&match[2]==='conversation') {
+      if(!['direct','group'].includes(body.mode) || row.status!=='bound' || body.expectedGroupId!==row.group_id || body.expectedUserId!==row.user_id
+        || (body.mode==='direct' && body.groupId!==undefined)
+        || (body.mode==='group' && !/^C[0-9a-f]{32}$/i.test(body.groupId||''))) throw ioError(409,'candidate_changed');
+      // Migration starts with the existing verified account/LINE identity.
+      // No endpoint can nominate another user or bind an arbitrary direct key.
+      if((await verified(row,{fresh:true}))?.status!=='bound') throw ioError(409,'binding_not_confirmable');
+      const destination=body.mode==='direct'?row.user_id:body.groupId;
+      if(body.mode==='group') {
+        if(clients.some(c=>c.groupIds.includes(destination)) || (await router.resolveGroupBinding(destination))?.binding) throw ioError(409,'binding_conflict');
+      }
+      const evidence=await proof(destination,row.user_id);
+      invalidate(row.group_id); invalidate(destination);
+      result=await store.switchConversation(row.id,value.tenantKey,value.id,account,body.expectedGroupId,evidence);
+    }
+    else if(method==='GET'&&!match[2]) result=await verified(row);
     else if(method==='POST'&&['confirm','resume'].includes(match[2])) {
       if(!row.group_id||!row.user_id) throw ioError(409,'binding_not_confirmable');
       result=await store.confirm(row.id,value.tenantKey,value.id,account,await proof(row.group_id,row.user_id),match[2]==='resume');
@@ -100,8 +129,12 @@ export async function createBindings({pool,store:injectedStore,line,clients,rout
     let mutable=false;
     for(const [id,until] of consumed) if(until<Date.now()) consumed.delete(id);
     for(const event of events) {
-      const groupId=event?.source?.type==='group'?event.source.groupId:null;
+      const groupId=conversationId(event);
       if(!groupId) continue;
+      if(event.source.type==='user') {
+        if(event.type==='unfollow') {invalidate(groupId);await store.suspend(groupId);mutable=true;}
+        continue; // Direct pilot identities come only from management migration.
+      }
       if(['memberJoined','memberLeft','leave'].includes(event.type)) {invalidate(groupId);await store.suspend(groupId);mutable=true;}
       const text=event.type==='message'&&event.message?.type==='text'?event.message.text:'';
       if(!/^綁定\s+UOF(?:\s|$)/i.test(text)) continue;
@@ -125,6 +158,7 @@ export async function createBindings({pool,store:injectedStore,line,clients,rout
   }
   const active=client=>rows.filter(r=>r.status==='bound'&&r.tenant_key===client.tenantKey&&r.client_id===client.id);
   const lookup=group=>rows.find(r=>r.group_id===group&&['bound','suspended'].includes(r.status)) || rows.find(r=>r.group_id===group);
-  const owns=event=>consumed.has(event?.webhookEventId)||rows.some(r=>r.group_id===event?.source?.groupId);
+  const owns=event=>consumed.has(event?.webhookEventId)||rows.some(r=>r.group_id===conversationId(event)
+    && (event?.source?.type==='group' || directUofInput(event)));
   return {handle,capture,active,lookup,owns,verified,refresh};
 }
