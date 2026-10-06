@@ -1,0 +1,17 @@
+{
+  "id": "AM-IMP-2026.1006.04",
+  "name": "單排工作日誌與 UOF 簽核 Rich Menu",
+  "type": "LINE / Rich Menu",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-10-06",
+  "installTargets": ["AM_PLATFORM"],
+  "requiresDatabases": [],
+  "requiresEnv": ["project-local LINE_CHANNEL_ACCESS_TOKEN for application only"],
+  "requiresScripts": ["node tools/apply-compact-rich-menu.mjs", "node tools/check-upgrade-package.js AM-IMP-2026.1006.04"],
+  "dataIsolation": {"canCopyCode": true, "canCopySchema": false, "canCopyData": false, "canCopySecrets": false},
+  "projectStatus": {"AM_PLATFORM": "Ready"},
+  "files": ["assets/line/work-journal-uof-rich-menu.svg", "assets/line/work-journal-uof-rich-menu.png", "tools/apply-compact-rich-menu.mjs", "versions/AM-IMP-2026.1006.04/config/work-journal-uof-rich-menu.json"],
+  "definitionOfDone": ["Exactly two readable buttons in a compact single row", "Work journal points to a confirmed mobile-accessible HTTPS URL", "UOF action sends 待簽 while AM private assistant remains paused", "Target LINE channel and default menu verified before Deployed"],
+  "pendingUserDecisions": ["work journal production HTTPS URL"]
+}
