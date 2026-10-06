@@ -7,17 +7,20 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const args = process.argv.slice(2);
 const value = name => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] || '' : ''; };
 const apply = args.includes('--apply');
-const config = JSON.parse(await readFile(path.join(root, 'versions/AM-IMP-2026.1006.04/config/work-journal-uof-rich-menu.json'), 'utf8'));
+const configPath = path.resolve(root, value('--config') || 'versions/AM-IMP-2026.1006.05/config/work-journal-uof-rich-menu.json');
+const imagePath = path.resolve(root, value('--image') || 'assets/line/work-journal-uof-rich-menu-half-height.png');
+const config = JSON.parse(await readFile(configPath, 'utf8'));
 const uofArea = config.areas?.[0];
 if (config.areas.length !== 1 || uofArea.action.type !== 'message' || uofArea.action.text !== '待簽'
-  || uofArea.bounds.x !== 1250 || uofArea.bounds.y !== 0 || uofArea.bounds.width !== 1250 || uofArea.bounds.height !== 843) {
+  || config.size.width !== 2500 || !Number.isInteger(config.size.height) || config.size.height < 250
+  || uofArea.bounds.x !== 1250 || uofArea.bounds.y !== 0 || uofArea.bounds.width !== 1250 || uofArea.bounds.height !== config.size.height) {
   throw new Error('Expected only the right-side UOF 待簽 action; the journal must remain inactive.');
 }
 for (const { bounds } of config.areas) {
   if (!Object.values(bounds).every(Number.isInteger) || bounds.x < 0 || bounds.y < 0 || bounds.width <= 0 || bounds.height <= 0
     || bounds.x + bounds.width > config.size.width || bounds.y + bounds.height > config.size.height) throw new Error('Invalid click bounds.');
 }
-const image = await readFile(path.join(root, 'assets/line/work-journal-uof-rich-menu.png'));
+const image = await readFile(imagePath);
 if (image.length > 1024 * 1024 || image.readUInt32BE(16) !== config.size.width || image.readUInt32BE(20) !== config.size.height) throw new Error('Invalid menu image dimensions or size.');
 if (!apply) {
   console.log(JSON.stringify({ dryRun: true, richMenu: config, imageBytes: image.length }, null, 2));
