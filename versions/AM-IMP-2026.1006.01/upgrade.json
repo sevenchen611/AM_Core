@@ -1,0 +1,16 @@
+{
+  "id":"AM-IMP-2026.1006.01",
+  "name":"Explicit UOF direct conversation pilot",
+  "type":"Core / LINE / API",
+  "portable":true,
+  "status":"Ready",
+  "createdAt":"2026-10-06",
+  "installTargets":["AM_PLATFORM","UOF_LoginCheck"],
+  "requiresPackages":["AM-IMP-2026.0929.04","AM-IMP-2026.1004.02"],
+  "requiresDatabases":[],
+  "requiresEnv":[],
+  "requiresScripts":["node --test tools/test-line-bindings.mjs tools/test-line-io.mjs tools/test-line-capture-latency.mjs","node tools/check-upgrade-package.js AM-IMP-2026.1006.01"],
+  "dataIsolation":{"canCopyCode":true,"canCopyData":false,"canCopySecrets":false},
+  "definitionOfDone":["Explicit migration preserves owner and account isolation","UOF direct inputs route once without stealing ordinary chat","Reply and Push enforce the direct owner","Unfollow, malformed sources and stale bindings fail closed","Group restoration is explicit and revalidates membership"],
+  "files":["core/line-io/conversation.js","core/line-io/bindings.js","core/line-io/binding-store.js","core/line-io/index.js","tools/test-line-bindings.mjs",".github/workflows/validate-bank-mention.yml","versions/AM-IMP-2026.1006.01"]
+}

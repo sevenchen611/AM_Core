@@ -72,12 +72,22 @@ export function createBindingStore(pool) {
     await pool.query("UPDATE line_bindings.bindings SET status='expired',code_hash=NULL WHERE group_id=$1 AND status='pending_confirmation'",[group]);
   };
   const findCode = async hash => (await pool.query("SELECT * FROM line_bindings.bindings WHERE code_hash=$1 AND status='pending_line' AND expires_at>now()",[hash])).rows[0];
-  const checked = (id,proof) => pool.query('UPDATE line_bindings.bindings SET checked_at=now(),group_name=$2,user_name=$3 WHERE id=$1',[id,proof.groupName,proof.userName]);
+  const checked = (id,proof) => pool.query('UPDATE line_bindings.bindings SET checked_at=now(),group_name=$2,user_name=$3 WHERE id=$1 AND group_id=$4 AND user_id=$5 AND status=\'bound\'',[id,proof.groupName,proof.userName,proof.groupId,proof.userId]);
+  async function switchConversation(id,tenant,client,account,expectedGroupId,proof) {
+    return transaction(async db=>{
+      await db.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`${tenant}/${client}/${account}`]);
+      const row=(await db.query('SELECT * FROM line_bindings.bindings WHERE id=$1 FOR UPDATE',[id])).rows[0];
+      if(!row || row.tenant_key!==tenant || row.client_id!==client || row.external_user_id!==account) throw ioError(404,'binding_not_found');
+      if(row.status!=='bound' || row.group_id!==expectedGroupId || row.user_id!==proof.userId) throw ioError(409,'candidate_changed');
+      await db.query("UPDATE line_bindings.bindings SET status='expired',code_hash=NULL WHERE tenant_key=$1 AND client_id=$2 AND external_user_id=$3 AND status IN ('pending_line','pending_confirmation')",[tenant,client,account]);
+      return (await db.query('UPDATE line_bindings.bindings SET group_id=$2,group_name=$3,user_name=$4,checked_at=now() WHERE id=$1 RETURNING *',[id,proof.groupId,proof.groupName,proof.userName])).rows[0];
+    });
+  }
   async function revoke(id,tenant,client,account) {
     const result=await pool.query("UPDATE line_bindings.bindings SET status='revoked',code_hash=NULL,revoked_at=now() WHERE id=$1 AND tenant_key=$2 AND client_id=$3 AND external_user_id=$4 RETURNING *",[id,tenant,client,account]);
     if(!result.rows.length) throw ioError(404,'binding_not_found');
     await pool.query("UPDATE line_bindings.bindings SET status='expired',code_hash=NULL WHERE tenant_key=$1 AND client_id=$2 AND external_user_id=$3 AND status IN ('pending_line','pending_confirmation')",[tenant,client,account]);
     return result.rows[0];
   }
-  return {all,get,current,start,candidate,confirm,suspend,checked,revoke,findCode,purge};
+  return {all,get,current,start,candidate,confirm,suspend,checked,revoke,findCode,purge,switchConversation};
 }
