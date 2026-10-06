@@ -64,6 +64,8 @@ test('explicit owner migration routes only UOF private inputs, replies and pushe
   assert.equal(migrated.status,200);assert.equal(migrated.body.groupId,user);assert.equal(migrated.body.conversationType,'user');
   assert.equal((await h.bindingStore.get(second.bindingId)).group_id,other,'other accounts remain group-bound');
   const dm=(id,text,userId=user)=>({...h.event(id,text),source:{type:'user',userId}});
+  assert.deepEqual(await h.gateway.resolveCalendarIdentity(user),{tenantKey:'sample',account:'synthetic-owner',bindingId:row.bindingId});
+  assert.equal(await h.gateway.resolveCalendarIdentity(intruder),null);
   assert.equal(h.gateway.owns(dm('query','待簽')),true);
   assert.equal(h.gateway.owns(dm('ordinary','你好')),false);
   assert.equal(h.gateway.owns(dm('not-pilot','待簽',intruder)),false);
@@ -88,6 +90,7 @@ test('explicit owner migration routes only UOF private inputs, replies and pushe
   const restored=await h.request(switchPath,{method:'POST',body:{...switchBody,mode:'group',expectedGroupId:user,groupId:group}});
   assert.equal(restored.status,200);assert.equal(restored.body.groupId,group);
   assert.equal(restored.body.conversationType,'group');
+  assert.equal(await h.gateway.resolveCalendarIdentity(user),null);
 });
 
 test('direct profile outage, malformed source and unfollow fail closed without affecting other groups',async t=>{

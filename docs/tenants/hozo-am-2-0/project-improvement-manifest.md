@@ -10,6 +10,7 @@ Environment prefix: `HZ2`
 
 | Version | Status | Capability | Scope | Notes |
 | --- | --- | --- | --- | --- |
+| `AM-IMP-2026.1006.07` | Ready | Confirm LINE activity before Google Calendar creation | Shared DailyLog service key; trusted UOF direct identity; tenant-local evidence | Verified locally; reviewed main rollout and encrypted shared configuration pending. |
 | `AM-IMP-2026.1006.06` | Deployed | Enable journal URI in half-height menu | Shared LINE account menu | PR #247; exact user-supplied URI, UOF 待簽, 2500x422 default and image hash verified. |
 | `AM-IMP-2026.1006.05` | Deployed | Half-height journal / UOF Rich Menu | Shared LINE account menu | PR #245; active 2500x422 default, exact UOF 待簽 action and image hash verified; journal inactive. |
 | `AM-IMP-2026.1006.04` | Deployed | Compact journal / UOF Rich Menu | Shared LINE account menu | PR #243; active default, exact 待簽 action and image hash verified; journal inactive with no link. |

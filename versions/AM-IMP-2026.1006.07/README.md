@@ -1,0 +1,13 @@
+# LINE activity confirmation → DailyLog Google Calendar
+
+Package status: Ready. The backend uses one shared service key; users need their existing UOF direct LINE binding and DailyLog Google authorization only.
+
+Verified one-to-one LINE text about a dated meeting or activity is extracted into activity name, Taiwan date/time, location and main content. The assistant shows a confirmation card. Only the owner can confirm; incomplete or ambiguous data needs clarification and edits require a new preview. Confirmation calls DailyLog's dedicated calendar events API, which uses the person's existing Google authorization and saved calendar selection. An omitted end time defaults to one hour and is disclosed in the preview.
+
+The UOF account comes from the active server-issued and human-confirmed LINE IO binding. The gateway refreshes the binding and verifies the exact direct LINE user via LINE profile before intake and execution. Group conversations, unbound users and suspended/revoked bindings cannot authorize a calendar write. AI and message content never choose an account. The trusted account is appended after normalization and frozen with the activity JSON. Changed identities invalidate older drafts; shared key rotation preserves the approved JSON and request ID.
+
+Private drafts, original source, supplements, confirmation evidence, immutable request IDs, frozen API JSON, leases and results are durable in tenant-local PostgreSQL. Restart, repeated buttons and uncertain timeouts do not regenerate the approved JSON. Forced RLS separates tenants; action queries also check the LINE owner. Ordinary private chats remain quiet and the general AM private assistant remains paused. Independent UOF transport and groups retain existing routes.
+
+The private shared service env is read once by the administrator's setup CLI and transmitted over authenticated HTTPS to the bot's protected service configuration endpoint. Only an encrypted AES-GCM tenant-associated secret is stored in the tenant database. The key is never sent to AI, LINE or Git. Setup authorization and encryption keys use distinct derivation purposes from the existing channel secret. Channel-secret rotation requires administrator reinstallation of the shared service configuration. No personal calendar key, pairing code or repeated Google consent is introduced.
+
+Scope: text messages, single-instance timed activities, up to five separate activities per message. The API does not support all-day/recurring entries, attendees or modifying/deleting saved Google events. Setup validates with an empty invalid body and creates no Google event.

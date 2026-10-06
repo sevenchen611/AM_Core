@@ -1,0 +1,7 @@
+# Verify
+
+Run node --experimental-vm-modules --test tools/test-leaf-calendar.mjs and node --test tools/test-line-bindings.mjs. SQL tests use real PGlite tables with a non-superuser role and forced RLS. Cases cover shared key encryption, trusted account override protection, owner/tenant isolation, missing data, edits/stale cards, cancellation/expiry, duplicate delivery, immutable uncertain retries, restart, identity change and permanent API errors. Signed webhook tests verify durable capture before ACK and no write before owner confirmation. UOF binding tests verify the resolver refuses foreign users and group rollback.
+
+Run node --experimental-vm-modules tools/verify-private-assistant-pause.mjs, tools/verify-attachment-webhook.mjs and tools/verify-bank-line-reply-intake.mjs with the same VM flag. Run npm run check, node tools/dryrun-personal-line-routing.mjs and node tools/dryrun-core.mjs. Validate package, audit alignment and compare manifests separately; existing alignment gaps are not resolved by this calendar change.
+
+Production: verify deployed commit against reviewed main, live shared calendar contract, provisioned/configured tenant and paused general assistant. Validate shared auth via empty invalid body (400 INVALID_REQUEST), never via an invented real activity. Inspect existing trusted UOF direct binding read-only. User acceptance: send a real intended activity, review four fields, confirm and verify it in the same DailyLog-selected Google calendar. Only successful API responses can be described as created.

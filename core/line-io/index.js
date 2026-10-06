@@ -416,6 +416,18 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
     const binding = await resolve(client.tenantKey, groupId);
     return { tenant: tenants.find(t => t.key === client.tenantKey), binding, resolution: 'active' };
   }
+  // Account was issued by the authenticated UOF binding client, never by chat text.
+  async function resolveCalendarIdentity(userId) {
+    if(!personal || !directId(userId)) return null;
+    await personal.refresh();
+    const prior=personal.lookup(userId);
+    if(!prior || prior.status!=='bound' || prior.user_id!==userId || prior.group_id!==userId) return null;
+    const client=clients.find(c=>c.id===prior.client_id && c.tenantKey===prior.tenant_key && c.allowPersonalBindings);
+    if(!client) return null;
+    const row=await personal.verified(prior,{fresh:true});
+    if(row?.status!=='bound' || row.user_id!==userId || row.group_id!==userId || !row.confirmed_at) return null;
+    return {tenantKey:row.tenant_key,account:row.external_user_id,bindingId:row.id};
+  }
   const directory = env.AMCORE_LINE_DIRECTORY_ENABLED === '1' ? createDirectory({
     store:injectedDirectoryStore || createDirectoryStore(pool),router,line,clients,
     ioState:async (client,groupId,route,availabilityKnown) => {
@@ -430,5 +442,5 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
   }) : null;
   return { enabled: true, directoryEnabled:Boolean(directory),bindingsEnabled:Boolean(personal), capture, handle, owns,
     acceptsBindingEvent: event => personal?.acceptsBindingEvent(event) ?? Promise.resolve(false),
-    resolveAttachmentBinding, close: async () => pool?.end() };
+    resolveCalendarIdentity, resolveAttachmentBinding, close: async () => pool?.end() };
 }
