@@ -273,7 +273,7 @@ const server = http.createServer(async (req, res) => {
       bankReconciliationNotificationContract: 'hozo-bank-reconciliation-notification-v1',
       commit: /^[a-f0-9]{40}$/u.test(String(process.env.RENDER_GIT_COMMIT || '')) ? process.env.RENDER_GIT_COMMIT : null,
       lineConfigured: line.configured,
-      personalAssistant: { enabled: PERSONAL_ASSISTANT_ENABLED, contract: PERSONAL_ASSISTANT_CONTRACT, scope: 'line-user-direct' },
+      personalAssistant: { enabled: PERSONAL_ASSISTANT_ENABLED, contract: PERSONAL_ASSISTANT_CONTRACT, scope: 'am-platform-private-assistant' },
       lineIo: { enabled: lineIo.enabled, directoryEnabled:Boolean(lineIo.directoryEnabled),bindingsEnabled:Boolean(lineIo.bindingsEnabled), reviewCardsEnabled:lineIo.enabled, contract: 'line-group-io-v1', version: lineIo.bindingsEnabled ? '1.5.0' : '1.2.0' },
       driveConfigured: platform.driveConfigured,
       attachmentArchive: { contract: platform.attachmentArchive.contract, storage: 'google-drive', notionFiles: 'links-only', tenants: tenants.filter(t => t.runtimeEnabled !== false).map(t => ({ tenantKey: t.key, ...platform.attachmentArchive.health(t) })) },
@@ -421,8 +421,8 @@ const server = http.createServer(async (req, res) => {
     if (!Array.isArray(body?.events) || body.events.some((e) => !e || typeof e !== 'object' || Array.isArray(e))) {
       return sendJson(res, 400, { error: 'Invalid events' });
     }
-    // 暫停整個私人助理入口；在任何收集、身分查詢、附件、請款或回覆前排除一對一事件。
-    const activeEvents = body.events.filter(event => !isPausedDirectEvent(event));
+    // 暫停 AM 私人助理；已明確綁定給獨立傳輸服務的指令仍由原本服務處理。
+    const activeEvents = body.events.filter(event => !isPausedDirectEvent(event) || lineIo.owns(event));
     if (!activeEvents.length) return sendText(res, 200, 'OK');
     try { await lineIo.capture(activeEvents, { excludeEvents: event => Boolean(parseAttachmentRequest(event)) }); }
     catch { return sendJson(res, 503, { error: 'LINE I/O intake is temporarily unavailable.' }); }

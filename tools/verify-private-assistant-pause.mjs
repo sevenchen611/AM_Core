@@ -6,7 +6,7 @@ import * as directLine from '../core/direct-line.js';
 
 const source = { type: 'user', userId: 'synthetic-private-user' };
 const privateEvents = [
-  ...['你好', '我的身分', '新增待辦 明天回覆', '我的今天', '請款', '請提供這個檔案給我'].map((text, i) => ({
+  ...['你好', '待簽', '我的身分', '新增待辦 明天回覆', '我的今天', '請款', '請提供這個檔案給我'].map((text, i) => ({
     type: 'message', source, replyToken: `synthetic-${i}`, message: { id: `synthetic-${i}`, type: 'text', text },
   })),
   ...['image', 'file', 'audio', 'video'].map(type => ({ type: 'message', source, message: { type, id: `synthetic-${type}` } })),
@@ -24,6 +24,7 @@ for (const event of privateEvents) {
 }
 const group = { type: 'message', source: { type: 'group', groupId: 'synthetic-group', userId: source.userId }, message: { id: 'synthetic-group-message', type: 'text', text: '群組訊息' } };
 const room = { ...group, source: { type: 'room', roomId: 'synthetic-room', userId: source.userId } };
+const transport = { type: 'message', source, message: { id: 'synthetic-owned-uof', type: 'text', text: '待簽' } };
 for (const event of [group, room]) {
   assert.equal(directLine.isPausedDirectEvent(event), false);
   assert.deepEqual(await directLine.routeDirectLineEvent({ event }), { matched: false });
@@ -53,7 +54,7 @@ const dependencies = {
     portal: {}, modules: new Map(), platform, llm: { available: false, backends: [] }, logger,
   }) },
   './core/line-io/index.js': { createLineIo: async () => ({
-    enabled: false, owns: () => false, handle: async () => false, capture: async events => { calls.io++; passed.io.push(...events); },
+    enabled: false, owns: event => event.message?.id === transport.message.id, handle: async () => false, capture: async events => { calls.io++; passed.io.push(...events); },
   }), readLineIoBody: async req => req.rawBody },
   './core/bank-line-reply-intake.js': { createBankLineReplyIntake: () => ({
     receive: async event => { calls.bank++; passed.bank.push(event); return false; }, drain: async () => {},
@@ -86,10 +87,13 @@ assert.equal((await webhook(privateEvents, false)).status, 401);
 assert.equal((await webhook(privateEvents)).status, 200);
 for (const events of Object.values(passed)) assert.deepEqual(events, []);
 assert.ok(Object.values(calls).every(count => count === 0), 'private-only requests must bypass the entire processing pipeline');
-assert.equal((await webhook([...privateEvents, group, room])).status, 200);
-for (const events of Object.values(passed)) assert.deepEqual(JSON.parse(JSON.stringify(events)), [group, room]);
+assert.equal((await webhook([...privateEvents, group, room, transport])).status, 200);
+for (const [kind, events] of Object.entries(passed)) {
+  const expected = ['io', 'archive', 'retrieval'].includes(kind) ? [group, room, transport] : [group, room];
+  assert.deepEqual(JSON.parse(JSON.stringify(events)), expected);
+}
 const health = {};
 await handler({ method: 'GET', url: '/health' }, health);
 assert.equal(health.body.personalAssistant.enabled, false);
 assert.equal(health.body.personalAssistant.contract, 'private-assistant-pause-v1');
-console.log('Private assistant pause verified: signed private events acknowledged without intake, lookup, dispatch or reply; mixed group/room events retained; live health exposes pause.');
+console.log('Private assistant pause verified: private events bypass intake, lookup, dispatch and reply; groups/rooms and explicitly owned independent transport retained; live health exposes pause.');
