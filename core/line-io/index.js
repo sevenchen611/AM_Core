@@ -6,6 +6,7 @@ import { createDirectory } from './directory.js';
 import { createDirectoryStore } from './directory-store.js';
 import { createBindings } from './bindings.js';
 import { buildReviewCards, buildInlineResult } from './cards.js';
+import { conversationId, directId, directUofInput } from './conversation.js';
 
 const PREFIX = '/api/v1/line';
 const SCOPES = new Set(['groups:read', 'events:read', 'messages:write', 'directory:read', 'bindings:write']);
@@ -170,7 +171,8 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
       // Core-owned attachment requests still update directory/membership above,
       // but must not give a second assistant the event/reply token.
       if (excludeEvents(event)) continue;
-      const groupId = event?.source?.type === 'group' ? event.source.groupId : '';
+      const groupId = conversationId(event);
+      if(event?.source?.type==='user' && !directUofInput(event)) continue;
       const person=personal?.lookup(groupId);
       if(person) {
         if(person.status!=='bound' || (['message','postback'].includes(event.type) && event.source.userId!==person.user_id)) continue;
@@ -244,6 +246,7 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
           try {
             const binding = await resolve(client.tenantKey, groupId);
             return { groupId, name: binding.groupName, bindingId: binding.pageId,
+              conversationType:directId(groupId)?'user':'group',
               projectId: binding.projectPageId || null, writable: binding.status === '啟用',
               inputUserIds: binding.personalBinding ? [binding.personalBinding.user_id] : client.inputUserIds || null,
               notifyUserId: binding.personalBinding?.user_id || client.notifyUserId };

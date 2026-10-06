@@ -21,7 +21,7 @@ async function harness(t,{replyEnabled=false}={}) {
   const pool={query,connect:async()=>({query,release(){}})};
   const bindingStore=createBindingStore(pool),store=createLineIoStore(pool),pushes=[],replies=[],lookups=[];
   let count=1,failure;
-  const line={configured:true,lineGet:async path=>{lookups.push(path);if(failure)throw failure;return path.endsWith('/count')?{count}:{groupName:'Synthetic private group'};},
+  const line={configured:true,lineGet:async path=>{lookups.push(path);if(failure)throw failure;return path.startsWith('/v2/bot/profile/')?{userId:path.split('/').at(-1),displayName:'Synthetic owner'}:path.endsWith('/count')?{count}:{groupName:'Synthetic private group'};},
     resolveGroupMemberName:async(...args)=>{lookups.push(args);if(failure)throw failure;return 'Synthetic owner';},
     pushLineMessage:async(...args)=>{pushes.push(args);return {requestId:'test',messageIds:['test']};},
     replyLineMessages:async(...args)=>{replies.push(args);return {ok:true};}};
@@ -49,6 +49,69 @@ function deferred() {
   const promise=new Promise(done=>{resolve=done;});
   return {promise,resolve};
 }
+
+test('explicit owner migration routes only UOF private inputs, replies and pushes to that owner, with group rollback',async t=>{
+  const h=await harness(t,{replyEnabled:true}),row=await h.bind();
+  const second=await h.start('second-owner');
+  await h.gateway.capture([h.event('second-bind',second.command,other,intruder)]);
+  assert.equal((await h.request(`/bindings/${second.bindingId}/confirm`,{method:'POST',body:{externalUserId:'second-owner'}})).status,200);
+  const switchBody={externalUserId:'synthetic-owner',mode:'direct',expectedGroupId:group,expectedUserId:user};
+  const switchPath=`/bindings/${row.bindingId}/conversation`;
+  assert.equal((await h.request(switchPath,{method:'POST',key:ioKey,body:switchBody})).status,403);
+  assert.equal((await h.request(switchPath,{method:'POST',body:{...switchBody,expectedUserId:intruder}})).status,409);
+  assert.equal((await h.request(switchPath,{method:'POST',body:{...switchBody,externalUserId:'second-owner'}})).status,404);
+  const migrated=await h.request(switchPath,{method:'POST',body:switchBody});
+  assert.equal(migrated.status,200);assert.equal(migrated.body.groupId,user);assert.equal(migrated.body.conversationType,'user');
+  assert.equal((await h.bindingStore.get(second.bindingId)).group_id,other,'other accounts remain group-bound');
+  const dm=(id,text,userId=user)=>({...h.event(id,text),source:{type:'user',userId}});
+  assert.equal(h.gateway.owns(dm('query','待簽')),true);
+  assert.equal(h.gateway.owns(dm('ordinary','你好')),false);
+  assert.equal(h.gateway.owns(dm('not-pilot','待簽',intruder)),false);
+  await h.gateway.capture([dm('direct-query','待簽'),dm('ordinary','你好'),dm('not-pilot','待簽',intruder),h.event('old-query','待簽')]);
+  const events=await h.request('/events',{key:ioKey});
+  assert.equal(events.status,200);
+  assert.deepEqual(events.body.events.map(e=>e.event.webhookEventId),['direct-query']);
+  assert.equal(events.body.events[0].groupId,user);
+  assert.equal(JSON.stringify(events.body).includes('NEVER_STORE'),false);
+  const cards=[{title:'Synthetic UOF pending',actions:[{label:'Approve',data:'uof.submit.synthetic'}]}];
+  const payload={groupId:user,notifyUserId:user,text:'UOF pending',cards};
+  assert.equal((await h.request('/replies',{method:'POST',key:ioKey,body:{...payload,eventId:'direct-query'}})).status,200);
+  assert.equal(h.replies[0][1][0].contents.footer.contents[0].action.data,'uof.submit.synthetic');
+  assert.equal((await h.request('/messages',{method:'POST',key:ioKey,body:payload,idempotency:'direct-push'})).status,200);
+  assert.equal(h.pushes[0][0],user);assert.equal(h.pushes[0][1].type,'flex');
+  assert.equal((await h.request('/messages',{method:'POST',key:ioKey,body:payload,idempotency:'direct-push'})).body.replayed,true);
+  assert.equal(h.pushes.length,1);
+  assert.equal((await h.request('/messages',{method:'POST',key:ioKey,body:{...payload,notifyUserId:intruder},idempotency:'wrong-owner'})).status,403);
+  assert.equal((await h.request('/messages',{method:'POST',key:ioKey,body:{...payload,groupId:intruder},idempotency:'arbitrary-dm'})).status,403);
+  assert.equal((await h.request('/messages',{method:'POST',key:ioKey,body:{...payload,groupId:group},idempotency:'old-group'})).status,403);
+  assert.equal(h.pushes.length,1);
+  const restored=await h.request(switchPath,{method:'POST',body:{...switchBody,mode:'group',expectedGroupId:user,groupId:group}});
+  assert.equal(restored.status,200);assert.equal(restored.body.groupId,group);
+  assert.equal(restored.body.conversationType,'group');
+});
+
+test('direct profile outage, malformed source and unfollow fail closed without affecting other groups',async t=>{
+  const h=await harness(t),row=await h.bind();
+  const switchBody={externalUserId:'synthetic-owner',mode:'direct',expectedGroupId:group,expectedUserId:user};
+  const path=`/bindings/${row.bindingId}/conversation`;
+  h.setFailure(new Error('temporary provider outage'));
+  assert.equal((await h.request(path,{method:'POST',body:switchBody})).status,503);
+  assert.equal((await h.bindingStore.get(row.bindingId)).group_id,group);
+  h.setFailure(null);assert.equal((await h.request(path,{method:'POST',body:switchBody})).status,200);
+  const dm={...h.event('private','待簽'),source:{type:'user',userId:user}};
+  await h.gateway.capture([{...dm,source:{...dm.source,groupId:group}}]);
+  assert.equal((await h.db.query("SELECT event_id FROM line_io.line_io_events WHERE event_id='private'")).rows.length,0);
+  h.setFailure(new Error('temporary profile outage'));
+  assert.equal((await h.request('/groups',{key:ioKey})).status,503);
+  assert.equal((await h.bindingStore.get(row.bindingId)).status,'bound','temporary outages do not revoke ownership');
+  h.setFailure(null);
+  await h.gateway.capture([{type:'unfollow',source:{type:'user',userId:user}}]);
+  assert.equal((await h.bindingStore.get(row.bindingId)).status,'suspended');
+  assert.equal((await h.request('/messages',{method:'POST',key:ioKey,body:{groupId:user,notifyUserId:user,text:'blocked'},idempotency:'blocked-dm'})).status,403);
+  await h.gateway.capture([dm]);
+  assert.equal((await h.db.query("SELECT event_id FROM line_io.line_io_events WHERE event_id='private'")).rows.length,0);
+  assert.equal(h.pushes.length,0);
+});
 
 async function proofHarness() {
   const row={id:'11111111-1111-1111-1111-111111111111',status:'bound',group_id:group,user_id:user,
