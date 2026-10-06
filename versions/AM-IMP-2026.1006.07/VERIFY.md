@@ -1,20 +1,7 @@
 # Verify
 
-```text
-node --check server.js
-node --experimental-vm-modules --test tools/test-leaf-calendar.mjs
-node --experimental-vm-modules tools/verify-private-assistant-pause.mjs
-node --experimental-vm-modules tools/verify-attachment-webhook.mjs
-node --experimental-vm-modules tools/verify-bank-line-reply-intake.mjs
-node tools/dryrun-personal-line-routing.mjs
-node tools/dryrun-core.mjs
-node tools/check-upgrade-package.js AM-IMP-2026.1006.07
-node tools/audit-alignment.js
-node tools/compare-project-manifests.js
-```
+Run node --experimental-vm-modules --test tools/test-leaf-calendar.mjs and node --test tools/test-line-bindings.mjs. SQL tests use real PGlite tables with a non-superuser role and forced RLS. Cases cover shared key encryption, trusted account override protection, owner/tenant isolation, missing data, edits/stale cards, cancellation/expiry, duplicate delivery, immutable uncertain retries, restart, identity change and permanent API errors. Signed webhook tests verify durable capture before ACK and no write before owner confirmation. UOF binding tests verify the resolver refuses foreign users and group rollback.
 
-The seven calendar tests exercise actual SQL/schema with disposable PGlite and a real signed webhook handler. Covered: tenant RLS and owner isolation, encrypted key and single-use pairing, source/confirmation evidence, missing data, cancellation, stale revisions, multi-event ambiguity, expired confirmation, key rotation, restart, lease fencing, replay, permanent errors and an uncertain timeout after a mocked Google acceptance. Zero real Google events or LINE messages are sent.
+Run node --experimental-vm-modules tools/verify-private-assistant-pause.mjs, tools/verify-attachment-webhook.mjs and tools/verify-bank-line-reply-intake.mjs with the same VM flag. Run npm run check, node tools/dryrun-personal-line-routing.mjs and node tools/dryrun-core.mjs. Validate package, audit alignment and compare manifests separately; existing alignment gaps are not resolved by this calendar change.
 
-After schema/main deployment, verify live health. Probe DailyLog auth only with an empty invalid body. A valid key should return 400 INVALID_REQUEST, not 401. Do not call create with a valid activity until the human has approved that activity. Only an actual successful API response with matching requestId and an event ID permits 已加入. End-user acceptance requires the human's own pairing and confirmed event.
-
-Overall standalone-project alignment must not be claimed if the existing manifest audit fails. Secret values, real messages, drafts and production logs stay outside AMCore.
+Production: verify deployed commit against reviewed main, live shared calendar contract, provisioned/configured tenant and paused general assistant. Validate shared auth via empty invalid body (400 INVALID_REQUEST), never via an invented real activity. Inspect existing trusted UOF direct binding read-only. User acceptance: send a real intended activity, review four fields, confirm and verify it in the same DailyLog-selected Google calendar. Only successful API responses can be described as created.

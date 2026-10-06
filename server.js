@@ -27,7 +27,7 @@ import {
 const ctx = await bootstrap(process.env);
 const { tenants, line, router, dispatcher, portal, modules, platform, llm, logger } = ctx;
 const lineIo = await createLineIo({ tenants, line, router, logger });
-const leafCalendar = await createLeafCalendar({ tenants, platform, logger });
+const leafCalendar = await createLeafCalendar({ tenants, platform, logger, resolveIdentity: lineIo.resolveCalendarIdentity });
 platform.attachmentArchive.setTransportResolver(lineIo.resolveAttachmentBinding);
 const attachmentRetrieval = createAttachmentRetrieval({ platform, router,
   ownsTransport: event => lineIo.owns(event), resolveTransport: lineIo.resolveAttachmentBinding, logger });
@@ -518,12 +518,12 @@ const server = http.createServer(async (req, res) => {
   }
 
   // Purpose-specific setup token derived from this channel's secret; never exposed to LINE or AI.
-  if (req.method === 'POST' && pathname === '/portal/admin/leaf-calendar/pairings') {
+  if (req.method === 'POST' && pathname === '/portal/admin/leaf-calendar/service') {
     if (!leafCalendar.adminAuthorized(String(req.headers.authorization || '').replace(/^Bearer /,''))) return sendJson(res,401,{error:'Unauthorized'});
     try {
       const payload = JSON.parse(await readLineIoBody(req,4096));
-      return sendJson(res,201,await leafCalendar.createPairing(payload));
-    } catch { return sendJson(res,503,{error:'Calendar API, credential or tenant setup is not ready.'}); }
+      return sendJson(res,201,await leafCalendar.configureService(payload));
+    } catch(error) { return sendJson(res,503,{error:error.code==='MIGRATION_NOT_CONFIGURED'?'Calendar migration database is not configured.':'Calendar API, credential or tenant setup is not ready.'}); }
   }
 
   // ── 模組 web routes(佇列 / 儀表板 …)──

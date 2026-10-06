@@ -1,7 +1,5 @@
 # AM-IMP-2026.1006.07 — LINE activity confirmation
 
-Status: Blocked for end-user activation; package/runtime verified locally.
+Status: Ready. The runtime extracts four activity fields and asks the owner before creating an event through DailyLog. One shared encrypted service key is installed by the administrator. The actor account comes only from the existing verified UOF direct LINE binding, revalidated before execution; individual calendar keys are not required. Existing DailyLog Google authorization and selected calendar are reused.
 
-Private activity text gets a four-field preview, explicit owner confirmation and DailyLog Google Calendar creation. Missing/ambiguous details must be clarified; updated drafts require new confirmation. Tenant-local PostgreSQL stores source, supplements, confirmation, frozen API data and stable IDs for retry/restart. A ten-minute single-use pairing binds an encrypted dedicated key to the signed LINE owner. General private auto-replies stay paused; UOF/groups stay on their existing routes.
-
-Actual use requires additive schema/main rollout, a valid production DailyLog calendar key and the human's LINE pairing. No production calendar entry is created during installation or auth validation. Follow the shared package's INSTALL/VERIFY/ROLLBACK instructions; records and secrets remain local to this tenant.
+Local tests cover confirmation, owner and tenant isolation, account override protection, stale edits, expiry, immutable retries, restart, lease fencing, shared key encryption and signed webhook ACK ordering. Production schema/main rollout and shared configuration verification remain pending. No calendar entry is created during installation/auth validation. Follow shared INSTALL/VERIFY/ROLLBACK; records and secrets remain tenant-local. Legacy standalone HOZO/Seven projects are not changed by this platform rollout.

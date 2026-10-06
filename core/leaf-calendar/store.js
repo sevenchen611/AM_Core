@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
+import {readFile} from 'node:fs/promises';
 
-export function createCalendarStore({ settingsForTenant, poolFactory }) {
+export function createCalendarStore({ settingsForTenant, poolFactory, env=process.env }) {
   const pools = new Map();
   async function poolFor(tenant) {
     const cfg = settingsForTenant(tenant);
@@ -27,27 +28,41 @@ export function createCalendarStore({ settingsForTenant, poolFactory }) {
   }
   const json = value => JSON.stringify(value);
   async function ready(tenant) { return tx(tenant, async c => { await c.query('SELECT request_id FROM leaf_calendar.requests LIMIT 0'); return true; }); }
-  async function pair(tenant, data) {
-    return tx(tenant, async (c,t) => c.query(`INSERT INTO leaf_calendar.pairings(tenant_id,code_hash,base_url,encrypted_key,fingerprint,expires_at)
-      VALUES($1,$2,$3,$4::jsonb,$5,now()+interval '10 minutes')`, [t,data.codeHash,data.baseUrl,json(data.encryptedKey),data.fingerprint]));
+  // Explicit operator setup only: reviewed additive schema, no automatic boot migration.
+  async function provision(tenant) {
+    const prefix=tenant.envPrefix,connectionPrefix=tenant.operationalMemory?.connectionEnvPrefix||prefix;
+    const value=name=>env[prefix+'_'+name]||env[connectionPrefix+'_'+name]||env[name];
+    const url=value('AM_MEMORY_MIGRATION_DATABASE_URL');if(!url)throw Object.assign(new Error('migration_unavailable'),{code:'MIGRATION_NOT_CONFIGURED'});
+    const runtime=await (await poolFor(tenant)).connect();
+    let role;
+    try {const identity=(await runtime.query('SELECT current_user AS name,rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user')).rows[0];
+      if(identity.rolsuper||identity.rolbypassrls)throw new Error('runtime_role_must_enforce_rls');role='"'+identity.name.replaceAll('"','""')+'"';}
+    finally {runtime.release();}
+    const {Client}=await import('pg');const cfg=settingsForTenant(tenant);
+    const db=new Client({connectionString:url,ssl:cfg.databaseSsl?{rejectUnauthorized:false}:undefined,connectionTimeoutMillis:8000});
+    try {await db.connect();await db.query('BEGIN');
+      await db.query(await readFile(new URL('../../versions/AM-IMP-2026.1006.07/schemas/leaf-calendar.sql',import.meta.url),'utf8'));
+      await db.query('GRANT USAGE ON SCHEMA leaf_calendar TO '+role);
+      await db.query('GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA leaf_calendar TO '+role);
+      await db.query('COMMIT');}
+    catch(error){await db.query('ROLLBACK').catch(()=>{});throw error;}
+    finally{await db.end().catch(()=>{});}
+    return ready(tenant);
   }
-  async function claimPair(tenant, codeHash, userId) {
-    return tx(tenant, async (c,t) => {
-      const result = await c.query(`UPDATE leaf_calendar.pairings SET claimed_by=$3 WHERE tenant_id=$1 AND code_hash=$2
-        AND claimed_by IS NULL AND expires_at>now() RETURNING *`, [t,codeHash,userId]);
-      const row = result.rows[0];
-      if (!row) return false;
-      const duplicate=await c.query('SELECT 1 FROM leaf_calendar.bindings WHERE tenant_id=$1 AND fingerprint=$2 AND line_user_id<>$3',[t,row.fingerprint,userId]);
-      if(duplicate.rows.length)return false;
-      await c.query(`INSERT INTO leaf_calendar.bindings(tenant_id,line_user_id,base_url,encrypted_key,fingerprint)
-        VALUES($1,$2,$3,$4::jsonb,$5) ON CONFLICT(tenant_id,line_user_id) DO UPDATE
-        SET base_url=EXCLUDED.base_url,encrypted_key=EXCLUDED.encrypted_key,fingerprint=EXCLUDED.fingerprint,
-          editing_id=NULL,editing_revision=NULL,updated_at=now()`, [t,userId,row.base_url,json(row.encrypted_key),row.fingerprint]);
-      return true;
-    });
+  async function service(tenant) {
+    return tx(tenant,async(c,t)=>(await c.query('SELECT * FROM leaf_calendar.service_config WHERE tenant_id=$1',[t])).rows[0]||null);
   }
-  async function binding(tenant, userId) {
-    return tx(tenant, async (c,t) => (await c.query('SELECT * FROM leaf_calendar.bindings WHERE tenant_id=$1 AND line_user_id=$2',[t,userId])).rows[0] || null);
+  async function configure(tenant,data) {
+    return tx(tenant,async(c,t)=>c.query(`INSERT INTO leaf_calendar.service_config(tenant_id,base_url,encrypted_key)
+      VALUES($1,$2,$3::jsonb) ON CONFLICT(tenant_id) DO UPDATE SET base_url=EXCLUDED.base_url,encrypted_key=EXCLUDED.encrypted_key,updated_at=now()`,[t,data.baseUrl,json(data.encryptedKey)]));
+  }
+  async function syncActor(tenant,userId,identity) {
+    return tx(tenant,async(c,t)=>(await c.query(`INSERT INTO leaf_calendar.actors(tenant_id,line_user_id,account,fingerprint)
+      VALUES($1,$2,$3,$4) ON CONFLICT(tenant_id,line_user_id) DO UPDATE SET
+      account=EXCLUDED.account,fingerprint=EXCLUDED.fingerprint,
+      editing_id=CASE WHEN actors.fingerprint=EXCLUDED.fingerprint THEN actors.editing_id ELSE NULL END,
+      editing_revision=CASE WHEN actors.fingerprint=EXCLUDED.fingerprint THEN actors.editing_revision ELSE NULL END,
+      updated_at=now() RETURNING *`,[t,userId,identity.account,identity.fingerprint])).rows[0]);
   }
   async function insert(tenant, input) {
     return tx(tenant, async (c,t) => (await c.query(`INSERT INTO leaf_calendar.requests(tenant_id,request_id,line_user_id,kind,status,payload,source_evidence,fingerprint)
@@ -95,7 +110,7 @@ export function createCalendarStore({ settingsForTenant, poolFactory }) {
           AND expires_at>now() AND lease_token IS NULL RETURNING request_id`,
         [t,intake.line_user_id,intake.payload.editId,intake.payload.editRevision,json(draft.payload),draft.status,json(intake.source_evidence)]);
         if (!updated.rows.length) throw new Error('draft_changed');
-        await c.query('UPDATE leaf_calendar.bindings SET editing_id=NULL,editing_revision=NULL WHERE tenant_id=$1 AND line_user_id=$2',[t,intake.line_user_id]);
+        await c.query('UPDATE leaf_calendar.actors SET editing_id=NULL,editing_revision=NULL WHERE tenant_id=$1 AND line_user_id=$2',[t,intake.line_user_id]);
       } else {
         for (const draft of drafts) await c.query(`INSERT INTO leaf_calendar.requests(tenant_id,request_id,line_user_id,kind,status,payload,source_evidence,fingerprint)
           VALUES($1,$2,$3,'draft',$4,$5::jsonb,$6::jsonb,$7) ON CONFLICT DO NOTHING`,
@@ -122,7 +137,7 @@ export function createCalendarStore({ settingsForTenant, poolFactory }) {
           source_evidence=jsonb_set(source_evidence,'{updates}',COALESCE(source_evidence->'updates','[]'::jsonb)||jsonb_build_array($4::jsonb),true),
           lease_token=NULL,lease_expires_at=NULL,expires_at=now()+interval '24 hours'
           WHERE tenant_id=$1 AND line_user_id=$2 AND request_id=$3`,[t,userId,id,json(evidence||{action})]);
-        await c.query('UPDATE leaf_calendar.bindings SET editing_id=$3,editing_revision=$4 WHERE tenant_id=$1 AND line_user_id=$2',[t,userId,id,revision+1]);
+        await c.query('UPDATE leaf_calendar.actors SET editing_id=$3,editing_revision=$4 WHERE tenant_id=$1 AND line_user_id=$2',[t,userId,id,revision+1]);
         return {code:'editing',row};
       }
       if (action==='confirm' && row.status!=='pending') return {code:'needs_details',row};
@@ -135,7 +150,6 @@ export function createCalendarStore({ settingsForTenant, poolFactory }) {
       return {code:action==='confirm'?'confirmed_now':'cancelled_now',row};
     });
   }
-  return {ready,pair,claimPair,binding,insert,owned,pending,lease,settle,storeDrafts,control,
-    unbind:(tenant,userId)=>tx(tenant,async(c,t)=>c.query('DELETE FROM leaf_calendar.bindings WHERE tenant_id=$1 AND line_user_id=$2',[t,userId])),
+  return {ready,provision,service,configure,syncActor,insert,owned,pending,lease,settle,storeDrafts,control,
     close:async()=>{for(const readyPool of pools.values()) await (await readyPool).end?.();}};
 }

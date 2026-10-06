@@ -1,22 +1,21 @@
 # Install and activate
 
-1. Run VERIFY.md and merge reviewed code to main. Apply from that revision only.
-2. Provision each requested tenant separately using its own migration/runtime database settings. No other project receives credentials or records:
+1. Run VERIFY.md and merge reviewed code to main. The authenticated shared service setup can apply the reviewed additive schema using migration/runtime credentials already held by the server. It checks that the runtime role cannot bypass RLS. There is no automatic boot migration. Alternatively apply schema locally from that reviewed revision using the requested tenant's own credentials:
 
-```text
+~~~text
 node --env-file=<project-local-env> tools/install-leaf-calendar.mjs <tenant-key>
 node --env-file=<project-local-env> tools/install-leaf-calendar.mjs <tenant-key> --apply
-```
+~~~
 
-3. Verify live `/health` reports `lineCalendar.contract=line-confirmed-dailylog-calendar-v1` and the provisioned tenant. If code started before schema creation, restart the reviewed main service.
-4. In the production DailyLog account, connect Google persistently, choose an editable calendar and create the dedicated `dlcal.` key. Local and production keys/Google grants are separate. Save the key in a private file outside all repositories; never paste it into a conversation or tracked file.
-5. Enrollment uses the same deployment's existing LINE channel secret for a purpose-specific setup credential. The supplied origin is trusted administrator configuration, never derived from LINE text or AI output:
+2. Deploy reviewed main. Verify /health reports lineCalendar.contract=line-confirmed-dailylog-shared-calendar-v2 and the provisioned tenant. If boot preceded schema installation, restart reviewed main.
+3. Read the supplied private shared service env through the setup CLI. Never copy it into this repository or print its values:
 
-```text
-node --env-file=<project-local-env> tools/enroll-leaf-calendar.mjs --key-file <private-file> --tenant <tenant-key> --dailylog-base <production-DailyLog-HTTPS-origin> --platform-base <production-AM-HTTPS-origin>
-```
+~~~text
+node --env-file=<project-local-env> tools/enroll-leaf-calendar.mjs --service-env <private-service-env> --tenant <tenant-key> --platform-base <production-AM-HTTPS-origin>
+~~~
 
-6. Give the returned command to its intended human only. They send `綁定行事曆 LC1.…` in their LINE one-to-one chat within ten minutes. No arbitrary LINE user/account/calendar identifiers can be supplied in activity text. Enrollment validates auth using an intentionally invalid empty event body: the API must return `400 INVALID_REQUEST`, without creating an event.
-7. The user sends activity text, reviews all four fields, optionally supplements it, and explicitly presses 加入行事曆. Source and confirmation are retained. Use 查看行事曆草稿 to redisplay pending cards and 解除行事曆綁定 to stop future intake.
+4. The CLI installs the shared service once through a purpose-specific authenticated setup endpoint. It checks API authentication using an intentionally invalid empty body (400 INVALID_REQUEST), which creates no event. The service key is encrypted in the tenant-local database; regular users receive no key or calendar pairing code. Verify configuredTenants in live health.
+5. Users keep their existing verified UOF direct LINE binding and DailyLog Google authorization/calendar selection. Mapping is obtained from LINE IO, never guessed from names or extracted from chat text. Unbound or group-bound users must complete the existing UOF direct binding flow before using private calendar intake.
+6. Send activity text, review the four fields, optionally supplement it, and explicitly press 加入行事曆. 查看行事曆草稿 redisplays pending cards. 不加入 cancels the draft. Revoking the existing UOF binding stops future authorized intake/writes.
 
-A profile bound to a different tenant cannot silently overwrite that assignment. Former pending items must be reviewed anew after binding/key changes. API target changes happen in DailyLog by issuing and pairing a new key.
+No production entry is created by installation. For shared key rotation reinstall the updated private env; retries retain their frozen account/body/request ID. If UOF identity or service origin changes, older drafts require new intake and confirmation. Standalone HOZO/Seven installation remains separate and is not implied by this root platform rollout.

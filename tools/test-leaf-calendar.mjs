@@ -13,7 +13,7 @@ const T='11111111-1111-4111-8111-111111111111',OTHER='22222222-2222-4222-8222-22
 const U='U'+'a'.repeat(32),V='U'+'b'.repeat(32);
 const tenant={key:'synthetic',tenantId:T},other={key:'other',tenantId:OTHER};
 const secret='synthetic-channel-secret-not-production';
-const apiKey='dlcal.'+'c'.repeat(64)+'.'+'d'.repeat(64);
+const apiKey='synthetic-shared-service-key-'.padEnd(72,'x');
 const activity={topic:'專案會議',date:'2026-10-08',time:'14:00',endTime:'15:30',location:'台中會議室',content:'確認進度與分工'};
 const message=(id,text,user=U)=>({type:'message',webhookEventId:id,timestamp:Date.now(),source:{type:'user',userId:user},message:{id,type:'text',text}});
 const button=(id,action,draft,user=U)=>({type:'postback',webhookEventId:id,timestamp:Date.now(),source:{type:'user',userId:user},postback:{data:`leafcal:${action}:${draft.request_id}:${draft.revision}`}});
@@ -31,23 +31,27 @@ async function fixture(){
   const saved=new Map();
   const fetchImpl=async(url,options)=>{
     assert.equal(new URL(url).origin,'https://calendar.example.test');
-    assert.ok(options.headers.Authorization.startsWith('Bearer dlcal.'));
+    assert.ok(options.headers.Authorization === 'Bearer '+apiKey);
     const payload=JSON.parse(options.body);
     if(!Object.keys(payload).length)return new Response(JSON.stringify({code:'INVALID_REQUEST'}),{status:400});
     writes.push(payload);
     if(failures.length){const failure=failures.shift();if(failure==='timeout'){saved.set(payload.requestId,payload);ambiguousAccepted=true;throw new Error('timeout');}
       return new Response(JSON.stringify({ok:false,code:failure}),{status:failure==='UNAUTHORIZED'?401:502});}
     const replayed=saved.has(payload.requestId);if(replayed)assert.deepEqual(saved.get(payload.requestId),payload);saved.set(payload.requestId,payload);
-    return new Response(JSON.stringify({ok:true,requestId:payload.requestId,replayed,event:{id:payload.requestId,htmlLink:'https://calendar.google.com/calendar/event?eid=synthetic'}}),{status:replayed?200:201});
+    return new Response(JSON.stringify({ok:true,requestId:payload.requestId,account:payload.account,replayed,event:{id:payload.requestId,htmlLink:'https://calendar.google.com/calendar/event?eid=synthetic'}}),{status:replayed?200:201});
   };
   const platform={llmForTenant:()=>({available:true,completeJson:async args=>{assert.ok(!JSON.stringify(args).includes(apiKey));prompts.push(args);return {events};}}),
     pushLineMessage:async(userId,msg,_mention,delivery)=>{assert.ok(USER_IDS.includes(userId));pushes.push({userId,msg,key:delivery.retryKey});}};
   const USER_IDS=[U,V];
-  const service=await createLeafCalendar({env:{LINE_CHANNEL_SECRET:secret},tenants:[tenant,other],platform,store,fetchImpl,logger:{warn(){}}});
-  async function bind(user=U,key=apiKey){const pair=await service.createPairing({tenantKey:tenant.key,baseUrl:'https://calendar.example.test',apiKey:key});
-    await service.capture([message('bind-'+user,pair.command,user)]);await service.drain();return pair;}
-  return {db,store,service,platform,pushes,writes,prompts,bind,setEvents:x=>{events=x;},fail:x=>{failures=x;},accepted:()=>ambiguousAccepted,
-    restart:()=>createLeafCalendar({env:{LINE_CHANNEL_SECRET:secret},tenants:[tenant,other],platform,store,fetchImpl,logger:{warn(){}}}),
+  const identities=new Map();
+  const resolveIdentity=async userId=>identities.get(userId)||null;
+  const service=await createLeafCalendar({env:{LINE_CHANNEL_SECRET:secret},tenants:[tenant,other],platform,store,fetchImpl,resolveIdentity,logger:{warn(){}}});
+  await service.configureService({tenantKey:tenant.key,baseUrl:'https://calendar.example.test',apiKey});
+  async function bind(user=U,account=user===U?'synthetic-owner':'synthetic-other'){
+    identities.set(user,{tenantKey:tenant.key,account,bindingId:'verified-'+user+'-'+account});
+  }
+  return {db,store,service,platform,pushes,writes,prompts,bind,identities,setEvents:x=>{events=x;},fail:x=>{failures=x;},accepted:()=>ambiguousAccepted,
+    restart:()=>createLeafCalendar({env:{LINE_CHANNEL_SECRET:secret},tenants:[tenant,other],platform,store,fetchImpl,resolveIdentity,logger:{warn(){}}}),
     async accelerate(){await db.query('BEGIN');await db.query("SELECT set_config('app.tenant_id',$1,true)",[T]);await db.query('UPDATE leaf_calendar.requests SET available_at=now(),lease_expires_at=NULL WHERE tenant_id=$1',[T]);await db.query('COMMIT');},close:async()=>{await store.close();await db.close();}};
 }
 test('activity normalization: Taiwan timezone, invalid dates, default and explicit cross-day end',async()=>{
@@ -60,17 +64,18 @@ test('activity normalization: Taiwan timezone, invalid dates, default and explic
   const fallback=await extractEvents({text:'補充活動：\n地點：新會議室',at:Date.now(),existing:activity});assert.equal(fallback[0].topic,activity.topic);assert.equal(fallback[0].location,'新會議室');
   const range=await extractEvents({text:'活動名稱：會議\n日期：2026/10/08\n時間：14:00–16:00\n地點：台中',at:Date.now()});assert.equal(range[0].endTime,'16:00');
 });
-test('own single-use pairing, encrypted key, no write until explicit confirmation, and replay',async()=>{
+test('shared service encryption, trusted account, no write until explicit confirmation, and replay',async()=>{
   const f=await fixture();try{
     assert.equal(f.service.adminAuthorized(calendarAdminKey(secret)),true);assert.equal(f.service.adminAuthorized('wrong'),false);
-    const pair=await f.bind();assert.equal(await f.store.claimPair(tenant,(await import('node:crypto')).createHash('sha256').update(pair.code).digest('hex'),V),false);
-    const bound=await f.store.binding(tenant,U);assert.ok(!JSON.stringify(bound).includes(apiKey));
+    await f.bind();const config=await f.store.service(tenant);assert.ok(!JSON.stringify(config).includes(apiKey));
+    assert.equal(await f.service.accepts(message('unbound','10/8 會議 14:00 台中',V)),false);
+    f.setEvents([{...activity,account:'attacker-account'}]);
     const source=message('meeting-1','10/8 專案會議 下午2點 台中會議室');
     assert.equal(await f.service.accepts(source),true);await f.service.capture([source]);await f.service.drain();
     let draft=(await f.store.pending(tenant,U))[0];assert.equal(f.writes.length,0);assert.equal(draft.source_evidence.id,'meeting-1');
     assert.match(JSON.stringify(f.pushes.at(-1).msg),/活动名稱|活動名稱/);assert.match(JSON.stringify(f.pushes.at(-1).msg),/主要內容/);
     await f.service.capture([source]);await f.service.drain();assert.equal(f.prompts.length,1);
-    await f.service.capture([button('confirm-1','confirm',draft)]);await f.service.drain();assert.equal(f.writes.length,1);assert.equal(f.writes[0].topic,activity.topic);
+    await f.service.capture([button('confirm-1','confirm',draft)]);await f.service.drain();assert.equal(f.writes.length,1);assert.equal(f.writes[0].topic,activity.topic);assert.equal(f.writes[0].account,'synthetic-owner');
     assert.match(JSON.stringify(f.pushes.at(-1).msg),/已加入你的 Google 行事曆/);
     assert.equal((await f.store.owned(tenant,U,draft.request_id)).source_evidence.confirmation.id,'confirm-1');
     await f.service.capture([button('confirm-replayed','confirm',draft)]);await f.service.drain();assert.equal(f.writes.length,1);
@@ -78,7 +83,7 @@ test('own single-use pairing, encrypted key, no write until explicit confirmatio
 });
 test('wrong user/tenant, missing fields, cancellation and stale revision cannot create events',async()=>{
   const f=await fixture();try{
-    await f.bind();await f.bind(V,'dlcal.'+'e'.repeat(64)+'.'+'f'.repeat(64));
+    await f.bind();await f.bind(V);
     f.setEvents([{...activity,time:''}]);await f.service.capture([message('missing-time','10/8 會議 台中')]);await f.service.drain();
     const draft=(await f.store.pending(tenant,U))[0];
     assert.equal(await f.store.owned(other,U,draft.request_id),null);
@@ -113,14 +118,14 @@ test('real SQL leases fence stale workers and forced RLS denies missing/wrong te
     await f.db.query('BEGIN');await f.db.query("SELECT set_config('app.tenant_id',$1,true)",[OTHER]);assert.equal((await f.db.query('SELECT * FROM leaf_calendar.requests')).rows.length,0);await f.db.query('ROLLBACK');
   }finally{await f.close();}
 });
-test('durable restart, multiple events, expired confirmations, key rotation and permanent errors',async()=>{
+test('durable restart, multiple events, expired confirmations, identity changes and permanent errors',async()=>{
   const f=await fixture();try{
     await f.bind();f.setEvents([activity,{...activity,topic:'第二場會議'}]);await f.service.capture([message('multiple','10/8 兩場會議 14:00 台中')]);await f.service.drain();
     const pending=await f.store.pending(tenant,U);assert.equal(pending.length,2);
     await f.service.capture([message('ambiguous-confirm','確認加入行事曆')]);await f.service.drain();assert.equal(f.writes.length,0);
     const restarted=await f.restart();f.fail(['UNAUTHORIZED']);await restarted.capture([button('permanent-confirm','confirm',pending[0])]);await restarted.drain();
     assert.equal(f.writes.length,1);assert.equal((await f.store.owned(tenant,U,pending[0].request_id)).error_code,'UNAUTHORIZED');await f.accelerate();await restarted.drain();assert.equal(f.writes.length,1);
-    await f.bind(U,'dlcal.'+'1'.repeat(64)+'.'+'2'.repeat(64));await restarted.capture([button('changed-key-confirm','confirm',pending[1])]);await restarted.drain();assert.equal(f.writes.length,1);
+    await f.bind(U,'different-trusted-account');await restarted.capture([button('changed-key-confirm','confirm',pending[1])]);await restarted.drain();assert.equal(f.writes.length,1);
     f.setEvents([activity]);await restarted.capture([message('expiry','10/8 會議 14:00 台中')]);await restarted.drain();const expiring=(await f.store.pending(tenant,U)).find(x=>x.source_evidence.id==='expiry');
     await f.db.query('BEGIN');await f.db.query("SELECT set_config('app.tenant_id',$1,true)",[T]);await f.db.query("UPDATE leaf_calendar.requests SET expires_at=now()-interval '1 second' WHERE request_id=$1",[expiring.request_id]);await f.db.query('COMMIT');
     await restarted.capture([button('expired-confirm','confirm',expiring)]);await restarted.drain();assert.equal(f.writes.length,1);
@@ -152,6 +157,33 @@ test('real signed webhook persists calendar input before ACK; keeps groups and r
     const raw=JSON.stringify({events:[event,group]});const denied={};await handler({method:'POST',url:'/webhook/line',rawBody:raw,headers:{'x-line-signature':'invalid'}},denied);assert.equal(denied.status,401);
     const res={};await handler({method:'POST',url:'/webhook/line',rawBody:raw,headers:{'x-line-signature':sign(raw)}},res);assert.equal(res.status,200);await f.service.drain();await new Promise(resolve=>setImmediate(resolve));
     assert.equal(f.writes.length,0);assert.equal((await f.store.pending(tenant,U)).length,1);assert.ok(transport.every(e=>e.source.type==='group'));assert.equal(groups.length,1);
-    const adminDenied={};await handler({method:'POST',url:'/portal/admin/leaf-calendar/pairings',rawBody:'{}',headers:{authorization:'Bearer wrong'}},adminDenied);assert.equal(adminDenied.status,401);
+    const adminDenied={};await handler({method:'POST',url:'/portal/admin/leaf-calendar/service',rawBody:'{}',headers:{authorization:'Bearer wrong'}},adminDenied);assert.equal(adminDenied.status,401);
+  }finally{await f.close();}
+});
+
+test('revoked UOF identity after intake or confirmation cannot create a Google event',async()=>{
+  const f=await fixture();try{
+    await f.bind();await f.service.capture([message('revoked-after-intake','10/8 會議 14:00 台中')]);
+    f.identities.delete(U);await f.service.drain();assert.equal(f.prompts.length,0);assert.equal(f.writes.length,0);
+    await f.bind();await f.service.capture([message('revoked-after-preview','10/8 會議 14:00 台中')]);await f.service.drain();
+    const draft=(await f.store.pending(tenant,U))[0];await f.service.capture([button('revoked-confirm','confirm',draft)]);
+    f.identities.delete(U);await f.service.drain();assert.equal(f.writes.length,0);
+    assert.equal((await f.store.owned(tenant,U,draft.request_id)).confirmed_at,null);
+    assert.equal(await f.service.accepts(message('revoked-source','10/8 會議 14:00 台中')),false);
+  }finally{await f.close();}
+});
+
+test('authenticated shared setup provisions a cold tenant without individual pairing',async()=>{
+  const f=await fixture();try{
+    const cold=Object.create(f.store);let provisioned=false,provisions=0;
+    cold.ready=async()=>provisioned;cold.provision=async()=>{provisions++;provisioned=true;return true;};
+    const service=await createLeafCalendar({env:{LINE_CHANNEL_SECRET:secret},tenants:[tenant],platform:f.platform,store:cold,
+      resolveIdentity:async()=>({tenantKey:tenant.key,account:'synthetic-owner',bindingId:'trusted-cold'}),
+      fetchImpl:async()=>new Response(JSON.stringify({code:'INVALID_REQUEST'}),{status:400}),logger:{warn(){}}});
+    assert.equal(service.health().enabled,false);
+    await assert.rejects(service.configureService({tenantKey:'unregistered',baseUrl:'https://calendar.example.test',apiKey}));assert.equal(provisions,0);
+    await service.configureService({tenantKey:tenant.key,baseUrl:'https://calendar.example.test',apiKey});
+    assert.equal(service.health().enabled,true);assert.deepEqual(service.health().configuredTenants,[tenant.key]);assert.equal(provisions,1);
+    assert.equal(await service.accepts(message('cold-source','10/8 會議 14:00 台中')),true);assert.equal(f.writes.length,0);
   }finally{await f.close();}
 });

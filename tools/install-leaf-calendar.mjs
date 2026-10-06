@@ -5,7 +5,7 @@ const key=process.argv[2];
 const tenant=loadTenants(process.env,{warn(){}}).find(t=>t.key===key);
 if(!tenant)throw new Error('Provide a known tenant key.');
 const sql=await readFile(new URL('../versions/AM-IMP-2026.1006.07/schemas/leaf-calendar.sql',import.meta.url),'utf8');
-if(!process.argv.includes('--apply')){console.log(JSON.stringify({dryRun:true,tenant:key,tables:['pairings','bindings','requests']}));process.exit(0);}
+if(!process.argv.includes('--apply')){console.log(JSON.stringify({dryRun:true,tenant:key,tables:['service_config','actors','requests']}));process.exit(0);}
 const prefix=tenant.envPrefix,connectionPrefix=tenant.operationalMemory?.connectionEnvPrefix||prefix;
 const read=name=>process.env[`${prefix}_${name}`]||process.env[`${connectionPrefix}_${name}`];
 const migrationUrl=read('AM_MEMORY_MIGRATION_DATABASE_URL'),runtimeUrl=read('AM_MEMORY_DATABASE_URL');

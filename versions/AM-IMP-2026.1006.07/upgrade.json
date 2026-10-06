@@ -5,14 +5,56 @@
   "portable": true,
   "status": "Ready",
   "createdAt": "2026-10-06",
-  "installTargets": ["AM_PLATFORM"],
-  "requiresPackages": ["AM-IMP-2026.1006.02"],
-  "requiresDatabases": ["tenant-local PostgreSQL operational memory; additive leaf_calendar tables"],
-  "requiresEnv": ["existing LINE_CHANNEL_SECRET and LINE_CHANNEL_ACCESS_TOKEN", "existing tenant-local runtime/migration PostgreSQL settings", "optional AMCORE_LEAF_CALENDAR_ENABLED=0 kill switch"],
-  "requiresScripts": ["node --experimental-vm-modules --test tools/test-leaf-calendar.mjs", "node tools/install-leaf-calendar.mjs <tenant>", "node tools/enroll-leaf-calendar.mjs", "node tools/check-upgrade-package.js AM-IMP-2026.1006.07", "node tools/audit-alignment.js"],
-  "dataIsolation": {"canCopyCode": true, "canCopySchema": true, "canCopyData": false, "canCopySecrets": false},
-  "projectStatus": {"AM_PLATFORM": "Blocked"},
-  "files": ["core/leaf-calendar/index.js", "core/leaf-calendar/store.js", "core/leaf-calendar/extract.js", "server.js", "tools/test-leaf-calendar.mjs", "tools/install-leaf-calendar.mjs", "tools/enroll-leaf-calendar.mjs", "versions/AM-IMP-2026.1006.07/schemas/leaf-calendar.sql"],
-  "definitionOfDone": ["Activity preview shows name, date/time, location and content", "Explicit owner confirmation and complete data are required before creation", "User calendar target comes only from the paired DailyLog key", "Evidence, frozen payload and stable request ID survive retries/restart", "No cross-user or cross-tenant writes", "Reviewed main/live store verified and valid production key paired before end-user activation"],
-  "pendingUserDecisions": ["valid production DailyLog calendar key and human LINE pairing"]
+  "installTargets": [
+    "AM_PLATFORM"
+  ],
+  "requiresPackages": [
+    "AM-IMP-2026.1006.02"
+  ],
+  "requiresDatabases": [
+    "tenant-local PostgreSQL operational memory; additive leaf_calendar tables"
+  ],
+  "requiresEnv": [
+    "existing LINE_CHANNEL_SECRET and LINE_CHANNEL_ACCESS_TOKEN",
+    "existing tenant-local runtime/migration PostgreSQL settings",
+    "optional AMCORE_LEAF_CALENDAR_ENABLED=0 kill switch",
+    "one shared DailyLog service key installed from a private env file; active verified UOF direct binding"
+  ],
+  "requiresScripts": [
+    "node --experimental-vm-modules --test tools/test-leaf-calendar.mjs",
+    "node tools/install-leaf-calendar.mjs <tenant>",
+    "node tools/enroll-leaf-calendar.mjs",
+    "node tools/check-upgrade-package.js AM-IMP-2026.1006.07",
+    "node tools/audit-alignment.js"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "projectStatus": {
+    "AM_PLATFORM": "Ready"
+  },
+  "files": [
+    "core/leaf-calendar/index.js",
+    "core/leaf-calendar/store.js",
+    "core/leaf-calendar/extract.js",
+    "server.js",
+    "tools/test-leaf-calendar.mjs",
+    "tools/install-leaf-calendar.mjs",
+    "tools/enroll-leaf-calendar.mjs",
+    "versions/AM-IMP-2026.1006.07/schemas/leaf-calendar.sql",
+    "core/line-io/index.js",
+    "tools/test-line-bindings.mjs"
+  ],
+  "definitionOfDone": [
+    "Activity preview shows name, date/time, location and content",
+    "Explicit owner confirmation and complete data are required before creation",
+    "UOF account is resolved from the verified direct LINE binding; account cannot come from message or model",
+    "Evidence, frozen payload and stable request ID survive retries/restart",
+    "No cross-user or cross-tenant writes",
+    "Reviewed main/live store and encrypted shared service configuration verified before activation"
+  ],
+  "pendingUserDecisions": []
 }

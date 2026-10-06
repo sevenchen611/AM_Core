@@ -1,7 +1,5 @@
 # Rollback
 
-Set the production `AMCORE_LEAF_CALENDAR_ENABLED=0` and restart the reviewed main service to stop this feature's intake/worker. Alternatively revert the reviewed code commit through main. The general AM private assistant remains paused, and UOF/group routes are unaffected.
+Set AMCORE_LEAF_CALENDAR_ENABLED=0 on the bot deployment and redeploy reviewed main to stop intake and workers. UOF and other independent services keep their existing routes. Revert the runtime feature through a reviewed PR if needed. Keep tenant-local durable evidence and frozen requests for audit; do not delete these rows to retry, change IDs or create duplicates after uncertain writes. Revoking UOF binding also blocks that actor's further intake/writes.
 
-Keep the tenant-local tables and evidence for audit or later recovery; do not drop them or delete Google events automatically. Revoke the dedicated key in the owner's DailyLog account if the integration should lose Google access. Existing calendar events remain in Google until their owner explicitly changes or removes them.
-
-When re-enabling, preserve frozen confirmed JSON/request IDs. Do not swap IDs after timeout or idempotency conflict. After channel-secret rotation, create fresh pairings because encrypted keys use the former secret.
+The shared service key lives encrypted in the tenant database and in the administrator's private DailyLog file, never in Git. Rotate/revoke it in DailyLog when necessary, then reinstall the replacement bot configuration. Rotating the LINE channel secret requires reinstallation because stored service ciphertext is bound to it. This feature does not delete already-saved Google events; cancellation only applies to uncommitted drafts.

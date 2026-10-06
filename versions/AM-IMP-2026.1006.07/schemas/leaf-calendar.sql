@@ -1,25 +1,19 @@
 CREATE SCHEMA IF NOT EXISTS leaf_calendar;
-CREATE TABLE IF NOT EXISTS leaf_calendar.pairings (
-  tenant_id uuid NOT NULL REFERENCES am_memory.tenants(tenant_id),
-  code_hash text NOT NULL,
+CREATE TABLE IF NOT EXISTS leaf_calendar.service_config (
+  tenant_id uuid PRIMARY KEY REFERENCES am_memory.tenants(tenant_id),
   base_url text NOT NULL,
   encrypted_key jsonb NOT NULL,
-  fingerprint text NOT NULL,
-  expires_at timestamptz NOT NULL,
-  claimed_by text,
-  PRIMARY KEY (tenant_id, code_hash)
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
-CREATE TABLE IF NOT EXISTS leaf_calendar.bindings (
+CREATE TABLE IF NOT EXISTS leaf_calendar.actors (
   tenant_id uuid NOT NULL REFERENCES am_memory.tenants(tenant_id),
   line_user_id text NOT NULL,
-  base_url text NOT NULL,
-  encrypted_key jsonb NOT NULL,
+  account text NOT NULL,
   fingerprint text NOT NULL,
   editing_id text,
   editing_revision integer,
   updated_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (tenant_id, line_user_id),
-  UNIQUE (tenant_id, fingerprint)
+  PRIMARY KEY (tenant_id,line_user_id)
 );
 CREATE TABLE IF NOT EXISTS leaf_calendar.requests (
   tenant_id uuid NOT NULL REFERENCES am_memory.tenants(tenant_id),
@@ -47,15 +41,15 @@ CREATE TABLE IF NOT EXISTS leaf_calendar.requests (
   CHECK (status NOT IN ('confirmed','saving','saved') OR (kind='draft' AND confirmed_at IS NOT NULL))
 );
 CREATE INDEX IF NOT EXISTS leaf_calendar_queue ON leaf_calendar.requests(tenant_id,status,available_at);
-ALTER TABLE leaf_calendar.pairings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE leaf_calendar.pairings FORCE ROW LEVEL SECURITY;
-ALTER TABLE leaf_calendar.bindings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE leaf_calendar.bindings FORCE ROW LEVEL SECURITY;
+ALTER TABLE leaf_calendar.service_config ENABLE ROW LEVEL SECURITY;
+ALTER TABLE leaf_calendar.service_config FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON leaf_calendar.service_config;
+CREATE POLICY tenant_isolation ON leaf_calendar.service_config USING (tenant_id::text=current_setting('app.tenant_id',true)) WITH CHECK (tenant_id::text=current_setting('app.tenant_id',true));
+ALTER TABLE leaf_calendar.actors ENABLE ROW LEVEL SECURITY;
+ALTER TABLE leaf_calendar.actors FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS tenant_isolation ON leaf_calendar.actors;
+CREATE POLICY tenant_isolation ON leaf_calendar.actors USING (tenant_id::text=current_setting('app.tenant_id',true)) WITH CHECK (tenant_id::text=current_setting('app.tenant_id',true));
 ALTER TABLE leaf_calendar.requests ENABLE ROW LEVEL SECURITY;
 ALTER TABLE leaf_calendar.requests FORCE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS tenant_isolation ON leaf_calendar.pairings;
-CREATE POLICY tenant_isolation ON leaf_calendar.pairings USING (tenant_id::text=current_setting('app.tenant_id',true)) WITH CHECK (tenant_id::text=current_setting('app.tenant_id',true));
-DROP POLICY IF EXISTS tenant_isolation ON leaf_calendar.bindings;
-CREATE POLICY tenant_isolation ON leaf_calendar.bindings USING (tenant_id::text=current_setting('app.tenant_id',true)) WITH CHECK (tenant_id::text=current_setting('app.tenant_id',true));
 DROP POLICY IF EXISTS tenant_isolation ON leaf_calendar.requests;
 CREATE POLICY tenant_isolation ON leaf_calendar.requests USING (tenant_id::text=current_setting('app.tenant_id',true)) WITH CHECK (tenant_id::text=current_setting('app.tenant_id',true));
