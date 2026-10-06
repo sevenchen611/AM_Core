@@ -10,6 +10,7 @@ Environment prefix: `HZ2`
 
 | Version | Status | Capability | Scope | Notes |
 | --- | --- | --- | --- | --- |
+| `AM-IMP-2026.1006.06` | Ready | Enable journal URI in half-height menu | Shared LINE account menu | Left journal HTTPS URI; right UOF 待簽; actual application pending. |
 | `AM-IMP-2026.1006.05` | Deployed | Half-height journal / UOF Rich Menu | Shared LINE account menu | PR #245; active 2500x422 default, exact UOF 待簽 action and image hash verified; journal inactive. |
 | `AM-IMP-2026.1006.04` | Deployed | Compact journal / UOF Rich Menu | Shared LINE account menu | PR #243; active default, exact 待簽 action and image hash verified; journal inactive with no link. |
 | `AM-IMP-2026.1006.02` | Ready | Pause entire one-to-one private assistant | Root Platform LINE user events | Stop before intake and all replies; group/room routing retained; production verification pending. |
