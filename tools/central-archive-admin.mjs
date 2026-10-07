@@ -8,6 +8,7 @@ import {createLine} from '../core/line.js';
 import {createDrive} from '../core/drive.js';
 import {loadTenants,buildDataSourceRegistry} from '../core/tenants.js';
 import {createNotion} from '../core/notion.js';
+import {legacyMediaMessageId} from '../core/central-archive/media.js';
 const env=process.env,mode=process.argv[2]||'--status';
 const config=archiveConfig(env);
 if(!config.enabled)throw Error('Central archive environment is required');
@@ -45,10 +46,10 @@ async function seed(){
   console.log(JSON.stringify({phase:'seed-sql',events:report.sqlEvents}));
   const existingRows=await pool.query(`SELECT j.key AS job_key,c.* FROM central_archive.jobs j JOIN central_archive.conversations c ON c.key=j.conversation_key`);
   const existingSources=new Map(existingRows.rows.map(x=>[x.job_key,{key:x.key,botId:x.bot_id,kind:x.source_kind,id:x.source_id,name:x.display_name}]));
-  const messagePages=new Map();
+  const messagePages=new Map(),messageIds=new Map();
   for(const tenant of tenants){
     const count={key:tenant.key,messages:0,attachments:0};
-    let batch=[];
+    let batch=[];const aliases=new Map();
     const bindings=await allPages(tenant.dataSources.groupBindings);
     for(const b of bindings){const c=sourceFor(b.properties,tenant);if(c.kind==='unknown')continue;
       c.name=plain(b.properties['群組名稱'])||plain(b.properties['名稱']);await register(c);report.boundGroups++;}
@@ -64,6 +65,7 @@ async function seed(){
       if(existingSources.has(key))c=existingSources.get(key);
       if(c.kind==='unknown'){report.unknownSourceMessages++;payload.note+=' 原資料未記錄對話 ID，暫存待確認來源資料庫。';}
       const record={conversation:c,key,at,payload,binary:['image','audio','video','file'].includes(payload.event?.message?.type)};messagePages.set(page.id,record);
+      if(messageId)messageIds.set(`${tenant.key}:${messageId}`,record);
       existingSources.set(key,c);batch.push(record);
       if(batch.length===100){await store.append(batch);batch=[];}
       report.messages++;count.messages++;
@@ -81,21 +83,30 @@ async function seed(){
       if(!candidates.length){report.missingAttachmentSources++;candidates.push({missingSource:true,name:plain(p['檔案名稱'])||'來源待補附件'});}
       for(const media of candidates){
         const key=candidates.length===1&&messageId?`in:${digest(`${config.botId}:message:${messageId}`)}`:`file:${digest(page.id+':'+(media.index||0))}`;
-        const payload={...(message?.payload||{direction:'incoming'}),history:true,tenantKey:tenant.key,media,
+        const legacyFileName=plain(p['檔案名稱']);
+        const payload={...(message?.payload||{direction:'incoming'}),history:true,tenantKey:tenant.key,media,legacyFileName,
           sourceUrl:page.url,sender:message?.payload?.sender||'',content:message?.payload?.content||plain(p['檔案名稱']),
           event:{type:'message',message:{id:messageId,type:plain(p['附件類型'])||'file',fileName:media.name}}};
         // Upgrade a text-only imported row to a binary job while preserving any full raw webhook text.
         batch.push({conversation:c,key,at:p['日期']?.date?.start||page.created_time,payload,binary:true});
         if(batch.length===100){await store.append(batch);batch=[];}
         report.attachments++;count.attachments++;
-        if(candidates.length===1&&message&&message.key!==key&&message.binary){
-          batch.push({...message,binary:true,payload:{...message.payload,media:{canonicalJobKey:key,
-            legacyRelation:{messagePageId:relation,attachmentPageId:page.id}},
-            note:(message.payload.note||'')+' 舊附件關聯已核對，引用相同對話的既有原檔。'}});
+        const namedMessage=messageIds.get(`${tenant.key}:${legacyMediaMessageId(legacyFileName||media.name)}`);
+        const linked=message?.binary?message:namedMessage;
+        if(candidates.length===1&&linked?.binary&&linked.key!==key&&linked.conversation.key===c.key){
+          const messagePageId=linked.payload.sourceUrl?.match(/([a-f0-9]{32})(?:\?|$)/i)?.[1];
+          if(messagePageId){if(!aliases.has(linked.key))aliases.set(linked.key,new Map());
+            aliases.get(linked.key).set(key,{...linked,binary:true,payload:{...linked.payload,media:{canonicalJobKey:key,
+              legacyRelation:{messagePageId,attachmentPageId:page.id,match:linked===message?'notion-relation':'message-filename'}},
+              note:(linked.payload.note||'')+' 舊附件來源已核對，引用相同對話的既有原檔。'}});
+          }
         }
       }
     }
     await store.append(batch);
+    const unambiguous=[...aliases.values()].filter(x=>x.size===1).map(x=>[...x.values()][0]);
+    for(let i=0;i<unambiguous.length;i+=100)await store.append(unambiguous.slice(i,i+100));
+    count.attachmentReferences=unambiguous.length;count.ambiguousAttachmentReferences=[...aliases.values()].filter(x=>x.size>1).length;
     report.tenants.push(count);console.log(JSON.stringify({phase:'seed',tenant:count.key,messages:count.messages,attachments:count.attachments}));
   }
   if(env.AMCORE_CENTRAL_ARCHIVE_REPORT_PATH)await fs.writeFile(env.AMCORE_CENTRAL_ARCHIVE_REPORT_PATH,JSON.stringify(report,null,2));
