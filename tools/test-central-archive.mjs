@@ -28,6 +28,12 @@ test('actual SQL persists all sources, rolls back atomically, deduplicates repla
     const other=createArchiveStore(pool,'U'+'9'.repeat(32));await other.capture([event('other')]);
     assert.equal((await store.stats()).conversations,2);assert.equal((await other.stats()).conversations,1);
     const next=await store.next(await pool.connect());assert.notEqual(next.key,'in:'+digest('other'));
+    const batch=await store.nextBatch(await pool.connect());
+    assert.equal(new Set(batch.map(x=>x.key)).size,batch.length);
+    assert.equal(new Set(batch.map(x=>x.conversation_key)).size,batch.length);
+    await db.query(`UPDATE central_archive.conversations SET database_id='db',data_source_id='ds',drive_folder_id='drive' WHERE bot_id=$1`,[bot]);
+    const provisioned=await store.nextBatch(await pool.connect());
+    assert.equal(provisioned.length,3);assert.ok(provisioned.every(x=>x.source_id===user||x.source_id===group));
   }finally{await db.close();}
 });
 test('Notion retains full long text and has only Drive URLs, with source evidence',()=>{

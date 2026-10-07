@@ -93,12 +93,12 @@ export async function createCentralArchive({env=process.env,line,drive,router,lo
         if(!locked)return;
         const deadline=Date.now()+60000;
         while(Date.now()<deadline){
-          const job=await store.next(db);if(!job)break;
-          try{await processJob(job);}catch(error){
+          const jobs=await store.nextBatch(db);if(!jobs.length)break;
+          await Promise.all(jobs.map(async job=>{try{await processJob(job);}catch(error){
             // Logs contain codes only, never raw API responses, message text, tokens, or source identifiers.
             const code=/^archive_[a-z0-9_]+$/.test(error.code||error.message||'')?(error.code||error.message):'archive_processing_failed';
             await store.retry(job.key,code);logger.warn('Central archive deferred:',code);
-          }
+          }}));
         }
         Object.assign(state,await store.stats(),{checkedAt:new Date().toISOString()});
       }finally{if(locked)await db.query('SELECT pg_advisory_unlock(10072026,$1)',[lockId]).catch(()=>{});db.release();}
