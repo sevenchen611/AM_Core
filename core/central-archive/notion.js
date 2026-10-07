@@ -77,7 +77,7 @@ export function createArchiveNotion({token,parentId,fetchImpl=fetch,spacingMs=36
   }
   async function write(job,result,sender){
     await verify(job.database_id,job.data_source_id);
-    const found=job.attempts>0||result.notionPageId?await request(`/data_sources/${encodeURIComponent(job.data_source_id)}/query`,'POST',{
+    const found=job.attempts>0||result.notionPageId||result.notionWriteStarted?await request(`/data_sources/${encodeURIComponent(job.data_source_id)}/query`,'POST',{
       page_size:2,filter:{property:'識別碼',rich_text:{equals:job.key}}}):{results:[]};
     if(found.results.length>1)throw Error('archive_message_duplicate');
     const properties=archiveProperties(job,result,sender);
