@@ -12,6 +12,7 @@ Environment prefix: `HZ2`
 | --- | --- | --- | --- | --- |
 | `AM-IMP-2026.1006.07` | Installed | Confirm LINE activity before Google Calendar creation | Shared runtime and tenant-local evidence schema | Reviewed main/schema verified; this tenant has no shared service configuration. Active UOF direct bindings and deployed calendar configuration belong to green-hotel. |
 | `AM-IMP-2026.1006.06` | Deployed | Enable journal URI in half-height menu | Shared LINE account menu | PR #247; exact user-supplied URI, UOF 待簽, 2500x422 default and image hash verified. |
+| `AM-IMP-2026.1007.01` | Installed | Open journal in phone external browser | Shared LINE account default menu | Seven URI contract tests, dry-run, 2500x422 visual/package checks passed; production/phone acceptance pending. |
 | `AM-IMP-2026.1006.05` | Deployed | Half-height journal / UOF Rich Menu | Shared LINE account menu | PR #245; active 2500x422 default, exact UOF 待簽 action and image hash verified; journal inactive. |
 | `AM-IMP-2026.1006.04` | Deployed | Compact journal / UOF Rich Menu | Shared LINE account menu | PR #243; active default, exact 待簽 action and image hash verified; journal inactive with no link. |
 | `AM-IMP-2026.1006.02` | Ready | Pause entire one-to-one private assistant | Root Platform LINE user events | Stop before intake and all replies; group/room routing retained; production verification pending. |

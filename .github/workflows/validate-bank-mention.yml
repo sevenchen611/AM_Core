@@ -3,6 +3,11 @@ on:
   pull_request:
     paths:
       - 'server.js'
+      - 'tools/apply-compact-rich-menu.mjs'
+      - 'tools/journal-external-browser-url.mjs'
+      - 'tools/test-journal-external-browser-url.mjs'
+      - 'assets/line/work-journal-uof-rich-menu-external-browser-half-height.*'
+      - 'versions/AM-IMP-2026.1007.01/**'
       - 'core/operational-memory.js'
       - 'core/bank-line-reply-intake.js'
       - 'core/leaf-calendar/**'
@@ -77,6 +82,8 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run check
+      - run: node --test tools/test-journal-external-browser-url.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1007.01
       - run: node --test tools/test-attachment-retrieval.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1004.07
       - run: node --test tools/test-attachment-retention.mjs
