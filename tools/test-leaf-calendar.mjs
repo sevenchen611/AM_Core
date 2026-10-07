@@ -147,7 +147,7 @@ test('real signed webhook persists calendar input before ACK; keeps groups and r
       './core/line-io/index.js':{createLineIo:async()=>({enabled:false,owns:()=>false,handle:async()=>false,capture:async events=>transport.push(...events)}),readLineIoBody:async req=>req.rawBody},
       './core/leaf-calendar/index.js':{createLeafCalendar:async()=>f.service},
       './core/bank-line-reply-intake.js':{createBankLineReplyIntake:()=>({receive:async()=>false,drain:async()=>{}})},
-      './core/attachment-retrieval.js':{createAttachmentRetrieval:()=>({handle:async()=>false}),parseAttachmentRequest:()=>null},
+      './core/attachment-retrieval.js':{createAttachmentRetrieval:()=>({handle:async()=>false,deliveryReady:()=>false}),parseAttachmentRequest:()=>null},
       './core/work-journal-entry.js': workJournalEntry,
   './core/direct-line.js':directLine,'./core/access-directory.js':{createAccessDirectory:()=>({})},'./core/portal-handoff.js':{safePortalHandoffLocation:()=> '/'},
       './core/util.js':{readBody:async req=>req.rawBody,sendJson:(res,status,body)=>{res.status=status;res.body=body;},sendText:(res,status)=>{res.status=status;acked=true;}},

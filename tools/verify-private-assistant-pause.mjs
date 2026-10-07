@@ -69,6 +69,7 @@ const dependencies = {
     receive: async event => { calls.bank++; passed.bank.push(event); return false; }, drain: async () => {},
   }) },
   './core/attachment-retrieval.js': { createAttachmentRetrieval: () => ({
+    deliveryReady: () => false,
     contract: 'synthetic', handle: async event => { calls.retrieval++; passed.retrieval.push(event); return false; },
   }), parseAttachmentRequest: () => null },
   './core/work-journal-entry.js': workJournalEntry,
