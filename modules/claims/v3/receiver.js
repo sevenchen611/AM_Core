@@ -1,5 +1,6 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createFinanceClaimsV3Pool } from './postgres.js';
+import { getLineArchiveObserver } from '../../../core/line.js';
 
 export const FINANCE_CLAIMS_V3_APPROVAL_CONTRACT = 'finance-claims-v3.approval-v1';
 export const FINANCE_CLAIMS_V3_ACK_CONTRACT = 'finance-claims-v3.notification-ack-v1';
@@ -408,6 +409,8 @@ async function dispatchClaim({ ledger, row, binding, fetchImpl, env, res, ackKin
     return sendJson(res, 503, errorBody(failed ? 'line_provider_unavailable' : 'delivery_uncertain', { status: failed ? 'failed' : 'uncertain' }));
   }
   let response;
+  const archive=getLineArchiveObserver();
+  const archiveKey=await archive?.before({to:binding.target,messages:[{type:'text',text:row.message_text}],key:`push:${row.retry_key}`});
   try {
     response = await fetchImpl(LINE_PUSH_URL, {
       method: 'POST',
@@ -417,9 +420,13 @@ async function dispatchClaim({ ledger, row, binding, fetchImpl, env, res, ackKin
       redirect: 'error',
     });
   } catch {
+    await archive?.after(archiveKey,'unknown');
     await ledger.markUncertain(row, 'provider_uncertain');
     return sendJson(res, 503, errorBody('delivery_uncertain', { status: 'uncertain' }));
   }
+  await archive?.after(archiveKey,((response.status===200&&response.headers.get('x-line-request-id'))
+    ||(response.status===409&&response.headers.get('x-line-accepted-request-id')))?'accepted':
+    response.status>=400&&response.status<500&&!AMBIGUOUS_PROVIDER_STATUSES.has(response.status)&&response.status!==409?'rejected':'unknown');
   if (response.redirected || response.url !== LINE_PUSH_URL) {
     await response.body?.cancel().catch(() => {});
     await ledger.markUncertain(row, 'provider_redirect_uncertain');

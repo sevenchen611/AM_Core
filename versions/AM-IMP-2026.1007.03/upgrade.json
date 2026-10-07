@@ -1,0 +1,66 @@
+{
+  "id": "AM-IMP-2026.1007.03",
+  "name": "LINE per-conversation central Notion archive and Drive originals",
+  "type": "LINE / evidence archive",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-10-07",
+  "installTargets": [
+    "AM_PLATFORM"
+  ],
+  "requiresPackages": [
+    "AM-IMP-2026.1004.06",
+    "AM-IMP-2026.1004.07"
+  ],
+  "requiresDatabases": [
+    "deployment-local central_archive PostgreSQL schema"
+  ],
+  "requiresEnv": [
+    "AMCORE_CENTRAL_ARCHIVE_ENABLED",
+    "AMCORE_CENTRAL_ARCHIVE_NOTION_PARENT_PAGE_ID",
+    "AMCORE_CENTRAL_ARCHIVE_DRIVE_ROOT_FOLDER_ID",
+    "AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID",
+    "target-local LINE, Notion, Google OAuth and PostgreSQL connections"
+  ],
+  "requiresScripts": [
+    "node tools/central-archive-admin.mjs --migrate",
+    "node tools/central-archive-admin.mjs --seed-history",
+    "node tools/central-archive-admin.mjs --provision",
+    "node --test tools/test-central-archive.mjs",
+    "node tools/check-upgrade-package.js AM-IMP-2026.1007.03"
+  ],
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "files": [
+    "core/central-archive/index.js",
+    "core/central-archive/store.js",
+    "core/central-archive/notion.js",
+    "core/central-archive/media.js",
+    "core/central-archive/schema.sql",
+    "core/line.js",
+    "core/attachment-archive.js",
+    "core/attachment-retrieval.js",
+    "modules/claims/v3/receiver.js",
+    "server.js",
+    "tools/central-archive-admin.mjs",
+    "tools/test-central-archive.mjs",
+    "tools/verify-private-assistant-pause.mjs",
+    "core/central-archive/public-media.js",
+    "core/drive.js"
+  ],
+  "definitionOfDone": [
+    "Verified events persist before all business filters and acknowledgement",
+    "Separate database per stable OA/conversation identity",
+    "Full text retained without Notion binary uploads",
+    "Drive originals verified with ownership, size and hashes",
+    "Replay, unknown outcomes and restart retry do not duplicate messages/files",
+    "Outbound acceptance recorded without resending from archive",
+    "Legacy tenant business data and original files retained",
+    "Historical availability gaps reported honestly",
+    "Reviewed main and production health plus real sink readback verified before Deployed"
+  ]
+}

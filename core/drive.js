@@ -32,7 +32,7 @@ export function createDrive({ clientId, clientSecret, refreshToken, logger = con
     const cacheKey = `${parentId}/${name}`;
     if (folderCache.has(cacheKey)) return folderCache.get(cacheKey);
     const token = await getAccessToken();
-    const query = `name = '${name.replace(/'/g, "\\'")}' and '${parentId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+    const query = `name = '${quote(name)}' and '${quote(parentId)}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
     const searchResponse = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id)`, {
       headers: { Authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(30000),
@@ -250,5 +250,17 @@ export function createDrive({ clientId, clientSecret, refreshToken, logger = con
     };
   }
 
-  return { configured, getAccessToken, ensureFolder, upload, uploadStream, download, streamDownload, auditPrivateFile, findAttachment, verifyAttachment, verifyWithinRoot };
+  async function copyOriginal(fileId,parentId,name,identity){
+    const token=await getAccessToken();
+    const sourceResponse=await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?fields=id,name,size,md5Checksum,trashed&supportsAllDrives=true`,
+      {headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(30000)});
+    const source=await sourceResponse.json();
+    if(!sourceResponse.ok||source.trashed||!Number(source.size)||!source.md5Checksum)throw Error('archive_drive_source_unavailable');
+    const response=await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}/copy?fields=id&supportsAllDrives=true`,{
+      method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},
+      body:JSON.stringify({name:name||source.name,parents:[parentId],appProperties:identity}),signal:AbortSignal.timeout(90000)});
+    const copied=await response.json();if(!response.ok||!copied.id)throw Error('archive_drive_copy_failed');
+    return verifyAttachment(copied.id,parentId,identity,Number(source.size),source.md5Checksum);
+  }
+  return { configured, getAccessToken, ensureFolder, upload, uploadStream, download, streamDownload, copyOriginal, auditPrivateFile, findAttachment, verifyAttachment, verifyWithinRoot };
 }
