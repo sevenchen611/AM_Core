@@ -1,6 +1,7 @@
 // File requests are assistant operations, handled before task extraction/transport clients.
 // Only a verified original from the requesting conversation can leave this service.
 import { textItem } from './util.js';
+import { createAttachmentDelivery } from './attachment-delivery.js';
 
 export const ATTACHMENT_RETRIEVAL_CONTRACT = 'line-quoted-drive-original-v1';
 const plain = prop => (prop?.rich_text || []).map(x => x.plain_text || x.text?.content || '').join('');
@@ -21,7 +22,7 @@ export function parseAttachmentRequest(event) {
   if (!match) return null;
   let object = match[2].trim();
   for (let i = 0; i < 3; i++) object = object.replace(/(?:給我一下|給我|一下|的下載連結|的連結|下載連結|連結|[，,]?\s*謝謝)\s*$/, '').trim();
-  const generic = /^(?:這個|這份|這一份|這|該|原本的|原)?(?:檔案|文件|附件|照片|圖片|影片|音檔|錄音)$/.test(object);
+  const generic = /^(?:我\s*)?(?:這個|這張|這份|這一份|這|該|原本的|原始的|原)?(?:檔案|文件|附件|照片|圖片|影片|音檔|錄音)$/.test(object);
   const quoted = String(event.message.quotedMessageId || '');
   const named = /^(?:「([^」]+)」|『([^』]+)』|"([^"]+)"|([^\s「」『』"]+\.[a-zA-Z0-9]{1,12}))$/.exec(object);
   const filename = named ? (named[1] || named[2] || named[3] || named[4]).trim() : '';
@@ -65,6 +66,7 @@ export function createAttachmentRetrieval({ platform, router, ownsTransport = ()
   }
   const allowed = result => result?.tenant?.runtimeEnabled !== false && result?.tenant
     && result.binding?.status === '啟用';
+  const delivery = createAttachmentDelivery({ platform, resolveConversation: resolve, resolveOriginal: retrieve, logger });
   async function originMatches(tenant, page, event, quotedId = '') {
     const p = page.properties || {}, group = groupOf(event);
     const originalGroup = plain(p['LINE 群組 ID']);
@@ -136,6 +138,7 @@ export function createAttachmentRetrieval({ platform, router, ownsTransport = ()
       || String(file.md5Checksum).toLowerCase() !== md5.toLowerCase()) throw fail('changed');
     // Construct the canonical Google URL from the verified ID, not editable Notion URL text.
     return { attachmentPageId: page.id, filename: plain(p['檔案名稱']).slice(0, 300),
+      fileId, size: Number(file.size), md5: md5.toLowerCase(),
       url: `https://drive.google.com/file/d/${encodeURIComponent(fileId)}/view` };
   }
   async function recordRequest(tenant, event, command) {
@@ -173,11 +176,12 @@ export function createAttachmentRetrieval({ platform, router, ownsTransport = ()
     catch { logger.warn('[attachment-retrieval] routing unavailable'); return; }
     if (!allowed(current)) return; // Includes unbound, inactive, ambiguous and shadow sources.
     const tenant = current.tenant;
-    let text;
+    let text, messages;
     try {
       await recordRequest(tenant, event, command);
       const file = await retrieve(tenant, event, command);
-      text = `已找到保存的原檔「${file.filename}」：\n${file.url}`;
+      messages = await delivery.messages(tenant, event, command, file);
+      text = messages[0].text;
     } catch (error) {
       text = {
         specify: '請用 LINE「回覆」功能回覆原檔案訊息，再說「請提供這個檔案給我」；也可以說「請幫我找『完整檔名.pdf』」。',
@@ -193,7 +197,15 @@ export function createAttachmentRetrieval({ platform, router, ownsTransport = ()
     try {
       const latest = await resolve(event);
       if (!allowed(latest) || latest.tenant.key !== tenant.key) return;
-      if (event.replyToken) await platform.replyLineMessage(event.replyToken, text);
+      if (event.replyToken) {
+        if (messages?.length > 1 && platform.replyLineMessages) {
+          try { await platform.replyLineMessages(event.replyToken, messages); }
+          catch (error) {
+            if (error.lineStatus === 400) await platform.replyLineMessage(event.replyToken, text);
+            else throw error;
+          }
+        } else await platform.replyLineMessage(event.replyToken, text);
+      }
       // Never push after an uncertain/used reply token; redelivery cannot duplicate a link.
     } catch { logger.warn(`[attachment-retrieval] reply unavailable tenant=${tenant.key}`); }
   }
@@ -214,5 +226,6 @@ export function createAttachmentRetrieval({ platform, router, ownsTransport = ()
     await inFlight.get(key);
     return true;
   }
-  return { contract: ATTACHMENT_RETRIEVAL_CONTRACT, handle, retrieve };
+  return { contract: ATTACHMENT_RETRIEVAL_CONTRACT, deliveryContract: delivery.contract,
+    deliveryReady: delivery.ready, handle, retrieve, handleDownload: delivery.handleDownload };
 }

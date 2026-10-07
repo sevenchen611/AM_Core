@@ -68,6 +68,9 @@ for (const fails of [false, true]) {
     for(const [key,value] of Object.entries(dependencies[name])) this.setExport(key,value);
   },{context}));
   await module.evaluate();
+  const invalidDownload = { setHeader() {}, end(value) { this.body = value; } };
+  await handler({ method: 'GET', url: '/line-attachment?tenant=synthetic-archive&token=invalid', headers: {} }, invalidDownload);
+  assert.equal(invalidDownload.statusCode, 403, 'real server must route downloads into the signature gate');
   const event = {type:'message',source:{type:'group',groupId:'synthetic-group'},timestamp:Date.now(),
     message:{id:'synthetic-file',type:'file',fileName:'large.pdf',fileSize:40647423}};
   const res = {};

@@ -64,7 +64,7 @@ function harness(options={}) {
 }
 
 test('explicit quote requests and exact filename commands; ordinary conversation passes through',()=> {
-  for(const text of ['請提供這個檔案給我','請提供這個檔案給我，謝謝','請幫我找這個檔案','請重新傳這份文件','麻煩幫我找一下這個檔案的下載連結','請重傳']) {
+  for(const text of ['請提供我這個檔案','請提供我這張照片','請提供這張照片給我','請提供這個檔案給我','請提供這個檔案給我，謝謝','請幫我找這個檔案','請重新傳這份文件','麻煩幫我找一下這個檔案的下載連結','請重傳']) {
     assert.ok(parseAttachmentRequest(event(text)),text);
   }
   for(const text of ['請幫我找「明義街 46 號.pdf」','請幫我找『example.pdf』','請提供 example.pdf']) {
