@@ -7,6 +7,27 @@ import path from 'node:path';
 import {digest} from './store.js';
 import {publicMedia} from './public-media.js';
 
+// Old schemas stored a message and its related attachment in separate rows. Reuse
+// the verified canonical copy only with explicit source-page relation evidence.
+export async function archiveReference({job,canonical,drive}){
+  const media=job.payload.media||{},relation=media.legacyRelation;
+  const pageId=url=>String(url||'').match(/([a-f0-9]{32})(?:\?|$)/i)?.[1]?.toLowerCase()||'';
+  const normalized=id=>String(id||'').replaceAll('-','').toLowerCase();
+  if(!canonical||canonical.key===job.key||media.canonicalJobKey!==canonical.key||
+    canonical.conversation_key!==job.conversation_key||canonical.drive_folder_id!==job.drive_folder_id||
+    canonical.payload?.direction!=='incoming'||job.payload.direction!=='incoming'||
+    canonical.payload?.tenantKey!==job.payload.tenantKey||canonical.result?.canonicalJobKey||
+    !relation?.messagePageId||!relation?.attachmentPageId||
+    pageId(job.payload.sourceUrl)!==normalized(relation.messagePageId)||
+    pageId(canonical.payload.sourceUrl)!==normalized(relation.attachmentPageId))throw Error('archive_reference_invalid');
+  if(canonical.state==='needs_source')throw Error('archive_legacy_file_missing');
+  if(canonical.state!=='done'||!canonical.result?.driveId)throw Error('archive_reference_pending');
+  const r=canonical.result;
+  const file=await drive.verifyAttachment(r.driveId,job.drive_folder_id,{amCentralArchive:digest(canonical.key)},r.size,r.md5);
+  return {canonicalJobKey:canonical.key,driveId:file.id,driveUrl:file.webViewLink,name:file.name,
+    size:Number(file.size),md5:file.md5Checksum,...(r.sha256?{sha256:r.sha256}:{}),attachmentStatus:'已保存（沿用已驗證原檔）'};
+}
+
 // No format filter: arbitrary LINE file binaries use exactly the same path as images/audio/video.
 export async function archiveMedia({job,drive,line,notion,fetchImpl=fetch}){
   const m=job.payload.event?.message||{},prior=job.result||{};

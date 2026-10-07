@@ -5,7 +5,21 @@ import {PGlite} from '@electric-sql/pglite';
 import {createArchiveStore,archiveRecord,digest} from '../core/central-archive/store.js';
 import {archiveProperties,createArchiveNotion,richText,ARCHIVE_SCHEMA} from '../core/central-archive/notion.js';
 import {archiveConfig} from '../core/central-archive/index.js';
-import {archiveMedia} from '../core/central-archive/media.js';
+import {archiveMedia,archiveReference} from '../core/central-archive/media.js';
+
+test('legacy message references reuse only the related canonical file in the same conversation',async()=>{
+  const messagePage='a'.repeat(32),attachmentPage='b'.repeat(32),canonicalKey='file:synthetic';
+  const job={key:'in:synthetic',conversation_key:'conversation',drive_folder_id:'folder',payload:{direction:'incoming',tenantKey:'tenant',sourceUrl:'https://www.notion.so/'+messagePage,media:{canonicalJobKey:canonicalKey,legacyRelation:{messagePageId:messagePage,attachmentPageId:attachmentPage}}}};
+  const canonical={key:canonicalKey,conversation_key:'conversation',drive_folder_id:'folder',state:'done',payload:{direction:'incoming',tenantKey:'tenant',sourceUrl:'https://www.notion.so/'+attachmentPage},result:{driveId:'saved',size:42,md5:'checksum',notionPageId:'attachment-row'}};
+  let calls=0;const drive={verifyAttachment:async(id,parent,identity,size,md5)=>{calls++;assert.equal(identity.amCentralArchive,digest(canonicalKey));assert.equal(parent,'folder');assert.equal(size,42);assert.equal(md5,'checksum');return {id,name:'original.zip',size:42,md5Checksum:'checksum',webViewLink:'https://drive.google.com/file/d/saved/view'};}};
+  const saved=await archiveReference({job,canonical,drive});assert.equal(saved.driveId,'saved');assert.equal(saved.canonicalJobKey,canonicalKey);assert.equal(saved.notionPageId,undefined);
+  await assert.rejects(archiveReference({job,canonical:{...canonical,conversation_key:'another'},drive}),/reference_invalid/);
+  await assert.rejects(archiveReference({job,canonical:{...canonical,payload:{...canonical.payload,tenantKey:'another'}},drive}),/reference_invalid/);
+  await assert.rejects(archiveReference({job,canonical:{...canonical,payload:{...canonical.payload,sourceUrl:'https://www.notion.so/'+messagePage}},drive}),/reference_invalid/);
+  await assert.rejects(archiveReference({job,canonical:{...canonical,result:{...canonical.result,canonicalJobKey:'cycle'}},drive}),/reference_invalid/);
+  await assert.rejects(archiveReference({job,canonical:{...canonical,state:'pending'},drive}),/reference_pending/);
+  assert.equal(calls,1);
+});
 import {createLine} from '../core/line.js';
 const bot='U'+'0'.repeat(32),user='U'+'1'.repeat(32),group='C'+'2'.repeat(32);
 const event=(id,source={type:'user',userId:user})=>({type:'message',webhookEventId:id,timestamp:Date.now(),source,replyToken:'private-token-'+id,message:{id,type:'text',text:'長文'.repeat(2500)}});

@@ -63,7 +63,7 @@ async function seed(){
       const key=messageId?`in:${digest(`${config.botId}:message:${messageId}`)}`:`legacy:${digest(page.id)}`;
       if(existingSources.has(key))c=existingSources.get(key);
       if(c.kind==='unknown'){report.unknownSourceMessages++;payload.note+=' 原資料未記錄對話 ID，暫存待確認來源資料庫。';}
-      const record={conversation:c,key,at,payload};messagePages.set(page.id,record);
+      const record={conversation:c,key,at,payload,binary:['image','audio','video','file'].includes(payload.event?.message?.type)};messagePages.set(page.id,record);
       existingSources.set(key,c);batch.push(record);
       if(batch.length===100){await store.append(batch);batch=[];}
       report.messages++;count.messages++;
@@ -88,6 +88,11 @@ async function seed(){
         batch.push({conversation:c,key,at:p['日期']?.date?.start||page.created_time,payload,binary:true});
         if(batch.length===100){await store.append(batch);batch=[];}
         report.attachments++;count.attachments++;
+        if(candidates.length===1&&message&&message.key!==key&&message.binary){
+          batch.push({...message,binary:true,payload:{...message.payload,media:{canonicalJobKey:key,
+            legacyRelation:{messagePageId:relation,attachmentPageId:page.id}},
+            note:(message.payload.note||'')+' 舊附件關聯已核對，引用相同對話的既有原檔。'}});
+        }
       }
     }
     await store.append(batch);
@@ -106,7 +111,13 @@ try{
       await owner.query(`GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA central_archive TO "${role}"`);
       console.log(JSON.stringify({migration:'complete',runtimeRole:role}));
     }finally{await owner.end();}
-  }else if(mode==='--seed-history')console.log(JSON.stringify(await seed()));
+  }else if(mode==='--seed-history'){
+    // Publish source relations before the worker can download media. Webhook
+    // persistence remains available while this migration lock is held.
+    const db=await pool.connect(),lockId=parseInt(digest(config.botId).slice(0,7),16);
+    try{await db.query('SELECT pg_advisory_lock(10072026,$1)',[lockId]);console.log(JSON.stringify(await seed()));}
+    finally{await db.query('SELECT pg_advisory_unlock(10072026,$1)',[lockId]);db.release();}
+  }
   else if(mode==='--seed-directory'){
     const groups=await pool.query('SELECT group_id,name FROM line_directory.groups');let count=0;
     for(const g of groups.rows){if(!/^C[a-f0-9]{32}$/i.test(g.group_id))continue;
