@@ -3,6 +3,9 @@ on:
   pull_request:
     paths:
       - 'server.js'
+      - 'core/work-journal-entry.js'
+      - 'tools/test-work-journal-entry.mjs'
+      - 'versions/AM-IMP-2026.1007.02/**'
       - 'tools/apply-compact-rich-menu.mjs'
       - 'tools/journal-external-browser-url.mjs'
       - 'tools/test-journal-external-browser-url.mjs'
@@ -82,6 +85,8 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run check
+      - run: node --test tools/test-work-journal-entry.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1007.02
       - run: node --test tools/test-journal-external-browser-url.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1007.01
       - run: node --test tools/test-attachment-retrieval.mjs

@@ -8,6 +8,7 @@ import { bootstrap } from './core/bootstrap.js';
 import { createLineIo, readLineIoBody } from './core/line-io/index.js';
 import { createBankLineReplyIntake } from './core/bank-line-reply-intake.js';
 import { createLeafCalendar } from './core/leaf-calendar/index.js';
+import { createWorkJournalEntry } from './core/work-journal-entry.js';
 import { createAttachmentRetrieval, parseAttachmentRequest } from './core/attachment-retrieval.js';
 import { routeDirectLineEvent, isPausedDirectEvent, PERSONAL_ASSISTANT_ENABLED, PERSONAL_ASSISTANT_CONTRACT } from './core/direct-line.js';
 import { createAccessDirectory } from './core/access-directory.js';
@@ -26,6 +27,7 @@ import {
 
 const ctx = await bootstrap(process.env);
 const { tenants, line, router, dispatcher, portal, modules, platform, llm, logger } = ctx;
+const workJournalEntry = createWorkJournalEntry({ line, logger });
 const lineIo = await createLineIo({ tenants, line, router, logger });
 const leafCalendar = await createLeafCalendar({ tenants, platform, logger, resolveIdentity: lineIo.resolveCalendarIdentity });
 platform.attachmentArchive.setTransportResolver(lineIo.resolveAttachmentBinding);
@@ -277,6 +279,7 @@ const server = http.createServer(async (req, res) => {
       lineConfigured: line.configured,
       personalAssistant: { enabled: PERSONAL_ASSISTANT_ENABLED, contract: PERSONAL_ASSISTANT_CONTRACT, scope: 'am-platform-private-assistant' },
       lineCalendar: leafCalendar.health(),
+      workJournalEntry: workJournalEntry.health(),
       lineIo: { enabled: lineIo.enabled, directoryEnabled:Boolean(lineIo.directoryEnabled),bindingsEnabled:Boolean(lineIo.bindingsEnabled), reviewCardsEnabled:lineIo.enabled, contract: 'line-group-io-v1', version: lineIo.bindingsEnabled ? '1.5.0' : '1.2.0' },
       driveConfigured: platform.driveConfigured,
       attachmentArchive: { contract: platform.attachmentArchive.contract, storage: 'google-drive', notionFiles: 'links-only', tenants: tenants.filter(t => t.runtimeEnabled !== false).map(t => ({ tenantKey: t.key, ...platform.attachmentArchive.health(t) })) },
@@ -424,6 +427,10 @@ const server = http.createServer(async (req, res) => {
     if (!Array.isArray(body?.events) || body.events.some((e) => !e || typeof e !== 'object' || Array.isArray(e))) {
       return sendJson(res, 400, { error: 'Invalid events' });
     }
+    // A navigation command uses the same public URI as the Rich Menu. Keep it
+    // outside task parsing, tenant identity lookup and independent UOF intake.
+    const journalEvents = body.events.filter(workJournalEntry.matches);
+    body.events = body.events.filter(event => !workJournalEntry.matches(event));
     // 暫停 AM 私人助理；已明確綁定給獨立傳輸服務的指令仍由原本服務處理。
     let activeEvents;
     try {
@@ -441,6 +448,7 @@ const server = http.createServer(async (req, res) => {
     } catch { return sendJson(res,503,{error:'Calendar intake is temporarily unavailable.'}); }
     if (!activeEvents.length) {
       sendText(res,200,'OK');
+      for (const event of journalEvents) workJournalEntry.handle(event);
       if (hasCalendarEvents) leafCalendar.drain().catch(() => logger.warn('Calendar processing deferred.'));
       return;
     }
@@ -503,6 +511,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 503, { error: 'attachment_intake_unavailable' });
     }
     sendText(res, 200, 'OK'); // 先回 200,事件背景處理(比照 BuildAM)
+    for (const event of journalEvents) workJournalEntry.handle(event);
     if (hasCalendarEvents) leafCalendar.drain().catch(() => logger.warn('Calendar processing deferred.'));
     for (const tenant of attachmentTenants) {
       platform.attachmentArchive.drain(tenant).catch(() => logger.error('Attachment archive worker unavailable.'));

@@ -1,5 +1,9 @@
 # HOZO AM 2.0 — Project Improvement Manifest
 
+AM-IMP-2026.1007.02: Installed — direct-chat journal navigation using the active
+Rich Menu URI; isolated command and signed webhook checks. Reviewed main/live
+deployment and LINE phone acceptance pending; no task, data or menu changes.
+
 AM-IMP-2026.0918.02: Installed — dedicated bank reconciliation exception events;
 PR #187. Root Platform tenant adapter only, verified reviewer reference, true
 mention and immutable receipts; main/Render deployment evidence pending.

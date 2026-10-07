@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import * as workJournalEntry from '../core/work-journal-entry.js';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
 import crypto from 'node:crypto';
@@ -73,7 +74,8 @@ try {
       './core/bootstrap.js':{bootstrap:async()=>({tenants:[tenant],line:{configured:true,isValidSignature:()=>true,replyLineMessage:async()=>{receipts++;}},router:{},dispatcher:{collectRoutes:()=>[]},portal:{},modules:new Map([['claims',{preAckClaimsAuthorityEvent:async()=>{authority++;return {intercepted:true};}}]]),platform:{operationalMemory:fakeMemory,rentalFinanceGroupPushKey:'synthetic',attachmentArchive:createAttachmentArchive({platform:{},router:{},logger})},logger})},
       './core/bank-line-reply-intake.js':{createBankLineReplyIntake},
       './core/line-io/index.js':{createLineIo,readLineIoBody:async r=>r.rawBody},
-      './core/direct-line.js':directLine,'./core/access-directory.js':{createAccessDirectory:()=>({})},'./core/portal-handoff.js':{safePortalHandoffLocation:()=>'/'},
+      './core/work-journal-entry.js': workJournalEntry,
+  './core/direct-line.js':directLine,'./core/access-directory.js':{createAccessDirectory:()=>({})},'./core/portal-handoff.js':{safePortalHandoffLocation:()=>'/'},
       './core/leaf-calendar/index.js':leafCalendar,
       './core/util.js':{readBody:async r=>r.rawBody,sendJson:(r,status)=>{r.status=status;},sendText:(r,status)=>{r.status=status;acked=true;}},
       './core/group-onboarding.js':Object.fromEntries(['GROUP_ONBOARDING_BUILD','deliverGroupOnboardingReply','groupOnboardingProperties','groupOnboardingRepairProperties','groupOnboardingSuccessMessage','parseGroupOnboardingCommand','supportedGroupOnboardingExamples','withResolvedGroupName'].map(k=>[k,()=>null])),

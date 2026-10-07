@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import * as workJournalEntry from '../core/work-journal-entry.js';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
 import crypto from 'node:crypto';
@@ -50,7 +51,8 @@ for (const fails of [false, true]) {
       capture:async(events,options)=>{ if(retrievalMode) assert.equal(options.excludeEvents(events[0]),true); },
     }),readLineIoBody:async r=>r.rawBody },
     './core/bank-line-reply-intake.js': {createBankLineReplyIntake:()=>({receive:async()=>false,drain:async()=>{}})},
-    './core/direct-line.js': directLine,
+    './core/work-journal-entry.js': workJournalEntry,
+  './core/direct-line.js': directLine,
     './core/leaf-calendar/index.js': leafCalendar,
     './core/access-directory.js': {createAccessDirectory:()=>({})},
     './core/portal-handoff.js': {safePortalHandoffLocation:()=> '/'},
