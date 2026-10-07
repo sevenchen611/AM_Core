@@ -15,6 +15,8 @@ node tools/audit-alignment.js
 
 SQL 測試使用一次性 PostgreSQL 引擎，覆蓋交易回滾、事件去重、來源分隔與 Bot 分隔。伺服器測試驗證無簽章事件不落庫、私人助理暫停仍保留、歸檔失敗回 503 不丟來源。媒體測試使用任意安裝檔內容。
 
+舊訊息／附件關聯測試必須確認同一份 Drive 原檔被沿用，原訊息的 Notion page ID 不被附件索引覆蓋，跨對話、跨租戶、錯誤來源頁與循環引用皆拒絕。歷史媒體訊息不可僅存文字而漏掉附件處理；成功檔案數與容量須以不同 Drive ID 計算。
+
 正式驗證必須包含正確 commit、centralArchive enabled/ready、實際中央母頁的資料庫父層、群組／私人對話分開、實際長文字讀回、指定 Drive 父層與原檔 checksum，以及歷史 pending／失效附件／待確認來源清單。使用者未授權發送 LINE 測試訊息時，採用已收到的正式事件與獨立人工驗證記錄，不能冒充使用者發訊息。
 # Bulk archive verification
 

@@ -1,7 +1,7 @@
 import {Pool} from 'pg';
 import {createArchiveStore,digest} from './store.js';
 import {createArchiveNotion} from './notion.js';
-import {archiveMedia} from './media.js';
+import {archiveMedia,archiveReference} from './media.js';
 import {lineIoDatabaseConfig} from '../line-io/database.js';
 export const CENTRAL_ARCHIVE_CONTRACT='line-per-conversation-notion-drive-v1';
 export function archiveDatabaseConfig(env){
@@ -46,6 +46,11 @@ export async function createCentralArchive({env=process.env,line,drive,router,lo
   state.captureEnabled=env.AMCORE_CENTRAL_ARCHIVE_CAPTURE_ENABLED!=='0';
   let draining=null,timer;
   const lockId=parseInt(digest(config.botId).slice(0,7),16);
+  async function canonicalJob(key){
+    const rows=await pool.query(`SELECT j.*,c.source_id,c.source_kind,c.drive_folder_id FROM central_archive.jobs j
+      JOIN central_archive.conversations c ON c.key=j.conversation_key WHERE j.key=$1 AND c.bot_id=$2`,[key,config.botId]);
+    return rows.rows[0];
+  }
   async function processJob(job){
     if(!job.display_name){
       if(job.source_kind==='group')job.display_name=await line.resolveGroupName(job.source_id);
@@ -67,7 +72,12 @@ export async function createCentralArchive({env=process.env,line,drive,router,lo
       job.payload.sender||await line.resolveSenderName(job.payload.event?.source||{});
     let result=job.result||{};
     if(job.binary){
-      try{result={...result,...await archiveMedia({job,drive,line,notion})};await store.result(job.key,result);}
+      try{
+        const saved=job.payload.media?.canonicalJobKey?
+          await archiveReference({job,canonical:await canonicalJob(job.payload.media.canonicalJobKey),drive}):
+          await archiveMedia({job,drive,line,notion});
+        result={...result,...saved};await store.result(job.key,result);
+      }
       catch(error){
         const missing=/LINE content download failed: (404|410)\b/.test(error.message)||error.message==='archive_legacy_file_missing';
         result={...result,attachmentStatus:missing?'原檔缺失，需補提供':'等待重試',errorCode:missing?'archive_source_missing':error.code||'archive_media_unavailable'};
@@ -120,6 +130,11 @@ export async function createCentralArchive({env=process.env,line,drive,router,lo
     if(row.source_id!==(groupId||userId))throw Error('archive_original_source_mismatch');
     const result=row.result;
     if(!result.driveId)return {pending:true};
+    if(result.canonicalJobKey){
+      const reference=await archiveReference({job:row,canonical:await canonicalJob(result.canonicalJobKey),drive});
+      if(reference.driveId!==result.driveId||reference.md5!==result.md5||reference.size!==Number(result.size))throw Error('archive_reference_invalid');
+      return {file:{id:reference.driveId,name:reference.name,size:reference.size,md5Checksum:reference.md5,webViewLink:reference.driveUrl},sha256:reference.sha256,md5:reference.md5};
+    }
     const file=await drive.verifyAttachment(result.driveId,row.drive_folder_id,{amCentralArchive:digest(key)},result.size,result.md5);
     return {file,sha256:result.sha256,md5:result.md5};
   }
