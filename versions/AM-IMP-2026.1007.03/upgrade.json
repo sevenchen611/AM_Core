@@ -50,7 +50,11 @@
     "tools/test-central-archive.mjs",
     "tools/verify-private-assistant-pause.mjs",
     "core/central-archive/public-media.js",
-    "core/drive.js"
+    "core/drive.js",
+    "tools/verify-attachment-webhook.mjs",
+    "tools/verify-bank-line-reply-intake.mjs",
+    "tools/test-leaf-calendar.mjs",
+    ".github/workflows/validate-bank-mention.yml"
   ],
   "definitionOfDone": [
     "Verified events persist before all business filters and acknowledgement",

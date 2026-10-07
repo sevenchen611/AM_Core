@@ -48,7 +48,8 @@ export function createArchiveStore(pool,botId) {
         SELECT key,conversation_key,event_at,payload,has_binary,state FROM jsonb_to_recordset($1::jsonb)
         AS x(key text,conversation_key text,event_at timestamptz,payload jsonb,has_binary boolean,state text)
         ON CONFLICT(key) DO UPDATE SET
-          payload=CASE WHEN jobs.payload->>'evidenceQuality'='webhook' AND jobs.payload->'history' IS NULL
+          payload=CASE WHEN jobs.payload->>'direction'='outgoing' THEN EXCLUDED.payload||jobs.payload
+          WHEN jobs.payload->>'evidenceQuality'='webhook' AND jobs.payload->'history' IS NULL
           THEN EXCLUDED.payload||jobs.payload||jsonb_build_object('history',false)
           WHEN jobs.payload->>'evidenceQuality'='webhook' THEN EXCLUDED.payload||jobs.payload
           ELSE jobs.payload||EXCLUDED.payload END,
