@@ -52,6 +52,9 @@ on:
       - 'versions/AM-IMP-2026.1004.06/**'
       - 'versions/AM-IMP-2026.1004.07/**'
       - 'core/attachment-retrieval.js'
+      - 'core/attachment-delivery.js'
+      - 'tools/test-attachment-delivery.mjs'
+      - 'versions/AM-IMP-2026.1008.01/**'
       - 'tools/test-attachment-retrieval.mjs'
       - 'core/attachment-archive.js'
       - 'core/drive.js'
@@ -96,6 +99,8 @@ jobs:
       - run: node --test tools/test-journal-external-browser-url.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1007.01
       - run: node --test tools/test-attachment-retrieval.mjs
+      - run: node --test tools/test-attachment-delivery.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1008.01
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1004.07
       - run: node --test tools/test-attachment-retention.mjs
       - run: node --experimental-vm-modules tools/verify-attachment-webhook.mjs

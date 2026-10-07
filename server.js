@@ -287,7 +287,9 @@ const server = http.createServer(async (req, res) => {
       centralArchive: centralArchive.health(),
       driveConfigured: platform.driveConfigured,
       attachmentArchive: { contract: platform.attachmentArchive.contract, storage: 'google-drive', notionFiles: 'links-only', tenants: tenants.filter(t => t.runtimeEnabled !== false).map(t => ({ tenantKey: t.key, ...platform.attachmentArchive.health(t) })) },
-      attachmentRetrieval: { contract: attachmentRetrieval.contract, delivery: 'google-drive-link', conversationIsolation: true },
+      attachmentRetrieval: { contract: attachmentRetrieval.contract, delivery: attachmentRetrieval.deliveryContract,
+        conversationIsolation: true, signedDownloadTtlSeconds: 7200,
+        configuredTenants: tenants.filter(t => t.runtimeEnabled !== false && attachmentRetrieval.deliveryReady(t)).map(t => t.key) },
       llm: { available: llm.available, chain: llm.backends },
       tenants: tenants.map((t) => ({
         key: t.key,
@@ -540,6 +542,11 @@ const server = http.createServer(async (req, res) => {
       const payload = JSON.parse(await readLineIoBody(req,4096));
       return sendJson(res,201,await leafCalendar.configureService(payload));
     } catch(error) { return sendJson(res,503,{error:error.code==='MIGRATION_NOT_CONFIGURED'?'Calendar migration database is not configured.':'Calendar API, credential or tenant setup is not ready.'}); }
+  }
+
+  if (req.method === 'GET' && routedPathname === '/line-attachment') {
+    const tenant = tenants.find(t => t.key === url.searchParams.get('tenant')) || null;
+    return attachmentRetrieval.handleDownload(req, res, { url, tenant });
   }
 
   // ── 模組 web routes(佇列 / 儀表板 …)──

@@ -14,3 +14,5 @@
 - Tenant UUID: `aac8949f-0625-44d6-b655-57162f97143d`
 - Data stays in Forest's own Notion parent, Drive root, PostgreSQL tenant row, and LINE group bindings.
 - Shadow mode may create only candidate operational-memory records. It must not create formal tasks or send external replies.
+
+| AM-IMP-2026.1008.01 | Installed | Quoted photo resend and signed original download | 32 retrieval/delivery, 42 retention/archive tests; 19 core checks; webhook and signature route checks | Production health and recipient display pending. |

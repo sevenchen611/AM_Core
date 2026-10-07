@@ -29,7 +29,8 @@
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "5.4.624",
     "pdfkit": "^0.20.1",
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8"

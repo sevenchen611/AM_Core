@@ -60,11 +60,11 @@ function harness(options={}) {
     pushLineMessage:()=>{throw Error('Must not push after an uncertain reply');}};
   const service=createAttachmentRetrieval({platform,router,logger:{warn(){}},requestSpacingMs:0,
     ownsTransport:()=>Boolean(options.transport),resolveTransport:resolve});
-  return {service,requests,replies,checks};
+  return {service,requests,replies,checks,platform};
 }
 
 test('explicit quote requests and exact filename commands; ordinary conversation passes through',()=> {
-  for(const text of ['請提供這個檔案給我','請提供這個檔案給我，謝謝','請幫我找這個檔案','請重新傳這份文件','麻煩幫我找一下這個檔案的下載連結','請重傳']) {
+  for(const text of ['請提供我這個檔案','請提供我這張照片','請提供這張照片給我','請提供這個檔案給我','請提供這個檔案給我，謝謝','請幫我找這個檔案','請重新傳這份文件','麻煩幫我找一下這個檔案的下載連結','請重傳']) {
     assert.ok(parseAttachmentRequest(event(text)),text);
   }
   for(const text of ['請幫我找「明義街 46 號.pdf」','請幫我找『example.pdf』','請提供 example.pdf']) {
@@ -173,4 +173,20 @@ test('ordinary messages skip all storage and routing work',async()=>{
 test('a Notion failure produces a temporary message without disclosing a file',async()=>{
   const h=harness({notionFailure:true});await h.service.handle(event());assert.equal(h.checks.length,0);
   assert.doesNotMatch(h.replies[0][1],/https:/);assert.match(h.replies[0][1],/稍後再試/);
+});
+
+for (const status of [0, 400, 500]) test(`native core photo reply and transport fallback (${status})`, async t => {
+  t.mock.method(globalThis,'fetch',async()=>Response.json({id:'synthetic-drive-file',size:'4096',md5Checksum:md5,mimeType:'image/png'}));
+  const h = harness({rows:[row({'檔案大小':{number:4096}})],driveMetadata:{size:4096}});
+  h.platform.publicBaseUrl='https://example.test';h.platform.publicLinkSecret='synthetic-signing';
+  h.platform.getDriveAccessToken=async()=>'synthetic-oauth';
+  const images=[];
+  h.platform.replyLineMessages=async(token,messages)=>{
+    images.push(messages);if(status)throw Object.assign(Error('synthetic rejection'),{lineStatus:status});
+  };
+  assert.equal(await h.service.handle(event('請提供我這張照片')),true);
+  assert.equal(images.length,1);assert.equal(images[0][1].type,'image');
+  assert.match(images[0][0].text,/token=/);
+  assert.equal(h.replies.length,status===400?1:0,'never repeat after uncertain transport failure');
+  if(status===400)assert.match(h.replies[0][1],/token=/);
 });
