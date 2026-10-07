@@ -6,7 +6,8 @@ import {createArchiveStore,archiveRecord,digest} from '../core/central-archive/s
 import {createArchiveNotion} from '../core/central-archive/notion.js';
 import {createLine} from '../core/line.js';
 import {createDrive} from '../core/drive.js';
-import {loadTenants} from '../core/tenants.js';
+import {loadTenants,buildDataSourceRegistry} from '../core/tenants.js';
+import {createNotion} from '../core/notion.js';
 const env=process.env,mode=process.argv[2]||'--status';
 const config=archiveConfig(env);
 if(!config.enabled)throw Error('Central archive environment is required');
@@ -17,11 +18,12 @@ const pool=new Pool({...connection,max:3,connectionTimeoutMillis:10000});
 const store=createArchiveStore(pool,config.botId);
 const notion=createArchiveNotion({token:env.NOTION_TOKEN,parentId:config.parentId});
 const tenants=loadTenants(env,{warn(){}}).filter(t=>t.runtimeEnabled!==false&&t.notionConfigured);
+const sourceNotion=createNotion({token:env.NOTION_TOKEN,version:'2025-09-03',registry:buildDataSourceRegistry(tenants,{warn(){}})});
 const plain=p=>(p?.rich_text||p?.title||[]).map(x=>x.plain_text||x.text?.content||'').join('');
 function driveId(value){try{const u=new URL(value);if(!['drive.google.com','docs.google.com'].includes(u.hostname))return '';
   return u.pathname.match(/\/(?:file|document|spreadsheets|presentation)\/d\/([\w-]+)/)?.[1]||u.searchParams.get('id')||'';}catch{return '';}}
-async function allPages(id){const pages=[];let cursor;do{const r=await notion.request(`/data_sources/${encodeURIComponent(id)}/query`,'POST',{
-  page_size:100,...(cursor?{start_cursor:cursor}:{})});pages.push(...r.results);cursor=r.has_more?r.next_cursor:null;}while(cursor);return pages;}
+async function allPages(id){const pages=[];let cursor;do{const r=await sourceNotion.notionRequest(`/v1/data_sources/${encodeURIComponent(id)}/query`,{method:'POST',body:{
+  page_size:100,...(cursor?{start_cursor:cursor}:{})}});pages.push(...r.results);cursor=r.has_more?r.next_cursor:null;}while(cursor);return pages;}
 function sourceFor(properties,tenant){
   const id=plain(properties['LINE 群組 ID'])||plain(properties['LINE 使用者 ID']);
   const kind=id.startsWith('C')?'group':id.startsWith('R')?'room':id.startsWith('U')?'user':'unknown';

@@ -71,7 +71,8 @@ export async function createCentralArchive({env=process.env,line,drive,router,lo
       catch(error){
         const missing=/LINE content download failed: (404|410)\b/.test(error.message)||error.message==='archive_legacy_file_missing';
         result={...result,attachmentStatus:missing?'原檔缺失，需補提供':'等待重試',errorCode:missing?'archive_source_missing':error.code||'archive_media_unavailable'};
-        await store.result(job.key,result);await notion.write(job,result,sender);
+        await store.result(job.key,result);const pendingPage=await notion.write(job,result,sender);
+        await store.result(job.key,{...result,notionPageId:pendingPage.id});
         if(missing){await store.needsSource(job.key,'archive_source_missing');return;}
         throw error;
       }
