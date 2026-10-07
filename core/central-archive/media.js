@@ -7,6 +7,10 @@ import path from 'node:path';
 import {digest} from './store.js';
 import {publicMedia} from './public-media.js';
 
+export function legacyMediaMessageId(name){
+  return String(name||'').match(/^(?:image|audio|video|file|meeting|照片|圖片|語音|音訊|影片|檔案)-([0-9]{15,30})(?:\.[A-Za-z0-9]+)?$/)?.[1]||'';
+}
+
 // Old schemas stored a message and its related attachment in separate rows. Reuse
 // the verified canonical copy only with explicit source-page relation evidence.
 export async function archiveReference({job,canonical,drive}){
@@ -19,7 +23,8 @@ export async function archiveReference({job,canonical,drive}){
     canonical.payload?.tenantKey!==job.payload.tenantKey||canonical.result?.canonicalJobKey||
     !relation?.messagePageId||!relation?.attachmentPageId||
     pageId(job.payload.sourceUrl)!==normalized(relation.messagePageId)||
-    pageId(canonical.payload.sourceUrl)!==normalized(relation.attachmentPageId))throw Error('archive_reference_invalid');
+    pageId(canonical.payload.sourceUrl)!==normalized(relation.attachmentPageId)||
+    (relation.match==='message-filename'&&legacyMediaMessageId(canonical.payload.legacyFileName||canonical.result?.name)!==job.payload.event?.message?.id))throw Error('archive_reference_invalid');
   if(canonical.state==='needs_source')throw Error('archive_legacy_file_missing');
   if(canonical.state!=='done'||!canonical.result?.driveId)throw Error('archive_reference_pending');
   const r=canonical.result;

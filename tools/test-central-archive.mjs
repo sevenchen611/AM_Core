@@ -5,7 +5,20 @@ import {PGlite} from '@electric-sql/pglite';
 import {createArchiveStore,archiveRecord,digest} from '../core/central-archive/store.js';
 import {archiveProperties,createArchiveNotion,richText,ARCHIVE_SCHEMA} from '../core/central-archive/notion.js';
 import {archiveConfig} from '../core/central-archive/index.js';
-import {archiveMedia,archiveReference} from '../core/central-archive/media.js';
+import {archiveMedia,archiveReference,legacyMediaMessageId} from '../core/central-archive/media.js';
+
+test('legacy generated media filenames identify the exact message and reject ordinary names',async()=>{
+  const mid='12345678901234567890';assert.equal(legacyMediaMessageId('照片-'+mid+'.jpg'),mid);
+  assert.equal(legacyMediaMessageId('meeting-'+mid+'.m4a'),mid);assert.equal(legacyMediaMessageId('report.pdf'),'');
+  assert.equal(legacyMediaMessageId('照片-'+mid+'.jpg (1)'),'');assert.equal(legacyMediaMessageId('prefix-照片-'+mid+'.jpg'),'');
+  const messagePage='a'.repeat(32),attachmentPage='b'.repeat(32);
+  const job={key:'in:generated',conversation_key:'group',drive_folder_id:'folder',payload:{direction:'incoming',tenantKey:'tenant',sourceUrl:'https://www.notion.so/'+messagePage,event:{message:{id:mid}},media:{canonicalJobKey:'file:generated',legacyRelation:{messagePageId:messagePage,attachmentPageId:attachmentPage,match:'message-filename'}}}};
+  const canonical={key:'file:generated',conversation_key:'group',drive_folder_id:'folder',state:'done',payload:{direction:'incoming',tenantKey:'tenant',sourceUrl:'https://www.notion.so/'+attachmentPage},result:{name:'照片-'+mid+'.jpg',driveId:'file',size:10,md5:'hash'}};
+  const drive={verifyAttachment:async()=>({id:'file',name:canonical.result.name,size:10,md5Checksum:'hash'})};
+  assert.equal((await archiveReference({job,canonical,drive})).driveId,'file');
+  await assert.rejects(archiveReference({job,canonical:{...canonical,result:{...canonical.result,name:'照片-99999999999999999999.jpg'}},drive}),/reference_invalid/);
+  assert.equal((await archiveReference({job,canonical:{...canonical,payload:{...canonical.payload,legacyFileName:'照片-'+mid+'.jpg'},result:{...canonical.result,name:'uploaded-image.jpg'}},drive})).driveId,'file');
+});
 
 test('legacy message references reuse only the related canonical file in the same conversation',async()=>{
   const messagePage='a'.repeat(32),attachmentPage='b'.repeat(32),canonicalKey='file:synthetic';
