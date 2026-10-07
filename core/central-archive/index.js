@@ -34,6 +34,11 @@ export async function createCentralArchive({env=process.env,line,drive,router,lo
     const page=await notion.request('/pages/'+encodeURIComponent(config.parentId));
     if(page.archived||page.in_trash)throw Error('central_archive_parent_unavailable');
     const token=await drive.getAccessToken();
+    if(env.AMCORE_CENTRAL_ARCHIVE_GOOGLE_ACCOUNT_EMAIL){
+      const identity=await fetch('https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)',{headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(15000)});
+      const account=await identity.json();
+      if(!identity.ok||account.user?.emailAddress?.toLowerCase()!==env.AMCORE_CENTRAL_ARCHIVE_GOOGLE_ACCOUNT_EMAIL.toLowerCase())throw Error('central_archive_google_account_mismatch');
+    }
     const r=await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(config.rootId)}?fields=id,mimeType,trashed,capabilities(canAddChildren)&supportsAllDrives=true`,{headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(20000)});
     const folder=await r.json();if(!r.ok||folder.trashed||folder.mimeType!=='application/vnd.google-apps.folder'||!folder.capabilities?.canAddChildren)throw Error('central_archive_drive_unavailable');
   }catch(error){if(!injectedPool)await pool.end();throw error;}
