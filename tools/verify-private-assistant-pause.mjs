@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import * as workJournalEntry from '../core/work-journal-entry.js';
 import fs from 'node:fs/promises';
 import vm from 'node:vm';
 import crypto from 'node:crypto';
@@ -45,12 +46,16 @@ const platform = {
   },
 };
 const secret = 'synthetic-signature-secret';
+const journalReads = [], journalReplies = [];
 const sign = raw => crypto.createHmac('sha256', secret).update(raw).digest('base64');
 const dependencies = {
   'node:http': { default: { createServer(fn) { handler = fn; return { listen() {} }; } } },
   'node:crypto': { default: crypto },
   './core/bootstrap.js': { bootstrap: async () => ({
-    tenants: [tenant], line: { configured: true, isValidSignature: (raw, signature) => signature === sign(raw), replyLineMessage: forbidden },
+    tenants: [tenant], line: { configured: true, isValidSignature: (raw, signature) => signature === sign(raw), replyLineMessage: forbidden,
+      lineGet: async path => { journalReads.push(path);return path.startsWith('/v2/bot/user/') ? { richMenuId: 'richmenu-' + 'a'.repeat(32) } : { areas: [{ action: { type: 'uri', label: '工作日誌', uri: 'https://journal.example.com/?openExternalBrowser=1' } }] }; },
+      replyLineMessages: async (token, messages) => journalReplies.push({ token, messages }),
+    },
     router, dispatcher: { collectRoutes: () => [], dispatchMessage: async ({ event }) => { calls.dispatch++; passed.dispatch.push(event); } },
     portal: {}, modules: new Map(), platform, llm: { available: false, backends: [] }, logger,
   }) },
@@ -63,6 +68,7 @@ const dependencies = {
   './core/attachment-retrieval.js': { createAttachmentRetrieval: () => ({
     contract: 'synthetic', handle: async event => { calls.retrieval++; passed.retrieval.push(event); return false; },
   }), parseAttachmentRequest: () => null },
+  './core/work-journal-entry.js': workJournalEntry,
   './core/direct-line.js': directLine,
   './core/leaf-calendar/index.js': leafCalendar,
   './core/access-directory.js': { createAccessDirectory: () => ({}) },
@@ -98,4 +104,15 @@ const health = {};
 await handler({ method: 'GET', url: '/health' }, health);
 assert.equal(health.body.personalAssistant.enabled, false);
 assert.equal(health.body.personalAssistant.contract, 'private-assistant-pause-v1');
+assert.equal(health.body.workJournalEntry.contract, 'line-work-journal-rich-menu-entry-v1');
+const journal = { type: 'message', source: { type: 'user', userId: 'U' + '1'.repeat(32) }, replyToken: 'synthetic-journal', message: { id: 'synthetic-journal', type: 'text', text: '工作日誌' } };
+assert.equal((await webhook([journal], false)).status, 401);
+assert.equal(journalReads.length, 0);
+assert.equal((await webhook([journal])).status, 200);
+assert.equal(journalReplies.length, 1);
+assert.equal(journalReplies[0].messages[0].template.actions[0].uri, 'https://journal.example.com/?openExternalBrowser=1');
+const previous = Object.fromEntries(Object.entries(passed).map(([key, events]) => [key, events.length]));
+assert.equal((await webhook([journal, transport])).status, 200);
+for (const [key, events] of Object.entries(passed)) assert.equal(events.length, previous[key] + (['io', 'archive', 'retrieval'].includes(key) ? 1 : 0), 'Navigation bypasses ' + key + '; mixed UOF transport still runs');
+assert.equal(journalReplies.length, 2);
 console.log('Private assistant pause verified: private events bypass intake, lookup, dispatch and reply; groups/rooms and explicitly owned independent transport retained; live health exposes pause.');

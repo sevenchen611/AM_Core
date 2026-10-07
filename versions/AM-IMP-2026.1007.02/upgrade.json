@@ -1,0 +1,16 @@
+{
+  "id": "AM-IMP-2026.1007.02",
+  "name": "工作日誌文字命令沿用 Rich Menu 入口",
+  "type": "LINE / navigation",
+  "portable": true,
+  "status": "Ready",
+  "createdAt": "2026-10-07",
+  "installTargets": ["AM_PLATFORM"],
+  "requiresPackages": ["AM-IMP-2026.1006.06"],
+  "requiresDatabases": [],
+  "requiresEnv": [],
+  "requiresScripts": ["node --test tools/test-work-journal-entry.mjs", "node --experimental-vm-modules tools/verify-private-assistant-pause.mjs", "node tools/check-upgrade-package.js AM-IMP-2026.1007.02"],
+  "dataIsolation": {"canCopyCode": true, "canCopySchema": false, "canCopyData": false, "canCopySecrets": false},
+  "files": ["core/work-journal-entry.js", "server.js", "tools/test-work-journal-entry.mjs", "tools/verify-private-assistant-pause.mjs"],
+  "definitionOfDone": ["Direct journal command returns exact current Rich Menu URI", "Only user tap opens the browser", "Per-user menu respected and fallback limited to no association", "No journal command reaches task, identity, calendar or UOF intake", "Existing paused assistant and independent routes remain unchanged", "Signed real webhook isolation tests pass", "Reviewed main and target production health verified before Deployed", "LINE phone acceptance reported separately"]
+}
