@@ -95,7 +95,7 @@ export function createArchiveStore(pool,botId) {
     await pool.query(`UPDATE central_archive.jobs SET payload=jsonb_set(payload,'{delivery}',to_jsonb($2::text)),state='pending',
       next_at=now() WHERE key=ANY($1::text[]) AND state='sending'`,[Array.isArray(key)?key:[key],status]);
   }
-  async function next(db){
+  async function nextBatch(db,limit=4){
     // A crashed outbound sender is evidence of uncertainty; never resend from the archive.
     await db.query(`UPDATE central_archive.jobs SET state='pending',payload=jsonb_set(payload,'{delivery}','"unknown"'::jsonb)
       WHERE state='sending' AND created_at<now()-interval '10 minutes' AND conversation_key IN
@@ -103,9 +103,14 @@ export function createArchiveStore(pool,botId) {
     const result=await db.query(`SELECT j.*,j.has_binary AS "binary",c.source_kind,c.source_id,c.display_name,c.database_id,c.data_source_id,c.drive_folder_id
       FROM central_archive.jobs j JOIN central_archive.conversations c ON c.key=j.conversation_key
       WHERE c.bot_id=$1 AND j.state='pending' AND j.next_at<=now() ORDER BY
-      (j.payload->'history' IS DISTINCT FROM 'true'::jsonb) DESC,j.has_binary DESC,j.created_at LIMIT 1`,[botId]);
-    return result.rows[0];
+      (j.payload->'history' IS DISTINCT FROM 'true'::jsonb) DESC,j.has_binary DESC,j.created_at LIMIT $2`,[botId,Math.max(1,Math.min(4,limit))]);
+    // Unprovisioned conversations may create a database/folder. Only one job for
+    // each such conversation may run in a batch; existing targets are safe to share.
+    const creating=new Set();
+    return result.rows.filter(job=>{if(job.database_id&&job.data_source_id&&job.drive_folder_id)return true;
+      if(creating.has(job.conversation_key))return false;creating.add(job.conversation_key);return true;});
   }
+  async function next(db){return (await nextBatch(db,1))[0];}
   async function result(key,value){await pool.query('UPDATE central_archive.jobs SET result=$2::jsonb WHERE key=$1',[key,JSON.stringify(value)]);}
   async function target(key,c){await pool.query(`UPDATE central_archive.conversations SET database_id=$2,data_source_id=$3,
     drive_folder_id=$4,display_name=$5 WHERE key=$1`,[key,c.database_id,c.data_source_id,c.drive_folder_id,c.display_name]);}
@@ -117,5 +122,5 @@ export function createArchiveStore(pool,botId) {
     JOIN central_archive.conversations c ON c.key=j.conversation_key WHERE c.bot_id=$1 GROUP BY state`,[botId]);
     const c=await pool.query('SELECT count(*)::int AS count FROM central_archive.conversations WHERE bot_id=$1',[botId]);
     return {conversations:c.rows[0].count,states:Object.fromEntries(r.rows.map(x=>[x.state,x.count]))};}
-  return {pool,append,capture,outbound,delivery,next,result,target,complete,needsSource,retry,stats};
+  return {pool,append,capture,outbound,delivery,next,nextBatch,result,target,complete,needsSource,retry,stats};
 }
