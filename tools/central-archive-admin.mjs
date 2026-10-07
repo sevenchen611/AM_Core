@@ -154,6 +154,37 @@ try{
       console.log(JSON.stringify({provisioned:count}));
     }finally{await db.query('SELECT pg_advisory_unlock(10072026,$1)',[lockId]);db.release();}
   }
+  else if(mode==='--canary'){
+    const drive=createDrive({clientId:env.GOOGLE_OAUTH_CLIENT_ID,clientSecret:env.GOOGLE_OAUTH_CLIENT_SECRET,refreshToken:env.GOOGLE_OAUTH_REFRESH_TOKEN});
+    const archive=await createCentralArchive({env:{...env,AMCORE_CENTRAL_ARCHIVE_CAPTURE_ENABLED:'0'},line,drive,pool,notion,logger:{warn(){},error(){}}});
+    const db=await pool.connect(),lockId=parseInt(digest(config.botId).slice(0,7),16);const proof=[];
+    try{await db.query('SELECT pg_advisory_lock(10072026,$1)',[lockId]);
+      for(const kind of ['group','user','binary']){
+        const r=await db.query(`SELECT j.*,j.has_binary AS "binary",c.source_kind,c.source_id,c.display_name,c.database_id,c.data_source_id,c.drive_folder_id
+          FROM central_archive.jobs j JOIN central_archive.conversations c ON c.key=j.conversation_key WHERE c.bot_id=$1
+          AND CASE WHEN $2='binary' THEN j.payload #>> '{media,driveId}' IS NOT NULL
+          ELSE c.source_kind=$2 AND NOT j.has_binary END
+          ORDER BY length(COALESCE(j.payload #>> '{event,message,text}',j.payload->>'content','')) DESC LIMIT 1`,[config.botId,kind]);
+        const job=r.rows[0];if(!job){proof.push({kind,available:false});continue;}
+        await archive.processJob(job);
+        const saved=(await db.query('SELECT result FROM central_archive.jobs WHERE key=$1',[job.key])).rows[0].result;
+        const page=await notion.request('/pages/'+encodeURIComponent(saved.notionPageId));
+        const expected=job.payload.event?.message?.text??job.payload.content;
+        const item={kind,available:true,sourceMatches:plain(page.properties['LINE 對話 ID'])===job.source_id,
+          textLength:expected?.length||0,textMatches:expected===undefined||plain(page.properties['內容'])===expected,
+          notionPageId:saved.notionPageId,notionBinaryProperties:Object.values(page.properties).filter(p=>p.type==='files').length};
+        if(kind==='binary'){
+          const file=await drive.verifyAttachment(saved.driveId,job.drive_folder_id,{amCentralArchive:digest(job.key)},saved.size,saved.md5);
+          item.driveFileId=file.id;item.bytes=Number(file.size);item.md5Matches=file.md5Checksum===saved.md5;
+          item.withinSelectedRoot=Boolean(await drive.verifyWithinRoot(file.id,config.rootId,''));
+        }
+        if(!item.sourceMatches||!item.textMatches||item.notionBinaryProperties)throw Error('archive_canary_mismatch');
+        proof.push(item);
+      }
+      if(process.argv[3])await fs.writeFile(process.argv[3],JSON.stringify({checkedAt:new Date().toISOString(),proof},null,2));
+      console.log(JSON.stringify(proof));
+    }finally{await db.query('SELECT pg_advisory_unlock(10072026,$1)',[lockId]);db.release();await archive.close();}
+  }
   else if(mode==='--drain'){
     const drive=createDrive({clientId:env.GOOGLE_OAUTH_CLIENT_ID,clientSecret:env.GOOGLE_OAUTH_CLIENT_SECRET,refreshToken:env.GOOGLE_OAUTH_REFRESH_TOKEN,logger:{warn(){}}});
     const archive=await createCentralArchive({env,line,drive,pool,notion,logger:{warn(){},error(){}}});
