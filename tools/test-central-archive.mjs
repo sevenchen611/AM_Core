@@ -24,6 +24,10 @@ test('actual SQL persists all sources, rolls back atomically, deduplicates repla
     const outgoing=await store.outbound({replyToken:'private-token-a',messages:[{type:'text',text:'response'}],key:'reply:a'});
     await store.delivery(outgoing,'accepted');
     assert.equal((await db.query('SELECT payload FROM central_archive.jobs WHERE key=$1',[outgoing[0]])).rows[0].payload.delivery,'accepted');
+    await store.outbound({replyToken:'private-token-a',messages:[{type:'text',text:'response'}],key:'reply:a'});
+    assert.equal((await db.query('SELECT payload FROM central_archive.jobs WHERE key=$1',[outgoing[0]])).rows[0].payload.delivery,'accepted');
+    await assert.rejects(store.outbound({replyToken:'private-token-a',messages:[{type:'text',text:'changed response'}],key:'reply:a'}),/identity_conflict/);
+    assert.deepEqual((await db.query('SELECT payload FROM central_archive.jobs WHERE key=$1',[outgoing[0]])).rows[0].payload.messages,[{type:'text',text:'response'}]);
     await assert.rejects(store.outbound({replyToken:'unknown',messages:[],key:'bad'}),/origin_missing/);
     const other=createArchiveStore(pool,'U'+'9'.repeat(32));await other.capture([event('other')]);
     assert.equal((await store.stats()).conversations,2);assert.equal((await other.stats()).conversations,1);
