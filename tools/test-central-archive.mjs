@@ -43,6 +43,20 @@ test('Notion sink rejects databases under a different parent before writing',asy
   const sink=createArchiveNotion({token:'synthetic',parentId:'a'.repeat(32),spacingMs:0,fetchImpl:async()=>Response.json({id:'db',parent:{page_id:'b'.repeat(32)},data_sources:[{id:'ds'}]})});
   await assert.rejects(sink.verify('db','ds'),/parent_mismatch/);
 });
+test('a durable write intent recovers a Notion create whose response was lost',async()=>{
+  const calls=[],parent='a'.repeat(32);
+  const sink=createArchiveNotion({token:'synthetic',parentId:parent,spacingMs:0,fetchImpl:async(url,init)=>{
+    calls.push({url,method:init.method});
+    if(url.endsWith('/databases/db'))return Response.json({parent:{page_id:parent},data_sources:[{id:'ds'}]});
+    if(url.endsWith('/data_sources/ds'))return Response.json({properties:Object.fromEntries(Object.entries(ARCHIVE_SCHEMA).map(([k,v])=>[k,{type:Object.keys(v)[0]}]))});
+    if(url.endsWith('/data_sources/ds/query'))return Response.json({results:[{id:'already-created'}]});
+    if(url.endsWith('/pages/already-created')&&init.method==='PATCH')return Response.json({id:'already-created'});
+    throw Error('unexpected create or request');
+  }});
+  const job={...archiveRecord(bot,event('lost-response')),database_id:'db',data_source_id:'ds',source_kind:'user',source_id:user,event_at:new Date().toISOString(),attempts:0};
+  const saved=await sink.write(job,{notionWriteStarted:true});
+  assert.equal(saved.id,'already-created');assert.ok(!calls.some(x=>x.url.endsWith('/pages')));
+});
 test('all binary formats stream to Drive and are checked against their content hash',async()=>{
   const bytes=Buffer.from('arbitrary installation or zip bytes'.repeat(300));let uploaded;
   const drive={findAttachment:async()=>null,uploadStream:async(stream,name,type,parent,size,metadata)=>{

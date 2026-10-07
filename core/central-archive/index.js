@@ -67,16 +67,19 @@ export async function createCentralArchive({env=process.env,line,drive,router,lo
       job.payload.sender||await line.resolveSenderName(job.payload.event?.source||{});
     let result=job.result||{};
     if(job.binary){
-      try{result=await archiveMedia({job,drive,line,notion});await store.result(job.key,result);}
+      try{result={...result,...await archiveMedia({job,drive,line,notion})};await store.result(job.key,result);}
       catch(error){
         const missing=/LINE content download failed: (404|410)\b/.test(error.message)||error.message==='archive_legacy_file_missing';
         result={...result,attachmentStatus:missing?'原檔缺失，需補提供':'等待重試',errorCode:missing?'archive_source_missing':error.code||'archive_media_unavailable'};
-        await store.result(job.key,result);const pendingPage=await notion.write(job,result,sender);
+        // Persist an intent before the external write. A restart after Notion accepted a
+        // create must query the stable key even if its returned page ID was never saved.
+        await store.result(job.key,{...result,notionWriteStarted:true});const pendingPage=await notion.write(job,result,sender);
         await store.result(job.key,{...result,notionPageId:pendingPage.id});
         if(missing){await store.needsSource(job.key,'archive_source_missing');return;}
         throw error;
       }
     }
+    await store.result(job.key,{...result,notionWriteStarted:true});
     const page=await notion.write(job,result,sender);
     await store.complete(job.key,{...result,notionPageId:page.id});
   }
