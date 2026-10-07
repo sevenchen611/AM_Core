@@ -96,7 +96,7 @@ export function createArchiveStore(pool,botId) {
     await pool.query(`UPDATE central_archive.jobs SET payload=jsonb_set(payload,'{delivery}',to_jsonb($2::text)),state='pending',
       next_at=now() WHERE key=ANY($1::text[]) AND state='sending'`,[Array.isArray(key)?key:[key],status]);
   }
-  async function nextBatch(db,limit=4){
+  async function nextBatch(db,limit=8){
     // A crashed outbound sender is evidence of uncertainty; never resend from the archive.
     await db.query(`UPDATE central_archive.jobs SET state='pending',payload=jsonb_set(payload,'{delivery}','"unknown"'::jsonb)
       WHERE state='sending' AND created_at<now()-interval '10 minutes' AND conversation_key IN
@@ -104,7 +104,7 @@ export function createArchiveStore(pool,botId) {
     const result=await db.query(`SELECT j.*,j.has_binary AS "binary",c.source_kind,c.source_id,c.display_name,c.database_id,c.data_source_id,c.drive_folder_id
       FROM central_archive.jobs j JOIN central_archive.conversations c ON c.key=j.conversation_key
       WHERE c.bot_id=$1 AND j.state='pending' AND j.next_at<=now() ORDER BY
-      (j.payload->'history' IS DISTINCT FROM 'true'::jsonb) DESC,j.has_binary DESC,j.created_at LIMIT $2`,[botId,Math.max(1,Math.min(4,limit))]);
+      (j.payload->'history' IS DISTINCT FROM 'true'::jsonb) DESC,j.has_binary DESC,j.created_at LIMIT $2`,[botId,Math.max(1,Math.min(8,limit))]);
     // Unprovisioned conversations may create a database/folder. Only one job for
     // each such conversation may run in a batch; existing targets are safe to share.
     const creating=new Set();
