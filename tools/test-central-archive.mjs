@@ -81,6 +81,18 @@ test('Notion retains full long text and has only Drive URLs, with source evidenc
   const emoji='x'.repeat(1799)+'😀'.repeat(2000);assert.equal(richText(emoji).map(x=>x.text.content).join(''),emoji);
   assert.throws(()=>archiveConfig({AMCORE_CENTRAL_ARCHIVE_ENABLED:'1'}),/incomplete/);
 });
+
+test('a legacy empty or partial body cannot replace authoritative webhook media or event content',()=>{
+  for(const type of ['image','file','audio','video']){const e={...event('authority-'+type),message:{id:'authority-'+type,type,fileName:'original.bin',fileSize:123}};
+    const record=archiveRecord(bot,e),job={...record,event_at:record.at,payload:{...record.payload,history:true,content:'legacy summary'}};
+    assert.equal(archiveProperties(job)['內容'].rich_text.map(x=>x.text.content).join(''),JSON.stringify(record.payload.event.message));
+    job.payload.content='';assert.equal(archiveProperties(job)['內容'].rich_text.map(x=>x.text.content).join(''),JSON.stringify(record.payload.event.message));
+    job.payload.evidenceQuality='historical';assert.equal(archiveProperties(job)['內容'].rich_text.length,0);
+  }
+  const e={type:'memberJoined',timestamp:Date.now(),webhookEventId:'joined',source:{groupId:group},joined:{members:[{type:'user',userId:user}]}};
+  const record=archiveRecord(bot,e),job={...record,event_at:record.at,payload:{...record.payload,content:'older event'}};
+  assert.equal(archiveProperties(job)['內容'].rich_text.map(x=>x.text.content).join(''),JSON.stringify(record.payload.event));
+});
 test('Notion sink rejects databases under a different parent before writing',async()=>{
   const sink=createArchiveNotion({token:'synthetic',parentId:'a'.repeat(32),spacingMs:0,fetchImpl:async()=>Response.json({id:'db',parent:{page_id:'b'.repeat(32)},data_sources:[{id:'ds'}]})});
   await assert.rejects(sink.verify('db','ds'),/parent_mismatch/);

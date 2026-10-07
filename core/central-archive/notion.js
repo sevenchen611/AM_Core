@@ -18,8 +18,10 @@ const rt=v=>({rich_text:richText(v)});
 const normalize=id=>String(id||'').replaceAll('-','');
 export function archiveProperties(job,result={},sender=''){
   const p=job.payload,e=p.event||{},m=e.message||{};
+  const structured=e.type==='message'?JSON.stringify(m):JSON.stringify(e);
   const content=p.direction==='outgoing'?p.messages.map(x=>x.type==='text'?x.text:JSON.stringify(x)).join('\n\n'):
-    m.text??p.content??(e.type==='message'?JSON.stringify(m):JSON.stringify(e));
+    p.evidenceQuality==='webhook'?(e.type==='message'&&m.type==='text'?m.text??structured:structured):
+    m.text??p.content??structured;
   const type=p.direction==='outgoing'?p.messages.map(x=>x.type).join(','):m.type||e.type||'historical';
   return {'訊息':{title:richText(Array.from(content||`[${type}]`).slice(0,120).join(''))},'識別碼':rt(job.key),
     '時間':{date:{start:new Date(job.event_at).toISOString()}},'方向':rt(p.direction==='outgoing'?'機器人發送':'收到'),
