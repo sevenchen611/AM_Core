@@ -5,6 +5,8 @@
 import crypto from 'node:crypto';
 
 const LINE_RETRY_KEY_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+let directTransportArchive=null;
+export function getLineArchiveObserver(){return directTransportArchive;}
 
 export function normalizeLineRetryKey(value) {
   const raw = String(value || '').trim();
@@ -18,6 +20,8 @@ export function normalizeLineRetryKey(value) {
 }
 
 export function createLine({ channelAccessToken, channelSecret, logger = console, pushTimeoutMs = 8000 }) {
+  let archiveObserver=null;
+  function setArchiveObserver(observer){archiveObserver=observer;directTransportArchive=observer;}
   // LINE webhook 簽章驗證(HMAC-SHA256, timing-safe)。
   function isValidSignature(rawBody, signature) {
     if (!channelSecret || !signature) return false;
@@ -226,7 +230,10 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
       .map(outboundMessage)
       .slice(0, 5);
     if (!normalized.length) throw new Error('LINE reply requires at least one message.');
-    const response = await fetch('https://api.line.me/v2/bot/message/reply', {
+    const archiveKey=await archiveObserver?.before({replyToken,messages:normalized,key:`reply:${crypto.createHash('sha256').update(replyToken).digest('hex')}`});
+    let response;
+    try {
+    response = await fetch('https://api.line.me/v2/bot/message/reply', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${channelAccessToken}`,
@@ -235,13 +242,16 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
       body: JSON.stringify({ replyToken, messages: normalized }),
       ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
     });
+    } catch(error){await archiveObserver?.after(archiveKey,'unknown');throw error;}
     const responseText = await response.text();
     if (!response.ok) {
+      await archiveObserver?.after(archiveKey,'rejected');
       throw Object.assign(new Error(`LINE reply failed: ${response.status} ${responseText}`), {
         code: 'LINE_REPLY_FAILED',
         lineStatus: response.status,
       });
     }
+    await archiveObserver?.after(archiveKey,'accepted');
     return { ok: true, status: response.status };
   }
 
@@ -263,6 +273,7 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
       .slice(0, 4);
     const messages = [message, ...additionalMessages].slice(0, 5);
     const retryKey = normalizeLineRetryKey(delivery.retryKey);
+    const archiveKey=await archiveObserver?.before({to,messages,key:`push:${retryKey}`});
     const suppressEvidenceLogs = delivery.suppressEvidenceLogs === true;
     const timeoutMs = Math.max(10, Number(delivery.timeoutMs || pushTimeoutMs) || 8000);
     const startedAt = Date.now();
@@ -289,12 +300,14 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
         ? responseBody.sentMessages.map((item) => String(item?.id || '')).filter(Boolean)
         : [];
       if (response.status === 409 && acceptedRequestId) {
+        await archiveObserver?.after(archiveKey,'accepted');
         logger.warn?.(suppressEvidenceLogs
           ? `[line] push retry already accepted targetHash=${targetHash} status=409 durationMs=${Date.now() - startedAt}`
           : `[line] push retry already accepted targetHash=${targetHash} status=409 acceptedRequestId=${acceptedRequestId} durationMs=${Date.now() - startedAt}`);
         return { ok: true, status: 409, retryKey, requestId, acceptedRequestId, messageIds, replayed: true };
       }
       if (!response.ok) {
+        await archiveObserver?.after(archiveKey,'rejected');
         throw Object.assign(new Error(`LINE push failed: ${response.status} ${responseText}`), {
           code: 'LINE_PUSH_FAILED',
           lineStatus: response.status,
@@ -304,8 +317,10 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
       logger.info?.(suppressEvidenceLogs
         ? `[line] push accepted targetHash=${targetHash} status=${response.status} durationMs=${Date.now() - startedAt}`
         : `[line] push accepted targetHash=${targetHash} status=${response.status} requestId=${requestId || '-'} messageIds=${messageIds.join(',') || '-'} durationMs=${Date.now() - startedAt}`);
+      await archiveObserver?.after(archiveKey,'accepted');
       return { ok: true, status: response.status, retryKey, requestId, acceptedRequestId, messageIds, replayed: false };
     } catch (error) {
+      if(!error.lineStatus)await archiveObserver?.after(archiveKey,'unknown');
       if (controller.signal.aborted) {
         throw Object.assign(new Error(`LINE push timed out after ${timeoutMs}ms.`), { code: 'LINE_PUSH_TIMEOUT', cause: error });
       }
@@ -316,6 +331,7 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
   }
 
   return {
+    setArchiveObserver,
     isValidSignature,
     lineGet,
     verifyLiffIdentity,

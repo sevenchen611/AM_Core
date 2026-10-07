@@ -212,7 +212,6 @@ export function createAttachmentArchive({ platform, router, logger = console, no
       const props = page.properties || {};
       if (migrate) props['保存來源'] = rt('notion-migration');
       const status = props['保存狀態']?.select?.name;
-      if (!migrate && ['需要重傳', '保存失敗'].includes(status)) return { attachmentPage: page, saved: false, status };
       const migration = plain(props['保存來源']) === 'notion-migration';
       const messageId = plain(props['保存識別']) || plain(props['LINE 訊息 ID']) || (migration ? `notion:${page.id}` : '');
       const filename = plain(props['檔案名稱']) || (migration ? props['檔案']?.files?.[0]?.name : '');
@@ -220,6 +219,15 @@ export function createAttachmentArchive({ platform, router, logger = console, no
       const userId = plain(props['LINE 使用者 ID']);
       const expectedSize = migration ? 0 : Number(props['檔案大小']?.number) || 0;
       if (!messageId || !filename || (!groupId && !userId && !migration)) throw failure('attachment_source_missing');
+      if(!migrate&&platform.centralArchive?.original){
+        const central=await platform.centralArchive.original(plain(props['LINE 訊息 ID']),{groupId,userId});
+        if(central?.pending)return {attachmentPage:page,saved:false,status:'重試中'};
+        if(central?.file){
+          await saveResult(tenant,page,central.file,central.sha256,central.md5,{'保存來源':rt('central-archive')});
+          return {attachmentPage:page,saved:true,driveFile:central.file};
+        }
+      }
+      if (!migrate && ['需要重傳', '保存失敗'].includes(status)) return { attachmentPage: page, saved: false, status };
       if (!migrate && status === '已保存') return { attachmentPage: page, saved: true, driveFile: {
         id: plain(props['Drive 檔案 ID']), webViewLink: props['Drive 連結']?.url, size: expectedSize,
       } };

@@ -48,7 +48,10 @@ const platform = {
 const secret = 'synthetic-signature-secret';
 const journalReads = [], journalReplies = [];
 const sign = raw => crypto.createHmac('sha256', secret).update(raw).digest('base64');
+const centralCaptured=[];let failCentralIntake=false;
 const dependencies = {
+  './core/central-archive/index.js': { createCentralArchive: async () => ({capture:async events=>{
+    if(failCentralIntake)throw Error('synthetic_archive_outage');centralCaptured.push(...events);},health:()=>({enabled:true})}) },
   'node:http': { default: { createServer(fn) { handler = fn; return { listen() {} }; } } },
   'node:crypto': { default: crypto },
   './core/bootstrap.js': { bootstrap: async () => ({
@@ -92,7 +95,9 @@ async function webhook(events, valid = true) {
   return res;
 }
 assert.equal((await webhook(privateEvents, false)).status, 401);
+assert.equal(centralCaptured.length,0,'Unsigned events never reach central persistence');
 assert.equal((await webhook(privateEvents)).status, 200);
+assert.deepEqual(JSON.parse(JSON.stringify(centralCaptured)),privateEvents,'Central persistence precedes assistant pause');
 for (const events of Object.values(passed)) assert.deepEqual(events, []);
 assert.ok(Object.values(calls).every(count => count === 0), 'private-only requests must bypass the entire processing pipeline');
 assert.equal((await webhook([...privateEvents, group, room, transport])).status, 200);
@@ -115,4 +120,8 @@ const previous = Object.fromEntries(Object.entries(passed).map(([key, events]) =
 assert.equal((await webhook([journal, transport])).status, 200);
 for (const [key, events] of Object.entries(passed)) assert.equal(events.length, previous[key] + (['io', 'archive', 'retrieval'].includes(key) ? 1 : 0), 'Navigation bypasses ' + key + '; mixed UOF transport still runs');
 assert.equal(journalReplies.length, 2);
+const centralCount=centralCaptured.length;
+failCentralIntake=true;
+assert.equal((await webhook([group])).status,503,'An archive outage must not acknowledge and lose the source');
+assert.equal(centralCaptured.length,centralCount);
 console.log('Private assistant pause verified: private events bypass intake, lookup, dispatch and reply; groups/rooms and explicitly owned independent transport retained; live health exposes pause.');

@@ -128,7 +128,10 @@ export function createAttachmentRetrieval({ platform, router, ownsTransport = ()
     const fileId = plain(p['Drive 檔案 ID']), md5 = plain(p['Drive MD5']);
     if (!tenant.driveConfigured || !tenant.driveRootFolderId || !/^[\w-]{10,200}$/.test(fileId)
       || !/^[a-f0-9]{32}$/i.test(md5) || !Number(p['檔案大小']?.number)) throw fail('unavailable');
-    const file = await platform.drive.verifyWithinRoot(fileId, tenant.driveRootFolderId, tenant.key);
+    const central=plain(p['保存來源'])==='central-archive'&&platform.centralArchive?.original
+      ?await platform.centralArchive.original(plain(p['LINE 訊息 ID']),{
+        groupId:event.source?.groupId||event.source?.roomId||'',userId:event.source?.userId||''}):null;
+    const file = central?.file || await platform.drive.verifyWithinRoot(fileId, tenant.driveRootFolderId, tenant.key);
     if (file.id !== fileId || Number(file.size) !== Number(p['檔案大小']?.number)
       || String(file.md5Checksum).toLowerCase() !== md5.toLowerCase()) throw fail('changed');
     // Construct the canonical Google URL from the verified ID, not editable Notion URL text.

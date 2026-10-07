@@ -2,6 +2,10 @@ name: Validate bank notification registry
 on:
   pull_request:
     paths:
+      - 'core/central-archive/**'
+      - 'tools/central-archive-admin.mjs'
+      - 'tools/test-central-archive.mjs'
+      - 'versions/AM-IMP-2026.1007.03/**'
       - 'server.js'
       - 'core/work-journal-entry.js'
       - 'tools/test-work-journal-entry.mjs'
@@ -85,6 +89,8 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run check
+      - run: node --test tools/test-central-archive.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1007.03
       - run: node --test tools/test-work-journal-entry.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1007.02
       - run: node --test tools/test-journal-external-browser-url.mjs

@@ -15,6 +15,7 @@ Environment prefix: `HZ2`
 
 | Version | Status | Capability | Scope | Notes |
 | --- | --- | --- | --- | --- |
+| AM-IMP-2026.1007.03 | Installed | Central LINE evidence archive | OA-owned per-conversation Notion databases and Drive originals | Local SQL/source-isolation/attachment checks pass; production activation and history completion pending. |
 | `AM-IMP-2026.1006.07` | Installed | Confirm LINE activity before Google Calendar creation | Shared runtime and tenant-local evidence schema | Reviewed main/schema verified; this tenant has no shared service configuration. Active UOF direct bindings and deployed calendar configuration belong to green-hotel. |
 | `AM-IMP-2026.1006.06` | Deployed | Enable journal URI in half-height menu | Shared LINE account menu | PR #247; exact user-supplied URI, UOF 待簽, 2500x422 default and image hash verified. |
 | `AM-IMP-2026.1007.01` | Deployed | Open journal in phone external browser | Shared LINE account default menu | PR #251 / main 0c5ac9e; actual default, external-browser URI, UOF 待簽, dimensions and image SHA-256 verified on 2026-10-07. Phone acceptance pending. |
