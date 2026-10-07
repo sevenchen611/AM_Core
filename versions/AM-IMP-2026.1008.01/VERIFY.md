@@ -21,4 +21,4 @@ node tools/compare-project-manifests.js
 
 各租戶部署紀錄保存非機密 commit、PR、health／HTTP 結果和未完成的使用者端驗收，不保存客戶內容、群組 ID、附件 ID、下載 token 或 OAuth。
 
-本地檢查：28 項 retrieval/delivery、42 項留存/中央封存、真 server webhook 與無效下載拒絕、collect 留存及 core 19 項通過。現行正式 checkout 的整體 alignment 稽核仍有既有獨立專案 manifest 缺漏，不能宣稱所有舊專案已對齊；本版 package 完整性與語法檢查通過。
+本地檢查：31 項 retrieval/delivery、42 項留存/中央封存、真 server webhook 與無效下載拒絕、collect 留存及 core 19 項通過。現行正式 checkout 的整體 alignment 稽核仍有既有獨立專案 manifest 缺漏，不能宣稱所有舊專案已對齊；本版 package 完整性與語法檢查通過。

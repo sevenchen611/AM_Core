@@ -176,10 +176,10 @@ test('a Notion failure produces a temporary message without disclosing a file',a
 });
 
 for (const status of [0, 400, 500]) test(`native core photo reply and transport fallback (${status})`, async t => {
+  t.mock.method(globalThis,'fetch',async()=>Response.json({id:'synthetic-drive-file',size:'4096',md5Checksum:md5,mimeType:'image/png'}));
   const h = harness({rows:[row({'檔案大小':{number:4096}})],driveMetadata:{size:4096}});
   h.platform.publicBaseUrl='https://example.test';h.platform.publicLinkSecret='synthetic-signing';
   h.platform.getDriveAccessToken=async()=>'synthetic-oauth';
-  t.mock.method(globalThis,'fetch',async()=>Response.json({id:'synthetic-drive-file',size:'4096',md5Checksum:md5,mimeType:'image/png'}));
   const images=[];
   h.platform.replyLineMessages=async(token,messages)=>{
     images.push(messages);if(status)throw Object.assign(Error('synthetic rejection'),{lineStatus:status});
