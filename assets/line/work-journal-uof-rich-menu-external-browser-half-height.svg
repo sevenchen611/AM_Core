@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2500" height="422" viewBox="0 0 2500 422">
+  <rect width="2500" height="422" fill="#F4F0E8"/>
+  <rect x="18" y="18" width="1214" height="386" rx="30" fill="#20584E"/>
+  <rect x="1268" y="18" width="1214" height="386" rx="30" fill="#DDEDE7"/>
+  <g transform="translate(130 114) scale(.68)" fill="none" stroke="#FFFFFF" stroke-width="20" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="0" y="20" width="208" height="236" rx="24"/>
+    <path d="M48 0v42M160 0v42M48 85h112M48 133h112M48 181h72"/>
+  </g>
+  <g transform="translate(1380 114) scale(.68)" fill="none" stroke="#20584E" stroke-width="20" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M0 24a24 24 0 0 1 24-24h105l67 67v169a24 24 0 0 1-24 24H24a24 24 0 0 1-24-24z"/>
+    <path d="M129 0v67h67M48 108h92M48 154h56"/>
+    <circle cx="166" cy="211" r="60" fill="#DDEDE7"/>
+    <path d="m137 211 20 20 39-43"/>
+  </g>
+  <g font-family="Microsoft JhengHei, Noto Sans TC, sans-serif">
+    <text x="370" y="210" fill="#FFFFFF" font-size="96" font-weight="700">工作日誌</text>
+    <text x="1620" y="210" fill="#173D37" font-size="96" font-weight="700">UOF 簽核</text>
+    <text x="370" y="287" fill="#DDEDE8" font-size="43">手機瀏覽器開啟</text>
+    <text x="1620" y="287" fill="#49786F" font-size="43">查看待簽案件</text>
+  </g>
+</svg>
+
