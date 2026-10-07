@@ -20,8 +20,9 @@ export function createAttachmentDelivery({ platform, resolveConversation, resolv
   }
   function link(tenant, event, command, file, mode) {
     if (!ready(tenant)) fail();
-    const source = event.source?.groupId ? { type: 'group', groupId: event.source.groupId }
-      : event.source?.roomId ? { type: 'room', roomId: event.source.roomId }
+    const sender = event.source?.userId ? { userId: event.source.userId } : {};
+    const source = event.source?.groupId ? { type: 'group', groupId: event.source.groupId, ...sender }
+      : event.source?.roomId ? { type: 'room', roomId: event.source.roomId, ...sender }
         : { type: 'user', userId: event.source?.userId };
     const data = Buffer.from(JSON.stringify({ v: 1, tenant: tenant.key, source, command,
       fileId: file.fileId, md5: file.md5, size: file.size, mode, exp: Math.floor(now() / 1000) + TTL })).toString('base64url');

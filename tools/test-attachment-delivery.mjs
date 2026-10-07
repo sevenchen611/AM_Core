@@ -7,7 +7,7 @@ import sharp from 'sharp';
 import { createAttachmentDelivery } from '../core/attachment-delivery.js';
 
 const tenant = { key: 'synthetic-tenant', runtimeEnabled: true };
-const event = { source: { type: 'group', groupId: 'synthetic-group' } };
+const event = { source: { type: 'group', groupId: 'synthetic-group', userId: 'synthetic-requesting-member' } };
 const command = { quotedMessageId: 'synthetic-original', filename: '' };
 async function fixture(options = {}) {
   const bytes = await sharp({ create: { width: 1600, height: 1200, channels: 3, background: 'red' } }).png().toBuffer();
@@ -17,7 +17,7 @@ async function fixture(options = {}) {
   const calls = [], logs = [];
   const platform = { publicBaseUrl: 'https://example.test', publicLinkSecret: 'synthetic-key', getDriveAccessToken: async () => 'synthetic-oauth', ...options.platform };
   const delivery = createAttachmentDelivery({ platform, now: () => timestamp, logger: { warn: value => logs.push(value) },
-    resolveConversation: async input => { calls.push(['route', input]); return bound; },
+    resolveConversation: async input => { calls.push(['route', input]); return options.requireSender && input.source?.userId !== event.source.userId ? null : bound; },
     resolveOriginal: async (t, input, cmd) => { calls.push(['source', t.key, input, cmd]); if (!original) throw Error('missing'); return original; },
     fetchImpl: async input => {
       const url = new URL(input); calls.push(['drive']);
@@ -84,6 +84,12 @@ test('private link reuses the original sender scope and explicit filename comman
   assert.equal((await download(f, messages[1].originalContentUrl)).status, 200);
   const source = f.calls.find(c => c[0] === 'source');
   assert.deepEqual(source[2].source, privateEvent.source); assert.deepEqual(source[3], cmd);
+});
+
+test('transport-owned group downloads preserve the requesting member for sender authorization', async () => {
+  const f = await fixture({ requireSender: true }), messages = await f.delivery.messages(tenant, event, command, f.file);
+  assert.equal((await download(f, messages[1].originalContentUrl)).status, 200);
+  assert.deepEqual(f.calls.find(c => c[0] === 'source')[2].source, event.source);
 });
 test('unconfigured signing keeps existing verified Google link; changed image metadata never yields image', async () => {
   const legacy = await fixture({ platform: { publicLinkSecret: '' } });

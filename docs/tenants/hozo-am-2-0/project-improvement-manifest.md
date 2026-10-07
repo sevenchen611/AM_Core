@@ -89,4 +89,4 @@ The tenant stayed at `authorizationReady=false`, meeting formal task creation di
 
 | AM-IMP-2026.1004.01 | Installed | Individual claim form availability | Disable/enable per form; retired HOZO V3 hidden; existing links rechecked | Local schema, API, routing and desktop/mobile verification; production pending. |
 
-| AM-IMP-2026.1008.01 | Installed | Quoted photo resend and signed original download | 31 retrieval/delivery, 42 retention/archive tests; 19 core checks; webhook and signature route checks | Production health and recipient display pending. |
+| AM-IMP-2026.1008.01 | Installed | Quoted photo resend and signed original download | 32 retrieval/delivery, 42 retention/archive tests; 19 core checks; webhook and signature route checks | Production health and recipient display pending. |

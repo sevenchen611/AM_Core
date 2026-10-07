@@ -35,7 +35,7 @@ for (const tenant of tenants) {
       try {
         const p = page.properties, file = { fileId: plain(p['Drive 檔案 ID']), md5: plain(p['Drive MD5']).toLowerCase(), size: Number(p['檔案大小']?.number), filename: plain(p['檔案名稱']) };
         if (!/^[\w-]{10,200}$/.test(file.fileId) || !/^[a-f0-9]{32}$/.test(file.md5)) continue;
-        const event = { source: { type: 'group', groupId: plain(p['LINE 群組 ID']) } }, command = { quotedMessageId: plain(p['LINE 訊息 ID']), filename: '' };
+        const event = { source: { type: 'group', groupId: plain(p['LINE 群組 ID']), userId: plain(p['LINE 使用者 ID']) } }, command = { quotedMessageId: plain(p['LINE 訊息 ID']), filename: '' };
         const messages = await delivery.messages(tenant, event, command, file);
         const url = messages[0].text.split('\n').at(-1);
         // Restrict the verification destination to this tenant's configured service.

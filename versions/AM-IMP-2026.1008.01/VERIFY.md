@@ -11,7 +11,7 @@ node tools/audit-alignment.js
 node tools/compare-project-manifests.js
 ```
 
-合成測試涵蓋 21 項既有來源查找／隔離、7 項圖片及下載 delivery、42 項留存／中央封存：原圖位元一致、JPEG 預覽限制、一般文件／HEIC／大圖、兩小時有效期、竄改簽章、共用 signing key 仍不可換租戶、撤除綁定、來源遺失、原檔指紋改變、私人來源、顯示不了圖片時保留原檔下載。
+合成測試涵蓋 21 項既有來源查找／隔離、8 項圖片及下載 delivery、42 項留存／中央封存：原圖位元一致、JPEG 預覽限制、一般文件／HEIC／大圖、兩小時有效期、竄改簽章、共用 signing key 仍不可換租戶、撤除綁定、來源遺失、原檔指紋改變、私人來源、顯示不了圖片時保留原檔下載。
 
 既有真 server webhook harness 確認取檔命令早於任務及傳輸服務。既有未設定 signing 的服務仍回 verified Drive 連結。
 
@@ -21,4 +21,4 @@ node tools/compare-project-manifests.js
 
 各租戶部署紀錄保存非機密 commit、PR、health／HTTP 結果和未完成的使用者端驗收，不保存客戶內容、群組 ID、附件 ID、下載 token 或 OAuth。
 
-本地檢查：31 項 retrieval/delivery、42 項留存/中央封存、真 server webhook 與無效下載拒絕、collect 留存及 core 19 項通過。現行正式 checkout 的整體 alignment 稽核仍有既有獨立專案 manifest 缺漏，不能宣稱所有舊專案已對齊；本版 package 完整性與語法檢查通過。
+本地檢查：32 項 retrieval/delivery、42 項留存/中央封存、真 server webhook 與無效下載拒絕、collect 留存及 core 19 項通過。現行正式 checkout 的整體 alignment 稽核仍有既有獨立專案 manifest 缺漏，不能宣稱所有舊專案已對齊；本版 package 完整性與語法檢查通過。

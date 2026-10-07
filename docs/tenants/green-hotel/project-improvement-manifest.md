@@ -19,4 +19,4 @@
 - PostgreSQL is shared at the service level only. Every Green Hotel row remains isolated by `tenant_id`, forced RLS and a tenant-specific runtime role.
 - Shadow mode creates only candidate operational-memory records. Formal tasks, reminders and automatic external replies remain disabled.
 
-| AM-IMP-2026.1008.01 | Installed | Quoted photo resend and signed original download | 31 retrieval/delivery, 42 retention/archive tests; 19 core checks; webhook and signature route checks | Production health and recipient display pending. |
+| AM-IMP-2026.1008.01 | Installed | Quoted photo resend and signed original download | 32 retrieval/delivery, 42 retention/archive tests; 19 core checks; webhook and signature route checks | Production health and recipient display pending. |
