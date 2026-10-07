@@ -157,7 +157,7 @@ try{
   else if(mode==='--drain'){
     const drive=createDrive({clientId:env.GOOGLE_OAUTH_CLIENT_ID,clientSecret:env.GOOGLE_OAUTH_CLIENT_SECRET,refreshToken:env.GOOGLE_OAUTH_REFRESH_TOKEN,logger:{warn(){}}});
     const archive=await createCentralArchive({env,line,drive,pool,notion,logger:{warn(){},error(){}}});
-    try{await archive.drain();console.log(JSON.stringify(archive.health()));}finally{await archive.close();}
+    try{await archive.drain();console.log(JSON.stringify({...archive.health(),...await store.stats()}));}finally{await archive.close();}
   }else if(mode==='--inventory'){
     const inventory=[];for(const tenant of tenants){const item={key:tenant.key};for(const type of ['messages','attachments','groupBindings']){
       const id=tenant.dataSources[type];if(!id)continue;const schema=await notion.request('/data_sources/'+encodeURIComponent(id));

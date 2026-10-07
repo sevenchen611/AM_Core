@@ -29,7 +29,7 @@ import {
 const ctx = await bootstrap(process.env);
 const { tenants, line, router, dispatcher, portal, modules, platform, llm, logger } = ctx;
 const centralArchive=await createCentralArchive({line,drive:platform.drive,router,logger});
-platform.centralArchive=centralArchive;
+platform.centralArchive={original:centralArchive.original,health:centralArchive.health};
 const workJournalEntry = createWorkJournalEntry({ line, logger });
 const lineIo = await createLineIo({ tenants, line, router, logger });
 const leafCalendar = await createLeafCalendar({ tenants, platform, logger, resolveIdentity: lineIo.resolveCalendarIdentity });

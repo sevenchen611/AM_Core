@@ -119,6 +119,9 @@ export async function createCentralArchive({env=process.env,line,drive,router,lo
     const file=await drive.verifyAttachment(result.driveId,row.drive_folder_id,{amCentralArchive:digest(key)},result.size,result.md5);
     return {file,sha256:result.sha256,md5:result.md5};
   }
-  return {capture,drain,original,health:()=>({...state}),store,notion,processJob,
+  const health=()=>({enabled:state.enabled,ready:state.ready,captureEnabled:state.captureEnabled,
+    contract:state.contract,storage:state.storage,notionFiles:state.notionFiles,checkedAt:state.checkedAt,
+    backlog:Boolean(state.states?.pending||state.states?.sending),needsSource:Boolean(state.states?.needs_source)});
+  return {capture,drain,original,health,store,notion,processJob,
     close:async()=>{clearInterval(timer);if(draining)await draining;if(!injectedPool)await pool.end();}};
 }
