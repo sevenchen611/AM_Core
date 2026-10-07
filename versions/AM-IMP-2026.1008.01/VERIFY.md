@@ -22,3 +22,5 @@ node tools/compare-project-manifests.js
 各租戶部署紀錄保存非機密 commit、PR、health／HTTP 結果和未完成的使用者端驗收，不保存客戶內容、群組 ID、附件 ID、下載 token 或 OAuth。
 
 本地檢查：32 項 retrieval/delivery、42 項留存/中央封存、真 server webhook 與無效下載拒絕、collect 留存及 core 19 項通過。現行正式 checkout 的整體 alignment 稽核仍有既有獨立專案 manifest 缺漏，不能宣稱所有舊專案已對齊；本版 package 完整性與語法檢查通過。
+
+正式部署：PR #264 CI 通過並合併，production main b40cb41763479d66817e70a74e7b2f12e8667fbf verified on 2026-10-08T07:56:26.1844319+08:00. Four tenants configured; malformed URL denied with HTTP 403. Read-only existing original/image/preview checks passed for engineering, forest and hozo-am-2-0. Green Hotel sampled shadow-record groups were correctly denied with HTTP 403; actual recipient LINE device display not claimed. No production LINE test message or source mutation performed.

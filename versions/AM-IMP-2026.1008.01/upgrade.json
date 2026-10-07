@@ -3,18 +3,57 @@
   "name": "Quoted LINE photo resend and signed original download",
   "type": "AM Platform / Attachment evidence / Delivery",
   "portable": true,
-  "status": "Ready",
+  "status": "Deployed",
   "createdAt": "2026-10-08",
-  "installTargets": ["AM_PLATFORM"],
-  "requiresDatabases": ["existing tenant-local message and attachment sources; existing central archive references"],
-  "requiresEnv": ["existing Google OAuth and LINE/Notion credentials", "existing HTTPS public base URL and signing secret"],
-  "requiresScripts": ["node --test tools/test-attachment-delivery.mjs tools/test-attachment-retrieval.mjs", "node --test tools/test-attachment-retention.mjs tools/test-central-archive.mjs", "node --experimental-vm-modules tools/verify-attachment-webhook.mjs", "node tools/audit-alignment.js"],
-  "dependencies": {"sharp":"^0.35.5", "upgradePackage":"AM-IMP-2026.1004.07"},
-  "dataIsolation": {"canCopyCode":true,"canCopySchema":true,"canCopyData":false,"canCopySecrets":false},
-  "definitionOfDone": ["native source and central archive gates preserved", "exact user command phrases recognized", "photo and original byte integrity plus signed access tested", "CI passed and reviewed main commit deployed", "actual target production health and download route verified"],
-  "projectStatus": {"AM_PLATFORM":"Installed"},
-  "files": ["core/attachment-delivery.js","core/attachment-retrieval.js","server.js","tools/test-attachment-delivery.mjs","tools/test-attachment-retrieval.mjs","package.json","package-lock.json"],
+  "installTargets": [
+    "AM_PLATFORM"
+  ],
+  "requiresDatabases": [
+    "existing tenant-local message and attachment sources; existing central archive references"
+  ],
+  "requiresEnv": [
+    "existing Google OAuth and LINE/Notion credentials",
+    "existing HTTPS public base URL and signing secret"
+  ],
+  "requiresScripts": [
+    "node --test tools/test-attachment-delivery.mjs tools/test-attachment-retrieval.mjs",
+    "node --test tools/test-attachment-retention.mjs tools/test-central-archive.mjs",
+    "node --experimental-vm-modules tools/verify-attachment-webhook.mjs",
+    "node tools/audit-alignment.js"
+  ],
+  "dependencies": {
+    "sharp": "^0.35.5",
+    "upgradePackage": "AM-IMP-2026.1004.07"
+  },
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "native source and central archive gates preserved",
+    "exact user command phrases recognized",
+    "photo and original byte integrity plus signed access tested",
+    "CI passed and reviewed main commit deployed",
+    "actual target production health and download route verified"
+  ],
+  "projectStatus": {
+    "AM_PLATFORM": "Deployed"
+  },
+  "files": [
+    "core/attachment-delivery.js",
+    "core/attachment-retrieval.js",
+    "server.js",
+    "tools/test-attachment-delivery.mjs",
+    "tools/test-attachment-retrieval.mjs",
+    "package.json",
+    "package-lock.json"
+  ],
   "contract": "line-quoted-image-signed-download-v1",
   "ttlSeconds": 7200,
-  "productionVerified": false
+  "productionVerified": true,
+  "verifiedProductionCommit": "b40cb41763479d66817e70a74e7b2f12e8667fbf",
+  "verifiedAt": "2026-10-08T07:56:26.1844319+08:00",
+  "verificationScope": "Runtime and configured signing verified for four tenants. Original/image/preview bytes verified for engineering, forest and hozo-am-2-0. Green Hotel sampled sources are shadow-record groups; existing authorization correctly returns HTTP 403. Actual recipient LINE device display remains an acceptance check."
 }
