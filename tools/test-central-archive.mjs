@@ -65,6 +65,11 @@ test('actual SQL persists all sources, rolls back atomically, deduplicates repla
     await db.query(`UPDATE central_archive.conversations SET database_id='db',data_source_id='ds',drive_folder_id='drive' WHERE bot_id=$1`,[bot]);
     const provisioned=await store.nextBatch(await pool.connect());
     assert.equal(provisioned.length,3);assert.ok(provisioned.every(x=>x.source_id===user||x.source_id===group));
+    await store.capture(Array.from({length:10},(_,i)=>event('bounded-batch-'+i)));
+    const bounded=await store.nextBatch(await pool.connect(),64);
+    assert.equal(bounded.length,8);assert.equal(new Set(bounded.map(x=>x.key)).size,8);
+    assert.ok(bounded.every(x=>x.source_id===user||x.source_id===group));
+    assert.ok(bounded.every(x=>x.database_id==='db'&&x.drive_folder_id==='drive'));
   }finally{await db.close();}
 });
 test('Notion retains full long text and has only Drive URLs, with source evidence',()=>{
