@@ -76,6 +76,12 @@ export async function createBindings({pool,store:injectedStore,line,clients,rout
     }
     catch(error) { if(error.status===409) {await store.suspend(row.group_id); await refresh(); return await store.get(row.id);} throw error; }
   }
+  async function inspect(row){
+    const current=await store.get(row.id);if(current?.status!=='bound')return current;
+    try{await fetchProof(current.group_id,current.user_id);}catch(error){if(error.status===409)return null;throw error;}
+    const after=await store.get(current.id);
+    return after?.status==='bound'&&after.group_id===current.group_id&&after.user_id===current.user_id?after:null;
+  }
   async function owned(client,id,account) {
     const value=target(client);
     if(!/^[0-9a-f-]{36}$/i.test(id)||typeof account!=='string'||!account) throw ioError(400,'invalid_binding_request');
@@ -172,5 +178,5 @@ export async function createBindings({pool,store:injectedStore,line,clients,rout
   const owns=event=>consumed.has(event?.webhookEventId)||rows.some(r=>r.group_id===conversationId(event)
     && (event?.source?.type==='group' || (event?.source?.userId===r.user_id &&
       (directUofInput(event) || event.type==='unfollow'))));
-  return {handle,capture,active,lookup,owns,verified,refresh,acceptsBindingEvent};
+  return {handle,capture,active,lookup,owns,verified,inspect,refresh,acceptsBindingEvent};
 }

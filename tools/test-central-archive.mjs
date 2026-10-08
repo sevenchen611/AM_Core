@@ -177,9 +177,13 @@ test('actual central factory queues quote recovery only after verifying the pers
     const querySource={from:new Date(now-1000).toISOString(),to:new Date(now+1000).toISOString(),contains:'本週客訴清單'};
     assert.equal((await central.taskSources(querySource)).length,1);
     await assert.rejects(central.taskSources({...querySource,contains:'xx'}),/invalid_task_source_query/);
-    await assert.rejects(central.taskSources({...querySource,to:new Date(now+610000).toISOString()}),/invalid_task_source_query/);
+    await assert.rejects(central.taskSources({...querySource,from:new Date(now-610000).toISOString()}),/invalid_task_source_query/);
+    await assert.rejects(central.taskSources({...querySource,from:new Date(now-86400001).toISOString(),contains:'本週客訴清單完整結果'}),/invalid_task_source_query/);
+    const roomProbe={...probe,source:{type:'room',roomId:'R'+'7'.repeat(32),userId:user},message:{...probe.message,id:'room-task-source',text:'@同仁 請整理本週客訴清單完整結果'}};
+    await createArchiveStore(pool,bot).capture([roomProbe]);
+    assert.equal((await central.taskSources({...querySource,contains:'本週客訴清單完整結果',from:new Date(now-610000).toISOString()})).length,1);
     await db.query("UPDATE central_archive.jobs SET payload=jsonb_set(payload,'{evidenceQuality}','\"legacy\"'::jsonb) WHERE key=$1",['in:'+digest(bot+':message:task-source')]);
-    assert.equal((await central.taskSources(querySource)).length,0);
+    const remaining=await central.taskSources(querySource);assert.equal(remaining.length,1);assert.equal(remaining[0].event.source.type,'room');
     await central.recoverQuoted(e);await central.recoverQuoted(e);
     const row=(await db.query('SELECT payload FROM central_archive.jobs WHERE key=$1',['in:'+digest(bot+':message:'+e.message.quotedMessageId)])).rows[0];
     assert.equal(row.payload.evidenceQuality,'quoted-message-recovery');assert.equal(row.payload.quoteRecovery.originalSenderUnknown,true);

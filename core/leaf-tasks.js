@@ -15,7 +15,7 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
  async function config(t){let c;try{c=await store.service(t);}catch(e){if(e.code==='42P01'||e.message==='calendar_database_unavailable')return null;throw e;}const service=c?.encrypted_key?.taskService||(c?.task_base_url&&c?.task_encrypted_key?{baseUrl:c.task_base_url,encryptedKey:c.task_encrypted_key}:null);if(service){configured.add(t.key);return {base:service.baseUrl,key:decrypt(service.encryptedKey,secret,t.tenantId)};}configured.delete(t.key);return null;}
  async function call(t,c,path,input){const r=await fetchImpl(new URL('/api/integrations/leaf-snail/tasks/'+path,c.base),{method:input?'POST':'GET',redirect:'error',headers:{'Content-Type':'application/json',Authorization:'Bearer '+c.key},...(input?{body:JSON.stringify({tenantKey:t.key,...input})}:{}),signal:AbortSignal.timeout(20000)});const v=await r.json().catch(()=>({}));if(!r.ok||v.ok!==true)throw Object.assign(new Error('task_service_unavailable'),{status:r.status,code:v.code});return v;}
  async function route(groupId){const r=await router.resolveGroupBinding(groupId);if(r.resolution==='lookup_failed')throw Error('task_group_lookup_unavailable');return r.tenant&&['啟用','影子記錄'].includes(r.binding?.status)?r:null;}
- async function identity(userId,t,groupId){const who=await resolveIdentity(userId,t.key);if(!who||who.tenantKey!==t.key||!who.bindingId)return null;const p=await line.lineGet('/v2/bot/group/'+groupId+'/member/'+userId,{timeoutMs:5000});if(p.userId!==userId)return null;return {userId,account:who.account,bindingId:who.bindingId};}
+ async function identity(userId,t,groupId,options){const who=await resolveIdentity(userId,t.key,options);if(!who||who.tenantKey!==t.key||!who.bindingId)return null;const p=await line.lineGet('/v2/bot/group/'+groupId+'/member/'+userId,{timeoutMs:5000});if(p.userId!==userId)return null;return {userId,account:who.account,bindingId:who.bindingId};}
  async function capture(events){if(!secret)return;eventsLoop:for(const e of events){
   if(e.source?.type==='group'&&['unsend','edit'].includes(e.type)){
    const routed=await route(e.source.groupId);if(!routed)continue;const t=routed.tenant,c=await config(t);if(!c)continue;
@@ -55,16 +55,16 @@ export function createLeafTasks({env=process.env,tenants=[],platform,router,line
  async function checkJudgment({tenantKey,caseIndex}){const t=tenants.find(t=>t.key===tenantKey&&t.runtimeEnabled!==false);if(!t||!Number.isInteger(caseIndex)||!judgmentSamples[caseIndex])throw Error('invalid_synthetic_probe');const [name,text,expected]=judgmentSamples[caseIndex];const result=await judge(t,{input:{text,mentions:[{account:'synthetic-recipient'}]}});return {ok:true,case:name,syntheticOnly:true,expectedAssignment:expected,assignmentRecognized:result.length>0,passed:(result.length>0)===expected};}
  async function configureService({tenantKey,baseUrl,apiKey}){const t=tenants.find(t=>t.key===tenantKey&&t.runtimeEnabled!==false);if(!t||!secret)throw Error('task_tenant_unavailable');const u=new URL(baseUrl);if(u.protocol!=='https:'||u.username||u.password||u.pathname!=='/'||u.search||u.hash||u.hostname==='localhost')throw Error('invalid_task_origin');if(typeof apiKey!=='string'||apiKey.length<32||apiKey.length>500)throw Error('invalid_task_key');const c={base:u.origin,key:apiKey},health=await call(t,c,'health');if(health.contract!==LEAF_TASK_CONTRACT||health.tenant!==t.key)throw Error('task_contract_mismatch');await store.provisionTasks(t);await store.configureTask(t,{baseUrl:u.origin,encryptedKey:encrypt(apiKey,secret,t.tenantId)});configured.add(t.key);return {ok:true,tenantKey,configured:true};}
  async function inspectSource({key,event:e}){
-  const result={key,timestamp:e.timestamp,candidate:Boolean(mentionCandidate(e)),textHash:hash(e.message?.text||'')};
+  const result={key,timestamp:e.timestamp,sourceType:e.source?.type,candidate:Boolean(mentionCandidate(e)),textHash:hash(e.message?.text||'')};
   if(!result.candidate)return result;
   const routed=await router.resolveGroupBinding(e.source.groupId);
   result.routeResolution=routed.resolution;result.tenantKey=routed.tenant?.key||null;result.bindingStatus=routed.binding?.status||null;
   if(!routed.tenant)return result;
   const t=routed.tenant;result.configured=Boolean(await config(t));
-  result.senderResolved=Boolean(await identity(e.source.userId,t,e.source.groupId));
+  result.senderResolved=Boolean(await identity(e.source.userId,t,e.source.groupId,{readOnly:true}));
   result.recipientResolved=[];
   for(const m of e.message.mention.mentionees.filter(m=>m.type==='user'&&!m.isSelf)){
-   result.recipientResolved.push(idPattern.test(m.userId||'')&&Boolean(await identity(m.userId,t,e.source.groupId)));
+   result.recipientResolved.push(idPattern.test(m.userId||'')&&Boolean(await identity(m.userId,t,e.source.groupId,{readOnly:true})));
   }
   return result;
  }

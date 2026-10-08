@@ -50,6 +50,16 @@ function deferred() {
   return {promise,resolve};
 }
 
+test('task diagnostics verify current identities without changing or suspending bindings',async t=>{
+ const h=await harness(t),row=await h.bind();
+ const before=await h.bindingStore.get(row.bindingId);
+ assert(await h.gateway.resolveTaskIdentity(user,'sample',{readOnly:true}));
+ assert.deepEqual(await h.bindingStore.get(row.bindingId),before);
+ h.setCount(2);
+ assert.equal(await h.gateway.resolveTaskIdentity(user,'sample',{readOnly:true}),null);
+ assert.deepEqual(await h.bindingStore.get(row.bindingId),before);
+});
+
 test('task identity resolves one verified account in the routed tenant without changing its conversation',async t=>{
   const h=await harness(t),row=await h.bind();
   const identity=await h.gateway.resolveTaskIdentity(user,'sample');
