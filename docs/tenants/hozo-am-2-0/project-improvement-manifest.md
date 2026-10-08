@@ -90,3 +90,4 @@ The tenant stayed at `authorizationReady=false`, meeting formal task creation di
 | AM-IMP-2026.1004.01 | Installed | Individual claim form availability | Disable/enable per form; retired HOZO V3 hidden; existing links rechecked | Local schema, API, routing and desktop/mobile verification; production pending. |
 
 | AM-IMP-2026.1008.01 | Deployed | Quoted photo resend and signed original download | 32 retrieval/delivery, 42 retention/archive tests; 19 core checks; webhook and signature route checks | Production main b40cb41 and signed endpoint verified; actual LINE device display remains an acceptance check. |
+| AM-IMP-2026.1008.02 | Installed | Explicit quoted conversation-archive retrieval | 84 attachment/archive tests; server webhook/private pause checks; 19 core checks | Production verification pending. Explicit manual archive requests are independent of project activation; source/member gates remain required. |

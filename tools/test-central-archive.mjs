@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import {PGlite} from '@electric-sql/pglite';
 import {createArchiveStore,archiveRecord,digest} from '../core/central-archive/store.js';
 import {archiveProperties,createArchiveNotion,richText,ARCHIVE_SCHEMA} from '../core/central-archive/notion.js';
-import {archiveConfig} from '../core/central-archive/index.js';
+import {archiveConfig,createCentralArchive} from '../core/central-archive/index.js';
 import {archiveMedia,archiveReference,legacyMediaMessageId} from '../core/central-archive/media.js';
 
 test('legacy generated media filenames identify the exact message and reject ordinary names',async()=>{
@@ -130,4 +130,54 @@ test('outbound sends persist first and record provider acceptance; intake failur
     line.setArchiveObserver({before:async()=>{throw Error('db_down');}});
     await assert.rejects(line.pushLineMessage(user,'answer'),/db_down/);assert.deepEqual(order,[]);
   }finally{line.setArchiveObserver(null);globalThis.fetch=original;}
+});
+
+import {createQuotedArchiveAccess,quotedRecoveryRecord} from '../core/central-archive/quoted-access.js';
+test('quote access isolates current OA, source kind and member; failed identity checks fail closed',async()=>{
+  const db=new PGlite();await db.exec(await fs.readFile(new URL('../core/central-archive/schema.sql',import.meta.url),'utf8'));
+  const query=(...args)=>db.query(...args),pool={query,connect:async()=>({query,release(){}})};
+  try{
+    await createArchiveStore(pool,bot).capture([event('request',{type:'group',groupId:group,userId:user})]);
+    let checked=0;const line={lineGet:async pathname=>{checked++;assert.equal(pathname,`/v2/bot/group/${group}/member/${user}`);return {userId:user};}};
+    const access=createQuotedArchiveAccess({pool,botId:bot,line});
+    assert.equal(await access({type:'group',groupId:group,userId:user}),true);
+    assert.equal(await access({type:'user',userId:user}),false);
+    assert.equal(await access({type:'room',roomId:group,userId:user}),false);
+    assert.equal(await access({type:'group',groupId:group}),false);
+    assert.equal(await createQuotedArchiveAccess({pool,botId:'U'+'9'.repeat(32),line})({type:'group',groupId:group,userId:user}),false);
+    assert.equal(checked,1);
+    assert.equal(await createQuotedArchiveAccess({pool,botId:bot,line:{lineGet:async()=>({userId:'other'})}})({type:'group',groupId:group,userId:user}),false);
+    await assert.rejects(createQuotedArchiveAccess({pool,botId:bot,line:{lineGet:async()=>{throw Error('membership_unavailable');}}})({type:'group',groupId:group,userId:user}));
+  }finally{await db.close();}
+});
+test('quote recovery retains request evidence and never invents original sender or date',()=>{
+  const e=event('request',{type:'group',groupId:group,userId:user});e.message.quotedMessageId='12345678901234567';e.message.mention={mentionees:[{isSelf:true}]};
+  const record=quotedRecoveryRecord(bot,e);
+  assert.equal(record.key,'in:'+digest(bot+':message:'+e.message.quotedMessageId));assert.equal(record.payload.evidenceQuality,'quoted-message-recovery');
+  assert.equal(record.payload.event.source.userId,undefined);assert.equal(record.payload.quoteRecovery.originalTimestampUnknown,true);
+  assert.equal(record.payload.quoteRecovery.originalSenderUnknown,true);assert.equal(record.payload.quoteRecovery.requestKey,'in:'+digest(bot+':message:request'));
+  assert.equal(record.replyToken,undefined);assert.equal(record.binary,true);
+  const props=archiveProperties({...record,payload:record.payload,event_at:record.at});
+  assert.match(props['來源說明'].rich_text.map(x=>x.text.content).join(''),/原作者與原發送時間未知/);
+  delete e.message.mention;assert.throws(()=>quotedRecoveryRecord(bot,e),/quote_invalid/);
+});
+
+test('actual central factory queues quote recovery only after verifying the persisted raw request',async t=>{
+  const db=new PGlite();await db.exec(await fs.readFile(new URL('../core/central-archive/schema.sql',import.meta.url),'utf8'));
+  const query=(...args)=>db.query(...args),pool={query,connect:async()=>({query:async(sql,...args)=>sql.includes('pg_try_advisory_lock')?{rows:[{locked:false}]}:query(sql,...args),release(){}})};
+  const e=event('request',{type:'group',groupId:group,userId:user});e.message.quotedMessageId='12345678901234567';e.message.mention={mentionees:[{isSelf:true}]};
+  await createArchiveStore(pool,bot).capture([e]);
+  t.mock.method(globalThis,'fetch',async()=>Response.json({id:'synthetic-root',mimeType:'application/vnd.google-apps.folder',capabilities:{canAddChildren:true}}));
+  const central=await createCentralArchive({env:{AMCORE_CENTRAL_ARCHIVE_ENABLED:'1',AMCORE_CENTRAL_ARCHIVE_NOTION_PARENT_PAGE_ID:'a'.repeat(32),AMCORE_CENTRAL_ARCHIVE_DRIVE_ROOT_FOLDER_ID:'synthetic-root',AMCORE_CENTRAL_ARCHIVE_BOT_USER_ID:bot,NOTION_TOKEN:'synthetic'},pool,
+    line:{configured:true,lineGet:async p=>p==='/v2/bot/info'?{userId:bot}:{userId:user},setArchiveObserver(){}},
+    drive:{configured:true,getAccessToken:async()=> 'synthetic'},notion:{request:async()=>({archived:false})},logger:{warn(){},error(){}}});
+  try{
+    await central.recoverQuoted(e);await central.recoverQuoted(e);
+    const row=(await db.query('SELECT payload FROM central_archive.jobs WHERE key=$1',['in:'+digest(bot+':message:'+e.message.quotedMessageId)])).rows[0];
+    assert.equal(row.payload.evidenceQuality,'quoted-message-recovery');assert.equal(row.payload.quoteRecovery.originalSenderUnknown,true);
+    assert.equal(row.payload.event.source.userId,undefined);
+    await assert.rejects(central.recoverQuoted({...e,message:{...e.message,quotedMessageId:'99999999999999999'}}),/quote_invalid/);
+    await db.query("UPDATE central_archive.jobs SET payload=jsonb_set(payload,'{evidenceQuality}','\"legacy\"'::jsonb) WHERE key=$1",['in:'+digest(bot+':message:request')]);
+    await assert.rejects(central.recoverQuoted(e),/quote_invalid/);
+  }finally{await central.close();await db.close();}
 });

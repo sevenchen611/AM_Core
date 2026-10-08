@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import http from 'node:http';
+import {once} from 'node:events';
+import crypto from 'node:crypto';
 import { createAttachmentRetrieval, parseAttachmentRequest } from '../core/attachment-retrieval.js';
 
 const rt = text => ({rich_text:[{text:{content:text}}]});
@@ -58,6 +61,7 @@ function harness(options={}) {
     return {id:args[0],size:40647423,md5Checksum:md5,...options.driveMetadata};
   }},replyLineMessage:async(...args)=>{replies.push(args);if(options.replyFailure)throw Error('uncertain delivery');},
     pushLineMessage:()=>{throw Error('Must not push after an uncertain reply');}};
+  if(options.centralArchive)platform.centralArchive=options.centralArchive;
   const service=createAttachmentRetrieval({platform,router,logger:{warn(){}},requestSpacingMs:0,
     ownsTransport:()=>Boolean(options.transport),resolveTransport:resolve});
   return {service,requests,replies,checks,platform};
@@ -189,4 +193,62 @@ for (const status of [0, 400, 500]) test(`native core photo reply and transport 
   assert.match(images[0][0].text,/token=/);
   assert.equal(h.replies.length,status===400?1:0,'never repeat after uncertain transport failure');
   if(status===400)assert.match(h.replies[0][1],/token=/);
+});
+
+function mentioned(){const e=event('@小蝸 請提供我這張照片');e.message.mention={mentionees:[{index:0,length:3,isSelf:true}]};return e;}
+const archiveFile={file:{id:'synthetic-central-file',name:'preserved.jpg',size:42,md5Checksum:md5}};
+for(const route of [{resolution:'not_found',tenant:null,binding:null},{resolution:'active',tenant,binding:{status:'影子記錄'}}]){
+  test(`explicit quoted archive operation works without enabling project replies (${route.resolution}/${route.binding?.status})`,async()=>{
+    let access=0,reads=0;
+    const h=harness({bound:route,centralArchive:{canRetrieveQuote:async s=>{access++;assert.equal(s.groupId,'synthetic-group-a');return true;},original:async(id,scope)=>{reads++;assert.equal(id,'synthetic-original');assert.equal(scope.groupId,'synthetic-group-a');return archiveFile;}}});
+    await h.service.handle(mentioned());assert.match(h.replies[0][1],/preserved.jpg/);assert.equal(h.requests.length,0);assert.equal(h.checks.length,0);assert.ok(access>=3);assert.ok(reads>=1);
+  });
+}
+test('archive fallback never bypasses transport, disabled, ambiguous, failed routing or absent real mention',async()=>{
+  for(const bound of [{resolution:'inactive'},{resolution:'ambiguous'},{resolution:'lookup_failed'},
+    {resolution:'active',tenant:{...tenant,runtimeEnabled:false},binding:{status:'影子記錄'}}]){
+    let accesses=0;const h=harness({bound,centralArchive:{canRetrieveQuote:async()=>{accesses++;return true;}}});
+    await h.service.handle(mentioned());assert.equal(h.replies.length,0);assert.equal(accesses,0);
+  }
+  const h=harness({bound:{resolution:'not_found'},centralArchive:{canRetrieveQuote:async()=>{throw Error('must not query');}}});
+  await h.service.handle(event());assert.equal(h.replies.length,0);
+  const transport=harness({transport:true,bound:{resolution:'not_found'},centralArchive:{canRetrieveQuote:async()=>{throw Error('transport owns authorization');}}});
+  await transport.service.handle(mentioned());assert.equal(transport.replies.length,0);
+});
+test('missing original and failed current-member checks cannot produce a file link',async()=>{
+  for(const original of [null,{pending:true},{missing:true},{file:{...archiveFile.file,md5Checksum:'invalid'}}]){
+    const h=harness({bound:{resolution:'not_found'},centralArchive:{canRetrieveQuote:async()=>true,original:async()=>original}});
+    await h.service.handle(mentioned());assert.equal(h.replies.length,1);assert.doesNotMatch(h.replies[0][1],/https:/);assert.equal(h.requests.length,0);
+  }
+  const h=harness({bound:{resolution:'not_found'},centralArchive:{canRetrieveQuote:async()=>false}});
+  await h.service.handle(mentioned());assert.equal(h.replies.length,0);
+});
+test('quote recovery is performed only from an explicit live request; downloadable links never initiate it',async()=>{
+  let saved=null,recoveries=0;
+  const h=harness({bound:{resolution:'not_found'},centralArchive:{canRetrieveQuote:async()=>true,original:async()=>saved,recoverQuoted:async e=>{assert.equal(e.message.quotedMessageId,'synthetic-original');recoveries++;saved=archiveFile;}}});
+  await h.service.handle(mentioned());assert.equal(recoveries,1);assert.match(h.replies[0][1],/preserved.jpg/);
+  await h.service.retrieve(h.service.archiveScope,mentioned(),parseAttachmentRequest(mentioned()));assert.equal(recoveries,1);
+});
+test('archive authorization revoked during source retrieval suppresses the reply',async()=>{
+  let valid=true;const h=harness({bound:{resolution:'not_found'},centralArchive:{canRetrieveQuote:async()=>valid,original:async()=>{valid=false;return archiveFile;}}});
+  await h.service.handle(mentioned());assert.equal(h.replies.length,0);
+});
+test('signed archive downloads retain explicit quote authorization and stop when membership is revoked',async t=>{
+  const bytes=Buffer.from('synthetic archive original'),checksum=crypto.createHash('md5').update(bytes).digest('hex');
+  const realFetch=globalThis.fetch;
+  t.mock.method(globalThis,'fetch',async input=>new URL(input).searchParams.get('alt')==='media'?new Response(bytes)
+    :Response.json({id:'synthetic-central-file',size:bytes.length,md5Checksum:checksum,mimeType:'application/pdf'}));
+  let member=true;
+  const h=harness({bound:{resolution:'not_found'},centralArchive:{canRetrieveQuote:async()=>member,
+    original:async()=>({file:{...archiveFile.file,size:bytes.length,md5Checksum:checksum}})}});
+  Object.assign(h.platform,{publicBaseUrl:'https://example.test',publicLinkSecret:'synthetic-secret',getDriveAccessToken:async()=> 'synthetic-token'});
+  await h.service.handle(mentioned());const url=new URL(h.replies[0][1].split('\n').at(-1));
+  const server=http.createServer((req,res)=>h.service.handleDownload(req,res,{url,tenant:h.service.archiveScope}));
+  server.listen(0,'127.0.0.1');await once(server,'listening');
+  try{
+    const local=`http://127.0.0.1:${server.address().port}`;
+    const first=await realFetch(local);assert.equal(first.status,200);assert.deepEqual(Buffer.from(await first.arrayBuffer()),bytes);
+    member=false;assert.equal((await realFetch(local)).status,403);
+    assert.equal(h.requests.length,0);
+  }finally{await new Promise(resolve=>server.close(resolve));}
 });
