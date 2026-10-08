@@ -430,8 +430,10 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
   }
   async function resolveTaskIdentity(userId,tenantKey,{readOnly=false}={}){
     if(!personal||!directId(userId)||!tenantKey)return null;
-    await personal.refresh();
-    const matches=clients.filter(c=>c.tenantKey===tenantKey&&c.allowPersonalBindings).flatMap(c=>personal.active(c)).filter(r=>r.user_id===userId&&r.confirmed_at);
+    if(!readOnly)await personal.refresh();
+    const allowed=clients.filter(c=>c.tenantKey===tenantKey&&c.allowPersonalBindings);
+    const rows=readOnly?(await personal.readAll()).filter(r=>r.tenant_key===tenantKey&&r.status==='bound'&&allowed.some(c=>c.id===r.client_id)):allowed.flatMap(c=>personal.active(c));
+    const matches=rows.filter(r=>r.user_id===userId&&r.confirmed_at);
     if(matches.length!==1)return null;
     const row=readOnly?await personal.inspect(matches[0]):await personal.verified(matches[0],{fresh:true});
     if(row?.status!=='bound'||row.user_id!==userId||row.tenant_key!==tenantKey||!row.confirmed_at)return null;
