@@ -3,7 +3,7 @@
   "name": "Verified media MIME and download filename extension",
   "type": "AM Platform / Attachment delivery",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-10-08",
   "installTargets": [
     "AM_PLATFORM"
@@ -31,7 +31,9 @@
     "reviewed main CI passed and actual production verified"
   ],
   "projectStatus": {
-    "AM_PLATFORM": "Installed"
+    "AM_PLATFORM": "Deployed",
+    "HOZO_AM": "Blocked",
+    "SEVEN_AM": "Blocked"
   },
   "files": [
     "core/media-filename.js",
@@ -42,8 +44,11 @@
     "tools/test-attachment-delivery.mjs"
   ],
   "contract": "verified-media-mime-filename-v1",
-  "productionVerified": false,
+  "productionVerified": true,
   "dependencies": {
     "upgradePackage": "AM-IMP-2026.1008.02"
-  }
+  },
+  "verifiedProductionCommit": "f8b9e7bc5b91a7d98d6c1baf9a08a30849dad0cb",
+  "verifiedAt": "2026-10-08T10:00:46.0009546+08:00",
+  "verificationScope": "Actual production main commit and filename health contract verified. The same pre-upgrade signed video URL returns HTTP 200, video/mp4, .mp4 in both ASCII and UTF-8 disposition filenames, and unchanged size/MD5. Original LINE content, Drive original and served bytes match; MP4 container and H.264 track metadata verified. No customer bytes, private URL, source identifiers or original fingerprints are stored in this shared package. Device playback was not directly observed."
 }
