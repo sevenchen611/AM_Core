@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import crypto from 'node:crypto';
 import * as directLine from '../core/direct-line.js';
 import * as leafCalendar from '../core/leaf-calendar/index.js';
+import * as leafTasks from '../core/leaf-tasks.js';
 
 const source = { type: 'user', userId: 'synthetic-private-user' };
 const privateEvents = [
@@ -75,6 +76,7 @@ const dependencies = {
   './core/work-journal-entry.js': workJournalEntry,
   './core/direct-line.js': directLine,
   './core/leaf-calendar/index.js': leafCalendar,
+  './core/leaf-tasks.js': leafTasks,
   './core/access-directory.js': { createAccessDirectory: () => ({}) },
   './core/portal-handoff.js': { safePortalHandoffLocation: () => '/' },
   './core/util.js': { readBody: async req => req.rawBody, sendJson: (res, status, body) => { res.status = status; res.body = body; }, sendText: (res, status) => { res.status = status; } },

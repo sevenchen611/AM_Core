@@ -52,6 +52,14 @@ export function createCalendarStore({ settingsForTenant, poolFactory, env=proces
   async function service(tenant) {
     return tx(tenant,async(c,t)=>(await c.query('SELECT * FROM leaf_calendar.service_config WHERE tenant_id=$1',[t])).rows[0]||null);
   }
+  async function provisionTasks(tenant) {
+    const prefix=tenant.envPrefix,connectionPrefix=tenant.operationalMemory?.connectionEnvPrefix||prefix;
+    const url=env[prefix+'_AM_MEMORY_MIGRATION_DATABASE_URL']||env[connectionPrefix+'_AM_MEMORY_MIGRATION_DATABASE_URL']||env.AM_MEMORY_MIGRATION_DATABASE_URL;
+    if(!url)throw new Error('task_migration_not_configured');
+    const {Client}=await import('pg');const c=new Client({connectionString:url,ssl:settingsForTenant(tenant)?.databaseSsl?{rejectUnauthorized:false}:undefined,connectionTimeoutMillis:8000});
+    try{await c.connect();await c.query('ALTER TABLE leaf_calendar.service_config ADD COLUMN IF NOT EXISTS task_base_url text, ADD COLUMN IF NOT EXISTS task_encrypted_key jsonb');}finally{await c.end().catch(()=>{});}
+  }
+  async function configureTask(tenant,data){return tx(tenant,async(c,t)=>c.query('UPDATE leaf_calendar.service_config SET task_base_url=$2,task_encrypted_key=$3 WHERE tenant_id=$1 RETURNING tenant_id',[t,data.baseUrl,JSON.stringify(data.encryptedKey)]).then(r=>{if(r.rowCount!==1)throw Error('task_tenant_service_missing');return true;}));}
   async function configure(tenant,data) {
     return tx(tenant,async(c,t)=>c.query(`INSERT INTO leaf_calendar.service_config(tenant_id,base_url,encrypted_key)
       VALUES($1,$2,$3::jsonb) ON CONFLICT(tenant_id) DO UPDATE SET base_url=EXCLUDED.base_url,encrypted_key=EXCLUDED.encrypted_key,updated_at=now()`,[t,data.baseUrl,json(data.encryptedKey)]));
@@ -150,6 +158,6 @@ export function createCalendarStore({ settingsForTenant, poolFactory, env=proces
       return {code:action==='confirm'?'confirmed_now':'cancelled_now',row};
     });
   }
-  return {ready,provision,service,configure,syncActor,insert,owned,pending,lease,settle,storeDrafts,control,
+  return {ready,provision,provisionTasks,configureTask,service,configure,syncActor,insert,owned,pending,lease,settle,storeDrafts,control,
     close:async()=>{for(const readyPool of pools.values()) await (await readyPool).end?.();}};
 }

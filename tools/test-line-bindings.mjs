@@ -50,6 +50,15 @@ function deferred() {
   return {promise,resolve};
 }
 
+test('task identity resolves one verified account in the routed tenant without changing its conversation',async t=>{
+  const h=await harness(t),row=await h.bind();
+  const identity=await h.gateway.resolveTaskIdentity(user,'sample');
+  assert.equal(identity.account,'synthetic-owner');assert.equal(identity.bindingId,row.bindingId);
+  assert.equal(await h.gateway.resolveTaskIdentity(user,'foreign'),null);
+  assert.equal((await h.request('/bindings/'+row.bindingId,{method:'DELETE',body:{externalUserId:'synthetic-owner'}})).status,200);
+  assert.equal(await h.gateway.resolveTaskIdentity(user,'sample'),null);
+});
+
 test('explicit owner migration routes only UOF private inputs, replies and pushes to that owner, with group rollback',async t=>{
   const h=await harness(t,{replyEnabled:true}),row=await h.bind();
   const second=await h.start('second-owner');

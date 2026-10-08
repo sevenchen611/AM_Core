@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import crypto from 'node:crypto';
 import * as directLine from '../core/direct-line.js';
 import * as leafCalendar from '../core/leaf-calendar/index.js';
+import * as leafTasks from '../core/leaf-tasks.js';
 import { createAttachmentArchive, ATTACHMENT_ARCHIVE_PROPERTIES } from '../core/attachment-archive.js';
 import { createAttachmentRetrieval, parseAttachmentRequest } from '../core/attachment-retrieval.js';
 
@@ -55,6 +56,7 @@ for (const fails of [false, true]) {
     './core/work-journal-entry.js': workJournalEntry,
   './core/direct-line.js': directLine,
     './core/leaf-calendar/index.js': leafCalendar,
+    './core/leaf-tasks.js': leafTasks,
     './core/access-directory.js': {createAccessDirectory:()=>({})},
     './core/portal-handoff.js': {safePortalHandoffLocation:()=> '/'},
     './core/util.js': { readBody:async r=>r.rawBody,sendJson:(r,status)=>{r.status=status;},sendText:(r,status)=>{r.status=status;acked=true;} },
