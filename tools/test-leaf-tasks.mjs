@@ -22,3 +22,11 @@ test('same-event replay does not issue again; general greeting is suppressed',as
 test('notice retry after restart never reclassifies or reissues the task',async()=>{const f=await fixture();f.failNotice();await f.service.capture([event()]);await f.service.drain();await f.restart().drain();assert.equal(f.counts().judgments,1);assert.equal(f.counts().issues,1);assert.equal(f.counts().notices,1);});
 test('revoke before intake and unsend after capture do not issue work',async()=>{const f=await fixture();f.revoke();await f.service.capture([event()]);assert(!f.paths.includes('intake'));const g=await fixture();await g.service.capture([event()]);await g.service.capture([{type:'unsend',source:event().source,unsend:{messageId:'fixture-message'}}]);await g.service.drain();assert.equal(g.counts().issues,0);});
 test('unavailable non-enrolled tenant cannot stop an enrolled tenant drain',async()=>{const f=await fixture({failFirstTenant:true});assert.deepEqual(f.service.health().configuredTenants,['fixture']);await f.service.capture([event()]);await f.service.drain();assert.deepEqual(f.counts(),{judgments:1,issues:1,notices:1});});
+test('source diagnostics expose gate results without task writes or private IDs/content',async()=>{
+ const f=await fixture(),e=event(),before=f.paths.length;
+ const result=await f.service.inspectSource({key:'in:synthetic',event:e});
+ assert.equal(result.candidate,true);assert.equal(result.configured,true);assert.equal(result.senderResolved,true);assert.deepEqual(result.recipientResolved,[true]);
+ assert.equal(f.paths.length,before);assert.deepEqual(f.counts(),{judgments:0,issues:0,notices:0});
+ for(const privateValue of [sender,recipient,group,e.message.text])assert(!JSON.stringify(result).includes(privateValue));
+ f.revoke();assert.equal((await f.service.inspectSource({key:'in:synthetic',event:e})).senderResolved,false);
+});

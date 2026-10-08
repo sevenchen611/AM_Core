@@ -543,9 +543,11 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === 'POST' && ['/portal/admin/leaf-tasks/service','/portal/admin/leaf-tasks/check'].includes(url.pathname)) {
+  if (req.method === 'POST' && ['/portal/admin/leaf-tasks/service','/portal/admin/leaf-tasks/check','/portal/admin/leaf-tasks/diagnose'].includes(url.pathname)) {
     if (!leafTasks.adminAuthorized(String(req.headers.authorization || '').replace(/^Bearer /,''))) return sendJson(res,403,{error:'Forbidden'});
-    try { const raw=await readBody(req);if(Buffer.byteLength(raw)>4096)return sendJson(res,413,{error:'Request too large'});const result=await (url.pathname.endsWith('/check')?leafTasks.checkJudgment(JSON.parse(raw)):leafTasks.configureService(JSON.parse(raw)));return sendJson(res,200,result); }
+    try { const raw=await readBody(req);if(Buffer.byteLength(raw)>4096)return sendJson(res,413,{error:'Request too large'});const input=JSON.parse(raw);
+      if(url.pathname.endsWith('/diagnose')){const sources=await centralArchive.taskSources(input),diagnostics=[];for(const source of sources)diagnostics.push(await leafTasks.inspectSource(source));return sendJson(res,200,{ok:true,diagnostics});}
+      const result=await (url.pathname.endsWith('/check')?leafTasks.checkJudgment(input):leafTasks.configureService(input));return sendJson(res,200,result); }
     catch { return sendJson(res,503,{error:'Task service setup unavailable'}); }
   }
   // Purpose-specific setup token derived from this channel's secret; never exposed to LINE or AI.
