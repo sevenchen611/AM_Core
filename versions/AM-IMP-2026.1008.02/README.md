@@ -1,6 +1,6 @@
 # 明確回覆索取群組封存附件
 
-Status: Installed. Production verification pending.
+Status: Deployed. Production main 4c0f048 verified on 2026-10-08.
 
 修正附件命令被辨識後，因群組沒有專案綁定或為影子記錄而直接結束的問題。只限真正 @本 OA、回覆原訊息的手動索取操作，使用同 OA、同對話的中央封存，不建立任務或啟用一般回覆。
 
@@ -9,3 +9,4 @@ Status: Installed. Production verification pending.
 尚無備份時，從已持久保存的真實 webhook 索取訊息證明 quotedMessageId，排入中央封存工作。LINE 原檔仍存在就補存；已失效就回報缺失。補存紀錄明確標示回覆索取來源、補存時間、原作者及原時間未知，不能冒充歷史 webhook。最多等待 12 秒取得原檔，尚在保存則回報稍後重試。下載本身不發起補存。
 
 本包不含客戶訊息、群組 ID、檔案 ID、憑證或 production 資料。
+
