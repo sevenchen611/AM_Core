@@ -428,6 +428,15 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
     if(row?.status!=='bound' || row.user_id!==userId || row.group_id!==userId || !row.confirmed_at) return null;
     return {tenantKey:row.tenant_key,account:row.external_user_id,bindingId:row.id};
   }
+  async function resolveTaskIdentity(userId,tenantKey){
+    if(!personal||!directId(userId)||!tenantKey)return null;
+    await personal.refresh();
+    const matches=clients.filter(c=>c.tenantKey===tenantKey&&c.allowPersonalBindings).flatMap(c=>personal.active(c)).filter(r=>r.user_id===userId&&r.confirmed_at);
+    if(matches.length!==1)return null;
+    const row=await personal.verified(matches[0],{fresh:true});
+    if(row?.status!=='bound'||row.user_id!==userId||row.tenant_key!==tenantKey||!row.confirmed_at)return null;
+    return {tenantKey:row.tenant_key,account:row.external_user_id,bindingId:row.id};
+  }
   const directory = env.AMCORE_LINE_DIRECTORY_ENABLED === '1' ? createDirectory({
     store:injectedDirectoryStore || createDirectoryStore(pool),router,line,clients,
     ioState:async (client,groupId,route,availabilityKnown) => {
@@ -442,5 +451,5 @@ export async function createLineIo({ env = process.env, tenants, router, line, l
   }) : null;
   return { enabled: true, directoryEnabled:Boolean(directory),bindingsEnabled:Boolean(personal), capture, handle, owns,
     acceptsBindingEvent: event => personal?.acceptsBindingEvent(event) ?? Promise.resolve(false),
-    resolveCalendarIdentity, resolveAttachmentBinding, close: async () => pool?.end() };
+    resolveCalendarIdentity, resolveTaskIdentity, resolveAttachmentBinding, close: async () => pool?.end() };
 }

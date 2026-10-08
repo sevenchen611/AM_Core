@@ -9,6 +9,7 @@ import { createLineIo, readLineIoBody } from './core/line-io/index.js';
 import { createCentralArchive } from './core/central-archive/index.js';
 import { createBankLineReplyIntake } from './core/bank-line-reply-intake.js';
 import { createLeafCalendar } from './core/leaf-calendar/index.js';
+import { createLeafTasks } from './core/leaf-tasks.js';
 import { createWorkJournalEntry } from './core/work-journal-entry.js';
 import { createAttachmentRetrieval, parseAttachmentRequest } from './core/attachment-retrieval.js';
 import { routeDirectLineEvent, isPausedDirectEvent, PERSONAL_ASSISTANT_ENABLED, PERSONAL_ASSISTANT_CONTRACT } from './core/direct-line.js';
@@ -34,6 +35,7 @@ platform.centralArchive={original:centralArchive.original,canRetrieveQuote:centr
 const workJournalEntry = createWorkJournalEntry({ line, logger });
 const lineIo = await createLineIo({ tenants, line, router, logger });
 const leafCalendar = await createLeafCalendar({ tenants, platform, logger, resolveIdentity: lineIo.resolveCalendarIdentity });
+const leafTasks = createLeafTasks({ tenants, platform, router, line, llm, logger, resolveIdentity: lineIo.resolveTaskIdentity });
 platform.attachmentArchive.setTransportResolver(lineIo.resolveAttachmentBinding);
 const attachmentRetrieval = createAttachmentRetrieval({ platform, router,
   ownsTransport: event => lineIo.owns(event), resolveTransport: lineIo.resolveAttachmentBinding, logger });
@@ -283,6 +285,7 @@ const server = http.createServer(async (req, res) => {
       lineConfigured: line.configured,
       personalAssistant: { enabled: PERSONAL_ASSISTANT_ENABLED, contract: PERSONAL_ASSISTANT_CONTRACT, scope: 'am-platform-private-assistant' },
       lineCalendar: leafCalendar.health(),
+      lineTasks: leafTasks.health(),
       workJournalEntry: workJournalEntry.health(),
       lineIo: { enabled: lineIo.enabled, directoryEnabled:Boolean(lineIo.directoryEnabled),bindingsEnabled:Boolean(lineIo.bindingsEnabled), reviewCardsEnabled:lineIo.enabled, contract: 'line-group-io-v1', version: lineIo.bindingsEnabled ? '1.5.0' : '1.2.0' },
       centralArchive: centralArchive.health(),
@@ -439,6 +442,8 @@ const server = http.createServer(async (req, res) => {
     // Capture every verified event before private-assistant pause, command and business-module filters.
     try { await centralArchive.capture(body.events); }
     catch { return sendJson(res,503,{error:'Central archive intake is temporarily unavailable.'}); }
+    try { await leafTasks.capture(body.events); }
+    catch { return sendJson(res,503,{error:'Task intake is temporarily unavailable.'}); }
     // A navigation command uses the same public URI as the Rich Menu. Keep it
     // outside task parsing, tenant identity lookup and independent UOF intake.
     const journalEvents = body.events.filter(workJournalEntry.matches);
@@ -538,6 +543,11 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === 'POST' && ['/portal/admin/leaf-tasks/service','/portal/admin/leaf-tasks/check'].includes(url.pathname)) {
+    if (!leafTasks.adminAuthorized(String(req.headers.authorization || '').replace(/^Bearer /,''))) return sendJson(res,403,{error:'Forbidden'});
+    try { const raw=await readBody(req);if(Buffer.byteLength(raw)>4096)return sendJson(res,413,{error:'Request too large'});const result=await (url.pathname.endsWith('/check')?leafTasks.checkJudgment(JSON.parse(raw)):leafTasks.configureService(JSON.parse(raw)));return sendJson(res,200,result); }
+    catch { return sendJson(res,503,{error:'Task service setup unavailable'}); }
+  }
   // Purpose-specific setup token derived from this channel's secret; never exposed to LINE or AI.
   if (req.method === 'POST' && pathname === '/portal/admin/leaf-calendar/service') {
     if (!leafCalendar.adminAuthorized(String(req.headers.authorization || '').replace(/^Bearer /,''))) return sendJson(res,401,{error:'Unauthorized'});
@@ -622,6 +632,8 @@ const tickTimer = setInterval(() => {
 tickTimer.unref?.();
 const calendarTimer = setInterval(() => { leafCalendar.drain().catch(() => logger.warn('Calendar processing deferred.')); }, 5000);
 calendarTimer.unref?.();
+const taskTimer = setInterval(() => { leafTasks.drain().catch(() => logger.warn('Task processing deferred.')); }, 5000);
+taskTimer.unref?.();
 
 let archivePatrolRunning = false;
 async function archivePatrol() {

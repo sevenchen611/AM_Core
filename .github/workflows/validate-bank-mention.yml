@@ -18,6 +18,9 @@ on:
       - 'core/operational-memory.js'
       - 'core/bank-line-reply-intake.js'
       - 'core/leaf-calendar/**'
+      - 'core/leaf-tasks.js'
+      - 'tools/test-leaf-tasks.mjs'
+      - 'versions/AM-IMP-2026.1008.07/**'
       - 'tools/test-leaf-calendar.mjs'
       - 'tools/install-leaf-calendar.mjs'
       - 'tools/enroll-leaf-calendar.mjs'
@@ -95,6 +98,8 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - run: npm run check
+      - run: node --test tools/test-leaf-tasks.mjs
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1008.07
       - run: node --test tools/test-central-archive.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1007.03
       - run: node --test tools/test-work-journal-entry.mjs

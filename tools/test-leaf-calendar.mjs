@@ -146,6 +146,7 @@ test('real signed webhook persists calendar input before ACK; keeps groups and r
         dispatcher:{collectRoutes:()=>[],dispatchMessage:async({event})=>groups.push(event)},portal:{},modules:new Map(),platform:f.platform,llm:{available:false,backends:[]},logger:{log(){},warn(){},error(){}}})},
       './core/line-io/index.js':{createLineIo:async()=>({enabled:false,owns:()=>false,handle:async()=>false,capture:async events=>transport.push(...events)}),readLineIoBody:async req=>req.rawBody},
       './core/leaf-calendar/index.js':{createLeafCalendar:async()=>f.service},
+      './core/leaf-tasks.js':{createLeafTasks:()=>({capture:async()=>{},drain:async()=>{},health:()=>({}),adminAuthorized:()=>false})},
       './core/bank-line-reply-intake.js':{createBankLineReplyIntake:()=>({receive:async()=>false,drain:async()=>{}})},
       './core/attachment-retrieval.js':{createAttachmentRetrieval:()=>({handle:async()=>false,deliveryReady:()=>false}),parseAttachmentRequest:()=>null},
       './core/work-journal-entry.js': workJournalEntry,
