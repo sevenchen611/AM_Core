@@ -290,6 +290,7 @@ const server = http.createServer(async (req, res) => {
       attachmentArchive: { contract: platform.attachmentArchive.contract, storage: 'google-drive', notionFiles: 'links-only', tenants: tenants.filter(t => t.runtimeEnabled !== false).map(t => ({ tenantKey: t.key, ...platform.attachmentArchive.health(t) })) },
       attachmentRetrieval: { contract: attachmentRetrieval.contract, delivery: attachmentRetrieval.deliveryContract,
         quotedArchive: attachmentRetrieval.quotedArchiveContract,
+        filename: attachmentRetrieval.filenameContract,
         conversationIsolation: true, signedDownloadTtlSeconds: 7200,
         configuredTenants: tenants.filter(t => t.runtimeEnabled !== false && attachmentRetrieval.deliveryReady(t)).map(t => t.key) },
       llm: { available: llm.available, chain: llm.backends },

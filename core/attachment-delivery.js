@@ -2,8 +2,10 @@ import crypto from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import sharp from 'sharp';
+import {mediaFilename,asciiDownloadFilename,normalizedMediaType} from './media-filename.js';
 
 export const ATTACHMENT_DELIVERY_CONTRACT = 'line-quoted-image-signed-download-v1';
+export const ATTACHMENT_FILENAME_CONTRACT = 'verified-media-mime-filename-v1';
 const TTL = 7200, IMAGE_MAX = 10 * 1024 * 1024;
 const fail = () => { throw new Error('attachment_delivery_unavailable'); };
 
@@ -56,16 +58,20 @@ export function createAttachmentDelivery({ platform, resolveConversation, resolv
     const metadata = await response.json();
     if (metadata.trashed || metadata.id !== file.fileId || Number(metadata.size) !== file.size
       || String(metadata.md5Checksum).toLowerCase() !== file.md5.toLowerCase()) fail();
-    return metadata.mimeType;
+    return normalizedMediaType(metadata.mimeType);
   }
   async function messages(tenant, event, command, file) {
     // Legacy deployments retain their verified Google link until HTTPS signing is configured.
     if (!ready(tenant)) return [{ type: 'text', text: `已找到保存的原檔「${file.filename}」：\n${file.url}` }];
     const url = link(tenant, event, command, file, 'download');
-    const result = [{ type: 'text', text: `已找到保存的原檔「${file.filename}」：\n原檔下載（有效 2 小時，過期可再次回覆取回）：\n${url}` }];
+    let contentType;
+    try { contentType=await mime(file); }
+    catch { logger.warn('[attachment-delivery] media metadata unavailable; original link retained'); }
+    const filename=mediaFilename(file.filename,contentType);
+    const result = [{ type: 'text', text: `已找到保存的原檔「${filename}」：\n原檔下載（有效 2 小時，過期可再次回覆取回）：\n${url}` }];
     if (file.size > 0 && file.size <= IMAGE_MAX) {
       try {
-        if (['image/jpeg', 'image/png'].includes(await mime(file))) result.push({ type: 'image',
+        if (['image/jpeg', 'image/png'].includes(contentType)) result.push({ type: 'image',
           originalContentUrl: link(tenant, event, command, file, 'image'),
           previewImageUrl: link(tenant, event, command, file, 'preview') });
       } catch { logger.warn('[attachment-delivery] photo preview unavailable; original link retained'); }
@@ -84,7 +90,7 @@ export function createAttachmentDelivery({ platform, resolveConversation, resolv
       if (current?.tenant?.key !== tenant.key || current.binding?.status !== '啟用' || current.tenant.runtimeEnabled === false) { valid = false; fail(); }
       const file = await resolveOriginal(tenant, event, p.command);
       if (file.fileId !== p.fileId || file.md5 !== p.md5 || file.size !== p.size) { valid = false; fail(); }
-      const contentType = p.mode === 'download' ? 'application/octet-stream' : await mime(file);
+      const contentType = await mime(file);
       if (p.mode !== 'download' && (!['image/jpeg', 'image/png'].includes(contentType) || file.size > IMAGE_MAX)) fail();
       const latest = await resolveConversation(event,p.command);
       if (latest?.tenant?.key !== tenant.key || latest.binding?.status !== '啟用' || latest.tenant.runtimeEnabled === false) { valid = false; fail(); }
@@ -106,8 +112,8 @@ export function createAttachmentDelivery({ platform, resolveConversation, resolv
         res.setHeader('Content-Type', 'image/jpeg'); res.end(preview);
       } else {
         res.setHeader('Content-Type', contentType);
-        const filename = String(file.filename || 'attachment').replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 180);
-        res.setHeader('Content-Disposition', `${p.mode === 'image' ? 'inline' : 'attachment'}; filename="attachment"; filename*=UTF-8''${encodeURIComponent(filename).replace(/'/g, '%27')}`);
+        const filename = mediaFilename(file.filename,contentType);
+        res.setHeader('Content-Disposition', `${p.mode === 'image' ? 'inline' : 'attachment'}; filename="${asciiDownloadFilename(filename)}"; filename*=UTF-8''${encodeURIComponent(filename).replace(/'/g, '%27')}`);
         await pipeline(Readable.fromWeb(response.body), res);
       }
     } catch {
@@ -118,5 +124,5 @@ export function createAttachmentDelivery({ platform, resolveConversation, resolv
       res.end(valid ? '目前無法讀取原檔備份，請稍後再試。' : '連結已失效，請回到 LINE 原訊息再次回覆取回。');
     }
   }
-  return { messages, handleDownload, contract: ATTACHMENT_DELIVERY_CONTRACT, ready };
+  return { messages, handleDownload, contract: ATTACHMENT_DELIVERY_CONTRACT, filenameContract:ATTACHMENT_FILENAME_CONTRACT, ready };
 }

@@ -56,6 +56,8 @@ on:
       - 'tools/test-attachment-delivery.mjs'
       - 'versions/AM-IMP-2026.1008.01/**'
       - 'versions/AM-IMP-2026.1008.02/**'
+      - 'versions/AM-IMP-2026.1008.03/**'
+      - 'core/media-filename.js'
       - 'tools/test-attachment-retrieval.mjs'
       - 'core/attachment-archive.js'
       - 'core/drive.js'
@@ -103,6 +105,7 @@ jobs:
       - run: node --test tools/test-attachment-delivery.mjs
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1008.01
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1008.02
+      - run: node tools/check-upgrade-package.js AM-IMP-2026.1008.03
       - run: node tools/check-upgrade-package.js AM-IMP-2026.1004.07
       - run: node --test tools/test-attachment-retention.mjs
       - run: node --experimental-vm-modules tools/verify-attachment-webhook.mjs

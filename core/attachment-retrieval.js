@@ -260,6 +260,7 @@ export function createAttachmentRetrieval({ platform, router, ownsTransport = ()
   }
   return { contract: ATTACHMENT_RETRIEVAL_CONTRACT, deliveryContract: delivery.contract,
     quotedArchiveContract: QUOTED_ARCHIVE_CONTRACT,
+    filenameContract: delivery.filenameContract,
     archiveScope: QUOTED_ARCHIVE_SCOPE,
     deliveryReady: delivery.ready, handle, retrieve, handleDownload: delivery.handleDownload };
 }

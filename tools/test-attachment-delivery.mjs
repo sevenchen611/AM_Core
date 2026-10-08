@@ -5,12 +5,13 @@ import http from 'node:http';
 import { once } from 'node:events';
 import sharp from 'sharp';
 import { createAttachmentDelivery } from '../core/attachment-delivery.js';
+import {createLine} from '../core/line.js';
 
 const tenant = { key: 'synthetic-tenant', runtimeEnabled: true };
 const event = { source: { type: 'group', groupId: 'synthetic-group', userId: 'synthetic-requesting-member' } };
 const command = { quotedMessageId: 'synthetic-original', filename: '' };
 async function fixture(options = {}) {
-  const bytes = await sharp({ create: { width: 1600, height: 1200, channels: 3, background: 'red' } }).png().toBuffer();
+  const bytes = options.bytes || await sharp({ create: { width: 1600, height: 1200, channels: 3, background: 'red' } }).png().toBuffer();
   const file = { fileId: 'synthetic-drive-file', filename: '合成測試.png', size: bytes.length,
     md5: crypto.createHash('md5').update(bytes).digest('hex'), url: 'https://drive.google.com/file/d/synthetic-drive-file/view', ...options.file };
   let timestamp = Date.UTC(2026, 9, 8), bound = { tenant, binding: { status: '啟用' } }, original = file;
@@ -96,4 +97,38 @@ test('unconfigured signing keeps existing verified Google link; changed image me
   assert.match((await legacy.delivery.messages(tenant, event, command, legacy.file))[0].text, /drive.google.com/);
   const changed = await fixture({ metadata: { md5Checksum: 'b'.repeat(32) } });
   assert.equal((await changed.delivery.messages(tenant, event, command, changed.file)).length, 1);
+});
+test('extensionless archived MP4 downloads with compatible filenames and exact unchanged bytes',async()=>{
+  const bytes=Buffer.from('0000001c667479706d7034320000000169736f6d6d7034316d7034320000000c6d64617401020304','hex');
+  const f=await fixture({bytes,file:{filename:'file-synthetic-original'},metadata:{mimeType:'video/mp4'}});
+  const messages=await f.delivery.messages(tenant,event,command,f.file);
+  assert.equal(messages.length,1);assert.match(messages[0].text,/file-synthetic-original\.mp4/);
+  const result=await download(f,messages[0].text.split('\n').at(-1));
+  assert.equal(result.status,200);assert.equal(result.headers.get('content-type'),'video/mp4');
+  assert.match(result.headers.get('content-disposition'),/filename="attachment\.mp4";/);
+  assert.match(result.headers.get('content-disposition'),/filename\*=UTF-8''file-synthetic-original\.mp4$/);
+  assert.deepEqual(result.bytes,bytes);assert.equal(result.bytes.subarray(4,8).toString(),'ftyp');
+});
+test('MIME naming covers recovered audio and PDF without rewriting supplied extensions or guessing unknown files',async()=>{
+  for(const [mime,name,suffix] of [['audio/mp4','audio-original','.m4a'],['application/pdf','file-original','.pdf'],
+    ['video/mp4','original.MOV','.MOV'],['application/octet-stream','unknown-original','unknown-original']]){
+    const f=await fixture({file:{filename:name},metadata:{mimeType:mime}});
+    const messages=await f.delivery.messages(tenant,event,command,f.file),result=await download(f,messages[0].text.split('\n').at(-1));
+    assert.equal(result.status,200);assert.ok(result.headers.get('content-disposition').endsWith(suffix));
+    assert.deepEqual(result.bytes,f.bytes);
+  }
+});
+test('download metadata mismatches fail before headers or bytes can masquerade as a video',async()=>{
+  const f=await fixture({file:{filename:'file-original'},metadata:{mimeType:'video/mp4',md5Checksum:'b'.repeat(32)}});
+  const messages=await f.delivery.messages(tenant,event,command,f.file),result=await download(f,messages[0].text.split('\n').at(-1));
+  assert.equal(result.status,503);assert.equal(result.headers.get('content-disposition'),null);
+  assert.ok(!result.bytes.equals(f.bytes));
+});
+test('new LINE media names gain the MIME extension; original explicit filenames remain preserved',()=>{
+  const line=createLine({});
+  assert.equal(line.resolveLineFilename({},'video','synthetic','Video/MP4; charset=binary'),'video-synthetic.mp4');
+  assert.equal(line.resolveLineFilename({},'file','synthetic','video/mp4'),'file-synthetic.mp4');
+  assert.equal(line.resolveLineFilename({},'audio','synthetic','audio/mp4'),'audio-synthetic.m4a');
+  assert.equal(line.resolveLineFilename({fileName:'original.mov'},'video','synthetic','video/mp4'),'original.mov');
+  assert.equal(line.resolveLineFilename({},'file','synthetic','application/octet-stream'),'file-synthetic');
 });
