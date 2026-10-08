@@ -20,4 +20,5 @@
 - Shadow mode creates only candidate operational-memory records. Formal tasks, reminders and automatic external replies remain disabled.
 
 | AM-IMP-2026.1008.01 | Deployed | Quoted photo resend and signed original download | 32 retrieval/delivery, 42 retention/archive tests; 19 core checks; webhook and signature route checks | Production main b40cb41 and signed endpoint verified; actual LINE device display remains an acceptance check. |
-| AM-IMP-2026.1008.02 | Installed | Explicit quoted conversation-archive retrieval | 84 attachment/archive tests; server webhook/private pause checks; 19 core checks | Production verification pending. Explicit manual archive requests are independent of project activation; source/member gates remain required. |
+| AM-IMP-2026.1008.02 | Deployed | Explicit quoted conversation-archive retrieval | 84 attachment/archive tests; server webhook/private pause checks; 19 core checks | Production main 4c0f048 and native recovery/download/delivery verified. Explicit manual archive requests are independent of project activation; source/member gates remain required. |
+

@@ -3,17 +3,52 @@
   "name": "Explicit quoted attachment retrieval from conversation archives",
   "type": "AM Platform / Attachment evidence / Manual operations",
   "portable": true,
-  "status": "Installed",
+  "status": "Deployed",
   "createdAt": "2026-10-08",
-  "installTargets": ["AM_PLATFORM"],
-  "requiresDatabases": ["existing deployment-local central_archive PostgreSQL and owner conversation archive"],
-  "requiresEnv": ["existing selected OA, Google OAuth, central archive, HTTPS base and signing configuration"],
-  "requiresScripts": ["node --test tools/test-attachment-retrieval.mjs tools/test-attachment-delivery.mjs tools/test-central-archive.mjs tools/test-attachment-retention.mjs", "node tools/check-upgrade-package.js AM-IMP-2026.1008.02", "node tools/audit-alignment.js"],
-  "dependencies": {"upgradePackage": "AM-IMP-2026.1008.01"},
-  "dataIsolation": {"canCopyCode": true, "canCopySchema": true, "canCopyData": false, "canCopySecrets": false},
-  "definitionOfDone": ["explicit source-only recovery independent of project activation", "current-member/source/fingerprint and signed-download gates tested", "quote recovery records actual request evidence without fabricated author/date", "reviewed main CI passed and actual production service verified"],
-  "projectStatus": {"AM_PLATFORM": "Installed"},
-  "files": ["core/central-archive/quoted-access.js", "core/central-archive/index.js", "core/attachment-retrieval.js", "core/attachment-delivery.js", "server.js", "tools/test-attachment-retrieval.mjs", "tools/test-central-archive.mjs"],
+  "installTargets": [
+    "AM_PLATFORM"
+  ],
+  "requiresDatabases": [
+    "existing deployment-local central_archive PostgreSQL and owner conversation archive"
+  ],
+  "requiresEnv": [
+    "existing selected OA, Google OAuth, central archive, HTTPS base and signing configuration"
+  ],
+  "requiresScripts": [
+    "node --test tools/test-attachment-retrieval.mjs tools/test-attachment-delivery.mjs tools/test-central-archive.mjs tools/test-attachment-retention.mjs",
+    "node tools/check-upgrade-package.js AM-IMP-2026.1008.02",
+    "node tools/audit-alignment.js"
+  ],
+  "dependencies": {
+    "upgradePackage": "AM-IMP-2026.1008.01"
+  },
+  "dataIsolation": {
+    "canCopyCode": true,
+    "canCopySchema": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "explicit source-only recovery independent of project activation",
+    "current-member/source/fingerprint and signed-download gates tested",
+    "quote recovery records actual request evidence without fabricated author/date",
+    "reviewed main CI passed and actual production service verified"
+  ],
+  "projectStatus": {
+    "AM_PLATFORM": "Deployed"
+  },
+  "files": [
+    "core/central-archive/quoted-access.js",
+    "core/central-archive/index.js",
+    "core/attachment-retrieval.js",
+    "core/attachment-delivery.js",
+    "server.js",
+    "tools/test-attachment-retrieval.mjs",
+    "tools/test-central-archive.mjs"
+  ],
   "contract": "line-explicit-quoted-conversation-archive-v1",
-  "productionVerified": false
+  "productionVerified": true,
+  "verifiedProductionCommit": "4c0f048b4de5063fbfc6cc9452127078f003b9cc",
+  "verifiedAt": "2026-10-08T09:42:45.4448014+08:00",
+  "verificationScope": "Actual production main commit and quoted archive health verified. A persisted explicit source request recovered its original into the same conversation archive; original/image/preview HTTP 200 and checksum/preview limits verified. The requested photo and download were returned to the same group with LINE HTTP 200 and two durable accepted records. Recipient device display is not directly observed. Source records and delivery identities remain production-local."
 }
