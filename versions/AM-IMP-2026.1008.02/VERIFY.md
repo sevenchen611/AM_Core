@@ -1,6 +1,6 @@
 # VERIFY
 
-- node --test tools/test-attachment-retrieval.mjs tools/test-attachment-delivery.mjs tools/test-central-archive.mjs tools/test-attachment-retention.mjs (83 passing tests)
+- node --test tools/test-attachment-retrieval.mjs tools/test-attachment-delivery.mjs tools/test-central-archive.mjs tools/test-attachment-retention.mjs (84 passing tests)
 - node --experimental-vm-modules tools/verify-attachment-webhook.mjs
 - node --experimental-vm-modules tools/verify-private-assistant-pause.mjs
 - node --experimental-vm-modules --test tools/test-leaf-calendar.mjs
