@@ -172,6 +172,14 @@ test('actual central factory queues quote recovery only after verifying the pers
     line:{configured:true,lineGet:async p=>p==='/v2/bot/info'?{userId:bot}:{userId:user},setArchiveObserver(){}},
     drive:{configured:true,getAccessToken:async()=> 'synthetic'},notion:{request:async()=>({archived:false})},logger:{warn(){},error(){}}});
   try{
+    const now=Date.now(),probe={...e,timestamp:now,message:{...e.message,id:'task-source',text:'@同仁 請整理本週客訴清單'}};
+    await createArchiveStore(pool,bot).capture([probe]);
+    const querySource={from:new Date(now-1000).toISOString(),to:new Date(now+1000).toISOString(),contains:'本週客訴清單'};
+    assert.equal((await central.taskSources(querySource)).length,1);
+    await assert.rejects(central.taskSources({...querySource,contains:'xx'}),/invalid_task_source_query/);
+    await assert.rejects(central.taskSources({...querySource,to:new Date(now+610000).toISOString()}),/invalid_task_source_query/);
+    await db.query("UPDATE central_archive.jobs SET payload=jsonb_set(payload,'{evidenceQuality}','\"legacy\"'::jsonb) WHERE key=$1",['in:'+digest(bot+':message:task-source')]);
+    assert.equal((await central.taskSources(querySource)).length,0);
     await central.recoverQuoted(e);await central.recoverQuoted(e);
     const row=(await db.query('SELECT payload FROM central_archive.jobs WHERE key=$1',['in:'+digest(bot+':message:'+e.message.quotedMessageId)])).rows[0];
     assert.equal(row.payload.evidenceQuality,'quoted-message-recovery');assert.equal(row.payload.quoteRecovery.originalSenderUnknown,true);
