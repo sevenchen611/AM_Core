@@ -131,3 +131,33 @@ test('outbound sends persist first and record provider acceptance; intake failur
     await assert.rejects(line.pushLineMessage(user,'answer'),/db_down/);assert.deepEqual(order,[]);
   }finally{line.setArchiveObserver(null);globalThis.fetch=original;}
 });
+
+import {createQuotedArchiveAccess,quotedRecoveryRecord} from '../core/central-archive/quoted-access.js';
+test('quote access isolates current OA, source kind and member; failed identity checks fail closed',async()=>{
+  const db=new PGlite();await db.exec(await fs.readFile(new URL('../core/central-archive/schema.sql',import.meta.url),'utf8'));
+  const query=(...args)=>db.query(...args),pool={query,connect:async()=>({query,release(){}})};
+  try{
+    await createArchiveStore(pool,bot).capture([event('request',{type:'group',groupId:group,userId:user})]);
+    let checked=0;const line={lineGet:async pathname=>{checked++;assert.equal(pathname,`/v2/bot/group/${group}/member/${user}`);return {userId:user};}};
+    const access=createQuotedArchiveAccess({pool,botId:bot,line});
+    assert.equal(await access({type:'group',groupId:group,userId:user}),true);
+    assert.equal(await access({type:'user',userId:user}),false);
+    assert.equal(await access({type:'room',roomId:group,userId:user}),false);
+    assert.equal(await access({type:'group',groupId:group}),false);
+    assert.equal(await createQuotedArchiveAccess({pool,botId:'U'+'9'.repeat(32),line})({type:'group',groupId:group,userId:user}),false);
+    assert.equal(checked,1);
+    assert.equal(await createQuotedArchiveAccess({pool,botId:bot,line:{lineGet:async()=>({userId:'other'})}})({type:'group',groupId:group,userId:user}),false);
+    await assert.rejects(createQuotedArchiveAccess({pool,botId:bot,line:{lineGet:async()=>{throw Error('membership_unavailable');}}})({type:'group',groupId:group,userId:user}));
+  }finally{await db.close();}
+});
+test('quote recovery retains request evidence and never invents original sender or date',()=>{
+  const e=event('request',{type:'group',groupId:group,userId:user});e.message.quotedMessageId='12345678901234567';e.message.mention={mentionees:[{isSelf:true}]};
+  const record=quotedRecoveryRecord(bot,e);
+  assert.equal(record.key,'in:'+digest(bot+':message:'+e.message.quotedMessageId));assert.equal(record.payload.evidenceQuality,'quoted-message-recovery');
+  assert.equal(record.payload.event.source.userId,undefined);assert.equal(record.payload.quoteRecovery.originalTimestampUnknown,true);
+  assert.equal(record.payload.quoteRecovery.originalSenderUnknown,true);assert.equal(record.payload.quoteRecovery.requestKey,'in:'+digest(bot+':message:request'));
+  assert.equal(record.replyToken,undefined);assert.equal(record.binary,true);
+  const props=archiveProperties({...record,payload:record.payload,event_at:record.at});
+  assert.match(props['來源說明'].rich_text.map(x=>x.text.content).join(''),/原作者與原發送時間未知/);
+  delete e.message.mention;assert.throws(()=>quotedRecoveryRecord(bot,e),/quote_invalid/);
+});

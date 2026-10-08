@@ -4,6 +4,8 @@ import { textItem } from './util.js';
 import { createAttachmentDelivery } from './attachment-delivery.js';
 
 export const ATTACHMENT_RETRIEVAL_CONTRACT = 'line-quoted-drive-original-v1';
+export const QUOTED_ARCHIVE_CONTRACT = 'line-explicit-quoted-conversation-archive-v1';
+export const QUOTED_ARCHIVE_SCOPE = Object.freeze({key:'conversation-archive',runtimeEnabled:true,dataSources:{}});
 const plain = prop => (prop?.rich_text || []).map(x => x.plain_text || x.text?.content || '').join('');
 const idEqual = (a, b) => Boolean(a && b && String(a).replace(/-/g, '') === String(b).replace(/-/g, ''));
 const live = page => page && !page.archived && !page.in_trash;
@@ -27,7 +29,7 @@ export function parseAttachmentRequest(event) {
   const named = /^(?:「([^」]+)」|『([^』]+)』|"([^"]+)"|([^\s「」『』"]+\.[a-zA-Z0-9]{1,12}))$/.exec(object);
   const filename = named ? (named[1] || named[2] || named[3] || named[4]).trim() : '';
   if (!generic && !filename && !(quoted && !object && ['重傳', '傳給我', '給我'].includes(match[1]))) return null;
-  return { quotedMessageId: quoted, filename };
+  return { quotedMessageId: quoted, filename, ...(mentions.length?{explicitSelf:true}:{}) };
 }
 
 export function createAttachmentRetrieval({ platform, router, ownsTransport = () => false,
@@ -55,11 +57,19 @@ export function createAttachmentRetrieval({ platform, router, ownsTransport = ()
   const query = (tenant, ds, filter, pageSize = 2) => request(tenant, `/v1/data_sources/${encodeURIComponent(ds)}/query`,
     { method: 'POST', body: { filter, page_size: pageSize } });
   const groupOf = event => String(event.source?.groupId || event.source?.roomId || '');
-  async function resolve(event) {
+  async function resolve(event, command = parseAttachmentRequest(event)) {
     const groupId = groupOf(event);
     router.invalidate?.(groupId || undefined);
     if (ownsTransport(event)) return resolveTransport(event);
-    if (groupId) return router.resolveGroupBinding(groupId);
+    if (groupId) {
+      const route=await router.resolveGroupBinding(groupId);
+      const archiveSource=route?.resolution==='not_found'||(route?.binding?.status==='影子記錄'&&route.tenant?.runtimeEnabled!==false);
+      if(archiveSource&&command?.explicitSelf===true&&command.quotedMessageId
+        &&await platform.centralArchive?.canRetrieveQuote?.(event.source)) {
+        return {tenant:QUOTED_ARCHIVE_SCOPE,binding:{status:'啟用'},resolution:'quoted_archive'};
+      }
+      return route;
+    }
     if (event.source?.type !== 'user' || !event.source.userId) return null;
     router.invalidateDirect?.(event.source.userId);
     return router.resolveDirectAttachmentBinding(event.source.userId);
@@ -123,6 +133,17 @@ export function createAttachmentRetrieval({ platform, router, ownsTransport = ()
     return candidates[0];
   }
   async function retrieve(tenant, event, command = parseAttachmentRequest(event)) {
+    if(tenant.key===QUOTED_ARCHIVE_SCOPE.key){
+      if(!command?.explicitSelf||!command.quotedMessageId||!await platform.centralArchive?.canRetrieveQuote?.(event.source))throw fail('unavailable');
+      const saved=await platform.centralArchive.original(command.quotedMessageId,{groupId:groupOf(event),userId:event.source?.userId||''});
+      if(!saved)throw fail('not_found');
+      if(saved.missing)throw fail('missing_original');
+      if(saved.pending)throw fail('pending');
+      const f=saved.file, md5=String(f?.md5Checksum||'').toLowerCase();
+      if(!/^[\w-]{10,200}$/.test(f?.id||'')||!/^[a-f0-9]{32}$/.test(md5)||!(Number(f.size)>0))throw fail('unavailable');
+      return {filename:String(f.name||'attachment').slice(0,300),fileId:f.id,size:Number(f.size),md5,
+        url:`https://drive.google.com/file/d/${encodeURIComponent(f.id)}/view`};
+    }
     const page = await find(tenant, event, command);
     const p = page.properties || {}, status = p['保存狀態']?.select?.name;
     if (['需要重傳', '保存失敗'].includes(status)) throw fail('missing_original');
@@ -172,13 +193,24 @@ export function createAttachmentRetrieval({ platform, router, ownsTransport = ()
   }
   async function run(event, command) {
     let current;
-    try { current = await resolve(event); }
+    try { current = await resolve(event,command); }
     catch { logger.warn('[attachment-retrieval] routing unavailable'); return; }
-    if (!allowed(current)) return; // Includes unbound, inactive, ambiguous and shadow sources.
+    if (!allowed(current)) return; // Inactive/ambiguous/failed routes stay closed; explicit quotes use their own archive scope.
     const tenant = current.tenant;
     let text, messages;
     try {
-      await recordRequest(tenant, event, command);
+      if(tenant.key===QUOTED_ARCHIVE_SCOPE.key){
+        const existing=await platform.centralArchive.original(command.quotedMessageId,{groupId:groupOf(event),userId:event.source?.userId||''});
+        if(!existing&&platform.centralArchive.recoverQuoted){
+          await platform.centralArchive.recoverQuoted(event);
+          // Give the durable archive worker a bounded opportunity to finish before the reply token expires.
+          for(let attempt=0;attempt<12;attempt++){
+            const saved=await platform.centralArchive.original(command.quotedMessageId,{groupId:groupOf(event),userId:event.source?.userId||''});
+            if(saved&&!saved.pending)break;
+            await new Promise(resolve=>setTimeout(resolve,1000));
+          }
+        }
+      }else await recordRequest(tenant, event, command);
       const file = await retrieve(tenant, event, command);
       messages = await delivery.messages(tenant, event, command, file);
       text = messages[0].text;
@@ -195,7 +227,7 @@ export function createAttachmentRetrieval({ platform, router, ownsTransport = ()
     }
     // Binding can change while Notion/Drive are being read. Revalidate before any reply.
     try {
-      const latest = await resolve(event);
+      const latest = await resolve(event,command);
       if (!allowed(latest) || latest.tenant.key !== tenant.key) return;
       if (event.replyToken) {
         if (messages?.length > 1 && platform.replyLineMessages) {
@@ -227,5 +259,7 @@ export function createAttachmentRetrieval({ platform, router, ownsTransport = ()
     return true;
   }
   return { contract: ATTACHMENT_RETRIEVAL_CONTRACT, deliveryContract: delivery.contract,
+    quotedArchiveContract: QUOTED_ARCHIVE_CONTRACT,
+    archiveScope: QUOTED_ARCHIVE_SCOPE,
     deliveryReady: delivery.ready, handle, retrieve, handleDownload: delivery.handleDownload };
 }

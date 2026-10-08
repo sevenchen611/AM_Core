@@ -3,6 +3,7 @@ import {createArchiveStore,digest} from './store.js';
 import {createArchiveNotion} from './notion.js';
 import {archiveMedia,archiveReference} from './media.js';
 import {lineIoDatabaseConfig} from '../line-io/database.js';
+import {createQuotedArchiveAccess,quotedRecoveryRecord} from './quoted-access.js';
 export const CENTRAL_ARCHIVE_CONTRACT='line-per-conversation-notion-drive-v1';
 export function archiveDatabaseConfig(env){
   const connectionString=env.AMCORE_CENTRAL_ARCHIVE_DATABASE_URL||env.AMCORE_CENTRAL_ARCHIVE_LOCAL_DATABASE_URL;
@@ -28,6 +29,7 @@ export async function createCentralArchive({env=process.env,line,drive,router,lo
   const pool=injectedPool||new Pool({...archiveDatabaseConfig(env),max:3,connectionTimeoutMillis:5000});
   pool.on?.('error',()=>logger.warn('Central archive database connection deferred.'));
   const store=createArchiveStore(pool,config.botId);
+  const canRetrieveQuote=createQuotedArchiveAccess({pool,botId:config.botId,line});
   const notion=injectedNotion||createArchiveNotion({token:env.NOTION_TOKEN,parentId:config.parentId});
   try{
     await pool.query('SELECT key FROM central_archive.jobs LIMIT 0');
@@ -127,9 +129,10 @@ export async function createCentralArchive({env=process.env,line,drive,router,lo
     const rows=await pool.query(`SELECT j.*,c.source_id,c.source_kind,c.drive_folder_id FROM central_archive.jobs j
       JOIN central_archive.conversations c ON c.key=j.conversation_key WHERE j.key=$1 AND c.bot_id=$2`,[key,config.botId]);
     const row=rows.rows[0];if(!row)return null;
-    if(row.source_id!==(groupId||userId))throw Error('archive_original_source_mismatch');
+    if(row.source_id!==(groupId||userId)||(!groupId&&row.source_kind!=='user')
+      ||(groupId&&!['group','room'].includes(row.source_kind)))throw Error('archive_original_source_mismatch');
     const result=row.result;
-    if(!result.driveId)return {pending:true};
+    if(!result.driveId)return row.state==='needs_source'?{missing:true}:{pending:true};
     if(result.canonicalJobKey){
       const reference=await archiveReference({job:row,canonical:await canonicalJob(result.canonicalJobKey),drive});
       if(reference.driveId!==result.driveId||reference.md5!==result.md5||reference.size!==Number(result.size))throw Error('archive_reference_invalid');
@@ -138,9 +141,22 @@ export async function createCentralArchive({env=process.env,line,drive,router,lo
     const file=await drive.verifyAttachment(result.driveId,row.drive_folder_id,{amCentralArchive:digest(key)},result.size,result.md5);
     return {file,sha256:result.sha256,md5:result.md5};
   }
+  async function recoverQuoted(event){
+    if(!state.captureEnabled||!await canRetrieveQuote(event.source))throw Error('archive_quote_unavailable');
+    const record=quotedRecoveryRecord(config.botId,event);
+    // Require the persisted authenticated request itself to prove the quote, not an invented history event.
+    const request=await canonicalJob(record.payload.quoteRecovery.requestKey);
+    if(request?.payload.evidenceQuality!=='webhook'||request.source_id!==conversationSource(event.source).id
+      ||request.source_kind!==event.source.type||request.payload.event?.message?.quotedMessageId!==event.message.quotedMessageId
+      ||request.payload.event?.source?.userId!==event.source.userId
+      ||!request.payload.event?.message?.mention?.mentionees?.some(m=>m.isSelf===true))throw Error('archive_quote_invalid');
+    if(await canonicalJob(record.key))return;
+    await store.append([record]);
+    drain().catch(()=>logger.warn('Central archive quoted recovery deferred.'));
+  }
   const health=()=>({enabled:state.enabled,ready:state.ready,captureEnabled:state.captureEnabled,
     contract:state.contract,storage:state.storage,notionFiles:state.notionFiles,checkedAt:state.checkedAt,
     backlog:Boolean(state.states?.pending||state.states?.sending),needsSource:Boolean(state.states?.needs_source)});
-  return {capture,drain,original,health,store,notion,processJob,
+  return {capture,drain,original,canRetrieveQuote,recoverQuoted,health,store,notion,processJob,
     close:async()=>{clearInterval(timer);if(draining)await draining;if(!injectedPool)await pool.end();}};
 }

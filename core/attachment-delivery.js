@@ -80,13 +80,13 @@ export function createAttachmentDelivery({ platform, resolveConversation, resolv
     try {
       const p = verify(tenant, url.searchParams.get('token')); valid = true;
       const event = { type: 'message', source: p.source, message: { type: 'text' } };
-      const current = await resolveConversation(event);
+      const current = await resolveConversation(event,p.command);
       if (current?.tenant?.key !== tenant.key || current.binding?.status !== '啟用' || current.tenant.runtimeEnabled === false) { valid = false; fail(); }
       const file = await resolveOriginal(tenant, event, p.command);
       if (file.fileId !== p.fileId || file.md5 !== p.md5 || file.size !== p.size) { valid = false; fail(); }
       const contentType = p.mode === 'download' ? 'application/octet-stream' : await mime(file);
       if (p.mode !== 'download' && (!['image/jpeg', 'image/png'].includes(contentType) || file.size > IMAGE_MAX)) fail();
-      const latest = await resolveConversation(event);
+      const latest = await resolveConversation(event,p.command);
       if (latest?.tenant?.key !== tenant.key || latest.binding?.status !== '啟用' || latest.tenant.runtimeEnabled === false) { valid = false; fail(); }
       const token = await platform.getDriveAccessToken();
       const response = await fetchImpl(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(file.fileId)}?alt=media&supportsAllDrives=true`, {

@@ -29,7 +29,8 @@ import {
 const ctx = await bootstrap(process.env);
 const { tenants, line, router, dispatcher, portal, modules, platform, llm, logger } = ctx;
 const centralArchive=await createCentralArchive({line,drive:platform.drive,router,logger});
-platform.centralArchive={original:centralArchive.original,health:centralArchive.health};
+platform.centralArchive={original:centralArchive.original,canRetrieveQuote:centralArchive.canRetrieveQuote,
+  recoverQuoted:centralArchive.recoverQuoted,health:centralArchive.health};
 const workJournalEntry = createWorkJournalEntry({ line, logger });
 const lineIo = await createLineIo({ tenants, line, router, logger });
 const leafCalendar = await createLeafCalendar({ tenants, platform, logger, resolveIdentity: lineIo.resolveCalendarIdentity });
@@ -288,6 +289,7 @@ const server = http.createServer(async (req, res) => {
       driveConfigured: platform.driveConfigured,
       attachmentArchive: { contract: platform.attachmentArchive.contract, storage: 'google-drive', notionFiles: 'links-only', tenants: tenants.filter(t => t.runtimeEnabled !== false).map(t => ({ tenantKey: t.key, ...platform.attachmentArchive.health(t) })) },
       attachmentRetrieval: { contract: attachmentRetrieval.contract, delivery: attachmentRetrieval.deliveryContract,
+        quotedArchive: attachmentRetrieval.quotedArchiveContract,
         conversationIsolation: true, signedDownloadTtlSeconds: 7200,
         configuredTenants: tenants.filter(t => t.runtimeEnabled !== false && attachmentRetrieval.deliveryReady(t)).map(t => t.key) },
       llm: { available: llm.available, chain: llm.backends },
@@ -545,7 +547,8 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === 'GET' && routedPathname === '/line-attachment') {
-    const tenant = tenants.find(t => t.key === url.searchParams.get('tenant')) || null;
+    const tenant = tenants.find(t => t.key === url.searchParams.get('tenant'))
+      || (url.searchParams.get('tenant')===attachmentRetrieval.archiveScope?.key?attachmentRetrieval.archiveScope:null);
     return attachmentRetrieval.handleDownload(req, res, { url, tenant });
   }
 
