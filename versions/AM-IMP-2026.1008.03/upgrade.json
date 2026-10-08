@@ -1,0 +1,49 @@
+{
+  "id": "AM-IMP-2026.1008.03",
+  "name": "Verified media MIME and download filename extension",
+  "type": "AM Platform / Attachment delivery",
+  "portable": true,
+  "status": "Installed",
+  "createdAt": "2026-10-08",
+  "installTargets": [
+    "AM_PLATFORM"
+  ],
+  "requiresDatabases": [
+    "existing project and owner conversation archives"
+  ],
+  "requiresEnv": [
+    "existing HTTPS, signing, LINE and Google OAuth configuration"
+  ],
+  "requiresScripts": [
+    "node --test tools/test-attachment-delivery.mjs tools/test-attachment-retrieval.mjs tools/test-central-archive.mjs tools/test-attachment-retention.mjs",
+    "node tools/check-upgrade-package.js AM-IMP-2026.1008.03"
+  ],
+  "dataIsolation": {
+    "canCopySchema": true,
+    "canCopyCode": true,
+    "canCopyData": false,
+    "canCopySecrets": false
+  },
+  "definitionOfDone": [
+    "extensionless archived videos download with correct MIME and both filename header variants",
+    "new media naming preserves known extensions and never invents unknown format",
+    "old valid signed URL returns unchanged original bytes",
+    "reviewed main CI passed and actual production verified"
+  ],
+  "projectStatus": {
+    "AM_PLATFORM": "Installed"
+  },
+  "files": [
+    "core/media-filename.js",
+    "core/line.js",
+    "core/attachment-delivery.js",
+    "core/attachment-retrieval.js",
+    "server.js",
+    "tools/test-attachment-delivery.mjs"
+  ],
+  "contract": "verified-media-mime-filename-v1",
+  "productionVerified": false,
+  "dependencies": {
+    "upgradePackage": "AM-IMP-2026.1008.02"
+  }
+}

@@ -3,6 +3,7 @@
 // 平台一支 OA:全域 LINE_CHANNEL_* 憑證;webhook 為唯一入口。
 
 import crypto from 'node:crypto';
+import {mediaFilename} from './media-filename.js';
 
 const LINE_RETRY_KEY_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 let directTransportArchive=null;
@@ -213,8 +214,7 @@ export function createLine({ channelAccessToken, channelSecret, logger = console
 
   function resolveLineFilename(message, messageType, messageId, contentType) {
     if (message.fileName) return message.fileName;
-    const ext = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/gif': '.gif' }[String(contentType).split(';')[0]] || '';
-    return `${messageType}-${messageId}${ext}`;
+    return mediaFilename(`${messageType}-${messageId}`,contentType);
   }
 
   // 推播(共用 OA);訊息含被點名者名字且已知 userId 時升級為 textV2 真 @mention。
