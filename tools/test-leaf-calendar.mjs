@@ -12,6 +12,21 @@ import {prepareEvent,extractEvents,taipeiDate,calendarCandidate} from '../core/l
 
 const T='11111111-1111-4111-8111-111111111111',OTHER='22222222-2222-4222-8222-222222222222';
 const U='U'+'a'.repeat(32),V='U'+'b'.repeat(32);
+test('task service enrollment uses existing scoped JSON and preserves calendar credentials on reconfiguration',async()=>{
+  const f=await fixture();try{
+    await f.bind();const before=await f.store.service(tenant),calendarKey=before.encrypted_key;
+    await f.store.provisionTasks(tenant);
+    const data={baseUrl:'https://tasks.example.test',encryptedKey:{iv:'task-iv',tag:'task-tag',data:'task-ciphertext'}};
+    await f.store.configureTask(tenant,data);let after=await f.store.service(tenant);
+    assert.deepEqual(after.encrypted_key.taskService,data);
+    for(const key of ['iv','tag','data'])assert.equal(after.encrypted_key[key],calendarKey[key]);
+    await f.store.configure(tenant,{baseUrl:before.base_url,encryptedKey:calendarKey});after=await f.store.service(tenant);
+    assert.deepEqual(after.encrypted_key.taskService,data);
+    for(const key of ['iv','tag','data'])assert.equal(after.encrypted_key[key],calendarKey[key]);
+    await assert.rejects(f.store.provisionTasks(other));
+  }finally{await f.close();}
+});
+
 const tenant={key:'synthetic',tenantId:T},other={key:'other',tenantId:OTHER};
 const secret='synthetic-channel-secret-not-production';
 const apiKey='synthetic-shared-service-key-'.padEnd(72,'x');
