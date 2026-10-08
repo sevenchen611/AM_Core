@@ -1,7 +1,7 @@
 {
  "id":"AM-IMP-2026.1008.07","name":"LINE group mention to immediate DailyLog assignment","type":"shared-runtime","portable":true,
- "requiresDatabases":["Existing tenant-scoped leaf_calendar service configuration; additive task service columns","Target-owned durable DailyLog intake and work_items"],
- "requiresEnv":["Existing LINE_CHANNEL_SECRET and tenant migration/runtime database settings","Target-owned dedicated task service key and tenant restriction"],
+ "requiresDatabases":["Existing tenant-scoped leaf_calendar service configuration JSON namespace","Target-owned durable DailyLog intake and work_items"],
+ "requiresEnv":["Existing LINE_CHANNEL_SECRET and tenant runtime database settings","Target-owned dedicated task service key and tenant restriction"],
  "requiresScripts":["tools/test-leaf-tasks.mjs","tools/check-upgrade-package.js"],
  "installTargets":["Reviewed root AM Platform runtime","Explicitly enrolled DailyLog target"],
  "dataIsolation":"Tenant route, current account binding, group membership and target active/grant checks; credentials encrypted in existing tenant service configuration; task authority remains target-owned",
