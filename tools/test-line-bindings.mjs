@@ -52,12 +52,16 @@ function deferred() {
 
 test('task diagnostics verify current identities without changing or suspending bindings',async t=>{
  const h=await harness(t),row=await h.bind();
- const before=await h.bindingStore.get(row.bindingId);
+ await h.start('synthetic-expired-pending');
+ await h.db.query("UPDATE line_bindings.bindings SET expires_at=now()-interval '1 minute' WHERE external_user_id=$1",['synthetic-expired-pending']);
+ const snapshot=async()=>(await h.db.query('SELECT * FROM line_bindings.bindings ORDER BY id')).rows;
+ const allBefore=await snapshot();
+ const before=await h.bindingStore.readOne(row.bindingId);
  assert(await h.gateway.resolveTaskIdentity(user,'sample',{readOnly:true}));
- assert.deepEqual(await h.bindingStore.get(row.bindingId),before);
+ assert.deepEqual(await h.bindingStore.readOne(row.bindingId),before);assert.deepEqual(await snapshot(),allBefore);
  h.setCount(2);
  assert.equal(await h.gateway.resolveTaskIdentity(user,'sample',{readOnly:true}),null);
- assert.deepEqual(await h.bindingStore.get(row.bindingId),before);
+ assert.deepEqual(await h.bindingStore.readOne(row.bindingId),before);assert.deepEqual(await snapshot(),allBefore);
 });
 
 test('task identity resolves one verified account in the routed tenant without changing its conversation',async t=>{
