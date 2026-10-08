@@ -158,12 +158,12 @@ export async function createCentralArchive({env=process.env,line,drive,router,lo
   // Keep the window narrow and results bounded; callers receive diagnostics, not raw events.
   async function taskSources({from,to,contains}){
     const start=Date.parse(from),end=Date.parse(to);
-    if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start||end-start>600000
+    if(!Number.isFinite(start)||!Number.isFinite(end)||end<=start||end-start>86400000
       ||start<Date.now()-14*86400000||end>Date.now()+300000
-      ||typeof contains!=='string'||contains.trim().length<4||contains.length>200)throw Error('invalid_task_source_query');
+      ||typeof contains!=='string'||contains.trim().length<(end-start>600000?8:4)||contains.length>200)throw Error('invalid_task_source_query');
     const result=await pool.query(`SELECT j.key,j.payload FROM central_archive.jobs j
       JOIN central_archive.conversations c ON c.key=j.conversation_key
-      WHERE c.bot_id=$1 AND c.source_kind='group' AND j.event_at>=$2 AND j.event_at<=$3
+      WHERE c.bot_id=$1 AND c.source_kind IN ('group','room') AND j.event_at>=$2 AND j.event_at<=$3
       AND j.payload->>'direction'='incoming' AND j.payload->>'evidenceQuality'='webhook'
       AND j.payload->'event'->>'type'='message' AND j.payload->'event'->'message'->>'type'='text'
       AND strpos(j.payload->'event'->'message'->>'text',$4)>0 ORDER BY j.event_at LIMIT 3`,
