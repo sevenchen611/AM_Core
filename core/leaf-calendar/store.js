@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import {readFile} from 'node:fs/promises';
+import {reviewDraft,CALENDAR_CARD_VERSION} from './extract.js';
 
 export function createCalendarStore({ settingsForTenant, poolFactory, env=process.env }) {
   const pools = new Map();
@@ -89,6 +90,20 @@ export function createCalendarStore({ settingsForTenant, poolFactory, env=proces
       return {count:result.rows.length,applied:apply};
     });
   }
+  async function refreshPreviews(tenant,{apply=false}={}) {
+    return tx(tenant,async(c,t)=>{
+      const eligible="tenant_id=$1 AND kind='draft' AND status IN ('pending','needs_details') AND expires_at>now() AND payload->>'cardVersion' IS DISTINCT FROM $2 AND (lease_expires_at IS NULL OR lease_expires_at<now())";
+      const rows=(await c.query(`SELECT * FROM leaf_calendar.requests WHERE ${eligible}${apply?' FOR UPDATE':''}`,[t,CALENDAR_CARD_VERSION])).rows;
+      if(apply)for(const row of rows){const review=reviewDraft(row);
+        const payload={...row.payload,missing:review.missing,confirmationNotes:review.notes,cardVersion:CALENDAR_CARD_VERSION};
+        await c.query(`UPDATE leaf_calendar.requests SET payload=$3::jsonb,status=$4,revision=revision+1,prompted_revision=0,
+          attempt_count=0,available_at=now(),lease_token=NULL,lease_expires_at=NULL,
+          source_evidence=jsonb_set(source_evidence,'{ui_updates}',COALESCE(source_evidence->'ui_updates','[]'::jsonb)||$5::jsonb,true),updated_at=now()
+          WHERE tenant_id=$1 AND request_id=$2`,[t,row.request_id,json(payload),review.missing.length?'needs_details':'pending',json([{package:'AM-IMP-2026.1010.02',fromRevision:row.revision,toRevision:row.revision+1}])]);
+      }
+      return {count:rows.length,applied:apply};
+    });
+  }
   async function lease(tenant) {
     const token = crypto.randomUUID();
     return tx(tenant, async (c,t) => {
@@ -145,24 +160,24 @@ export function createCalendarStore({ settingsForTenant, poolFactory, env=proces
       if (['saved','saving','confirmed'].includes(row.status)) return { code:row.status,row };
       if (!['pending','needs_details'].includes(row.status) || new Date(row.expires_at).getTime()<=Date.now()) return {code:'expired'};
       if (action==='edit') {
-        await c.query(`UPDATE leaf_calendar.requests SET status='needs_details',revision=revision+1,prompted_revision=0,
-          payload=jsonb_set(payload,'{missing}',COALESCE(payload->'missing','[]'::jsonb)||'"請補充要修改的內容"'::jsonb),
-          source_evidence=jsonb_set(source_evidence,'{updates}',COALESCE(source_evidence->'updates','[]'::jsonb)||jsonb_build_array($4::jsonb),true),
-          lease_token=NULL,lease_expires_at=NULL,expires_at=now()+interval '24 hours'
+        // Old cards remain usable, but selecting edit does not change content or
+        // reset delivery; only actual text supplementation produces a new card.
+        await c.query(`UPDATE leaf_calendar.requests SET
+          source_evidence=jsonb_set(source_evidence,'{updates}',COALESCE(source_evidence->'updates','[]'::jsonb)||jsonb_build_array($4::jsonb),true)
           WHERE tenant_id=$1 AND line_user_id=$2 AND request_id=$3`,[t,userId,id,json(evidence||{action})]);
-        await c.query('UPDATE leaf_calendar.actors SET editing_id=$3,editing_revision=$4 WHERE tenant_id=$1 AND line_user_id=$2',[t,userId,id,revision+1]);
         return {code:'editing',row};
       }
-      if (action==='confirm' && row.status!=='pending') return {code:'needs_details',row};
+      const review=reviewDraft(row);
+      if (action==='confirm' && review.missing.length) return {code:'needs_details',row};
       if (action==='confirm' && row.prompted_revision!==row.revision) return {code:'changed',row};
       if (!['confirm','cancel'].includes(action)) return {code:'missing'};
       await c.query(`UPDATE leaf_calendar.requests SET status=$4,confirmed_at=CASE WHEN $4='confirmed' THEN now() ELSE confirmed_at END,
         source_evidence=source_evidence||jsonb_build_object('confirmation',$5::jsonb),
         notified=false,attempt_count=0,lease_token=NULL,lease_expires_at=NULL,available_at=now(),updated_at=now()
-        WHERE tenant_id=$1 AND line_user_id=$2 AND request_id=$3`,[t,userId,id,action==='confirm'?'confirmed':'cancelled',json(evidence||{action})]);
+        WHERE tenant_id=$1 AND line_user_id=$2 AND request_id=$3`,[t,userId,id,action==='confirm'?'confirmed':'cancelled',json({...(evidence||{action}),...(action==='confirm'?{acceptedNotes:review.notes}:{})})]);
       return {code:action==='confirm'?'confirmed_now':'cancelled_now',row};
     });
   }
-  return {ready,provision,provisionTasks,configureTask,service,configure,syncActor,insert,owned,pending,retryUnprompted,lease,settle,storeDrafts,control,
+  return {ready,provision,provisionTasks,configureTask,service,configure,syncActor,insert,owned,pending,retryUnprompted,refreshPreviews,lease,settle,storeDrafts,control,
     close:async()=>{for(const readyPool of pools.values()) await (await readyPool).end?.();}};
 }

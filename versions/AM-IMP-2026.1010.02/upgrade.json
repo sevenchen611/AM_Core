@@ -1,0 +1,12 @@
+{
+  "id":"AM-IMP-2026.1010.02",
+  "name":"Text-first calendar supplementation and two-action confirmation cards",
+  "type":"shared-runtime",
+  "portable":true,
+  "requiresDatabases":["Existing tenant-scoped calendar requests JSONB and source evidence"],
+  "requiresEnv":["Existing verified LINE and enrolled calendar service configuration; no new secrets"],
+  "requiresScripts":["tools/test-leaf-calendar.mjs","tools/test-central-archive.mjs","tools/retry-unprompted-calendar-previews.mjs"],
+  "installTargets":["Reviewed AM Platform root runtime; calendar-enabled tenants","Standalone projects only through separately requested adaptation"],
+  "dataIsolation":"Fresh owner identity, tenant RLS, explicit confirmation, exact current revision, immutable request identity and source evidence remain required.",
+  "definitionOfDone":["Two actions and red/text guidance verified","Text corrections update one owned draft without duplicates","Hard missing data remains blocked and displayed year assumptions can be reviewed directly","Legacy edit causes no unchanged card resend","Reviewed main deployed and refreshed intended card accepted by LINE"]
+}

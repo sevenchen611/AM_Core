@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import {createCalendarStore} from './store.js';
-import {calendarCandidate,extractEvents,prepareEvent,preview} from './extract.js';
+import {calendarCandidate,extractEvents,prepareEvent,preview,reviewDraft,supplementRequest} from './extract.js';
 
 export const LEAF_CALENDAR_CONTRACT='line-confirmed-dailylog-shared-calendar-v2';
 const USER=/^U[0-9a-f]{32}$/i;
@@ -41,7 +41,7 @@ export async function createLeafCalendar({env=process.env,tenants=[],platform={}
     return {tenant,binding:{...actor,...config,fingerprint}};
   }
   async function accepts(event){if(!enabled||!direct(event))return false;const text=textOf(event);
-    if(!(actionOf(event)||calendarCandidate(text)||/^(?:確認加入行事曆|不要加入行事曆|查看行事曆草稿|補充活動|修改活動)/u.test(text)))return false;
+    if(!(actionOf(event)||calendarCandidate(text)||supplementRequest(text)||/^(?:確認加入行事曆|不要加入行事曆|查看行事曆草稿)/u.test(text)))return false;
     return Boolean(await owner(event.source.userId));
   }
   async function notice(tenant,userId,event,message,fingerprint='unbound'){
@@ -60,9 +60,13 @@ export async function createLeafCalendar({env=process.env,tenants=[],platform={}
       payload={action:text==='確認加入行事曆'?'confirm':'cancel',id:list[0].request_id,revision:list[0].revision};
     }
     if(payload){await store.insert(tenant,{id:hash(`control:${userId}:${rawId(event)}`).slice(0,48),userId,kind:'control',payload,source:receipt(event),fingerprint:binding.fingerprint});continue;}
-    const supplement=/^(?:補充活動|修改活動)[：:\s]*/u.test(text);
-    if(supplement&&!binding.editing_id){const pending=await store.pending(tenant,userId);if(pending.length!==1){await notice(tenant,userId,event,'請先在活動卡片點「補充／修改」，再回覆「補充活動：…」。',binding.fingerprint);continue;}
-      binding.editing_id=pending[0].request_id;binding.editing_revision=pending[0].revision;}
+    const supplement=supplementRequest(text);
+    if(supplement){const pending=await store.pending(tenant,userId);
+      const matches=supplement.topic?pending.filter(row=>row.payload.event.topic===supplement.topic):pending;
+      if(matches.length!==1||!supplement.text){await notice(tenant,userId,event,pending.length
+        ?'請用文字指定活動與要修改的內容，例如：補充活動「活動名稱」：地點改為新會議室。活動名稱請與卡片一致。'
+        :'目前沒有待建立的活動，請重新傳送活動資訊。',binding.fingerprint);continue;}
+      binding.editing_id=matches[0].request_id;binding.editing_revision=matches[0].revision;}
     await store.insert(tenant,{id:hash(`intake:${userId}:${rawId(event)}`).slice(0,48),userId,kind:'intake',source:receipt(event),fingerprint:binding.fingerprint,
       payload:supplement?{account:binding.account,editId:binding.editing_id,editRevision:binding.editing_revision}:{account:binding.account} });
   }}
@@ -91,20 +95,21 @@ export async function createLeafCalendar({env=process.env,tenants=[],platform={}
       await store.settle(tenant,row,{status:'failed',errorCode:'BINDING_CHANGED'});return;}
     if(row.kind==='control'&&row.status==='queued'){
       if(row.payload.action==='list'){for(const draft of await store.pending(tenant,row.line_user_id))await push(draft,preview(draft),tenant,'list:'+row.request_id);}
-      else {const outcome=await store.control(tenant,row.line_user_id,{...row.payload,evidence:row.source_evidence});const messages={editing:'請回覆「補充活動：…」，提供要補充或修改的日期、時間、地點或內容。我會重新整理，等你確認才新增。',missing:'找不到這筆活動，請重新傳送活動資訊。',changed:'活動資料已更新，請使用最新卡片確認。',expired:'這筆活動已過期或取消，請重新傳送資訊。',needs_details:'請先補齊活動資料，再確認加入行事曆。',saving:'正在新增這筆活動，請稍候。',confirmed:'已收到確認，正在新增。'};
+      else {const outcome=await store.control(tenant,row.line_user_id,{...row.payload,evidence:row.source_evidence});const messages={editing:'請直接回覆「補充活動：…」，提供要修改的日期、時間、地點或內容；不需要再按修改按鈕。我會更新卡片，等你按「建立」才新增。',missing:'找不到這筆活動，請重新傳送活動資訊。',changed:'活動資料已更新，請使用最新卡片確認。',expired:'這筆活動已過期或取消，請重新傳送資訊。',needs_details:outcome.row?`還不能建立，請直接回覆「補充活動：…」補齊：\n${reviewDraft(outcome.row).missing.join('\n')}`:'請先補齊活動資料，再建立。',saving:'正在新增這筆活動，請稍候。',confirmed:'已收到確認，正在新增。'};
         if(outcome.code==='saved')await push(row,success(outcome.row),tenant,'already-saved');else if(messages[outcome.code])await push(row,messages[outcome.code],tenant,'control');}
       await store.settle(tenant,row,{status:'done'});return;
     }
     if(row.kind==='intake'&&row.status==='queued'){
       const existing=row.payload.editId?await store.owned(tenant,row.line_user_id,row.payload.editId):null;
-      const events=await extractEvents({text:row.source_evidence.text,at:row.source_evidence.timestamp,llm:platform.llmForTenant?.(tenant)||platform.llm,existing:existing?Object.fromEntries(Object.entries(existing.payload.event).filter(([k])=>!['account','requestId'].includes(k))):undefined});
+      const prior=existing?reviewDraft(existing):null;
+      const events=await extractEvents({text:existing?(supplementRequest(row.source_evidence.text)?.text||row.source_evidence.text):row.source_evidence.text,at:row.source_evidence.timestamp,llm:platform.llmForTenant?.(tenant)||platform.llm,existing:existing?{...Object.fromEntries(Object.entries(existing.payload.event).filter(([k])=>!['account','requestId'].includes(k))),needsClarification:prior.missing,confirmationNotes:prior.notes}:undefined});
       const drafts=events.map((event,index)=>{const id=row.payload.editId||hash(`${tenant.tenantId}:${row.line_user_id}:${row.source_evidence.id}:${index}`).slice(0,48);
         const payload=prepareEvent(event,`leafcal:${id}`);payload.event.account=row.payload.account;return {id,payload,status:payload.missing.length?'needs_details':'pending'};});
       await store.storeDrafts(tenant,row,drafts);return;
     }
     if(['pending','needs_details'].includes(row.status)){await push(row,preview(row),tenant,'preview');await store.settle(tenant,row,{prompted:true});return;}
     if(row.status==='saving'){
-      if(!row.confirmed_at||row.payload.missing.length||row.payload.event.account!==current.account)throw new Error('confirmation_required');
+      if(!row.confirmed_at||reviewDraft(row).missing.length||row.payload.event.account!==current.account)throw new Error('confirmation_required');
       const result=await calendarRequest({...current,apiKey:decrypt(current.encrypted_key,secret,tenant.tenantId)},row.payload.event);
       await store.settle(tenant,row,{status:'saved',result});return;
     }

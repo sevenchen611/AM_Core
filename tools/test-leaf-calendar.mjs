@@ -8,7 +8,7 @@ import * as directLine from '../core/direct-line.js';
 import {PGlite} from '@electric-sql/pglite';
 import {createCalendarStore} from '../core/leaf-calendar/store.js';
 import {createLeafCalendar,calendarAdminKey} from '../core/leaf-calendar/index.js';
-import {prepareEvent,extractEvents,taipeiDate,calendarCandidate} from '../core/leaf-calendar/extract.js';
+import {prepareEvent,extractEvents,taipeiDate,calendarCandidate,preview,reviewDraft,supplementRequest} from '../core/leaf-calendar/extract.js';
 
 const T='11111111-1111-4111-8111-111111111111',OTHER='22222222-2222-4222-8222-222222222222';
 const U='U'+'a'.repeat(32),V='U'+'b'.repeat(32);
@@ -83,6 +83,72 @@ test('activity normalization: Taiwan timezone, invalid dates, default and explic
   const fallback=await extractEvents({text:'補充活動：\n地點：新會議室',at:Date.now(),existing:activity});assert.equal(fallback[0].topic,activity.topic);assert.equal(fallback[0].location,'新會議室');
   const range=await extractEvents({text:'活動名稱：會議\n日期：2026/10/08\n時間：14:00–16:00\n地點：台中',at:Date.now()});assert.equal(range[0].endTime,'16:00');
 });
+test('calendar cards mark missing fields red and always expose exactly establish/decline with text guidance',async()=>{
+  const row={request_id:'a'.repeat(48),revision:1,payload:prepareEvent({...activity,time:'',location:''},'synthetic')};
+  const card=preview(row),body=card.contents.body.contents;
+  assert.deepEqual(card.contents.footer.contents.map(b=>b.action.label),['建立','不參加']);
+  assert.ok(body.some(b=>b.type==='box'&&b.contents[0].text==='日期與時間'&&b.contents[1].color==='#C62828'));
+  assert.ok(body.some(b=>b.type==='box'&&b.contents[0].text==='地點'&&b.contents[1].color==='#C62828'));
+  assert.ok(body.some(b=>b.type==='box'&&b.contents[0].text==='需要補充'&&b.contents[1].color==='#C62828'));
+  assert.match(JSON.stringify(card),/請直接回覆.*補充活動/);
+  assert.ok(!JSON.stringify(card).includes('leafcal:edit:'));assert.deepEqual(card,JSON.parse(JSON.stringify(card)));
+  const legacy={...row,payload:{...prepareEvent(activity,'synthetic'),missing:['未指定年份，預設為 2026 年，如需調整請告知','請補充要修改的內容']},source_evidence:{updates:[{postback:'leafcal:edit:'+row.request_id+':1'}]}};
+  assert.equal(reviewDraft(legacy).missing.length,0);assert.equal(reviewDraft(legacy).notes.length,1);
+  assert.equal(reviewDraft({...legacy,source_evidence:{}}).missing.length,1);
+  assert.equal(reviewDraft({...legacy,payload:{...legacy.payload,event:{...activity,date:'2027-10-08'}}}).missing.length,1);
+  const preserved=await extractEvents({text:'地點改為新會議室',at:Date.now(),existing:{...activity,needsClarification:['日期與星期矛盾'],confirmationNotes:['請核對年份']}});
+  assert.deepEqual(preserved[0].needsClarification,['日期與星期矛盾']);assert.deepEqual(preserved[0].confirmationNotes,['請核對年份']);assert.equal(preserved[0].location,'新會議室');
+  assert.equal(supplementRequest('活動名稱：第二場\n日期：2026/10/12'),null);
+  assert.equal(supplementRequest('2026年10月12日讀書會活動，台中'),null);assert.equal(supplementRequest('今年10/12讀書會活動'),null);
+  assert.ok(supplementRequest('是2026年10月12日'));assert.ok(supplementRequest('今年'));
+});
+test('legacy edit only explains text supplementation; natural correction updates the same draft once',async()=>{
+  const f=await fixture();try{
+    await f.bind();await f.service.capture([message('text-edit-source','10/8 專案會議 14:00 台中')]);await f.service.drain();
+    const original=(await f.store.pending(tenant,U))[0],cards=()=>f.pushes.filter(p=>p.msg.type==='flex');
+    await f.service.capture([button('legacy-edit','edit',original)]);await f.service.drain();
+    assert.equal(cards().length,1);assert.equal((await f.store.owned(tenant,U,original.request_id)).revision,original.revision);
+    const correction=message('natural-correction','地點改為新會議室');assert.equal(await f.service.accepts(correction),true);
+    f.setEvents([{...activity,location:'新會議室'}]);await f.service.capture([correction]);await f.service.drain();
+    const edited=(await f.store.pending(tenant,U))[0];assert.equal(edited.request_id,original.request_id);assert.equal(edited.revision,2);
+    assert.equal(cards().length,2);assert.equal(f.writes.length,0);assert.equal(edited.source_evidence.updates.at(-1).id,'natural-correction');
+    await f.service.capture([correction]);await f.service.drain();assert.equal(cards().length,2);
+    await f.service.capture([button('old-card-confirm','confirm',original)]);await f.service.drain();assert.equal(f.writes.length,0);
+    await f.service.capture([button('new-card-confirm','confirm',edited)]);await f.service.drain();assert.equal(f.writes.length,1);assert.equal(f.writes[0].location,'新會議室');
+  }finally{await f.close();}
+});
+test('multiple drafts require a named text target and complete year assumptions can be confirmed directly',async()=>{
+  const f=await fixture();try{
+    await f.bind();f.setEvents([{...activity,confirmationNotes:['未提供年份，按建立採用2026年']},{...activity,topic:'另一場活動',time:''}]);
+    await f.service.capture([message('two-text-targets','10/8 兩場會議 14:00 台中')]);await f.service.drain();
+    const originals=await f.store.pending(tenant,U);const complete=originals.find(r=>r.payload.event.topic===activity.topic),missing=originals.find(r=>r.payload.event.topic==='另一場活動');
+    const calls=f.prompts.length;await f.service.capture([message('ambiguous-text-edit','補充活動：地點改為新會議室')]);await f.service.drain();assert.equal(f.prompts.length,calls);
+    await f.service.capture([button('hard-missing-confirm','confirm',missing)]);await f.service.drain();assert.equal(f.writes.length,0);
+    await f.service.capture([button('accept-year','confirm',complete)]);await f.service.drain();assert.equal(f.writes.length,1);
+    const saved=await f.store.owned(tenant,U,complete.request_id);assert.deepEqual(saved.source_evidence.confirmation.acceptedNotes,complete.payload.confirmationNotes);
+    f.setEvents([{...activity,topic:'另一場活動',location:'新會議室'}]);
+    await f.service.capture([message('named-text-edit','補充活動《另一場活動》：時間改為下午兩點，地點改為新會議室')]);await f.service.drain();
+    const updated=(await f.store.pending(tenant,U))[0];assert.equal(updated.request_id,missing.request_id);assert.equal(updated.revision,2);assert.equal(f.writes.length,1);
+  }finally{await f.close();}
+});
+test('one-time card refresh preserves event and evidence, invalidates old buttons and permits reviewed year acceptance',async()=>{
+  const f=await fixture();try{
+    await f.bind();await f.service.capture([message('legacy-refresh-source','10/8 專案會議 14:00 台中')]);await f.service.drain();
+    const prior=(await f.store.pending(tenant,U))[0];await f.service.capture([button('legacy-refresh-edit','edit',prior)]);await f.service.drain();
+    const legacy={...prior.payload,missing:['未指定年份，預設為 2026 年，如需調整請告知','請補充要修改的內容']};delete legacy.cardVersion;
+    await f.db.query('BEGIN');await f.db.query("SELECT set_config('app.tenant_id',$1,true)",[T]);
+    await f.db.query("UPDATE leaf_calendar.requests SET payload=$2::jsonb,status='needs_details' WHERE request_id=$1",[prior.request_id,JSON.stringify(legacy)]);await f.db.query('COMMIT');
+    assert.deepEqual(await f.store.refreshPreviews(tenant),{count:1,applied:false});
+    assert.equal((await f.store.owned(tenant,U,prior.request_id)).revision,prior.revision);
+    assert.deepEqual(await f.store.refreshPreviews(tenant,{apply:true}),{count:1,applied:true});await f.service.drain();
+    const updated=await f.store.owned(tenant,U,prior.request_id);assert.deepEqual(updated.payload.event,prior.payload.event);
+    assert.equal(updated.source_evidence.id,prior.source_evidence.id);assert.equal(updated.source_evidence.ui_updates.at(-1).toRevision,2);
+    assert.equal(updated.revision,2);assert.equal(updated.prompted_revision,2);assert.equal(updated.payload.missing.length,0);assert.equal(updated.payload.confirmationNotes.length,1);
+    assert.deepEqual(await f.store.refreshPreviews(tenant,{apply:true}),{count:0,applied:true});assert.equal(f.writes.length,0);
+    await f.service.capture([button('legacy-stale-confirm','confirm',prior)]);await f.service.drain();assert.equal(f.writes.length,0);
+    await f.service.capture([button('refreshed-confirm','confirm',updated)]);await f.service.drain();assert.equal(f.writes.length,1);
+  }finally{await f.close();}
+});
 test('shared service encryption, trusted account, no write until explicit confirmation, and replay',async()=>{
   const f=await fixture();try{
     assert.equal(f.service.adminAuthorized(calendarAdminKey(secret)),true);assert.equal(f.service.adminAuthorized('wrong'),false);
@@ -131,7 +197,7 @@ test('wrong user/tenant, missing fields, cancellation and stale revision cannot 
     await f.service.capture([button('edit-click','edit',draft)]);await f.service.drain();f.setEvents([activity]);
     await f.service.capture([button('confirm-while-editing','confirm',draft)]);await f.service.drain();assert.equal(f.writes.length,0);
     await f.service.capture([message('supplement','補充活動：下午2點')]);await f.service.drain();
-    const revised=(await f.store.pending(tenant,U))[0];assert.equal(revised.revision,3);
+    const revised=(await f.store.pending(tenant,U))[0];assert.equal(revised.revision,2);
     await f.service.capture([button('stale-click','confirm',draft)]);await f.service.drain();assert.equal(f.writes.length,0);
     await f.service.capture([button('cancel-click','cancel',revised)]);await f.service.drain();
     await f.service.capture([button('cancel-confirm','confirm',revised)]);await f.service.drain();assert.equal(f.writes.length,0);
