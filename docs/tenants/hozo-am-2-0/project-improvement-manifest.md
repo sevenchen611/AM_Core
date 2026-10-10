@@ -1,5 +1,7 @@
 # HOZO AM 2.0 — Project Improvement Manifest
 
+AM-IMP-2026.1010.01: Deployed — shared LINE JSON archive comparison; PR #276 full CI and live main aedbf53 verified. User/group/room push and reply regression passed. Existing calendar enrollment and tenant permissions remain unchanged.
+
 AM-IMP-2026.1007.02: Deployed — direct-chat journal navigation using the active
 Rich Menu URI; PR #253 full CI passed and main 9e1eccd verified on both live service
 origins. LINE template validation passed without sending messages; phone acceptance
