@@ -2,6 +2,7 @@
 
 | Version | Status | Scope | Verified | Notes |
 | --- | --- | --- | --- | --- |
+| AM-IMP-2026.1010.02 | Ready | Text-first calendar supplementation and two-action cards | Real SQL, owner confirmation and UI guidance tests | Reviewed production deployment and legacy-card refresh pending. |
 | AM-IMP-2026.1010.01 | Deployed | Shared LINE JSON archive comparison and calendar preview recovery | 44 local tests, full PR CI, live main aedbf53 and actual preview acceptance | One original unprompted preview resumed; LINE accepted it and archive completed. Owner confirmation remains required. |
 | AM-IMP-2026.1007.03 | Deployed | OA-owned per-conversation central LINE evidence archive; tenant business sources retained | Real PostgreSQL, source isolation, full text, Drive-only binaries, retry recovery and signed webhook checks | Production main f1f68d5 verified live on 2026-10-07 with capture enabled, verified legacy file references and bounded batches. Historical availability and completion are tracked in the target-local owner archive. |
 | AM-IMP-2026.1006.07 | Deployed | Confirm private LINE activity before Google Calendar creation | Reviewed main 19accd0, forced RLS schema, encrypted shared service setup and live configured tenant | Uses existing verified UOF direct bindings and DailyLog Google/calendar settings; no event created by deployment verification. |

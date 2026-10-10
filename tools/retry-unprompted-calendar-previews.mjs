@@ -19,7 +19,8 @@ try{
     if(!memory.settingsForTenant(tenant).configured)continue;
     try{
       if(!await store.ready(tenant)||!await store.service(tenant))continue;
-      console.log(JSON.stringify({tenant:tenant.key,...await store.retryUnprompted(tenant,{apply})}));
+      const result=await (args.includes('--refresh-cards')?store.refreshPreviews(tenant,{apply}):store.retryUnprompted(tenant,{apply}));
+      console.log(JSON.stringify({tenant:tenant.key,...result}));
     }catch{console.error(JSON.stringify({tenant:tenant.key,error:'preview_recovery_unavailable'}));process.exitCode=1;}
   }
 }finally{await store.close();}
