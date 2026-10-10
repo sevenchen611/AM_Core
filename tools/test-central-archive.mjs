@@ -161,6 +161,37 @@ test('calendar confirmation cards survive JSON storage before sending and preser
 });
 
 import {createQuotedArchiveAccess,quotedRecoveryRecord} from '../core/central-archive/quoted-access.js';
+test('JSON-normalized archive covers push and reply in direct, group and room conversations',async t=>{
+  const db=new PGlite();await db.exec(await fs.readFile(new URL('../core/central-archive/schema.sql',import.meta.url),'utf8'));
+  const query=(...args)=>db.query(...args),pool={query,connect:async()=>({query,release(){}})};
+  const store=createArchiveStore(pool,bot),room='R'+'3'.repeat(32);
+  const line=createLine({channelAccessToken:'synthetic',channelSecret:'synthetic',logger:{info(){},warn(){}}});
+  const card=preview({request_id:'b'.repeat(48),revision:1,payload:prepareEvent({topic:'合成測試活動',date:'2026-10-12',time:'10:00',location:'測試會議室'},'synthetic')});
+  const wire=JSON.parse(JSON.stringify(card));let sent=0;
+  t.mock.method(globalThis,'fetch',async(_url,options)=>{
+    const outgoing=(await db.query("SELECT payload->'messages' AS messages FROM central_archive.jobs WHERE payload->>'direction'='outgoing'")).rows;
+    assert.ok(outgoing.length>0);for(const row of outgoing)assert.deepEqual(row.messages,[wire]);
+    assert.deepEqual(JSON.parse(options.body).messages,[wire]);sent++;return new Response('{}',{status:200});
+  });
+  line.setArchiveObserver({before:request=>store.outbound(request),after:(keys,status)=>store.delivery(keys,status)});
+  try{
+    for(const [index,source] of [{type:'user',userId:user},{type:'group',groupId:group,userId:user},{type:'room',roomId:room,userId:user}].entries()){
+      const incoming=event('scope-'+index,source);await store.capture([incoming]);
+      const target=source.groupId||source.roomId||source.userId;
+      await line.pushLineMessage(target,card,null,{retryKey:'scope-'+index});
+      await line.pushLineMessage(target,wire,null,{retryKey:'scope-'+index});
+      await line.replyLineMessage(incoming.replyToken,card);
+      await line.replyLineMessage(incoming.replyToken,wire);
+      const changed=structuredClone(wire);changed.contents.body.contents[0].text='更改活動';
+      await assert.rejects(line.pushLineMessage(target,changed,null,{retryKey:'scope-'+index}),/archive_outbound_identity_conflict/);
+      await assert.rejects(line.replyLineMessage(incoming.replyToken,changed),/archive_outbound_identity_conflict/);
+    }
+    assert.equal(sent,12);
+    const deliveries=(await db.query("SELECT c.source_kind,j.payload->>'delivery' AS delivery FROM central_archive.jobs j JOIN central_archive.conversations c ON c.key=j.conversation_key WHERE j.payload->>'direction'='outgoing'")).rows;
+    assert.equal(deliveries.length,6);assert.ok(deliveries.every(row=>row.delivery==='accepted'));
+    assert.deepEqual(new Set(deliveries.map(row=>row.source_kind)),new Set(['user','group','room']));
+  }finally{line.setArchiveObserver(null);await db.close();}
+});
 test('quote access isolates current OA, source kind and member; failed identity checks fail closed',async()=>{
   const db=new PGlite();await db.exec(await fs.readFile(new URL('../core/central-archive/schema.sql',import.meta.url),'utf8'));
   const query=(...args)=>db.query(...args),pool={query,connect:async()=>({query,release(){}})};
