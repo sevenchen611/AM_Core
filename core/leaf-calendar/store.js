@@ -80,6 +80,15 @@ export function createCalendarStore({ settingsForTenant, poolFactory, env=proces
     return tx(tenant, async (c,t) => (await c.query(`SELECT * FROM leaf_calendar.requests WHERE tenant_id=$1 AND line_user_id=$2 AND kind='draft'
       AND status IN ('pending','needs_details') AND expires_at>now() ORDER BY created_at DESC LIMIT 6`,[t,userId])).rows);
   }
+  async function retryUnprompted(tenant,{apply=false}={}) {
+    return tx(tenant,async(c,t)=>{
+      const eligible="tenant_id=$1 AND kind='draft' AND status IN ('pending','needs_details') AND prompted_revision<revision AND expires_at>now() AND available_at>now() AND (lease_expires_at IS NULL OR lease_expires_at<now())";
+      const result=apply
+        ?await c.query(`UPDATE leaf_calendar.requests SET available_at=now() WHERE ${eligible} RETURNING request_id`,[t])
+        :await c.query(`SELECT request_id FROM leaf_calendar.requests WHERE ${eligible}`,[t]);
+      return {count:result.rows.length,applied:apply};
+    });
+  }
   async function lease(tenant) {
     const token = crypto.randomUUID();
     return tx(tenant, async (c,t) => {
@@ -154,6 +163,6 @@ export function createCalendarStore({ settingsForTenant, poolFactory, env=proces
       return {code:action==='confirm'?'confirmed_now':'cancelled_now',row};
     });
   }
-  return {ready,provision,provisionTasks,configureTask,service,configure,syncActor,insert,owned,pending,lease,settle,storeDrafts,control,
+  return {ready,provision,provisionTasks,configureTask,service,configure,syncActor,insert,owned,pending,retryUnprompted,lease,settle,storeDrafts,control,
     close:async()=>{for(const readyPool of pools.values()) await (await readyPool).end?.();}};
 }

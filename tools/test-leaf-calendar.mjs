@@ -100,6 +100,27 @@ test('shared service encryption, trusted account, no write until explicit confir
     await f.service.capture([button('confirm-replayed','confirm',draft)]);await f.service.drain();assert.equal(f.writes.length,1);
   }finally{await f.close();}
 });
+test('operator recovery resumes unprompted previews without changing evidence, confirmation or completed events',async()=>{
+  const f=await fixture();try{
+    await f.bind();f.setEvents([activity,{...activity,topic:'第二場測試活動'}]);
+    const push=f.platform.pushLineMessage;f.platform.pushLineMessage=async()=>{throw Error('synthetic_delivery_blocked');};
+    await f.service.capture([message('recovery-source','10/8 兩場會議 14:00 台中')]);await f.service.drain();
+    const before=await f.store.pending(tenant,U);assert.equal(before.length,2);assert.ok(before.every(row=>row.prompted_revision===0));
+    const dry=await f.store.retryUnprompted(tenant);assert.deepEqual(dry,{count:2,applied:false});
+    assert.equal((await f.store.owned(tenant,U,before[0].request_id)).available_at.getTime(),before[0].available_at.getTime());
+    await f.db.query('BEGIN');await f.db.query("SELECT set_config('app.tenant_id',$1,true)",[T]);
+    await f.db.query("UPDATE leaf_calendar.requests SET lease_expires_at=now()+interval '1 minute' WHERE request_id=$1",[before[1].request_id]);await f.db.query('COMMIT');
+    assert.deepEqual(await f.store.retryUnprompted(tenant,{apply:true}),{count:1,applied:true});
+    f.platform.pushLineMessage=push;await f.service.drain();assert.equal(f.pushes.length,1);assert.equal(f.writes.length,0);
+    const resumed=await f.store.owned(tenant,U,before[0].request_id);assert.deepEqual(resumed.payload,before[0].payload);assert.deepEqual(resumed.source_evidence,before[0].source_evidence);
+    assert.equal(resumed.revision,before[0].revision);assert.equal(resumed.confirmed_at,null);assert.equal(resumed.prompted_revision,resumed.revision);
+    await f.service.capture([button('recovery-confirm','confirm',resumed)]);await f.service.drain();assert.equal(f.writes.length,1);
+    assert.deepEqual(await f.store.retryUnprompted(tenant,{apply:true}),{count:0,applied:true});
+    await f.db.query('BEGIN');await f.db.query("SELECT set_config('app.tenant_id',$1,true)",[T]);
+    await f.db.query("UPDATE leaf_calendar.requests SET lease_expires_at=NULL,expires_at=now()-interval '1 second' WHERE request_id=$1",[before[1].request_id]);await f.db.query('COMMIT');
+    assert.deepEqual(await f.store.retryUnprompted(tenant,{apply:true}),{count:0,applied:true});assert.equal(f.writes.length,1);
+  }finally{await f.close();}
+});
 test('wrong user/tenant, missing fields, cancellation and stale revision cannot create events',async()=>{
   const f=await fixture();try{
     await f.bind();await f.bind(V);
