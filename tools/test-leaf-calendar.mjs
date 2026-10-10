@@ -99,6 +99,8 @@ test('calendar cards mark missing fields red and always expose exactly establish
   const preserved=await extractEvents({text:'地點改為新會議室',at:Date.now(),existing:{...activity,needsClarification:['日期與星期矛盾'],confirmationNotes:['請核對年份']}});
   assert.deepEqual(preserved[0].needsClarification,['日期與星期矛盾']);assert.deepEqual(preserved[0].confirmationNotes,['請核對年份']);assert.equal(preserved[0].location,'新會議室');
   assert.equal(supplementRequest('活動名稱：第二場\n日期：2026/10/12'),null);
+  assert.equal(supplementRequest('2026年10月12日讀書會活動，台中'),null);assert.equal(supplementRequest('今年10/12讀書會活動'),null);
+  assert.ok(supplementRequest('是2026年10月12日'));assert.ok(supplementRequest('今年'));
 });
 test('legacy edit only explains text supplementation; natural correction updates the same draft once',async()=>{
   const f=await fixture();try{

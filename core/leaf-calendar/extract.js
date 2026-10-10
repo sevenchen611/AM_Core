@@ -6,7 +6,8 @@ export function supplementRequest(text) {
   if(named)return {topic:named[1].trim(),text:named[2].trim()};
   if(/^(?:補充活動|修改活動)[：:\s]*/u.test(text))return {topic:'',text:String(text).replace(/^(?:補充活動|修改活動)[：:\s]*/u,'')};
   if(/(?:^|\n)(?:活動名稱|活動|會議名稱|主題)\s*[：:]/u.test(text))return null;
-  if(/^(?:日期|時間|地點|地址|內容)(?:是|改|更正|[：:])|^活動名稱(?:改成|改為)|^(?:今年|年份(?:是|為|[：:])|\d{4}\s*年\s*\d{1,2}\s*月)/u.test(text))return {topic:'',text:String(text)};
+  if(/^(?:日期|時間|地點|地址|內容)(?:是|改|更正|[：:])|^活動名稱(?:改成|改為)/u.test(text))return {topic:'',text:String(text)};
+  if(/^(?:今年[。.!！]?$|年份(?:是|為|[：:])|(?:是|改為)?\d{4}\s*年\s*\d{1,2}\s*月)/u.test(text)&&!calendarCandidate(text))return {topic:'',text:String(text)};
   return null;
 }
 export function calendarCandidate(text) {
