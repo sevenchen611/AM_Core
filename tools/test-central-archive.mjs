@@ -6,6 +6,7 @@ import {createArchiveStore,archiveRecord,digest} from '../core/central-archive/s
 import {archiveProperties,createArchiveNotion,richText,ARCHIVE_SCHEMA} from '../core/central-archive/notion.js';
 import {archiveConfig,createCentralArchive} from '../core/central-archive/index.js';
 import {archiveMedia,archiveReference,legacyMediaMessageId} from '../core/central-archive/media.js';
+import {preview,prepareEvent} from '../core/leaf-calendar/extract.js';
 
 test('legacy generated media filenames identify the exact message and reject ordinary names',async()=>{
   const mid='12345678901234567890';assert.equal(legacyMediaMessageId('照片-'+mid+'.jpg'),mid);
@@ -130,6 +131,33 @@ test('outbound sends persist first and record provider acceptance; intake failur
     line.setArchiveObserver({before:async()=>{throw Error('db_down');}});
     await assert.rejects(line.pushLineMessage(user,'answer'),/db_down/);assert.deepEqual(order,[]);
   }finally{line.setArchiveObserver(null);globalThis.fetch=original;}
+});
+
+test('calendar confirmation cards survive JSON storage before sending and preserve retry conflicts',async t=>{
+  const db=new PGlite();await db.exec(await fs.readFile(new URL('../core/central-archive/schema.sql',import.meta.url),'utf8'));
+  const query=(...args)=>db.query(...args),pool={query,connect:async()=>({query,release(){}})};
+  const store=createArchiveStore(pool,bot);
+  const line=createLine({channelAccessToken:'synthetic',channelSecret:'synthetic',logger:{info(){},warn(){}}});
+  const card=preview({request_id:'a'.repeat(48),revision:1,payload:prepareEvent({topic:'測試讀書會',date:'2026-10-12',time:'09:40',endTime:'13:30',location:'測試會議室'},'synthetic')});
+  // Optional properties exist in builders but disappear in the JSON sent to LINE.
+  card.contents.footer.contents[1].color=undefined;
+  const wire=JSON.parse(JSON.stringify(card));let sent=0;
+  t.mock.method(globalThis,'fetch',async(_url,options)=>{
+    const archived=(await db.query("SELECT payload->'messages' AS messages FROM central_archive.jobs WHERE payload->>'direction'='outgoing'")).rows;
+    assert.equal(archived.length,1);assert.deepEqual(archived[0].messages,[wire]);
+    assert.deepEqual(JSON.parse(options.body).messages,[wire]);sent++;
+    return new Response('{}',{status:200});
+  });
+  line.setArchiveObserver({before:request=>store.outbound(request),after:(keys,status)=>store.delivery(keys,status)});
+  try{
+    const retryKey='12345678-1234-4123-8123-123456789abc';
+    await line.pushLineMessage(user,card,null,{retryKey});
+    await line.pushLineMessage(user,wire,null,{retryKey});assert.equal(sent,2);
+    assert.equal((await db.query("SELECT payload->>'delivery' AS delivery FROM central_archive.jobs")).rows[0].delivery,'accepted');
+    const changed=structuredClone(wire);changed.altText='另一筆活動';
+    await assert.rejects(line.pushLineMessage(user,changed,null,{retryKey}),/archive_outbound_identity_conflict/);
+    assert.equal(sent,2);
+  }finally{line.setArchiveObserver(null);await db.close();}
 });
 
 import {createQuotedArchiveAccess,quotedRecoveryRecord} from '../core/central-archive/quoted-access.js';

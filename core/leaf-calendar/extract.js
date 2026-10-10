@@ -3,7 +3,7 @@ const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 export function calendarCandidate(text) {
   if(/^(?:查|查看|列出|顯示|搜尋|查詢).*(?:待辦|行程|行事曆)/u.test(text))return false;
   const dated=/\d{1,4}[\/\-.年]\d{1,2}|\d{1,2}月\d{1,2}|今天|明天|後天|週[一二三四五六日天]|星期[一二三四五六日天]|today|tomorrow/iu.test(text);
-  const named=/開會|开会|會議|会议|活動|活动|聚餐|餐敘|聚會|約會|面試|講座|研討|課程|典禮|邀請|出席|參加|會談|拜訪|行程|座談|婚禮|婚宴|演唱會|球賽|尾牙|春酒|吃飯|看診|meeting|event|appointment|conference/iu.test(text);
+  const named=/開會|开会|會議|会议|讀書會|读书会|活動|活动|聚餐|餐敘|聚會|約會|面試|講座|研討|課程|典禮|邀請|出席|參加|會談|拜訪|行程|座談|婚禮|婚宴|演唱會|球賽|尾牙|春酒|吃飯|看診|meeting|event|appointment|conference/iu.test(text);
   const timed=/\d{1,2}[:：]\d{2}|[一二三四五六七八九十\d]+點/u.test(text);
   const located=/地址|地點|路|街|號|樓|室|館|校|線上|辦公|https?:\/\//u.test(text);
   return dated&&(named||(timed&&located));

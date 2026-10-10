@@ -73,6 +73,9 @@ async function fixture(){
 test('activity normalization: Taiwan timezone, invalid dates, default and explicit cross-day end',async()=>{
   assert.equal(taipeiDate(Date.UTC(2026,9,6,17)), '2026-10-07');
   assert.equal(calendarCandidate('待簽'),false);assert.equal(calendarCandidate('明天開會，下午三點，台中辦公室'),true);
+  assert.equal(calendarCandidate('10/12（一）讀書會報名，地點：測試會議室'),true);
+  assert.equal(calendarCandidate('幫我排一個活動：\n活動：讀書會\n日期：10 月 12 日（星期一）\n時間：早上 9:40 到下午 1:30\n地點：測試會議室'),true);
+  assert.equal(calendarCandidate('查看讀書會行事曆'),false);
   assert.ok(prepareEvent({...activity,date:'2026-02-30'},'x').missing.includes('有效日期'));
   const overnight=prepareEvent({...activity,time:'23:30',endTime:undefined},'x');assert.equal(overnight.endLabel,'2026-10-09 00:30');assert.equal(overnight.defaultDuration,true);
   assert.ok(prepareEvent({...activity,endTime:'13:00'},'x').missing.length);

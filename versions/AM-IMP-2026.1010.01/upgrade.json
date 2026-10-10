@@ -1,0 +1,12 @@
+{
+  "id": "AM-IMP-2026.1010.01",
+  "name": "Restore LINE calendar confirmation delivery through central archive",
+  "type": "shared-runtime",
+  "portable": true,
+  "requiresDatabases": ["Existing central archive JSONB evidence tables", "Existing tenant-scoped calendar draft tables"],
+  "requiresEnv": ["Existing target-owned LINE and calendar configuration; no new values"],
+  "requiresScripts": ["tools/test-central-archive.mjs", "tools/test-leaf-calendar.mjs", "tools/check-upgrade-package.js"],
+  "installTargets": ["Reviewed AM Platform root runtime", "Standalone projects only through separate requested adaptation"],
+  "dataIsolation": "No identity, tenant, source, credential or calendar permission changes; stored evidence is compared using the same JSON representation as the LINE HTTP payload.",
+  "definitionOfDone": ["Real SQL and LINE transport regression passes", "Equivalent JSON retries succeed and different content still fails closed", "Calendar confirmation and owner isolation tests pass", "Reviewed production commit is verified separately before Deployed status"]
+}
