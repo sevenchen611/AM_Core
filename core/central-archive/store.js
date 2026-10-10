@@ -71,6 +71,9 @@ export function createArchiveStore(pool,botId) {
     await append(supported.map(e=>archiveRecord(botId,e)));
   }
   async function outbound({to,replyToken,messages,key}) {
+    // Compare the JSON sent to LINE with the JSONB evidence. Builders can carry
+    // optional undefined properties, which JSON storage and HTTP both omit.
+    messages=JSON.parse(JSON.stringify(messages));
     let c;
     if(replyToken){
       const r=await pool.query(`SELECT c.* FROM central_archive.replies r JOIN central_archive.conversations c ON c.key=r.conversation_key
