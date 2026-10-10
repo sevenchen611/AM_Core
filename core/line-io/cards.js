@@ -7,7 +7,7 @@ const text = (value, max) => typeof value === 'string' && value.trim().length > 
 const keys = (value, allowed) => Object.keys(value).every(key => allowed.includes(key));
 export function buildInlineResult(message, action) {
   return {type:'flex',altText:(message + ' ' + action.label).slice(0,1500),contents:{type:'bubble',size:'kilo',
-    body:{type:'box',layout:'vertical',paddingAll:'12px',contents:[{type:'box',layout:'horizontal',alignItems:'bottom',contents:[
+    body:{type:'box',layout:'vertical',paddingAll:'12px',contents:[{type:'box',layout:'horizontal',alignItems:'flex-end',contents:[
       {type:'text',text:message,wrap:true,flex:1},
       {type:'text',text:action.label,color:'#2563EB',decoration:'underline',flex:0,margin:'xs',
         action:{type:'postback',label:action.label,data:action.data}}]}]}}};

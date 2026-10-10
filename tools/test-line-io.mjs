@@ -217,6 +217,7 @@ test('inline result action is one compact reply bubble with no extra button card
   assert.equal(messages[0].type,'flex');
   assert.equal(messages[0].contents.footer,undefined);
   const inlineRow=messages[0].contents.body.contents[0];
+  assert.equal(inlineRow.alignItems,'flex-end','LINE accepts flex-end, not bottom');
   const text=inlineRow.contents[0];
   const link=inlineRow.contents[1];
   assert.match(text.text,/核准指令已受理/);
