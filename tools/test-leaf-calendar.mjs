@@ -83,6 +83,24 @@ test('activity normalization: Taiwan timezone, invalid dates, default and explic
   const fallback=await extractEvents({text:'補充活動：\n地點：新會議室',at:Date.now(),existing:activity});assert.equal(fallback[0].topic,activity.topic);assert.equal(fallback[0].location,'新會議室');
   const range=await extractEvents({text:'活動名稱：會議\n日期：2026/10/08\n時間：14:00–16:00\n地點：台中',at:Date.now()});assert.equal(range[0].endTime,'16:00');
 });
+test('natural timed appointments reach extraction and a confirmation card before any calendar write',async()=>{
+  const text='今天下午 2 點到 4 點，跟測試夥伴約在附近的咖啡廳，聊下一季的專案規劃。';
+  for(const value of [text,text.replaceAll(' ',''),'明天下午三 點跟測試夥伴見面','今天 14 : 00 在測試咖啡店整理計畫','明天下午三點討論新計畫'])assert.equal(calendarCandidate(value),true,value);
+  for(const value of ['今天大約有 5 件待辦','今天咖啡廳的裝潢很漂亮','今天聊了專案的背景','查詢今天下午 2 點的行事曆','幫我列出今天下午的待辦'])assert.equal(calendarCandidate(value),false,value);
+  const parsed=(await extractEvents({text,at:Date.UTC(2026,9,11,1,26)}))[0];
+  assert.equal(parsed.date,'2026-10-11');assert.equal(parsed.time,'14:00');assert.equal(parsed.endTime,'16:00');
+  assert.ok(prepareEvent(parsed,'synthetic').missing.includes('地點／地址／線上會議位置'));
+  const f=await fixture();try{
+    const e=message('synthetic-natural-appointment',text);assert.equal(await f.service.accepts(e),false);
+    await f.bind();assert.equal(await f.service.accepts(e),true);
+    assert.equal(await f.service.accepts({...e,source:{type:'group',userId:U,groupId:'C'+'c'.repeat(32)}}),false);
+    await f.service.capture([e]);await f.service.drain();
+    assert.equal(f.prompts.length,1);assert.equal(f.pushes.length,1);assert.equal(f.writes.length,0);
+    const draft=(await f.store.pending(tenant,U))[0];assert.equal(draft.source_evidence.text,text.normalize('NFKC'));
+    await f.service.capture([e]);await f.service.drain();assert.equal(f.pushes.length,1);assert.equal(f.prompts.length,1);
+    await f.service.capture([button('synthetic-natural-confirm','confirm',draft)]);await f.service.drain();assert.equal(f.writes.length,1);
+  }finally{await f.close();}
+});
 test('calendar cards mark missing fields red and always expose exactly establish/decline with text guidance',async()=>{
   const row={request_id:'a'.repeat(48),revision:1,payload:prepareEvent({...activity,time:'',location:''},'synthetic')};
   const card=preview(row),body=card.contents.body.contents;

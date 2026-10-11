@@ -14,9 +14,13 @@ export function calendarCandidate(text) {
   if(/^(?:查|查看|列出|顯示|搜尋|查詢).*(?:待辦|行程|行事曆)/u.test(text))return false;
   const dated=/\d{1,4}[\/\-.年]\d{1,2}|\d{1,2}月\d{1,2}|今天|明天|後天|週[一二三四五六日天]|星期[一二三四五六日天]|today|tomorrow/iu.test(text);
   const named=/開會|开会|會議|会议|讀書會|读书会|活動|活动|聚餐|餐敘|聚會|約會|面試|講座|研討|課程|典禮|邀請|出席|參加|會談|拜訪|行程|座談|婚禮|婚宴|演唱會|球賽|尾牙|春酒|吃飯|看診|meeting|event|appointment|conference/iu.test(text);
-  const timed=/\d{1,2}[:：]\d{2}|[一二三四五六七八九十\d]+點/u.test(text);
-  const located=/地址|地點|路|街|號|樓|室|館|校|線上|辦公|https?:\/\//u.test(text);
-  return dated&&(named||(timed&&located));
+  const timed=/\d{1,2}\s*[:：]\s*\d{2}|[一二三四五六七八九十\d]+\s*[點点]/u.test(text);
+  const located=/地址|地點|路|街|號|樓|室|館|校|線上|辦公|咖啡[廳厅店]|餐廳|餐厅|公園|公园|車站|车站|飯店|饭店|酒店|https?:\/\//u.test(text);
+  // This is intake eligibility, not permission to create an event. Admit dated,
+  // timed rendezvous even if the venue is still missing; extraction and the
+  // owner-reviewed card must resolve required/ambiguous fields before any write.
+  const rendezvous=/約(?:在|好|了|見|時間)|约(?:在|好|了|见|时间)|碰面|見面|见面|聊|討論|讨论|商談|洽談|\b(?:meet|chat|discuss)\b/iu.test(text);
+  return dated&&(named||(timed&&(located||rendezvous)));
 }
 export function validDate(value) {
   return typeof value==='string' && DATE.test(value) && value>='1900-01-01' && value<='9999-12-31' && Number.isFinite(Date.parse(value+'T00:00:00Z'))
@@ -30,7 +34,7 @@ function fallback(text, at) {
   let date = absolute ? `${absolute[1]}-${absolute[2].padStart(2,'0')}-${absolute[3].padStart(2,'0')}`
     : short ? `${taipeiDate(at).slice(0,4)}-${short[1].padStart(2,'0')}-${short[2].padStart(2,'0')}` : '';
   if (!date && /後天|明天|今天/u.test(text)) date=taipeiDate(at,/後天/u.test(text)?2:/明天/u.test(text)?1:0);
-  const clocks=[...text.matchAll(/(上午|早上|下午|晚上|中午|凌晨)?\s*(\d{1,2})(?:[:：](\d{2})|點(?:半)?)/gu)];
+  const clocks=[...text.matchAll(/(上午|早上|下午|晚上|中午|凌晨)?\s*(\d{1,2})\s*(?:[:：]\s*(\d{2})|[點点](?:\s*半)?)/gu)];
   const clockTime=(clock,meridiem='')=>{if(!clock)return '';let hour=Number(clock[2]);const label=clock[1]||meridiem;
     if(/下午|晚上|中午/u.test(label)&&hour<12)hour+=12;if(/凌晨|上午|早上/u.test(label)&&hour===12)hour=0;
     return `${String(hour).padStart(2,'0')}:${clock[3]||(/半/u.test(clock[0])?'30':'00')}`;};

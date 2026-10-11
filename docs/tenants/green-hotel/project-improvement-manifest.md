@@ -2,6 +2,7 @@
 
 | Version | Status | Scope | Verified | Notes |
 | --- | --- | --- | --- | --- |
+| AM-IMP-2026.1011.01 | Installed | Natural timed appointment intake | Synthetic runtime/SQL confirmation and duplicate-source checks | Dated conversational arrangements and spaced clocks reach confirmation; production verification pending. |
 | AM-IMP-2026.1010.02 | Deployed | Text-first calendar supplementation and two-action cards | 29 tests, full CI, live main 71226fd, LINE format validation and original-card acceptance | One pending legacy card refreshed; exactly 建立/不參加 with red notes; owner confirmation remains required. |
 | AM-IMP-2026.1010.01 | Deployed | Shared LINE JSON archive comparison and calendar preview recovery | 44 local tests, full PR CI, live main aedbf53 and actual preview acceptance | One original unprompted preview resumed; LINE accepted it and archive completed. Owner confirmation remains required. |
 | AM-IMP-2026.1007.03 | Deployed | OA-owned per-conversation central LINE evidence archive; tenant business sources retained | Real PostgreSQL, source isolation, full text, Drive-only binaries, retry recovery and signed webhook checks | Production main f1f68d5 verified live on 2026-10-07 with capture enabled, verified legacy file references and bounded batches. Historical availability and completion are tracked in the target-local owner archive. |
