@@ -1,0 +1,12 @@
+{
+  "id":"AM-IMP-2026.1011.01",
+  "name":"Natural-language timed appointment intake",
+  "type":"shared-runtime",
+  "portable":true,
+  "requiresDatabases":["Existing tenant-scoped calendar requests and authenticated conversation archive"],
+  "requiresEnv":["Existing verified LINE identity and enrolled calendar configuration; no new settings"],
+  "requiresScripts":["tools/test-leaf-calendar.mjs","tools/test-central-archive.mjs"],
+  "installTargets":["Reviewed AM Platform root runtime","Standalone projects through separate requested adaptation"],
+  "dataIsolation":"Direct chat only, fresh bound-owner identity, tenant RLS, immutable event source and explicit current-card confirmation remain required.",
+  "definitionOfDone":["Natural appointment and spaced-time regressions pass","No write before explicit confirmation and duplicate replay remains harmless","Reviewed main deployed and exact production commit healthy","Any operator recovery uses one requested authoritative source, original identity and timestamp, with no fabricated confirmation"]
+}
