@@ -2,6 +2,7 @@
 
 | Version | Status | Scope | Verified | Notes |
 | --- | --- | --- | --- | --- |
+| AM-IMP-2026.1011.02 | Installed | Confirmed timing with optional calendar details | Runtime/SQL optional detail, timing blocker, legacy refresh and original-click recovery checks | No new permission or enrollment; production verification pending. |
 | AM-IMP-2026.1011.01 | Deployed | Natural timed appointment intake | 30 local tests, full CI, live main ff62d40 on both origins and accepted original-source card | One original event replayed with unchanged source identity/time; ambiguous venue still requires clarification and owner confirmation. |
 | AM-IMP-2026.1010.02 | Deployed | Text-first calendar supplementation and two-action cards | 29 tests, full CI, live main 71226fd, LINE format validation and original-card acceptance | One pending legacy card refreshed; exactly 建立/不參加 with red notes; owner confirmation remains required. |
 | AM-IMP-2026.1010.01 | Deployed | Shared LINE JSON archive comparison and calendar preview recovery | 44 local tests, full PR CI, live main aedbf53 and actual preview acceptance | One original unprompted preview resumed; LINE accepted it and archive completed. Owner confirmation remains required. |

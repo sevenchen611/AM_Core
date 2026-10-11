@@ -84,7 +84,7 @@ export async function createLeafCalendar({env=process.env,tenants=[],platform={}
     const link=result.event.htmlLink;
     return {id:result.event.id,replayed:result.replayed===true,htmlLink:typeof link==='string'&&/^https:\/\/calendar\.google\.com\//.test(link)?link:null};
   }
-  function success(row){return `✅ 已加入你的 Google 行事曆\n活動名稱：${row.payload.event.topic}\n日期與時間：${row.payload.event.date} ${row.payload.event.time}\n地點：${row.payload.event.location}${row.result?.htmlLink?'\n'+row.result.htmlLink:''}`;}
+  function success(row){return `✅ 已加入你的 Google 行事曆\n活動名稱：${row.payload.event.topic}\n日期與時間：${row.payload.event.date} ${row.payload.event.time}\n地點：${row.payload.event.location||'未提供'}${row.result?.htmlLink?'\n'+row.result.htmlLink:''}`;}
   function failure(row){const messages={GOOGLE_NOT_CONNECTED:'請先在工作日誌重新連接 Google，然後重試。',ACCOUNT_NOT_FOUND:'請先登入工作日誌建立帳號；若已登入，請聯絡管理者檢查 UOF 身分綁定。',UNAUTHORIZED:'共用服務金鑰設定異常，請聯絡管理者。',ACCESS_DISABLED:'工作日誌帳號未開通，請聯絡管理者。',CALENDAR_NOT_WRITABLE:'目標日曆無編輯權，請在工作日誌確認目標日曆。',IDEMPOTENCY_CONFLICT:'活動識別資料有衝突，請先在 Google 行事曆確認；不會另建重複活動。',BINDING_CHANGED:'UOF 身分綁定已變更或失效，請重新確認綁定後再傳入活動。'};
     return '目前無法完成行事曆新增。'+(messages[row.error_code]||'暫時無法確認是否已建立；重試會沿用原本資料與識別碼，避免重複。');}
   async function work(tenant,row){

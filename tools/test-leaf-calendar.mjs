@@ -89,7 +89,8 @@ test('natural timed appointments reach extraction and a confirmation card before
   for(const value of ['今天大約有 5 件待辦','今天咖啡廳的裝潢很漂亮','今天聊了專案的背景','查詢今天下午 2 點的行事曆','幫我列出今天下午的待辦'])assert.equal(calendarCandidate(value),false,value);
   const parsed=(await extractEvents({text,at:Date.UTC(2026,9,11,1,26)}))[0];
   assert.equal(parsed.date,'2026-10-11');assert.equal(parsed.time,'14:00');assert.equal(parsed.endTime,'16:00');
-  assert.ok(prepareEvent(parsed,'synthetic').missing.includes('地點／地址／線上會議位置'));
+  assert.equal(prepareEvent(parsed,'synthetic').missing.length,0);
+  assert.ok(prepareEvent(parsed,'synthetic').confirmationNotes.some(q=>q.includes('未提供地點')));
   const f=await fixture();try{
     const e=message('synthetic-natural-appointment',text);assert.equal(await f.service.accepts(e),false);
     await f.bind();assert.equal(await f.service.accepts(e),true);
@@ -101,18 +102,74 @@ test('natural timed appointments reach extraction and a confirmation card before
     await f.service.capture([button('synthetic-natural-confirm','confirm',draft)]);await f.service.drain();assert.equal(f.writes.length,1);
   }finally{await f.close();}
 });
+test('known timing permits vague or absent venue/title/content, including legacy venue blockers, only after owner confirmation',async()=>{
+  const f=await fixture();try{
+    await f.bind();const venue='測試車站附近的咖啡廳',question='地點未指定具體店家名稱或地址';
+    f.setEvents([{...activity,location:venue,needsClarification:[question,'店家營業時間尚未確認']}]);
+    await f.service.capture([message('vague-venue-source','10/8 下午2點到3點半，約在測試車站附近的咖啡廳')]);await f.service.drain();
+    let draft=(await f.store.pending(tenant,U))[0];assert.equal(draft.status,'pending');assert.equal(draft.payload.missing.length,0);assert.equal(f.writes.length,0);
+    assert.ok(draft.payload.confirmationNotes.includes(question));assert.ok(draft.payload.confirmationNotes.includes('店家營業時間尚未確認'));
+    const legacy={...draft.payload,missing:[question],confirmationNotes:[],cardVersion:'text-supplement-v1'};
+    await f.db.query('BEGIN');await f.db.query("SELECT set_config('app.tenant_id',$1,true)",[T]);
+    await f.db.query("UPDATE leaf_calendar.requests SET payload=$2::jsonb,status='needs_details' WHERE request_id=$1",[draft.request_id,JSON.stringify(legacy)]);await f.db.query('COMMIT');
+    assert.deepEqual(await f.store.refreshPreviews(tenant),{count:1,applied:false});
+    await f.store.refreshPreviews(tenant,{apply:true});await f.service.drain();const updated=await f.store.owned(tenant,U,draft.request_id);
+    assert.equal(updated.status,'pending');assert.equal(updated.payload.event.location,venue);assert.equal(updated.source_evidence.id,draft.source_evidence.id);
+    assert.equal(updated.payload.missing.length,0);assert.ok(updated.payload.confirmationNotes.includes(question));assert.equal(f.writes.length,0);
+    assert.match(JSON.stringify(preview(updated)),/可補充.*不影響建立/);
+    await f.service.capture([button('stale-venue-confirm','confirm',draft)]);await f.service.drain();assert.equal(f.writes.length,0);
+    await f.service.capture([button('current-venue-confirm','confirm',updated)]);await f.service.drain();assert.equal(f.writes.length,1);assert.equal(f.writes[0].location,venue);
+    assert.ok((await f.store.owned(tenant,U,updated.request_id)).source_evidence.confirmation.acceptedNotes.includes(question));
+    await f.service.capture([button('current-venue-confirm','confirm',updated)]);await f.service.drain();assert.equal(f.writes.length,1);
+    f.setEvents([{...activity,topic:'',location:'',content:''}]);const timeOnly=message('time-only-source','10/8 下午2點到3點半');assert.equal(await f.service.accepts(timeOnly),true);
+    await f.service.capture([timeOnly]);await f.service.drain();
+    draft=(await f.store.pending(tenant,U))[0];assert.equal(draft.status,'pending');assert.equal(draft.payload.event.topic,'活動');assert.equal(draft.payload.missing.length,0);assert.equal(f.writes.length,1);
+    await f.service.capture([button('time-only-confirm','confirm',draft)]);await f.service.drain();assert.equal(f.writes.length,2);
+    assert.equal(f.writes[1].topic,'活動');assert.equal(f.writes[1].location,'');assert.equal(f.writes[1].content,'');
+  }finally{await f.close();}
+});
+test('single-draft operator recovery honors only an unchanged original owner click rejected for optional details',async()=>{
+  const f=await fixture();try{
+    await f.bind();await f.service.capture([message('prior-blocked-source','10/8 專案會議 14:00 台中')]);await f.service.drain();
+    let draft=(await f.store.pending(tenant,U))[0];const legacy={...draft.payload,missing:['地點未指定具體店名或地址'],cardVersion:'text-supplement-v1'};
+    await f.db.query('BEGIN');await f.db.query("SELECT set_config('app.tenant_id',$1,true)",[T]);
+    await f.db.query("UPDATE leaf_calendar.requests SET payload=$2::jsonb,status='needs_details' WHERE request_id=$1",[draft.request_id,JSON.stringify(legacy)]);await f.db.query('COMMIT');
+    assert.deepEqual(await f.store.retryBlockedConfirmation(tenant,{requestId:draft.request_id}),{count:0,applied:false});
+    const originalControl=f.store.control;f.store.control=async()=>({code:'needs_details',row:{...draft,payload:legacy}});
+    const click=button('authentic-prior-blocked-click','confirm',draft);await f.service.capture([click]);await f.service.drain();f.store.control=originalControl;
+    assert.equal(f.writes.length,0);assert.deepEqual(await f.store.retryBlockedConfirmation(other,{requestId:draft.request_id}),{count:0,applied:false});
+    assert.deepEqual(await f.store.retryBlockedConfirmation(tenant,{requestId:draft.request_id}),{count:1,applied:false});assert.equal(f.writes.length,0);
+    assert.deepEqual(await f.store.retryBlockedConfirmation(tenant,{requestId:draft.request_id,apply:true}),{count:1,applied:true});
+    assert.deepEqual(await f.store.retryBlockedConfirmation(tenant,{requestId:draft.request_id,apply:true}),{count:0,applied:true});
+    await f.service.drain();assert.equal(f.writes.length,1);const saved=await f.store.owned(tenant,U,draft.request_id);
+    assert.equal(saved.status,'saved');assert.equal(saved.source_evidence.confirmation.id,click.webhookEventId);
+    assert.equal(saved.source_evidence.confirmation.senderId,U);assert.ok(saved.source_evidence.confirmation.recoveries.length);
+    assert.deepEqual(await f.store.retryBlockedConfirmation(tenant,{requestId:draft.request_id,apply:true}),{count:0,applied:true});
+    f.setEvents([{...activity,time:''}]);await f.service.capture([message('prior-time-blocked-source','10/8 專案會議 台中')]);await f.service.drain();
+    draft=(await f.store.pending(tenant,U))[0];await f.service.capture([button('real-time-blocked-click','confirm',draft)]);await f.service.drain();
+    assert.deepEqual(await f.store.retryBlockedConfirmation(tenant,{requestId:draft.request_id,apply:true}),{count:0,applied:true});assert.equal(f.writes.length,1);
+  }finally{await f.close();}
+});
+test('timing uncertainty and invalid ranges remain mandatory even when other fields are optional',()=>{
+  for(const change of [{date:''},{date:'2026-02-30'},{time:''},{time:'24:00'},{endTime:'13:00'},{durationMinutes:0,endTime:undefined},{needsClarification:['日期與星期矛盾']},{needsClarification:['地點待確認，開始時間也未確定']},{needsClarification:['地點已確定，但時間未確定']},{needsClarification:['請選定單次時間，無法建立重複活動']}]){
+    assert.ok(prepareEvent({...activity,topic:'',location:'',content:'',...change},'synthetic').missing.length,JSON.stringify(change));
+  }
+  const legacy={payload:{event:{...activity,topic:''},missing:['活動名稱','地點／地址／線上會議位置','主要內容','請確認活動開始時間']}};
+  assert.deepEqual(reviewDraft(legacy).missing,['請確認活動開始時間']);assert.equal(reviewDraft(legacy).event.topic,'活動');
+});
 test('calendar cards mark missing fields red and always expose exactly establish/decline with text guidance',async()=>{
   const row={request_id:'a'.repeat(48),revision:1,payload:prepareEvent({...activity,time:'',location:''},'synthetic')};
   const card=preview(row),body=card.contents.body.contents;
   assert.deepEqual(card.contents.footer.contents.map(b=>b.action.label),['建立','不參加']);
   assert.ok(body.some(b=>b.type==='box'&&b.contents[0].text==='日期與時間'&&b.contents[1].color==='#C62828'));
   assert.ok(body.some(b=>b.type==='box'&&b.contents[0].text==='地點'&&b.contents[1].color==='#C62828'));
-  assert.ok(body.some(b=>b.type==='box'&&b.contents[0].text==='需要補充'&&b.contents[1].color==='#C62828'));
+  assert.ok(body.some(b=>b.type==='box'&&b.contents[0].text==='需要確認的日期／時間'&&b.contents[1].color==='#C62828'));
   assert.match(JSON.stringify(card),/請直接回覆.*補充活動/);
   assert.ok(!JSON.stringify(card).includes('leafcal:edit:'));assert.deepEqual(card,JSON.parse(JSON.stringify(card)));
   const legacy={...row,payload:{...prepareEvent(activity,'synthetic'),missing:['未指定年份，預設為 2026 年，如需調整請告知','請補充要修改的內容']},source_evidence:{updates:[{postback:'leafcal:edit:'+row.request_id+':1'}]}};
   assert.equal(reviewDraft(legacy).missing.length,0);assert.equal(reviewDraft(legacy).notes.length,1);
-  assert.equal(reviewDraft({...legacy,source_evidence:{}}).missing.length,1);
+  assert.equal(reviewDraft({...legacy,source_evidence:{}}).missing.length,0);
+  assert.ok(reviewDraft({...legacy,source_evidence:{}}).notes.includes('請補充要修改的內容'));
   assert.equal(reviewDraft({...legacy,payload:{...legacy.payload,event:{...activity,date:'2027-10-08'}}}).missing.length,1);
   const preserved=await extractEvents({text:'地點改為新會議室',at:Date.now(),existing:{...activity,needsClarification:['日期與星期矛盾'],confirmationNotes:['請核對年份']}});
   assert.deepEqual(preserved[0].needsClarification,['日期與星期矛盾']);assert.deepEqual(preserved[0].confirmationNotes,['請核對年份']);assert.equal(preserved[0].location,'新會議室');

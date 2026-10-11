@@ -16,6 +16,7 @@ Use this table to control whether each shared improvement should stay as-is, be 
 
 | Version | Description | HOZO Status | Seven Status | Target Action | Owner Decision | Main Files | Summary |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| `AM-IMP-2026.1011.02` | Calendar creation with confirmed timing | Ready | Ready | Review |  | [README](../versions/AM-IMP-2026.1011.02/README.md) / [VERIFY](../versions/AM-IMP-2026.1011.02/VERIFY.md) | Optional venue/title/content; standalone adoption remains separate. |
 | `AM-IMP-2026.1011.01` | Natural timed calendar appointments | Ready | Ready | Review |  | [README](../versions/AM-IMP-2026.1011.01/README.md) / [VERIFY](../versions/AM-IMP-2026.1011.01/VERIFY.md) | Shared natural-language entrance; standalone adoption remains separate. |
 | `AM-IMP-2026.1010.02` | Text-first calendar supplementation | Ready | Ready | Review |  | [README](../versions/AM-IMP-2026.1010.02/README.md) / [VERIFY](../versions/AM-IMP-2026.1010.02/VERIFY.md) | Shared root-runtime two-action cards; standalone adoption remains separate. |
 | `AM-IMP-2026.1010.01` | LINE calendar preview delivery recovery | Ready | Ready | Review |  | [README](../versions/AM-IMP-2026.1010.01/README.md) / [VERIFY](../versions/AM-IMP-2026.1010.01/VERIFY.md) | Root AM Platform fix verified locally; standalone installation and production deployment remain separate. |
