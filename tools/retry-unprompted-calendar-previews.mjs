@@ -11,6 +11,9 @@ if(apply&&(!/^[a-f0-9]{40}$/u.test(expected)||expected!==process.env.RENDER_GIT_
 const logger={warn(){},log(){},info(){}};
 const tenants=loadTenants(process.env,logger).filter(t=>t.runtimeEnabled!==false);
 const target=value('--tenant');
+const blocked=value('--retry-blocked-confirmation');
+if(blocked&&(!target||!/^[a-f0-9]{48}$/u.test(blocked))){console.error('Confirmation recovery requires one explicit tenant and draft request.');process.exit(1);}
+if(blocked&&args.includes('--refresh-cards')){console.error('Recover the original click before refreshing that card revision.');process.exit(1);}
 if(target&&!tenants.some(t=>t.key===target)){console.error('Unknown target tenant.');process.exit(1);}
 const memory=createOperationalMemory({env:process.env,logger});
 const store=createCalendarStore({settingsForTenant:t=>memory.settingsForTenant(t)});
@@ -19,7 +22,7 @@ try{
     if(!memory.settingsForTenant(tenant).configured)continue;
     try{
       if(!await store.ready(tenant)||!await store.service(tenant))continue;
-      const result=await (args.includes('--refresh-cards')?store.refreshPreviews(tenant,{apply}):store.retryUnprompted(tenant,{apply}));
+      const result=await (blocked?store.retryBlockedConfirmation(tenant,{requestId:blocked,apply}):args.includes('--refresh-cards')?store.refreshPreviews(tenant,{apply}):store.retryUnprompted(tenant,{apply}));
       console.log(JSON.stringify({tenant:tenant.key,...result}));
     }catch{console.error(JSON.stringify({tenant:tenant.key,error:'preview_recovery_unavailable'}));process.exitCode=1;}
   }

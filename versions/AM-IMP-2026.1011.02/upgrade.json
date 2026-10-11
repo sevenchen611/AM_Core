@@ -1,0 +1,12 @@
+{
+  "id":"AM-IMP-2026.1011.02",
+  "name":"Confirm timing and keep other calendar details optional",
+  "type":"shared-runtime",
+  "portable":true,
+  "requiresDatabases":["Existing tenant calendar requests and source evidence JSONB"],
+  "requiresEnv":["Existing verified LINE identity and enrolled calendar service; no new secrets"],
+  "requiresScripts":["tools/test-leaf-calendar.mjs","tools/test-central-archive.mjs","tools/retry-unprompted-calendar-previews.mjs"],
+  "installTargets":["Reviewed AM Platform root runtime","Standalone projects through separate requested adaptation"],
+  "dataIsolation":"Fresh owner identity, tenant RLS, exact current revision, original confirmation evidence and immutable request identity remain required.",
+  "definitionOfDone":["Optional absent/vague detail creation and temporal blockers verified","Legacy card refresh and narrowly scoped original-click recovery verified","Reviewed main deployed to actual target with unchanged enrollment","Production evidence distinguishes accepted cards from Google-confirmed creation"]
+}

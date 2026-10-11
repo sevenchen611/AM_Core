@@ -95,13 +95,36 @@ export function createCalendarStore({ settingsForTenant, poolFactory, env=proces
       const eligible="tenant_id=$1 AND kind='draft' AND status IN ('pending','needs_details') AND expires_at>now() AND payload->>'cardVersion' IS DISTINCT FROM $2 AND (lease_expires_at IS NULL OR lease_expires_at<now())";
       const rows=(await c.query(`SELECT * FROM leaf_calendar.requests WHERE ${eligible}${apply?' FOR UPDATE':''}`,[t,CALENDAR_CARD_VERSION])).rows;
       if(apply)for(const row of rows){const review=reviewDraft(row);
-        const payload={...row.payload,missing:review.missing,confirmationNotes:review.notes,cardVersion:CALENDAR_CARD_VERSION};
+        const payload={...row.payload,event:review.event,missing:review.missing,confirmationNotes:review.notes,cardVersion:CALENDAR_CARD_VERSION};
         await c.query(`UPDATE leaf_calendar.requests SET payload=$3::jsonb,status=$4,revision=revision+1,prompted_revision=0,
           attempt_count=0,available_at=now(),lease_token=NULL,lease_expires_at=NULL,
           source_evidence=jsonb_set(source_evidence,'{ui_updates}',COALESCE(source_evidence->'ui_updates','[]'::jsonb)||$5::jsonb,true),updated_at=now()
-          WHERE tenant_id=$1 AND request_id=$2`,[t,row.request_id,json(payload),review.missing.length?'needs_details':'pending',json([{package:'AM-IMP-2026.1010.02',fromRevision:row.revision,toRevision:row.revision+1}])]);
+          WHERE tenant_id=$1 AND request_id=$2`,[t,row.request_id,json(payload),review.missing.length?'needs_details':'pending',json([{package:'AM-IMP-2026.1011.02',fromRevision:row.revision,toRevision:row.revision+1}])]);
       }
       return {count:rows.length,applied:apply};
+    });
+  }
+  // Explicit, single-draft operator recovery of an owner's already received
+  // click. Reuse the original control/evidence; never synthesize confirmation.
+  async function retryBlockedConfirmation(tenant,{requestId,apply=false}) {
+    if(!/^[a-f0-9]{48}$/u.test(requestId||''))throw new Error('invalid_calendar_request');
+    return tx(tenant,async(c,t)=>{
+      const draft=(await c.query(`SELECT * FROM leaf_calendar.requests WHERE tenant_id=$1 AND request_id=$2 AND kind='draft'
+        AND status IN ('pending','needs_details') AND expires_at>now() AND confirmed_at IS NULL
+        AND prompted_revision=revision AND (lease_expires_at IS NULL OR lease_expires_at<now()) FOR UPDATE`,[t,requestId])).rows[0];
+      if(!draft||!draft.payload.missing?.length||reviewDraft(draft).missing.length)return {count:0,applied:apply};
+      const controls=(await c.query(`SELECT * FROM leaf_calendar.requests WHERE tenant_id=$1 AND line_user_id=$2 AND kind='control'
+        AND payload->>'action'='confirm' AND payload->>'id'=$3 AND payload->>'revision'=$4 AND fingerprint=$5
+        AND expires_at>now() AND status IN ('done','queued') ORDER BY created_at DESC FOR UPDATE`,
+        [t,draft.line_user_id,requestId,String(draft.revision),draft.fingerprint])).rows;
+      if(controls.some(row=>row.status==='queued'))return {count:0,applied:apply};
+      const control=controls.find(row=>row.source_evidence.senderId===draft.line_user_id && row.source_evidence.postback===`leafcal:confirm:${requestId}:${draft.revision}`);
+      if(!control)return {count:0,applied:apply};
+      if(apply)await c.query(`UPDATE leaf_calendar.requests SET status='queued',attempt_count=0,error_code=NULL,
+        available_at=now(),lease_token=NULL,lease_expires_at=NULL,
+        source_evidence=jsonb_set(source_evidence,'{recoveries}',COALESCE(source_evidence->'recoveries','[]'::jsonb)||$3::jsonb,true),updated_at=now()
+        WHERE tenant_id=$1 AND request_id=$2`,[t,control.request_id,json([{package:'AM-IMP-2026.1011.02',reason:'optional_details_no_longer_block'}])]);
+      return {count:1,applied:apply};
     });
   }
   async function lease(tenant) {
@@ -173,11 +196,12 @@ export function createCalendarStore({ settingsForTenant, poolFactory, env=proces
       if (!['confirm','cancel'].includes(action)) return {code:'missing'};
       await c.query(`UPDATE leaf_calendar.requests SET status=$4,confirmed_at=CASE WHEN $4='confirmed' THEN now() ELSE confirmed_at END,
         source_evidence=source_evidence||jsonb_build_object('confirmation',$5::jsonb),
+        payload=CASE WHEN $4='confirmed' THEN $6::jsonb ELSE payload END,
         notified=false,attempt_count=0,lease_token=NULL,lease_expires_at=NULL,available_at=now(),updated_at=now()
-        WHERE tenant_id=$1 AND line_user_id=$2 AND request_id=$3`,[t,userId,id,action==='confirm'?'confirmed':'cancelled',json({...(evidence||{action}),...(action==='confirm'?{acceptedNotes:review.notes}:{})})]);
+        WHERE tenant_id=$1 AND line_user_id=$2 AND request_id=$3`,[t,userId,id,action==='confirm'?'confirmed':'cancelled',json({...(evidence||{action}),...(action==='confirm'?{acceptedNotes:review.notes}:{})}),json({...row.payload,event:review.event,missing:review.missing,confirmationNotes:review.notes})]);
       return {code:action==='confirm'?'confirmed_now':'cancelled_now',row};
     });
   }
-  return {ready,provision,provisionTasks,configureTask,service,configure,syncActor,insert,owned,pending,retryUnprompted,refreshPreviews,lease,settle,storeDrafts,control,
+  return {ready,provision,provisionTasks,configureTask,service,configure,syncActor,insert,owned,pending,retryUnprompted,refreshPreviews,retryBlockedConfirmation,lease,settle,storeDrafts,control,
     close:async()=>{for(const readyPool of pools.values()) await (await readyPool).end?.();}};
 }
